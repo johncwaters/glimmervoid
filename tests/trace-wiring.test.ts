@@ -1456,3 +1456,28 @@ test('a session restarted onto the same conversation keeps tracing its transcrip
   await harness.wiring.stop();
   fs.rmSync(configDirectory, { recursive: true, force: true });
 });
+
+test('a respawn after the first start records the restart after the old process tail, and the first start records none', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('restart');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, '', 'utf8');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new TestTraceSession('restarted-session');
+  harness.wiring.attachSession(session);
+
+  session.emit('rebaseline', { startsNewConversation: false });
+  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  fs.appendFileSync(transcriptPath, mainPrompt('before restart', 'prompt-before'), 'utf8');
+  session.emit('exit', {});
+  session.emit('rebaseline', { startsNewConversation: true });
+  await harness.wiring.whenIdle();
+
+  const records = readTrace(harness.tracePath('restarted-session'));
+  assert.deepEqual(records.map((record) => record.kind), ['session', 'prompt', 'restart']);
+  assert.equal(records[2].kind === 'restart' ? records[2].startsNewConversation : null, true);
+
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+});

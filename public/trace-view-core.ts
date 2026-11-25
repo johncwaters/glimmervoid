@@ -2,7 +2,7 @@ import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { byteSizeText } from '#shared/display-text.ts';
 import { formatClockOffset } from './radar/radar-core.ts';
 import type { TraceSessionOption, TraceTurn } from './trace-store-core.ts';
-import { agentErrorText, compactionText } from '#shared/trace-event-text.ts';
+import { agentErrorText, compactionText, restartText } from '#shared/trace-event-text.ts';
 
 export { hasEarlierTracePages } from './trace-store-core.ts';
 export type { TracePrepend, TraceSessionOption, TraceTurn, TraceTurnAppend, TraceViewRow } from './trace-store-core.ts';
@@ -17,6 +17,7 @@ export function traceRecordBody(record: TraceRecord): string {
   if (record.kind === 'raw') return record.line;
   if (record.kind === 'attachments') return record.files.join('\n');
   if (record.kind === 'board-answer') return 'The next prompt answers a board question, so chat hides it.';
+  if (record.kind === 'restart') return restartText(record);
   if (record.kind === 'subagent') return [`${record.phase} ${record.subagentType ?? 'subagent'} ${record.subagentId}`, record.task ?? ''].filter(Boolean).join('\n');
   if (record.kind === 'background-task') return `${record.phase} ${record.taskType ?? 'background task'} ${record.taskId}`;
   if (record.kind === 'tool_call') return JSON.stringify(record.input, null, 2) ?? String(record.input ?? '');

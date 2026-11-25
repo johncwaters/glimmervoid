@@ -6,7 +6,7 @@ import { createJsonStateWriter } from '../json-file.ts';
 import { watchPath } from '../path-watch.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, ManagerDecision } from '../../shared/contracts/question-manager.ts';
-import { BACKGROUND_TASK_SIGNAL_EVENT, BackgroundTaskSignal, MAX_RAW_LINE_CHARS, SUBAGENT_SIGNAL_EVENT, SubagentSignal } from '../../shared/contracts/trace.ts';
+import { BACKGROUND_TASK_SIGNAL_EVENT, BackgroundTaskSignal, MAX_RAW_LINE_CHARS, REBASELINE_EVENT, RebaselineSignal, SUBAGENT_SIGNAL_EVENT, SubagentSignal } from '../../shared/contracts/trace.ts';
 import { MAX_REMEMBERED_CLOSED_SESSIONS, stopFollowingBinding, trimOldest } from './trace-wiring-context.ts';
 import { containmentRootFor, relaySourceOf, transcriptSourceOf } from './conversation-sources.ts';
 import type { TranscriptConversationSource } from './conversation-sources.ts';
@@ -131,6 +131,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       if (replaced && replaced !== binding.bindingBeforeFirstOpen) replaced.stopFollowingTranscript();
     }
     bindingByGlimmervoidSessionId.set(glimmervoidSessionId, binding);
+    conversationVendorSessionIdByGlimmervoidSessionId.set(glimmervoidSessionId, vendorSessionId);
     const pendingRecords = takePendingRecords(glimmervoidSessionId, vendorSessionId);
     if (pendingRecords.length > 0) {
       for (const pendingRecord of pendingRecords) queueRecord(glimmervoidSessionId, pendingRecord);
@@ -336,6 +337,16 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     appendSessionRecord(glimmervoidSessionId, { uuid: null, parentUuid: null, kind: 'background-task', ...parsed.data });
   }
 
+  function appendRestartRecord(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
+    const parsed = RebaselineSignal.safeParse(payload);
+    if (!parsed.success) return;
+    chain(async () => {
+      const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
+      if (typeof vendorSessionId !== 'string' || vendorSessionId.length === 0) return;
+      appendSessionRecord(glimmervoidSessionId, { ts: nowFn(), uuid: null, parentUuid: null, kind: 'restart', startsNewConversation: parsed.data.startsNewConversation });
+    }, 'restart record failed');
+  }
+
   function appendManagerDecisionNotice(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
     const parsed = ManagerDecision.safeParse(payload.decision);
     if (!parsed.success) return;
@@ -361,6 +372,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     session.on(MANAGER_DECISION_EVENT, (payload) => { appendManagerDecisionNotice(session.id, payload); });
     session.on('chat-attachments-sent', (payload) => { appendSentAttachments(session.id, payload); });
     session.on('chat-board-answer-sent', (payload) => { appendSentBoardAnswer(session.id, payload); });
+    session.on(REBASELINE_EVENT, (payload) => { appendRestartRecord(session.id, payload); });
     session.on(SUBAGENT_SIGNAL_EVENT, (payload) => { appendSubagentSignal(session.id, payload); });
     session.on(BACKGROUND_TASK_SIGNAL_EVENT, (payload) => { appendBackgroundTaskSignal(session.id, payload); });
     session.on('post-turn-check', () => { drainAtTurnEnd(session.id); });

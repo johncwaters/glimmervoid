@@ -1,6 +1,6 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { firstDetailLine, toolDetailLine } from '#shared/tool-detail.ts';
-import { compactionText, hookLabelOf } from '#shared/trace-event-text.ts';
+import { compactionText, hookLabelOf, restartText } from '#shared/trace-event-text.ts';
 
 export const TRACE_MAX_RESIDENT_ROWS = 5000;
 
@@ -98,6 +98,7 @@ const TRACE_TAG_BY_KIND: Record<TraceRecord['kind'], string> = {
   'background-task': 'BACKGROUND',
   'command-output': 'OUTPUT',
   'model-change': 'MODEL',
+  restart: 'RESTART',
   compaction: 'COMPACTED',
   'agent-error': 'ERROR',
   'hook-message': 'HOOK',
@@ -125,6 +126,7 @@ function traceLabelParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<strin
   if (record.kind === 'hook-message') return { prefix: `${hookLabelOf(record)}: `, text: firstDetailLine(record.text) };
   if (record.kind === 'attachments') return { prefix: 'Attached: ', text: record.files.join(', ') };
   if (record.kind === 'board-answer') return { prefix: '', text: 'Board question answered' };
+  if (record.kind === 'restart') return { prefix: '', text: restartText(record) };
   if (record.kind === 'session') return { prefix: 'Session: ', text: `${record.vendor} ${record.vendorSessionId}` };
   if (record.kind === 'subagent') return { prefix: 'Subagent: ', text: `${record.phase} ${record.subagentType ?? record.subagentId}${record.task ? ` ${record.task}` : ''}` };
   if (record.kind === 'background-task') return { prefix: 'Background task: ', text: `${record.phase} ${record.taskType ?? record.taskId}` };

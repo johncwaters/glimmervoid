@@ -39,6 +39,9 @@ const TraceRecordBase = z.object({
 });
 
 export const SUBAGENT_SIGNAL_EVENT = 'subagent-signal';
+export const REBASELINE_EVENT = 'rebaseline';
+export const RebaselineSignal = z.strictObject({ startsNewConversation: z.boolean() });
+export type RebaselineSignal = z.infer<typeof RebaselineSignal>;
 
 const SubagentSignalFields = {
   phase: z.enum(['start', 'stop']),
@@ -155,6 +158,10 @@ export const TraceRecord = z.discriminatedUnion('kind', [
   TraceRecordBase.extend({
     kind: z.literal('model-change'),
     model: z.string().min(1).max(200),
+  }),
+  TraceRecordBase.extend({
+    kind: z.literal('restart'),
+    startsNewConversation: z.boolean(),
   }),
   TraceRecordBase.extend({
     kind: z.literal('raw'),

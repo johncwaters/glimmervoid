@@ -38,3 +38,7 @@ export function settledRetryText(reason: string, attempts: number, hasRecovered:
   if (hasRecovered) return `${reason}. Recovered after ${attempts === 1 ? '1 retry' : `${attempts} retries`}`;
   return `${reason}. Retried ${attempts === 1 ? 'once' : `${attempts} times`}`;
 }
+
+export function restartText(record: Extract<TraceRecord, { kind: 'restart' }>): string {
+  return record.startsNewConversation ? 'Restarted in a new conversation' : 'Restarted';
+}

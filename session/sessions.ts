@@ -103,7 +103,7 @@ import type { LaunchSecretsOutcome, PrepareSandbox, ResolveLaunchSecrets, Sandbo
 import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
-import { SUBAGENT_SIGNAL_EVENT, type SubagentSignal } from "../shared/contracts/trace.ts";
+import { REBASELINE_EVENT, type RebaselineSignal, SUBAGENT_SIGNAL_EVENT, type SubagentSignal } from "../shared/contracts/trace.ts";
 import { cleanHomeArgs, launchPlanFor } from "../shared/agent-models-core.ts";
 import { claudePluginArgs } from "./core/pack-session-core.ts";
 import type { PackAgentLaunch } from "./core/pack-session-core.ts";
@@ -354,6 +354,7 @@ class Session extends EventEmitter {
   _agentSetup: AgentSetup | null;
   _isCleanHome: boolean;
   _resumeSessionId: string | null;
+  _restartStartsNewConversation = false;
   readonly workspaceRepos: string[] | null;
   _transcriptPath: string | null;
   _lastClaudeSessionReport: { id: string; transcriptPath: string | null; isResumeTarget: boolean } | null;
@@ -1531,6 +1532,8 @@ class Session extends EventEmitter {
   }
 
   _prepareRestart(options: { fresh?: boolean; conversationId?: string | null } = {}): void {
+    const switchesConversation = Boolean(options.conversationId) && options.conversationId !== this._resumeSessionId;
+    this._restartStartsNewConversation = options.fresh === true || switchesConversation;
     if (options.fresh !== true) {
       this._bindRestartConversation(options.conversationId);
       return;
@@ -1909,7 +1912,9 @@ class Session extends EventEmitter {
     this._clearDetectionTracking();
     this._output.reset();
 
-    this.emit("rebaseline");
+    const rebaseline: RebaselineSignal = { startsNewConversation: this._restartStartsNewConversation };
+    this._restartStartsNewConversation = false;
+    this.emit(REBASELINE_EVENT, rebaseline);
     this._resetDetectionSources({ quiet: false });
 
     const accountRefusal = await this._launch.prepareAccountAndPacks(this._isCleanHome, packMcpLaunch, isStartSuperseded);
