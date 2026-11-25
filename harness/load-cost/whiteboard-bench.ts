@@ -547,7 +547,9 @@ async function seedAndMeasureStore(configPath: string, elementCount: number, opt
   const boardsRoot = path.join(path.dirname(configPath), WHITEBOARDS_FOLDER_NAME);
   const { record, mediaCount } = await benchBoardRecordOf(elementCount, boardsRoot, options.hasMedia);
   logStep('seed: board generated');
-  await createBoardStore(boardsRoot).saveMany([record]);
+  const seedStore = createBoardStore(boardsRoot);
+  await seedStore.saveMany([record]);
+  await seedStore.close();
   logStep('seed: store saved');
   const storeFilenames = (await fs.promises.readdir(boardsRoot)).filter((filename) => filename.startsWith(BOARD_STORE_FILENAME));
   const storeFileSizes = await Promise.all(storeFilenames.map(async (filename) => (await fs.promises.stat(path.join(boardsRoot, filename))).size));

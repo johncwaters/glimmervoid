@@ -9,8 +9,7 @@ import { z } from 'zod';
 
 import { Op, pointOfBox } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard, nearPosition } from '../shared/whiteboard-layout-core.ts';
-import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
-import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
+import { openBoardStore, openWhiteboardWiring } from './helpers/whiteboard-closables.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
 import { BOARD_STORE_SCHEMA } from '../server/whiteboard/board-store-core.ts';
 
@@ -48,7 +47,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   fs.writeFileSync(path.join(boardsRoot, 'legacy-board.json'), JSON.stringify(legacy));
   fs.writeFileSync(path.join(boardsRoot, 'broken.json'), '{ not json');
 
-  const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const first = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
   assert.deepEqual(first.snapshotMessage().boards.map((board) => board.id), ['legacy-board']);
   assert.ok(fs.existsSync(path.join(boardsRoot, 'migrated-json', 'legacy-board.json')));
@@ -99,7 +98,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   storeWrittenBeforeCompactRows.exec('PRAGMA user_version = 0');
   storeWrittenBeforeCompactRows.close();
 
-  const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const restarted = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await restarted.loaded;
   const reloaded = await restarted.handleOperator.get('legacy-board');
   const oldNoteIds = ['old-note', 'old-compact-note', 'old-blank-note'];
@@ -131,12 +130,12 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   const readded = await restarted.handleOperator.put(smallBoardId, z.array(Op).parse([boxAt('n'), { op: 'remove', id: 'b' }, boxAt('b'), { op: 'remove', id: 'a' }, boxAt('a')]));
   assert.equal(readded.ok, true, readded.error ?? '');
   assert.deepEqual([...(await restarted.handleOperator.get(smallBoardId)).board?.elements.keys() ?? []], ['n', 'b', 'a']);
-  const reordered = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const reordered = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await reordered.loaded;
   assert.deepEqual([...(await reordered.handleOperator.get(smallBoardId)).board?.elements.keys() ?? []], ['n', 'b', 'a'], 'elements removed and added back in one put keep their new places after a restart');
   await restarted.handleOperator.remove(smallBoardId);
 
-  const store = createBoardStore(boardsRoot);
+  const store = openBoardStore(boardsRoot);
   assert.deepEqual(await store.searchText('legacy-board', 'zebra', 5), ['fresh-note']);
   await store.setRects('legacy-board', { [firstBoxId]: { minX: 0, maxX: 100, minY: 0, maxY: 40 } });
   assert.deepEqual(await store.queryRegion('legacy-board', { minX: 90, maxX: 200, minY: 30, maxY: 60 }, 10), [firstBoxId]);
@@ -154,30 +153,30 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.equal(removed.ok, true);
   assert.equal((await store.boardIds()).size, 0);
   assert.deepEqual(await store.searchText('legacy-board', 'zebra', 5), []);
-  const afterDelete = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const afterDelete = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await afterDelete.loaded;
   assert.deepEqual(afterDelete.snapshotMessage().boards, [], 'a board file left behind by a failed move does not bring a deleted board back');
 
   const freshRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-fresh-'));
-  await createWhiteboardWiring({ boardsRoot: freshRoot }).loaded;
+  await openWhiteboardWiring({ boardsRoot: freshRoot }).loaded;
   assert.ok(fs.existsSync(path.join(freshRoot, 'boards.json.corrupt-moved-to-boards-sqlite')), 'a fresh install guards its pictures from an older Glimmervoid too');
 
   const damagedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-damaged-'));
   fs.writeFileSync(path.join(damagedRoot, 'boards.sqlite'), 'not a database at all');
   fs.writeFileSync(path.join(damagedRoot, 'legacy-board.json'), JSON.stringify(legacy));
-  const recovered = createWhiteboardWiring({ boardsRoot: damagedRoot, logger: { warn: () => {} } });
+  const recovered = openWhiteboardWiring({ boardsRoot: damagedRoot, logger: { warn: () => {} } });
   await recovered.loaded;
   assert.deepEqual(recovered.snapshotMessage().boards.map((board) => board.id), ['legacy-board'], 'a damaged board database is set aside and the boards still load');
   assert.ok(fs.readdirSync(damagedRoot).some((filename) => filename.startsWith('boards.sqlite.corrupt-')));
   assert.equal((await recovered.handleOperator.create('After damage')).ok, true);
   const warningsAfterRestart: string[] = [];
-  await createWhiteboardWiring({ boardsRoot: damagedRoot, logger: { warn: (warning: string) => warningsAfterRestart.push(warning) } }).loaded;
+  await openWhiteboardWiring({ boardsRoot: damagedRoot, logger: { warn: (warning: string) => warningsAfterRestart.push(warning) } }).loaded;
   assert.ok(warningsAfterRestart.some((warning) => warning.includes('pictures are kept') && warning.includes('boards.sqlite.corrupt-')), 'a set-aside board database keeps its pictures on every later start');
 
   for (const damagedObject of ['boards', 'element_rects_node']) {
     const damagedPageRoot = damagedStoreRoot(damagedObject);
     fs.writeFileSync(path.join(damagedPageRoot, 'legacy-board.json'), JSON.stringify(legacy));
-    const recoveredFromPage = createWhiteboardWiring({ boardsRoot: damagedPageRoot, logger: { warn: () => {} } });
+    const recoveredFromPage = openWhiteboardWiring({ boardsRoot: damagedPageRoot, logger: { warn: () => {} } });
     await recoveredFromPage.loaded;
     assert.deepEqual(recoveredFromPage.snapshotMessage().boards.map((board) => board.id), ['legacy-board'], `a board database with a damaged ${damagedObject} page is set aside and the boards still load`);
     assert.equal((await recoveredFromPage.handleOperator.create('After damaged page')).ok, true);
@@ -186,7 +185,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
 
 test('a restart lists stored boards without reading their elements, answers a view sent before it finished loading, reads a sticky an older build wrote after the upgrade as a placed note and its numbered line as a bullet, and a board with a damaged element row refuses only its own reads', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-lazy-'));
-  const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const first = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
   const boxOf = (id: string) => z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, place: { at: { x: 0, y: 0 } } } }]);
   const damagedId = (await first.handleOperator.create('Damaged rows')).summary?.id ?? '';
@@ -198,7 +197,7 @@ test('a restart lists stored boards without reading their elements, answers a vi
   database.prepare('UPDATE elements SET body = ? WHERE board_id = ?').run(JSON.stringify({ title: 'b', at: { x: 0, y: 0 }, shape: 'sticky', lines: [{ text: 'first', style: 'numbered' }] }), healthyId);
   database.close();
 
-  const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const restarted = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   const sentTypes: unknown[] = [];
   await restarted.tiles.view({ send: (message) => sentTypes.push(message.type) }, { boardId: healthyId, view: { x: -100, y: -100, width: 800, height: 600 }, lod: 'full', scale: null, knownVersion: null });
   assert.deepEqual(sentTypes, ['whiteboard-tiles']);
@@ -214,7 +213,7 @@ test('a restart lists stored boards without reading their elements, answers a vi
 test('an upgrade that cannot read a board keeps that board listed with its pictures, and a damaged elements page refuses only the boards it holds while the retired linked board column waits to be dropped', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-upgrade-damage-'));
   const pictureAssetId = 'a'.repeat(64);
-  const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const first = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
   fs.mkdirSync(path.join(boardsRoot, 'assets'), { recursive: true });
   fs.writeFileSync(path.join(boardsRoot, 'assets', `${pictureAssetId}.png`), 'png');
@@ -241,7 +240,7 @@ test('an upgrade that cannot read a board keeps that board listed with its pictu
   fs.writeSync(databaseHandle, Buffer.alloc(pageSize, 0xab), 0, pageSize, (Number(lastElementsPage?.['pageno']) - 1) * pageSize);
   fs.closeSync(databaseHandle);
 
-  const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const restarted = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await restarted.loaded;
   assert.deepEqual(restarted.snapshotMessage().boards.map((board) => board.title).sort(), ['Damaged page', 'Healthy', 'Pictures']);
   assert.equal(fs.existsSync(path.join(boardsRoot, 'assets', `${pictureAssetId}.png`)), true);
@@ -251,7 +250,7 @@ test('an upgrade that cannot read a board keeps that board listed with its pictu
 
 test('a session closing while its board loads after a restart keeps the loaded elements', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-close-during-load-'));
-  const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const first = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
   const created = await first.handleAgent({ id: 'closing-agent', name: 'closing', project: boardsRoot }, { sub: 'new', title: 'Shared plan' });
   assert.equal(created.body.ok, true);
@@ -260,7 +259,7 @@ test('a session closing while its board loads after a restart keeps the loaded e
   assert.equal((await first.handleOperator.connect(boardId, 'staying-agent')).ok, true);
   assert.equal((await first.handleOperator.put(boardId, z.array(Op).parse(boxes))).ok, true);
 
-  const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const restarted = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await restarted.loaded;
   const firstRead = restarted.handleOperator.get(boardId);
   await new Promise((resolve) => setImmediate(resolve));
@@ -273,13 +272,19 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-'));
   const cachePath = path.join(boardsRoot, 'layout-cache.sqlite');
   const boardView = { view: { x: -200, y: -200, width: 4000, height: 3000 }, lod: 'full' as const, scale: null, knownVersion: null };
-  const tilesSeenBy = async (wiring: ReturnType<typeof createWhiteboardWiring>, boardId: string): Promise<unknown[]> => {
+  const tilesSeenBy = async (wiring: ReturnType<typeof openWhiteboardWiring>, boardId: string): Promise<unknown[]> => {
     const sent: unknown[] = [];
     await wiring.loaded;
     await wiring.tiles.view({ send: (message) => sent.push(message.type === 'whiteboard-tiles' ? { version: message.version, chrome: message.chrome, tiles: message.tiles } : message.type) }, { boardId, ...boardView });
     return sent;
   };
-  const restartIn = (root: string) => createWhiteboardWiring({ boardsRoot: root, logger: { warn: () => {} } });
+  const restartIn = (root: string) => openWhiteboardWiring({ boardsRoot: root, logger: { warn: () => {} } });
+  const tilesSeenAfterRestartIn = async (root: string, boardId: string): Promise<unknown[]> => {
+    const restarted = restartIn(root);
+    const sent = await tilesSeenBy(restarted, boardId);
+    await restarted.close();
+    return sent;
+  };
   const boxesFrom = (first: number, count: number) => z.array(Op).parse(Array.from({ length: count }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${first + index}`, title: `box ${first + index}`, place: { at: { x: (first + index) * 260, y: 0 } } } })));
   const retitle = (id: string, title: string) => z.array(Op).parse([{ op: 'set', id, fields: { title } }]);
   const editCache = (sql: string) => {
@@ -316,14 +321,16 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   const writeAheadLogBytes = (filename: string): number => (fs.existsSync(path.join(boardsRoot, `${filename}-wal`)) ? fs.statSync(path.join(boardsRoot, `${filename}-wal`)).size : 0);
   for (let attempt = 0; attempt < 400 && writeAheadLogBytes('boards.sqlite') + writeAheadLogBytes('layout-cache.sqlite') > 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 25));
   assert.deepEqual([writeAheadLogBytes('boards.sqlite'), writeAheadLogBytes('layout-cache.sqlite')], [0, 0], 'a bulk save leaves no write-ahead log for the next start to copy again');
+  await first.close();
 
-  const restarted = restartIn(boardsRoot);
-  assert.deepEqual(await tilesSeenBy(restarted, boardId), drawnBeforeRestart);
+  assert.deepEqual(await tilesSeenAfterRestartIn(boardsRoot, boardId), drawnBeforeRestart);
   editCache(`UPDATE placed SET body = json_set(body, '$.element.x', 1800) WHERE element_id = 'box-1'`);
-  assert.match(JSON.stringify(await tilesSeenBy(restartIn(boardsRoot), boardId)), /"x":1800/);
+  assert.match(JSON.stringify(await tilesSeenAfterRestartIn(boardsRoot, boardId)), /"x":1800/);
   editCache(`UPDATE layout_head SET code_stamp = 'older layout code'`);
-  assert.deepEqual(await tilesSeenBy(restartIn(boardsRoot), boardId), drawnBeforeRestart);
+  const relaidOutForNewCode = restartIn(boardsRoot);
+  assert.deepEqual(await tilesSeenBy(relaidOutForNewCode, boardId), drawnBeforeRestart);
   await savedLayoutWritten();
+  await relaidOutForNewCode.close();
 
   const storeBeforeLostEdit = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-lost-'));
   copyFiles(boardsRoot, storeBeforeLostEdit, 'boards.sqlite');
@@ -337,13 +344,17 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   const drawnAfterLostEdit = JSON.stringify(await tilesSeenBy(afterLostEdit, boardId));
   assert.match(drawnAfterLostEdit, /kept edit/);
   assert.doesNotMatch(drawnAfterLostEdit, /lost edit/);
+  await afterLostEdit.close();
 
   assert.equal((await editing.handleOperator.put(boardId, boxesFrom(2000, 2))).ok, true);
   assert.equal((await editing.handleOperator.put(boardId, retitle('box-1', 'renamed after restart'))).ok, true);
-  const drawnFromCache = await tilesSeenBy(restartIn(boardsRoot), boardId);
+  await editing.close();
+  const drawnFromCache = await tilesSeenAfterRestartIn(boardsRoot, boardId);
   fs.writeFileSync(cachePath, 'not a database');
-  const drawnFromFullLayout = await tilesSeenBy(restartIn(boardsRoot), boardId);
+  const relaidOutForUnreadableCache = restartIn(boardsRoot);
+  const drawnFromFullLayout = await tilesSeenBy(relaidOutForUnreadableCache, boardId);
   await savedLayoutWritten();
+  await relaidOutForUnreadableCache.close();
   assert.deepEqual(drawnFromCache, drawnFromFullLayout);
   assert.match(JSON.stringify(drawnFromCache), /renamed after restart/);
 
@@ -373,12 +384,14 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   };
   const boardVersion = (await resuming.boardOf(boardId))?.version ?? -1;
   for (let attempt = 0; attempt < 400 && savedVersionOf() !== boardVersion; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+  await resuming.close();
   const coldOpened = restartIn(boardsRoot);
   await coldOpened.loaded;
   const backdropAssetsSent: (string | null)[] = [];
   await coldOpened.tiles.view({ send: (message) => { if (message.type === 'whiteboard-tiles') backdropAssetsSent.push(message.backdrop?.asset ?? null); } }, { boardId, ...boardView });
   for (let attempt = 0; attempt < 400 && backdropAssetsSent.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 25));
   assert.deepEqual(backdropAssetsSent, [null, stage.media.asset], 'the saved layout draws first with no backdrop, then the loaded board sends it');
+  await coldOpened.close();
 
   const switching = restartIn(boardsRoot);
   await switching.loaded;

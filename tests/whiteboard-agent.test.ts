@@ -21,10 +21,9 @@ import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
-import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
 import { createCodemapService } from '../server/codemap/codemap-wiring.ts';
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
-import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
+import { openBoardStore, openWhiteboardWiring, restartWhiteboardWiring } from './helpers/whiteboard-closables.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
 import { createPlanRuns } from '../server/plan-run-wiring.ts';
 import type { PlanRunPorts } from '../server/plan-run-wiring.ts';
@@ -144,29 +143,6 @@ async function newBoard(title: string): Promise<string> {
   plannerBoardIds.push(board.id);
   return board.id;
 }
-
-const openClosables: { close: () => Promise<void> }[] = [];
-
-function openWhiteboardWiring(...options: Parameters<typeof createWhiteboardWiring>): ReturnType<typeof createWhiteboardWiring> {
-  const wiring = createWhiteboardWiring(...options);
-  openClosables.push(wiring);
-  return wiring;
-}
-
-async function restartWhiteboardWiring(running: ReturnType<typeof createWhiteboardWiring>, ...options: Parameters<typeof createWhiteboardWiring>): Promise<ReturnType<typeof createWhiteboardWiring>> {
-  await running.close();
-  return openWhiteboardWiring(...options);
-}
-
-function openBoardStore(boardsRoot: string): ReturnType<typeof createBoardStore> {
-  const store = createBoardStore(boardsRoot);
-  openClosables.push(store);
-  return store;
-}
-
-test.afterEach(async () => {
-  await Promise.all(openClosables.splice(0).map((closable) => closable.close()));
-});
 
 test.before(async () => {
   fixture.prevEnv = process.env.GLIMMERVOID_CONFIG;

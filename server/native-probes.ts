@@ -51,12 +51,21 @@ async function lockFileWithNativeExtensions(scratchDir: string): Promise<void> {
 }
 
 async function openSqliteInBoardStoreWorker(): Promise<void> {
-  await createBoardStore(path.join(glimmervoidHomeDir(os.homedir(), process.env), 'doctor-probe', 'boards')).boardIds();
+  const boardStore = createBoardStore(path.join(glimmervoidHomeDir(os.homedir(), process.env), 'doctor-probe', 'boards'));
+  try {
+    await boardStore.boardIds();
+  } finally {
+    await boardStore.close();
+  }
 }
 
 async function layOutBoardInLayoutWorker(): Promise<void> {
   const layoutClient = createLayoutClient({ cachePath: null, onSavedLayoutWritten: () => {} });
-  await layoutClient.refresh(createBoard({ id: 'doctor-probe', title: 'Doctor probe', nowMs: clock.nowMs() }), []);
+  try {
+    await layoutClient.refresh(createBoard({ id: 'doctor-probe', title: 'Doctor probe', nowMs: clock.nowMs() }), []);
+  } finally {
+    await layoutClient.close();
+  }
 }
 
 async function probeFfmpeg(): Promise<string> {

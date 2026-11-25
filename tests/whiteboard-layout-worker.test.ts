@@ -6,11 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { benchmarkBoard } from '../harness/board-layout-cost.ts';
-import { createLayoutClient } from '../server/whiteboard/layout-client.ts';
+import { openLayoutClient } from './helpers/whiteboard-closables.ts';
 import { elementTableOf } from '../shared/contracts/whiteboard-element-table.ts';
 
 test('a small board gets its tiles while a large board is still laying out in the worker', async () => {
-  const client = createLayoutClient({ cachePath: null, onSavedLayoutWritten: () => {} });
+  const client = openLayoutClient({ cachePath: null, onSavedLayoutWritten: () => {} });
   const largeBoard = benchmarkBoard(3000);
   const smallBoard = { ...benchmarkBoard(40), id: '00000000-0000-4000-8000-0000000000aa' };
   for (const board of [largeBoard, smallBoard]) await client.ask(board, { kind: 'cached-tiles', boardId: board.id, version: board.version, updatedAt: board.updatedAt, keys: [], withChrome: false, sight: null });
@@ -24,7 +24,7 @@ test('a small board gets its tiles while a large board is still laying out in th
 test('an edit made while a large board is still saving its first layout keeps the saved layout', async () => {
   const cachePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-layout-cache-')), 'layout.db');
   let wholeWriteCount = 0;
-  const client = createLayoutClient({ cachePath, onSavedLayoutWritten: () => { wholeWriteCount += 1; } });
+  const client = openLayoutClient({ cachePath, onSavedLayoutWritten: () => { wholeWriteCount += 1; } });
   const board = benchmarkBoard(3000);
   const movedBox = board.elements.get('b1');
   assert.ok(movedBox?.kind === 'box' && movedBox.place !== 'aside' && movedBox.place !== 'plan' && 'at' in movedBox.place);

@@ -8,10 +8,10 @@ import { z } from 'zod';
 import { Op } from '../shared/contracts/whiteboard.ts';
 import type { ServerMessageOf } from '../shared/contracts/control-messages.ts';
 import type { TileLod } from '../shared/contracts/whiteboard-tiles.ts';
-import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { openWhiteboardWiring } from './helpers/whiteboard-closables.ts';
 
 test('a zoomed-out view over a dense cluster gets titles but never full detail past the in-view budget, even when one far box stretches the board bounds', async () => {
-  const wiring = createWhiteboardWiring({ boardsRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-zoom-detail-')), logger: { warn: () => {} } });
+  const wiring = openWhiteboardWiring({ boardsRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-zoom-detail-')), logger: { warn: () => {} } });
   await wiring.loaded;
   const boardId = (await wiring.handleOperator.create('Dense cluster')).summary?.id ?? '';
   const clusterBoxes = Array.from({ length: 1200 }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `cluster-${index}`, title: 'Card', place: { at: { x: (index % 40) * 300, y: Math.floor(index / 40) * 300 } } } }));
