@@ -8,7 +8,9 @@ import crypto from "node:crypto";
 import { execFileSync } from "../server/child-process-safe.ts";
 import { createCoalescedTimer } from "../shared/coalesce-timer.ts";
 import { STATES, MERGEABLE_LIVE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
-import { createWorktreeWatcher, readWorktreeGitdirPointer } from "../detection/worktree-watch.ts";
+import { createWorktreeWatcher, isLinkedWorktreeFolder, readWorktreeGitdirPointer } from "../detection/worktree-watch.ts";
+import { watchPath } from "../server/path-watch.ts";
+import { followWorkingTree } from "../server/working-tree-follow.ts";
 import { createIntegrationRefWatcher } from "../detection/integration-ref-watch.ts";
 import { createRerereWatcher } from "../detection/rerere-watch.ts";
 import { buildMergePrompt } from "./core/merge-prompt.ts";
@@ -24,7 +26,7 @@ import { sanitizeWorktreeName } from "../shared/paths.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
 import type { WorkspaceMemberGit } from "./session-workspace-members.ts";
 import type { KeptWorkPath } from "../shared/contracts/control-messages.ts";
-import type { AdoptWorktreeOptions, GitWorkspace, MergeEngineOutcome, MergeResult, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeLifecycleOptions, WorktreeLifecycleState, WorktreeSignature } from "./worktree/worktree-lifecycle-context.ts";
+import type { AdoptWorktreeOptions, ChangeScope, GitWorkspace, MergeEngineOutcome, MergeResult, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeLifecycleOptions, WorktreeLifecycleState, WorktreeSignature } from "./worktree/worktree-lifecycle-context.ts";
 import { createWorktreeProvisioning } from "./worktree/worktree-provisioning.ts";
 import { createWorktreeDiffScopes } from "./worktree/worktree-diff-scopes.ts";
 import { createWorktreeBranchSync } from "./worktree/worktree-branch-sync.ts";
@@ -194,11 +196,39 @@ function createSessionWorktreeLifecycle({
     return lifecycleState.worktreeDir || currentProjectPath();
   }
 
-  function refreshGitContext(): boolean {
-    const next = detectLinkedWorktree(effectiveCwd());
-    if (next === lifecycleState.isWorktree) return false;
-    lifecycleState.isWorktree = next;
-    return true;
+  let stopFollowingGitMarker: () => void = () => {};
+  let stopFollowingWorkingTrees: () => void = () => {};
+
+  function stopWorkingTreeFollow(): void {
+    stopFollowingWorkingTrees();
+    stopFollowingWorkingTrees = () => {};
+  }
+
+  function followWorkingTrees(): void {
+    stopWorkingTreeFollow();
+    if (port.state().isDestroyed) return;
+    const roots = lifecycleState.worktreeDir ? [lifecycleState.worktreeDir] : (lifecycleState.provisionedMembers ?? []).map((member) => member.dir);
+    const stops = roots.map((root) => followWorkingTree(root, scheduleCheck));
+    stopFollowingWorkingTrees = () => { for (const stop of stops) stop(); };
+  }
+
+  async function redetectGitMarker(folder: string): Promise<void> {
+    const isLinked = await isLinkedWorktreeFolder(folder);
+    if (lifecycleState.worktreeDir || port.state().isDestroyed || isLinked === lifecycleState.isWorktree) return;
+    lifecycleState.isWorktree = isLinked;
+    port.emit("git-context-change", { id });
+  }
+
+  function stopGitMarkerWatch(): void {
+    stopFollowingGitMarker();
+    stopFollowingGitMarker = () => {};
+  }
+
+  function followGitMarker(): void {
+    stopGitMarkerWatch();
+    if (lifecycleState.worktreeDir || port.state().isDestroyed) return;
+    const folder = currentProjectPath();
+    stopFollowingGitMarker = watchPath(path.join(folder, ".git"), () => { void redetectGitMarker(folder); });
   }
 
   function resolveCommonGitDir(): string | null {
@@ -235,6 +265,8 @@ function createSessionWorktreeLifecycle({
     lifecycleState.rerereWatcher = stopWatcher(lifecycleState.rerereWatcher);
     clearCheckTimer();
     lifecycleState.lastSignature = null;
+    stopGitMarkerWatch();
+    stopWorkingTreeFollow();
   }
 
   function onRerereRecorded(): void {
@@ -253,7 +285,12 @@ function createSessionWorktreeLifecycle({
   function startWatching(): void {
     stopWatching();
     const session = port.state();
-    if (session.isDestroyed || !lifecycleState.worktreeDir) return;
+    if (session.isDestroyed || !lifecycleState.worktreeDir) {
+      followGitMarker();
+      if (lifecycleState.provisionedMembers) followWorkingTrees();
+      return;
+    }
+    followWorkingTrees();
     const onChange = (): void => scheduleCheck();
     lifecycleState.worktreeWatcher = createWorktreeWatcher({ worktreeDir: lifecycleState.worktreeDir, onChange });
     lifecycleState.worktreeWatcher.start();
@@ -321,6 +358,8 @@ function createSessionWorktreeLifecycle({
     lifecycleState.commonGitDir = null;
     lifecycleState.isWorktree = false;
     setMergeStatus(status);
+    followGitMarker();
+    void redetectGitMarker(currentProjectPath());
   }
 
   let isWorkspaceWorkDiscardConfirmed = false;
@@ -607,8 +646,24 @@ function createSessionWorktreeLifecycle({
     console.warn(`[session ${id}] worktree check failed: ${failure}`);
   }
 
+  async function readScopeFileStamps(scope: ChangeScope): Promise<string[]> {
+    const fields = scope.uncommittedNameStatus.split("\0").filter((field) => field !== "");
+    const changedPaths: string[] = [];
+    for (let index = 0; index < fields.length; index += 1) {
+      const pathCount = /^[RC]/.test(fields[index]) ? 2 : 1;
+      changedPaths.push(...fields.slice(index + 1, index + 1 + pathCount));
+      index += pathCount;
+    }
+    return Promise.all(changedPaths.map(async (changedPath) => {
+      const stats = await fs.promises.lstat(path.join(scope.root, changedPath)).catch(() => null);
+      return stats ? `${scope.root}:${changedPath}:${stats.size}:${stats.mtimeMs}` : `${scope.root}:${changedPath}:gone`;
+    }));
+  }
+
   async function checkWorkspaceChange(): Promise<void> {
-    const signaturePayload = { scopes: await getChangeScopes(), memberHeads: await readMemberHeads() };
+    const scopes = await getChangeScopes();
+    const fileStamps = (await Promise.all(scopes.map(readScopeFileStamps))).flat();
+    const signaturePayload = { scopes, fileStamps, memberHeads: await readMemberHeads() };
     lifecycleState.lastLoggedCheckFailure = null;
     const sig = crypto.createHash("sha1").update(JSON.stringify(signaturePayload)).digest("hex");
     if (port.state().isDestroyed || sig === lifecycleState.lastSignature) return;
@@ -758,8 +813,11 @@ function createSessionWorktreeLifecycle({
     getCarry,
     hasOwnWorktree,
     effectiveCwd,
-    refreshGitContext,
-    provision,
+    provision: async (...provisionArguments: Parameters<typeof provision>) => {
+      const provisioned = await provision(...provisionArguments);
+      if (!lifecycleState.worktreeDir && lifecycleState.provisionedMembers) startWatching();
+      return provisioned;
+    },
     settleOnExit,
     discardIfClean,
     setMergeStatus,
@@ -773,6 +831,7 @@ function createSessionWorktreeLifecycle({
     getDiff,
     getDiffFileContents,
     getChangeScopes,
+    worktreeSignature: (): string | null => lifecycleState.lastSignature,
     resolveEffectiveBase,
     getBranchSync,
     resyncBranch,
@@ -789,6 +848,7 @@ function createSessionWorktreeLifecycle({
     discardWorktree,
     releaseDroppedWorkspaceMembers,
   };
+  followGitMarker();
   return api;
 }
 

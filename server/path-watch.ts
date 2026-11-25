@@ -192,9 +192,10 @@ function watchTreeByFolder(walk: TreeWalk): StopWatching {
       return;
     }
     const changedPath = path.join(folder, changedName);
-    if (await isIgnoredUnder(walk, changedPath)) return;
+    const isChangedFolder = await isFolder(changedPath);
+    if (isChangedFolder && await isIgnoredUnder(walk, changedPath)) return;
     walk.notify();
-    if (!(await isFolder(changedPath))) {
+    if (!isChangedFolder) {
       forgetSubtree(changedPath);
       return;
     }

@@ -251,12 +251,11 @@ test('a race with two rounds starts the second from the same start point once th
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('a winner picked in an earlier round stops the settle poll judging a later round, and a restart reloads every round of the series', async (context) => {
+test('a winner picked in an earlier round stops the settle check judging a later round, and a restart reloads every round of the series', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'race-series-won-'));
   const startSha = 'a'.repeat(40);
   const store = createRaceStore({ directory: path.join(root, 'races'), log: quietLog });
   const git = { fetchOrigin: async () => ({ ok: true }), listIntegrationTips: async () => ({ ok: true, integrationTips: [{ branch: 'main', sha: startSha }] }) };
-  context.mock.timers.enable({ apis: ['setInterval'] });
   let launches = 0;
   const wiring = createRaceWiring({ store, git, integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges') });
   const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
@@ -267,7 +266,6 @@ test('a winner picked in an earlier round stops the settle poll judging a later 
   await waitFor(() => wiring.status().races.length === 2);
   assert.ok((await wiring.pickWinner(started.raceId, 'a')).ok);
   wiring.startWatching();
-  context.mock.timers.tick(15_000);
   await new Promise((resolve) => setImmediate(resolve));
   const secondRound = wiring.status().races.find((race) => race.series?.round === 2);
   assert.equal(secondRound?.phase, 'running', 'the discarded round is not judged');

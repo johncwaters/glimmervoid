@@ -15,7 +15,6 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
   const { changeMaps } = deps;
   const changesWatch = createChangesWatch<ControlSocket>({
     findSession: (id) => sessions.get(id) ?? agentSessions.get(id) ?? null,
-    isHolderOpen: (ws) => ws.readyState === 1,
   });
 
   const handlers = {

@@ -3,18 +3,30 @@ import path from 'node:path';
 
 import { createWatchDebounce } from './watch-debounce.ts';
 
+function worktreeGitdirOf(dotGitText: string): string | null {
+  const m = /^gitdir:\s*(.+)$/m.exec(dotGitText);
+  if (!m) return null;
+  const raw = m[1].trim();
+  return /(^|[/\\])worktrees[/\\]/.test(raw) ? raw : null;
+}
+
 function readWorktreeGitdirPointer(dir: string | null | undefined): string | null {
   if (!dir) return null;
   try {
     const dotGit = path.join(dir, '.git');
     if (!fs.statSync(dotGit).isFile()) return null;
-    const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
-    if (!m) return null;
-    const raw = m[1].trim();
-    return /(^|[/\\])worktrees[/\\]/.test(raw) ? raw : null;
+    return worktreeGitdirOf(fs.readFileSync(dotGit, 'utf8'));
   } catch {
     return null;
   }
+}
+
+async function isLinkedWorktreeFolder(dir: string): Promise<boolean> {
+  const dotGit = path.join(dir, '.git');
+  const stats = await fs.promises.stat(dotGit).catch(() => null);
+  if (!stats?.isFile()) return false;
+  const dotGitText = await fs.promises.readFile(dotGit, 'utf8').catch(() => '');
+  return worktreeGitdirOf(dotGitText) !== null;
 }
 
 function resolveWorktreeGitDir(dir: string | null | undefined): string | null {
@@ -41,4 +53,4 @@ function createWorktreeWatcher(
   return { start, stop: w.stop, get active() { return w.active; } };
 }
 
-export { createWorktreeWatcher, resolveWorktreeGitDir, readWorktreeGitdirPointer };
+export { createWorktreeWatcher, isLinkedWorktreeFolder, resolveWorktreeGitDir, readWorktreeGitdirPointer };

@@ -9,7 +9,6 @@ import { AgentAccountId } from '../agent-accounts.ts';
 import { ModelSelection } from '../agent-models.ts';
 
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
-export const CHANGES_WATCH_LEASE_MS = 10_000;
 
 export const requestId = z.string().nullable().optional();
 export const sessionId = z.string();

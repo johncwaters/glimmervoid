@@ -658,6 +658,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     wireSessionStatusEvents(session);
     codemap.attachSession(session);
     branchMerge.attachSession(session);
+    laneAssembly.races.attachSession(session);
     session.on('pr-links-change', studioPrCards.syncSoon);
     agentApi?.watchSessionWakes(session);
     agentApi?.linkBranchSession(session);

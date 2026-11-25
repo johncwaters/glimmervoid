@@ -471,6 +471,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       });
       dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
     });
+    session.on('git-context-change', () => {
+      dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
+    });
     session.on('rebaseline', () => dependencies.closeSessionDataClients(session.id));
     dependencies.attachSessionPrLink(session);
   };

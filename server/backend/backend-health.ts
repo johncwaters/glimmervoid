@@ -89,11 +89,6 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
   }
 
   const healthInterval = setInterval(() => {
-    for (const [id, session] of dependencies.sessions) {
-      if (session.refreshGitContext()) {
-        dependencies.broadcastControl({ type: 'session-git', id, worktree: !!session.isWorktree });
-      }
-    }
     if (dependencies.viewerControlClientCount() === 0) return;
     dependencies.broadcastControl({ type: 'health-snapshot', stats: buildHealthSnapshot() });
   }, HEALTH_SNAPSHOT_INTERVAL_MS);

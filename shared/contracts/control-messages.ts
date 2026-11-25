@@ -18,7 +18,6 @@ import { boardSessionClientVariants, boardSessionServerVariants } from './contro
 
 export {
   CHANGES_POLL_INTERVAL_MS,
-  CHANGES_WATCH_LEASE_MS,
   KeptWorkPath,
   GithubTeam,
   pullRequestKeyFromReference,

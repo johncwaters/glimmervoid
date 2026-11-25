@@ -238,6 +238,13 @@ function contestantFinish(watch: SessionWatch | null, deadline: number | null, n
   return null;
 }
 
+function nextFinishMomentMs(watch: SessionWatch | null, deadline: number | null): number | null {
+  if (!watch || watch.hasSettled || isSettledContestantState(watch.state)) return null;
+  const stallAt = watch.state === STATES.WAITING ? watch.stateSince + STALL_MS : null;
+  const moments = [stallAt, deadline].filter((moment): moment is number => moment !== null);
+  return moments.length === 0 ? null : Math.min(...moments);
+}
+
 function raceDeadline(record: RaceRecord): number | null {
   return record.spec.timeLimitMinutes === null ? null : record.createdAt + record.spec.timeLimitMinutes * 60 * 1000;
 }
@@ -347,5 +354,5 @@ function raceHistory(records: readonly RaceRecord[], liveIds: ReadonlySet<string
   return { judgedRaces: judged.length, standings: standings(judged), judges: judgeRows(judged), past };
 }
 
-export { AGENT_CONFIG_FOLDERS, REVIEW_FINDINGS_FILENAME, REVIEW_MATCH_RESULT_FILENAME, raceHistory, setupKey, contestantFinish, raceDeadline, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
+export { AGENT_CONFIG_FOLDERS, REVIEW_FINDINGS_FILENAME, REVIEW_MATCH_RESULT_FILENAME, raceHistory, setupKey, contestantFinish, nextFinishMomentMs, raceDeadline, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
 export type { CheckRun, JudgeInput, SessionWatch };

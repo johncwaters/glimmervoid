@@ -66,8 +66,8 @@ function modifiedScope(root: string, repoPath: string): ChangeScope {
   return { name: 'fixture', root, sessionPathPrefix: '', base: null, committedNameStatus: '', uncommittedNameStatus: `M${nul}${repoPath}${nul}` };
 }
 
-function fixtureSession(id: string, name: string, scopes: () => ChangeScope[]): ChangeMapSession {
-  return { id, name, getChangeScopes: async () => scopes() };
+function fixtureSession(id: string, name: string, scopes: () => ChangeScope[], signature: () => string | null = () => 'unchanged'): ChangeMapSession {
+  return { id, name, getChangeScopes: async () => scopes(), worktreeSignature: signature };
 }
 
 test('a failed git read under the default runner shows as a repo error, never as missing facts', { skip: !hasGit() }, async (t) => {
@@ -129,20 +129,19 @@ test('change map joins git facts for a real repo into one contract-valid map, fi
   }
 });
 
-test('collision rating diffs only shared paths, once per cache window, and never without a collision', { skip: !hasGit() }, async () => {
+test('collision rating diffs only shared paths, once per worktree signature, and never without a collision', { skip: !hasGit() }, async () => {
   const { root, base } = createFixtureRepo();
   const siblingRoot = path.join(root, 'not-a-real-sibling-worktree');
   try {
     const commonDir = path.resolve(root, git(['rev-parse', '--git-common-dir'], root).trim());
     const zeroContextDiffs: string[][] = [];
     let siblingChangedPath = 'server/a.ts';
-    let nowMs = 0;
+    let siblingSignature = 'first';
     const self = fixtureSession('self', 'Self', () => [scopeOf(root, base)]);
-    const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...modifiedScope(siblingRoot, siblingChangedPath), base }]);
+    const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...modifiedScope(siblingRoot, siblingChangedPath), base }], () => siblingSignature);
     const service = createChangeMapService({
       scanFiles,
       sessions: new Map<string, ChangeMapSession>([[self.id, self], [sibling.id, sibling]]),
-      nowFn: () => nowMs,
       runGit: async (args, cwd) => {
         if (args.includes('-U0')) zeroContextDiffs.push(args.slice(args.indexOf('--') + 1));
         if (cwd !== siblingRoot) return git(args, cwd);
@@ -155,7 +154,7 @@ test('collision rating diffs only shared paths, once per cache window, and never
     assert.deepEqual(zeroContextDiffs, [['server/a.ts'], ['server/a.ts']]);
     await service.build(self);
     assert.equal(zeroContextDiffs.length, 2);
-    nowMs += 60000;
+    siblingSignature = 'second';
     siblingChangedPath = 'server/unshared.ts';
     const unshared = await service.build(self);
     assert.deepEqual(unshared.repos[0].collisions, []);

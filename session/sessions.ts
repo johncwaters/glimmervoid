@@ -1575,8 +1575,6 @@ class Session extends EventEmitter {
 
   get hasOwnWorktree(): boolean { return this.worktreeLifecycle.hasOwnWorktree(); }
 
-  refreshGitContext() { return this.worktreeLifecycle.refreshGitContext(); }
-
   effectiveCwd(): string { return this.worktreeLifecycle.effectiveCwd(); }
   get workingDirectory(): string { return this.effectiveCwd(); }
 
@@ -1614,6 +1612,8 @@ class Session extends EventEmitter {
   getDiffFileContents(request: { path: string; oldBlobId: string | null; newBlobId: string }) { return this.worktreeLifecycle.getDiffFileContents(request); }
 
   getChangeScopes() { return this.worktreeLifecycle.getChangeScopes(); }
+
+  worktreeSignature(): string | null { return this.worktreeLifecycle.worktreeSignature(); }
 
   getBranchSync() { return this.worktreeLifecycle.getBranchSync(); }
 
