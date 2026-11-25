@@ -589,6 +589,18 @@
   overflow-wrap: anywhere;
 }
 
+.wg-dip-thread {
+  background: var(--bg-surface);
+  border-radius: var(--radius);
+  padding: 3px 0;
+}
+
+.wg-dip-thread > .wg-dip-list {
+  max-height: none;
+  overflow: visible;
+  gap: 2px;
+}
+
 .wg-legend-group {
   display: flex;
   align-items: center;

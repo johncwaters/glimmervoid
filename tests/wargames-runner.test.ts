@@ -194,6 +194,78 @@ test('wargames runner fast-advances talk when all seats pass ready, logs each lo
   }
 });
 
+test('a message during talk wakes its ready recipient with the text, back and forth, until the wake cap lets the phase close', async () => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-runner-talk-'));
+  try {
+    const store = createWargamesStore({ directory: tempDir, log: { warn: () => {} } });
+    await store.load();
+    const phaseEvents: string[] = [];
+    const wakes: { seatId: string; texts: string[] }[] = [];
+    const runner = createWargamesRunner({
+      store,
+      broadcast: () => {},
+      log: { log: () => {}, warn: () => {} },
+      now: () => 1_700_000_000_000,
+      setTimeoutFn: () => setTimeout(() => {}, 0),
+      clearTimeoutFn: (handle) => clearTimeout(handle),
+      readAgentModels: () => ({ agents: [], openrouter: { models: [], error: null, checkedAt: null } }),
+    });
+    const started = await runner.startMatch(
+      buildSpec(),
+      async (_matchId, seat) => ({ ok: true, sessionId: `sess-${seat.seatId}` }),
+      {
+        onPhaseChanged: (state) => phaseEvents.push(`${state.tick}:${state.phase}`),
+        onSeatsWoken: (_state, wokenSeats) => {
+          for (const woken of wokenSeats) wakes.push({ seatId: woken.seatId, texts: woken.messages.map((message) => message.text) });
+          return [];
+        },
+      },
+    );
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const { matchId } = started;
+    for (const seatId of WARGAMES_SEAT_IDS) await runner.callTool(matchId, seatId, 'get_state', {});
+    for (const seatId of ['s3', 's4', 's5', 's6'] as const) await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+    await runner.callTool(matchId, 's1', 'get_state', { ready: true });
+
+    const waitUntilReady = (seatId: 's1' | 's2') => runner.callTool(matchId, seatId, 'get_state', { ready: true, wait_for_change: true });
+    const newMessageTextsOf = (reply: Awaited<ReturnType<typeof waitUntilReady>>) => {
+      assert.equal(reply.ok, true);
+      return reply.ok ? (reply.payload.newMessages as { text: string }[]).map((message) => message.text) : [];
+    };
+
+    let speaker: 's1' | 's2' = 's2';
+    let listener: 's1' | 's2' = 's1';
+    let listenerWait = waitUntilReady('s1');
+    for (let exchange = 1; exchange <= 6; exchange += 1) {
+      const text: string = `exchange ${exchange} from ${speaker}`;
+      await runner.callTool(matchId, speaker, 'send_message', { channel: 'dm', to: listener, text });
+      assert.deepEqual(newMessageTextsOf(await listenerWait), [text]);
+      [speaker, listener] = [listener, speaker];
+      listenerWait = waitUntilReady(listener);
+    }
+    assert.deepEqual(wakes, []);
+    assert.deepEqual(phaseEvents, ['1:talk']);
+
+    await runner.callTool(matchId, speaker, 'send_message', { channel: 'dm', to: 's3', text: 'to a seat not waiting' });
+    assert.deepEqual(wakes, [{ seatId: 's3', texts: ['to a seat not waiting'] }]);
+    assert.deepEqual(newMessageTextsOf(await runner.callTool(matchId, 's3', 'get_state', { ready: true, wait_for_change: true })), ['to a seat not waiting']);
+    await runner.callTool(matchId, 's3', 'get_state', { ready: true });
+
+    await runner.callTool(matchId, speaker, 'send_message', { channel: 'dm', to: listener, text: 'over the cap' });
+    await runner.callTool(matchId, speaker, 'get_state', { ready: true });
+    assert.deepEqual(newMessageTextsOf(await listenerWait), []);
+    assert.equal(wakes.length, 1);
+    assert.deepEqual(phaseEvents, ['1:talk', '1:orders']);
+    const loggedEvents = await store.readEvents(matchId);
+    assert.equal(replayMatch(loggedEvents).phase, 'orders');
+    await runner.abortMatch(matchId, 'talk check');
+    runner.dispose();
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('wargames launcher appends optional seat.setup.instructions after immutable rules', async () => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-launch-prompt-'));
   const fakeSessions = new Map<string, Session>();

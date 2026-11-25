@@ -4,6 +4,7 @@ import {
   WARGAMES_RULES_ID,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_SEAT_IDS,
+  WARGAMES_TICK_DEADLINE_SECONDS,
   seatIdsForCount,
   WARGAMES_BALANCE,
 } from '#shared/contracts/wargames.ts';
@@ -491,7 +492,7 @@ function ensureNewMatchSection(): HTMLElement {
         title: titleInput.value.trim() || 'Wargames Match',
         seed: Math.max(1, Number(seedInput.value) || 424242),
         mapRadius: mapSize.mapRadius,
-        tickDeadlineSeconds: 60,
+        tickDeadlineSeconds: WARGAMES_TICK_DEADLINE_SECONDS,
         maxTicks: mapSize.maxTicks,
         seats: seatInputs.filter((entry) => seatedIds.has(entry.seatId)).map((entry, index) => ({
           seatId: entry.seatId,

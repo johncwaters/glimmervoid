@@ -102,6 +102,7 @@ export interface MatchState {
   villages: (VillageState | null)[];
   seats: SeatRuntimeState[];
   readySeatIds: SeatId[];
+  talkWakesBySeat: Partial<Record<SeatId, number>>;
   armies: Map<string, ArmyState>;
   messages: MessageRecord[];
   reportsBySeat: Record<SeatId, WargamesReport[]>;
@@ -435,6 +436,7 @@ function cloneState(state: MatchState): MatchState {
     villages: state.villages.map(cloneVillage),
     seats: state.seats.map((seat) => ({ ...seat, sealedOrders: [...seat.sealedOrders] })),
     readySeatIds: [...state.readySeatIds],
+    talkWakesBySeat: { ...state.talkWakesBySeat },
     armies,
     messages: [...state.messages],
     reportsBySeat,
@@ -686,6 +688,7 @@ export function createInitialMatchState(
     villages,
     seats: orderedSeats,
     readySeatIds: [],
+    talkWakesBySeat: {},
     armies: new Map(),
     messages: [],
     reportsBySeat,
@@ -1039,8 +1042,20 @@ function recordReport(state: MatchState, report: WargamesReport): WargamesReport
   return report;
 }
 
+function wakeReadyRecipients(state: MatchState, senderId: SeatId, directRecipientId: SeatId | null): void {
+  const recipientIds = directRecipientId === null ? state.readySeatIds.filter((seatId) => seatId !== senderId) : [directRecipientId];
+  for (const recipientId of recipientIds) {
+    if (!state.readySeatIds.includes(recipientId)) continue;
+    const wakesSoFar = state.talkWakesBySeat[recipientId] ?? 0;
+    if (wakesSoFar >= state.balance.talkWakesPerPhase) continue;
+    state.readySeatIds = state.readySeatIds.filter((seatId) => seatId !== recipientId);
+    state.talkWakesBySeat[recipientId] = wakesSoFar + 1;
+  }
+}
+
 function startActiveSeatsForPhase(state: MatchState): void {
   state.readySeatIds = [];
+  state.talkWakesBySeat = {};
   for (const seat of state.seats) {
     if (seat.status === 'eliminated' || seat.status === 'disconnected') continue;
     const transitioned = transitionSeat(seat.status, 'phase_start');
@@ -1789,6 +1804,7 @@ export function applyEvent(
       channel: event.channel,
       text: event.text,
     });
+    wakeReadyRecipients(state, event.seatId, event.channel === 'dm' ? event.to : null);
     state.lastSeq = event.seq;
     return { ok: true, state, effects };
   }

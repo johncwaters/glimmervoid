@@ -3,8 +3,8 @@ import { el } from '../dom-helpers.ts';
 import { CHAT_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { outlineIconButton } from '../ui/button.ts';
 import { sectionHeading } from '../ui/section-heading.ts';
-import { diplomacyEntriesOf } from './diplomacy-log-core.ts';
-import type { DiplomacyEntry, DiplomacyEntryKind, SeatNote } from './diplomacy-log-core.ts';
+import { diplomacyEntriesOf, diplomacyItemsOf } from './diplomacy-log-core.ts';
+import type { DiplomacyEntry, DiplomacyEntryKind, DiplomacyItem, SeatNote } from './diplomacy-log-core.ts';
 import { SEAT_COLORS, seatLabelOf, THOUGHT_CLOUD_PATH } from './wargames-map.ts';
 import type { WargamesPov } from './wargames-store.ts';
 
@@ -20,7 +20,7 @@ function speakerTextOf(state: MatchState, entry: DiplomacyEntry): string {
   return speaker;
 }
 
-function buildRow(state: MatchState, entry: DiplomacyEntry): HTMLElement {
+function buildRow(state: MatchState, entry: DiplomacyEntry, isThreadReply = false): HTMLElement {
   const row = el('li', 'wg-dip-row');
   row.dataset.kind = entry.kind;
   row.dataset.current = String(entry.tick === state.tick);
@@ -30,13 +30,22 @@ function buildRow(state: MatchState, entry: DiplomacyEntry): HTMLElement {
   glyph.classList.add('wg-dip-glyph');
   glyph.style.color = ENTRY_GLYPHS[entry.kind].color;
   row.append(
-    el('span', 'wg-dip-turn', `T${entry.tick}`),
+    el('span', 'wg-dip-turn', isThreadReply ? '' : `T${entry.tick}`),
     swatch,
     el('span', 'wg-dip-who', speakerTextOf(state, entry)),
     glyph,
     el('span', 'wg-dip-text', entry.text),
   );
   return row;
+}
+
+function buildItem(state: MatchState, item: DiplomacyItem): HTMLElement {
+  if (item.kind === 'entry') return buildRow(state, item.entry);
+  const thread = el('li', 'wg-dip-thread');
+  const threadList = el('ol', 'wg-dip-list');
+  threadList.append(...item.entries.map((entry, entryIndex) => buildRow(state, entry, entryIndex > 0)));
+  thread.append(threadList);
+  return thread;
 }
 
 export function createDiplomacyLog(readNotes: () => SeatNote[]): { element: HTMLElement; update(state: MatchState, pov: WargamesPov): void } {
@@ -65,7 +74,7 @@ export function createDiplomacyLog(readNotes: () => SeatNote[]): { element: HTML
     notesToggle.element.hidden = !isGodView;
     const notes = isGodView && areNotesShown ? readNotes() : [];
     const entries = diplomacyEntriesOf(state, pov, notes);
-    list.replaceChildren(...entries.map((entry) => buildRow(state, entry)));
+    list.replaceChildren(...diplomacyItemsOf(entries).map((item) => buildItem(state, item)));
     empty.hidden = entries.length > 0;
   }
 

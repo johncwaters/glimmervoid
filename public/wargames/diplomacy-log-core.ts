@@ -55,3 +55,29 @@ export function diplomacyEntriesOf(state: MatchState, pov: 'god' | SeatId, notes
     || right.arrivalIndex - left.arrivalIndex);
   return ordered.map(({ entry }) => entry);
 }
+
+export type DiplomacyItem = { kind: 'entry'; entry: DiplomacyEntry } | { kind: 'thread'; key: string; entries: DiplomacyEntry[] };
+
+function threadKeyOf(entry: DiplomacyEntry): string | null {
+  if (entry.kind !== 'message' || entry.channel !== 'dm' || entry.to === null) return null;
+  const pair = [entry.from, entry.to].sort().join('-');
+  return `${entry.tick}:${pair}`;
+}
+
+export function diplomacyItemsOf(newestFirstEntries: readonly DiplomacyEntry[]): DiplomacyItem[] {
+  const entriesByThreadKey = new Map<string, DiplomacyEntry[]>();
+  for (const entry of newestFirstEntries) {
+    const threadKey = threadKeyOf(entry);
+    if (threadKey === null) continue;
+    entriesByThreadKey.set(threadKey, [...(entriesByThreadKey.get(threadKey) ?? []), entry]);
+  }
+  const placedThreadKeys = new Set<string>();
+  return newestFirstEntries.flatMap((entry): DiplomacyItem[] => {
+    const threadKey = threadKeyOf(entry);
+    const threadEntries = threadKey === null ? [] : entriesByThreadKey.get(threadKey) ?? [];
+    if (threadKey === null || threadEntries.length < 2) return [{ kind: 'entry', entry }];
+    if (placedThreadKeys.has(threadKey)) return [];
+    placedThreadKeys.add(threadKey);
+    return [{ kind: 'thread', key: threadKey, entries: [...threadEntries].reverse() }];
+  });
+}

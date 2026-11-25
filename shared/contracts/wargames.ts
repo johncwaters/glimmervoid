@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_ID = 'r3' as const;
+export const WARGAMES_RULES_ID = 'r4' as const;
 const WargamesRulesId = z.literal(WARGAMES_RULES_ID);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -12,7 +12,7 @@ export const WARGAMES_MIN_HEX_RADIUS = 3;
 export const WARGAMES_MAX_HEX_RADIUS = 8;
 const WARGAMES_MAX_HEX_COUNT = 3 * WARGAMES_MAX_HEX_RADIUS * (WARGAMES_MAX_HEX_RADIUS + 1) + 1;
 const WARGAMES_MAX_TICKS = 40;
-const WARGAMES_TICK_DEADLINE_SECONDS = 60;
+export const WARGAMES_TICK_DEADLINE_SECONDS = 120;
 export const WARGAMES_MAP_SIZES = [
   { name: 'Standard', mapRadius: 4, maxTicks: 25 },
   { name: 'Large', mapRadius: 6, maxTicks: 40 },
@@ -198,9 +198,11 @@ export interface WargamesBalance {
   readonly clusteredTerrain: WargamesTerrainRule;
   readonly roles: WargamesRolesRule;
   readonly territory: WargamesTerritoryRule;
+  readonly talkWakesPerPhase: number;
 }
 
 export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
+  talkWakesPerPhase: 3,
   capturedLoyalty: 25,
   loyaltyRegenPerTurn: 10,
   captureRazeFraction: 0.5,

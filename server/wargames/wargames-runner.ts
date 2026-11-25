@@ -4,6 +4,7 @@ import type { WargamesSeatBinding, WargamesSeatPort, WargamesToolName, WargamesT
 import { clock } from '../../shared/clock.ts';
 import type { AgentModelCatalog } from '../../shared/contracts/agent-models.ts';
 import { MessageChannel, OrderItem, SeatId } from '../../shared/contracts/wargames.ts';
+import type { MessageRecord } from '../../shared/contracts/wargames.ts';
 import type {
   ModelEloRow,
   SeatConfig,
@@ -46,8 +47,13 @@ interface SeatSession {
   seatId: SeatId;
 }
 
+interface WokenSeat extends SeatSession {
+  messages: MessageRecord[];
+}
+
 interface WargamesMatchHooks {
   onPhaseChanged?: (state: MatchState, seatSessions: readonly SeatSession[]) => void;
+  onSeatsWoken?: (state: MatchState, wokenSeats: readonly WokenSeat[]) => SeatId[];
   onMatchEnded?: (matchId: string, sessionIds: readonly string[]) => void;
 }
 
@@ -63,7 +69,9 @@ interface LiveMatch {
   sessionIds: string[];
   serialQueue: Promise<void>;
   tickToolCounts: Map<string, number>;
-  phaseWaiters: Set<() => void>;
+  phaseWaiters: Map<() => void, SeatId>;
+  wokenSeatIds: Set<SeatId>;
+  seenMessageCountBySeat: Map<SeatId, number>;
   hooks?: WargamesMatchHooks;
 }
 
@@ -256,9 +264,49 @@ export function createWargamesRunner({
   }
 
   function wakePhaseWaiters(live: LiveMatch): void {
-    const waiters = [...live.phaseWaiters];
+    live.wokenSeatIds.clear();
+    const waiters = [...live.phaseWaiters.keys()];
     live.phaseWaiters.clear();
     for (const notify of waiters) notify();
+  }
+
+  function wakeSeatWaiters(live: LiveMatch, seatId: SeatId): void {
+    for (const [notify, waitingSeatId] of [...live.phaseWaiters]) {
+      if (waitingSeatId === seatId) notify();
+    }
+  }
+
+  function unseenTalkMessagesOf(live: LiveMatch, seatId: SeatId): MessageRecord[] {
+    if (live.state.phase !== 'talk') return [];
+    const seenCount = live.seenMessageCountBySeat.get(seatId) ?? 0;
+    return live.state.messages.slice(seenCount).filter((message) => message.tick === live.state.tick
+      && message.from !== seatId
+      && (message.channel === 'public' || message.to === seatId));
+  }
+
+  function markMessagesSeen(live: LiveMatch, seatId: SeatId): void {
+    live.seenMessageCountBySeat.set(seatId, live.state.messages.length);
+    live.wokenSeatIds.delete(seatId);
+  }
+
+  function takeNewMessages(live: LiveMatch, seatId: SeatId): MessageRecord[] {
+    const newMessages = unseenTalkMessagesOf(live, seatId);
+    markMessagesSeen(live, seatId);
+    return newMessages;
+  }
+
+  function wakeSeats(live: LiveMatch, wokenSeatIds: readonly SeatId[]): void {
+    if (wokenSeatIds.length === 0) return;
+    const waitingSeatIds = new Set(live.phaseWaiters.values());
+    for (const seatId of wokenSeatIds) {
+      live.wokenSeatIds.add(seatId);
+      wakeSeatWaiters(live, seatId);
+    }
+    const wokenSeats = activeSeatSessions(live)
+      .filter((seatSession) => wokenSeatIds.includes(seatSession.seatId) && !waitingSeatIds.has(seatSession.seatId))
+      .map((seatSession) => ({ ...seatSession, messages: unseenTalkMessagesOf(live, seatSession.seatId) }));
+    const nudgedSeatIds = live.hooks?.onSeatsWoken?.(live.state, wokenSeats) ?? [];
+    for (const seatId of nudgedSeatIds) markMessagesSeen(live, seatId);
   }
 
   async function advancePhaseSerialized(live: LiveMatch, reason: 'all_submitted' | 'deadline'): Promise<void> {
@@ -310,7 +358,9 @@ export function createWargamesRunner({
       sessionIds: [],
       serialQueue: Promise.resolve(),
       tickToolCounts: new Map(),
-      phaseWaiters: new Set(),
+      phaseWaiters: new Map(),
+      wokenSeatIds: new Set(),
+      seenMessageCountBySeat: new Map(),
       hooks,
     };
     liveByMatchId.set(matchId, live);
@@ -425,7 +475,7 @@ export function createWargamesRunner({
     }
   }
 
-  function waitForPhaseChange(live: LiveMatch): Promise<void> {
+  function waitForPhaseChange(live: LiveMatch, seatId: SeatId): Promise<void> {
     const phaseMs = Math.max(1000, Math.floor((live.state.spec.tickDeadlineSeconds * 1000) / TIMED_PHASES_PER_TICK));
     const waitMs = Math.min(phaseMs, MAX_WAIT_FOR_CHANGE_MS);
     return new Promise((resolve) => {
@@ -436,7 +486,7 @@ export function createWargamesRunner({
       };
       const timer = setTimeoutFn(done, waitMs);
       unrefTimer(timer);
-      live.phaseWaiters.add(done);
+      live.phaseWaiters.set(done, seatId);
     });
   }
 
@@ -467,6 +517,9 @@ export function createWargamesRunner({
         const startPhase = live.state.phase;
         const startStatus = live.state.status;
         await ensureSeatConnectedSerialized(live, seatId);
+        if (live.wokenSeatIds.has(seatId)) {
+          return { ended: false as const, status: live.state.status, tick: live.state.tick, phase: live.state.phase, changed: true };
+        }
         const canReady = live.state.status === 'running'
           && live.state.phase === 'talk'
           && live.state.seats[seatIndexOf(seatId)].status === 'acting'
@@ -480,9 +533,9 @@ export function createWargamesRunner({
       });
       if (before.ended) return rejectionReply('invalid_match_state', `match ${matchId} is ${before.status}`);
       if (waitFlag && !before.changed && liveByMatchId.has(matchId)) {
-        await waitForPhaseChange(live);
+        await waitForPhaseChange(live, seatId);
       }
-      return { ok: true, payload: { state: projectSeatState(live.state, seatId) } };
+      return { ok: true, payload: { state: projectSeatState(live.state, seatId), newMessages: takeNewMessages(live, seatId) } };
     }
     return enqueueMatch(live, async () => {
       if (live.state.status === 'finished' || live.state.status === 'aborted') {
@@ -501,6 +554,7 @@ export function createWargamesRunner({
           if (message.channel === 'public') return true;
           return message.from === seatId || message.to === seatId;
         });
+        markMessagesSeen(live, seatId);
         return { ok: true, payload: { messages } };
       }
       if (toolName === 'read_notes') {
@@ -521,6 +575,7 @@ export function createWargamesRunner({
         if (!channel.success || (to !== null && !to.success) || typeof args.text !== 'string') {
           return rejectionReply('invalid_order', 'invalid message arguments');
         }
+        const readyBefore = [...live.state.readySeatIds];
         const committed = await commitEventSerialized(live, {
           seq: live.state.lastSeq + 1,
           type: 'message_sent',
@@ -530,6 +585,7 @@ export function createWargamesRunner({
           text: args.text,
         });
         if (!committed.ok) return committed;
+        wakeSeats(live, readyBefore.filter((readySeatId) => !live.state.readySeatIds.includes(readySeatId)));
         return { ok: true, payload: { sent: true } };
       }
       if (toolName === 'submit_orders') {
