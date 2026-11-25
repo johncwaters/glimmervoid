@@ -50,7 +50,7 @@ import { branchSessionIdsOf, placeTitleOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 import { isStudioSession } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
-import { CODEMAP_BOXES_MAX_PATHS, CODE_MAP_BOARD_TITLE, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
+import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX, isCodeMapBoardTitle } from '#shared/contracts/control/board-session-messages.ts';
 import type { OpenBoardAsk, SessionMapBoxes, StudioMapArea } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
 import { standingMisfitOf } from '#shared/director-fit.ts';
@@ -589,7 +589,7 @@ function isUnaskedPath(sessionId: string, sessionPath: string): boolean {
 }
 
 function titledMapBoardIdOf(): string | null {
-  const titledBoards = boardSummariesOf().filter((summary) => summary.title.toLowerCase() === CODE_MAP_BOARD_TITLE.toLowerCase());
+  const titledBoards = boardSummariesOf().filter((summary) => isCodeMapBoardTitle(summary.title));
   return titledBoards.length === 1 ? titledBoards[0].id : null;
 }
 

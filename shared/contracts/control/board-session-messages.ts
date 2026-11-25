@@ -10,6 +10,10 @@ const ASK_ANSWER_MAX_CHARS = 2000;
 export const CODEMAP_BOX_CHOICES_MAX = 5000;
 
 export const CODE_MAP_BOARD_TITLE = 'Code map';
+
+export function isCodeMapBoardTitle(title: string): boolean {
+  return title.toLowerCase() === CODE_MAP_BOARD_TITLE.toLowerCase();
+}
 export const BRANCH_PROMPT_MAX_CHARS = 20000;
 export const DIRECTOR_DIGEST_SESSIONS_MAX = 50;
 const PROGRESS_QUESTION_MAX_CHARS = 2000;

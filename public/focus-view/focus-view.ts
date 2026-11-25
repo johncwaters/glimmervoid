@@ -31,6 +31,7 @@ import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog, sendControlRequest } from '../control-ws.ts';
 import { mergeSettingsPayload, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
+import { isCodeMapBoardTitle } from '#shared/contracts/control/board-session-messages.ts';
 import { beginPendingBoardDelete, boardSummariesOf, boardsConnectedTo, connectSessionToBoard, detachBoardFromSession, isBoardDeleting, onBoardListChanged, pendingBoardDeleteStartedAt, requestBoardFocus, takeOpenBoardRequest, undoPendingBoardDelete } from '../whiteboard/board-store.ts';
 import { markAgentChangeShown, unshownAgentChangeOf } from '../whiteboard/board-tile-store.ts';
 import type { Pane } from '#shared/contracts/focus-layout.ts';
@@ -757,7 +758,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   const boardSummaries = boardSummariesOf();
   if (centeredBoardId && !boardSummaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
   const groupKeyBySessionId = new Map(groups.groups.flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));
-  const boardsOfProject = boardsByProject(boardSummaries.filter((board) => !isBoardDeleting(board.id)), currentLiveSplits(), groupKeyBySessionId);
+  const boardsOfProject = boardsByProject(boardSummaries.filter((board) => !isBoardDeleting(board.id) && !isCodeMapBoardTitle(board.title)), currentLiveSplits(), groupKeyBySessionId);
   const railGroups = withBoardProjects(groups, boardsOfProject.keys());
   const boardTitleById = new Map(boardSummaries.map((board) => [board.id, board.title]));
   const placedBoardIds = new Set<string>();

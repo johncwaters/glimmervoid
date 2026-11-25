@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import type { BranchAbout, BranchTarget } from '../../shared/board-branch-core.ts';
 import { CODEMAP_CHECK_ID, CODEMAP_SPEC_SLUG, moduleImportAllowsOf, structureAllowsOf } from '../../shared/contracts/codemap.ts';
-import { CODEMAP_BOX_CHOICES_MAX, CODE_MAP_BOARD_TITLE } from '../../shared/contracts/control/board-session-messages.ts';
+import { CODEMAP_BOX_CHOICES_MAX, CODE_MAP_BOARD_TITLE, isCodeMapBoardTitle } from '../../shared/contracts/control/board-session-messages.ts';
 import { VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome } from '../../shared/contracts/verification.ts';
 import type { AgentCodemapReply, AgentCodemapRequest, CodemapStructureAllowEntry, CodemapStructureLint, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapSetup, CodemapStatus } from '../../shared/contracts/codemap.ts';
@@ -344,7 +344,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
     if (mapBoardId && (await boards.readPlanBoard(caller, mapBoardId)).ok) return mapBoardId;
     const listed = await boards.handleAgent(caller, { sub: 'list', all: true });
-    const titledBoardIds = 'boards' in listed.body ? listed.body.boards.filter((board) => board.title.toLowerCase() === CODE_MAP_BOARD_TITLE.toLowerCase()).map((board) => board.id) : [];
+    const titledBoardIds = 'boards' in listed.body ? listed.body.boards.filter((board) => isCodeMapBoardTitle(board.title)).map((board) => board.id) : [];
     if (titledBoardIds.length > 1) throw new Error(`${titledBoardIds.length} boards are titled ${CODE_MAP_BOARD_TITLE} and none is the remembered map board, so none was redrawn`);
     const created = titledBoardIds[0] ? null : await boards.handleOperator.create(CODE_MAP_BOARD_TITLE);
     const foundBoardId = titledBoardIds[0] ?? created?.board?.id ?? created?.summary?.id;

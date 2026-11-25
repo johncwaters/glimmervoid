@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The Code map board shows only the repos you open in Studio.** A Focus session no longer adds its repo as an area on the Code map board, which had filled it with every repo any session ran in. Focus sessions still read the map with `codemap` and are still held to the import gate; a `whiteboard ask` from a repo not open in Studio is refused with that reason. Areas Focus sessions added before this release stay until you remove them.
+- **The Code map belongs to Studio.** The Code map board no longer appears in the Focus roster, and it shows only the repos you open in Studio: a Focus session no longer adds its repo as an area on it, which had filled it with every repo any session ran in. Focus sessions still read the map with `codemap` and are still held to the import gate; a `whiteboard ask` from a repo not open in Studio is refused with that reason. Areas Focus sessions added before this release stay until you remove them.
 
 ### Fixed
 
