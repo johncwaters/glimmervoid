@@ -1689,6 +1689,10 @@
     {
       "name": "skill",
       "definition": "A folder holding a SKILL.md an agent loads on demand: a pack's agent section lists skills folders every session gets, team review runs the operator's chosen review skill, and Chat shows a loaded one as a Skill row"
+    },
+    {
+      "name": "tool call",
+      "definition": "One call an agent makes to a tool within a turn, read from its transcript or hooks; Chat shows each as a tool row, and Wargames counts one as a sign the seat is alive"
     }
   ],
   "retired": [
