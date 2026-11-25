@@ -3,6 +3,8 @@ import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { renderCard, showOnBoardButton } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import { createComposer } from '../chat/composer.ts';
+import { listenForModelChange } from '../chat/model-picker.ts';
+import { canSwitchSessionModel } from '../session-card/card-model.ts';
 import { STAND_IN_UNRECORDED_MAX_MS, draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
 import { onChatOutboxNoted } from '../chat/chat-session-state.ts';
 import { queuedStatusOf } from '../chat/chat-view.ts';
@@ -64,7 +66,7 @@ interface DockSession {
   boxChoices: () => readonly BoxChoice[];
   digestOf: (sessionId: string, openedAt: number) => string | null;
   progressAnswers: () => readonly SessionProgressAnswer[];
-  railFields: () => readonly RailField[];
+  railFields: (canChangeModel: boolean) => readonly RailField[];
   onDelivered: (kind: DockDelivery) => void;
   outbox: () => readonly ChatOutboxEntry[];
   activity: () => DockActivity;
@@ -794,7 +796,7 @@ export function createDock(session: DockSession): Dock {
 
   const paintComposer = () => {
     composer.setTurnRunning(isAddressedTurnRunning());
-    composer.showRail(session.railFields());
+    composer.showRail(session.railFields(canSwitchSessionModel(session.sessionId) && session.isTurnOver()));
   };
 
   pill.addEventListener('chat-send', (event) => {
@@ -814,6 +816,8 @@ export function createDock(session: DockSession): Dock {
       })
       .catch((reason: unknown) => restoreText(`Could not confirm the message was queued: ${errorMessage(reason)}`));
   });
+
+  const modelPicker = listenForModelChange({ root: pill, sessionId: session.sessionId, canOpen: session.isTurnOver, showFailure, signal: dockListeners.signal });
 
   pill.addEventListener('chat-stop', () => {
     const sessionId = addressedSessionId();
@@ -880,6 +884,7 @@ export function createDock(session: DockSession): Dock {
       stopFollowingOutbox();
       stopFollowingBoardChanges();
       for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
+      modelPicker.close();
       dockListeners.abort();
       clearInterval(railTimer);
       for (const feed of feedBySessionId.values()) feed.close();

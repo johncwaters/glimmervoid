@@ -2,6 +2,7 @@ import type { AgentModelCatalog, AgentSetup, ModelProvider } from '#shared/contr
 import { effortOf, providerOf, withEffortChoice } from '../arena/lineup-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { switchableSetupOf, switchSessionModel } from '../session-card/card-model.ts';
 import { buildEffortRows, buildModelRows, firstModelPickOf, hasEfforts, modelLabelOf, setupAfterModelPick, setupAfterTypedPick } from '../add-session/model-pick.ts';
 
 type ModelPickerStep = 'models' | 'effort';
@@ -137,4 +138,41 @@ export function openChatModelPicker({ composer, modelName, catalog, setup: runni
   modelName.setAttribute('aria-expanded', 'true');
   showStep('models');
   return { close: () => close(false) };
+}
+
+interface ModelChangeListenerOptions {
+  root: HTMLElement;
+  sessionId: string;
+  canOpen(): boolean;
+  showFailure(failureText: string): void;
+  signal?: AbortSignal;
+}
+
+export function listenForModelChange({ root, sessionId, canOpen, showFailure, signal }: ModelChangeListenerOptions): ChatModelPicker {
+  let openPicker: ChatModelPicker | null = null;
+  root.addEventListener('chat-change-model', (event) => {
+    if (openPicker !== null) {
+      openPicker.close();
+      return;
+    }
+    const modelName = event.target instanceof HTMLElement ? event.target : null;
+    const composer = modelName?.closest<HTMLElement>('.chat-composer') ?? null;
+    const switchable = switchableSetupOf(sessionId);
+    if (modelName === null || composer === null || switchable === null || !canOpen()) return;
+    openPicker = openChatModelPicker({
+      composer,
+      modelName,
+      catalog: switchable.catalog,
+      setup: switchable.setup,
+      onSwitch: (next) => {
+        switchSessionModel(sessionId, next).then((refusalText) => {
+          if (refusalText !== null) showFailure(refusalText);
+        });
+      },
+      onClose: () => {
+        openPicker = null;
+      },
+    });
+  }, { signal });
+  return { close: () => openPicker?.close() };
 }

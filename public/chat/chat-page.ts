@@ -18,13 +18,12 @@ import type { ChatCard, ChatPart } from './chat-part.ts';
 import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
 import { type ChatPhase, chatPhaseOf, shownChatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
-import { canSwitchSessionModel, sessionAccountIdOf, switchableSetupOf, switchSessionModel, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
+import { canSwitchSessionModel, sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { clock } from '#shared/clock.ts';
 import { accountPlanLimitsOf, planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RailField } from './status-rail-core.ts';
-import { openChatModelPicker } from './model-picker.ts';
-import type { ChatModelPicker } from './model-picker.ts';
+import { listenForModelChange } from './model-picker.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
 import { refreshChatFileRefs } from './chat-parts.ts';
@@ -379,10 +378,10 @@ function buildChat(sessionId: string): MountedChat {
   const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: sessionState.agentDoneLines, phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
   root.append(failureLine, chatView.element);
-  let openModelPicker: ChatModelPicker | null = null;
+  const modelPicker = listenForModelChange({ root, sessionId, canOpen: () => !isSessionWorking(sessionId), showFailure: (failureText) => showSessionFailure(sessionId, failureText) });
   const showRail = () => {
     const canChangeModel = canSwitchSessionModel(sessionId) && !isSessionWorking(sessionId);
-    if (!canChangeModel) openModelPicker?.close();
+    if (!canChangeModel) modelPicker.close();
     refreshLimitCountdowns(root, clock.nowMs());
     chatView.showRail(sessionRailFieldsOf(sessionId, canChangeModel));
   };
@@ -401,7 +400,7 @@ function buildChat(sessionId: string): MountedChat {
     if (runTimeTimer === null) runTimeTimer = setInterval(tickRunTimes, RUN_TIME_TICK_MS);
   };
   const stopRail = () => {
-    openModelPicker?.close();
+    modelPicker.close();
     if (railTimer !== null) clearInterval(railTimer);
     railTimer = null;
     stopRunTimes();
@@ -464,30 +463,6 @@ function buildChat(sessionId: string): MountedChat {
     waits.answerCard(cardId, action, value);
   };
 
-  root.addEventListener('chat-change-model', (event) => {
-    if (openModelPicker !== null) {
-      openModelPicker.close();
-      return;
-    }
-    const modelName = event.target instanceof HTMLElement ? event.target : null;
-    const composer = modelName?.closest<HTMLElement>('.chat-composer') ?? null;
-    const switchable = switchableSetupOf(sessionId);
-    if (modelName === null || composer === null || switchable === null || isSessionWorking(sessionId)) return;
-    openModelPicker = openChatModelPicker({
-      composer,
-      modelName,
-      catalog: switchable.catalog,
-      setup: switchable.setup,
-      onSwitch: (next) => {
-        switchSessionModel(sessionId, next).then((refusalText) => {
-          if (refusalText !== null) showSessionFailure(sessionId, refusalText);
-        });
-      },
-      onClose: () => {
-        openModelPicker = null;
-      },
-    });
-  });
   attachChatListeners({
     sessionId,
     root,

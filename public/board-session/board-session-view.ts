@@ -681,7 +681,7 @@ function mountDock(): void {
     boxChoices: () => moduleChoices,
     digestOf: directorChatLineOf,
     progressAnswers: () => progressAnswers.filter((answer) => answer.sessionId === sessionId),
-    railFields: () => sessionRailFieldsOf(sessionId, false),
+    railFields: (canChangeModel) => sessionRailFieldsOf(sessionId, canChangeModel),
     onDelivered: (kind) => parts?.guide.markDone(kind),
     outbox: () => chatSessionStateOf(sessionId).outbox.filter((entry) => entry.origin === 'operator'),
     activity: () => {

@@ -603,6 +603,36 @@ async function verifyQueuedMessagesDeliveredOnceInOrder(page: Page, studioMainId
   await root.locator('.bs-card[data-main][data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
 }
 
+async function verifyStudioModelSwitch(page: Page, root: Locator): Promise<void> {
+  const railModelButton = root.locator('.bs-pill .chat-rail').getByRole('button', { name: /^Change model/ });
+  await railModelButton.waitFor({ timeout: RAIL_REPAINT_WAIT_MS });
+  await railModelButton.click();
+  const modelPanel = root.locator('.bs-pill .chat-model-pick');
+  await modelPanel.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const panelBox = await modelPanel.boundingBox();
+  const pillBox = await boxOf(page, '.board-session-view .bs-pill');
+  assert.ok(panelBox && panelBox.y + panelBox.height <= pillBox.y && panelBox.y >= 0, 'the model panel opens on screen above the Studio message bar');
+  await page.keyboard.press('Escape');
+  await modelPanel.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await railModelButton.click();
+  const nextModelRow = modelPanel.locator('.add-session-row[aria-selected="false"][data-key^="native:"]').first();
+  const nextModelKey = await nextModelRow.getAttribute('data-key');
+  await nextModelRow.click();
+  const defaultEffortRow = modelPanel.locator('.add-session-row[data-key="default"]');
+  if ((await defaultEffortRow.count()) > 0) await defaultEffortRow.click();
+  await modelPanel.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.waitForFunction((expectedKey) => {
+    const railButton = document.querySelector<HTMLButtonElement>('.board-session-view .bs-pill .chat-rail-model');
+    if (railButton === null || railButton.hidden) return false;
+    if (document.querySelector('.board-session-view .bs-pill .chat-model-pick') !== null) railButton.click();
+    railButton.click();
+    const pickedRow = document.querySelector('.board-session-view .bs-pill .chat-model-pick .add-session-row[aria-selected="true"]');
+    return pickedRow?.getAttribute('data-key') === expectedKey;
+  }, nextModelKey, { timeout: RAIL_REPAINT_WAIT_MS, polling: 500 });
+  await page.keyboard.press('Escape');
+  await modelPanel.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+}
+
 export async function verifyBoardSession(page: Page, projectDirectory: string): Promise<void> {
   const root = page.locator('.board-session-view');
   await page.locator('#tab-board-session').click();
@@ -672,6 +702,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await page.locator('#tab-board-session').click();
   await orchestratorFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the Orchestrator replies');
+  await verifyStudioModelSwitch(page, root);
 
   const mapViewport = root.locator('.wb-viewport');
   const panAwayFrom = await mapViewport.boundingBox();
