@@ -23,6 +23,7 @@ import { Session } from '../session/sessions.ts';
 import { permissionReplyFor } from '../session/core/claude-approval-core.ts';
 import { openCodePluginFiles } from '../session/core/opencode-plugin-core.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT } from '../shared/contracts/session.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../shared/contracts/question-manager.ts';
 import type { HookPayload, PermissionDecision } from '../shared/contracts/index.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
 
@@ -567,6 +568,71 @@ for (const agent of FIRST_CLASS_AGENTS) {
       const wordedDeny = await heldForMessage;
       assert.equal(valueAt(wordedDeny, decisionAt), 'deny');
       assert.equal(valueAt(wordedDeny, reasonAt), 'Run npm run clean instead');
+    } finally {
+      session.destroy();
+      fs.rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+}
+
+function antigravityQuestionRequest(): HookPayload {
+  const adapter = getAdapter('antigravity');
+  assert.ok(adapter, 'Antigravity has no adapter');
+  const enrich = hookProfileOf(adapter)?.createPayloadEnricher?.();
+  assert.ok(enrich, 'Antigravity has no payload enricher');
+  return enrich(QUESTION_TOOL_HOLD_HOOK_EVENT, firstHookPayload('v2-antigravity-ask-question.jsonl', QUESTION_TOOL_HOLD_HOOK_EVENT));
+}
+
+function antigravityPlainQuestionEvent(): HookPayload {
+  const adapter = getAdapter('antigravity');
+  assert.ok(adapter, 'Antigravity has no adapter');
+  const enrich = hookProfileOf(adapter)?.createPayloadEnricher?.();
+  assert.ok(enrich, 'Antigravity has no payload enricher');
+  return enrich('pretooluse', firstHookPayload('v2-antigravity-ask-question.jsonl', 'pretooluse'));
+}
+
+const CHAT_QUESTION_BY_AGENT: Record<Exclude<FirstClassAgent, 'claude-code'>, { heldRequest: () => HookPayload; ownToolEvent: () => HookPayload }> = {
+  codex: { heldRequest: () => firstHookPayload('v2-codex-request-user-input.jsonl', 'pretooluse'), ownToolEvent: () => firstHookPayload('v2-codex-request-user-input.jsonl', 'pretooluse') },
+  kimi: { heldRequest: () => firstHookPayload('v2-kimi-ask-question.jsonl', 'pretooluse'), ownToolEvent: () => firstHookPayload('v2-kimi-ask-question.jsonl', 'pretooluse') },
+  opencode: { heldRequest: () => firstHookPayload('v2-opencode-ask-question.jsonl', QUESTION_TOOL_HOLD_HOOK_EVENT), ownToolEvent: () => firstHookPayload('v2-opencode-ask-question.jsonl', 'elicitation') },
+  pi: { heldRequest: () => firstHookPayload('v2-pi-ask-question.jsonl', QUESTION_TOOL_HOLD_HOOK_EVENT), ownToolEvent: () => firstHookPayload('v2-pi-ask-question.jsonl', 'elicitation') },
+  antigravity: { heldRequest: antigravityQuestionRequest, ownToolEvent: antigravityPlainQuestionEvent },
+};
+
+function questionDenyReasonOf(reply: unknown): unknown {
+  return valueAt(reply, ['reason']) ?? valueAt(reply, ['hookSpecificOutput', 'permissionDecisionReason']);
+}
+
+for (const [agent, { heldRequest: questionRequest, ownToolEvent }] of Object.entries(CHAT_QUESTION_BY_AGENT)) {
+  test(`a question tool call is held for Chat and answered with the operator's choice on ${agent}`, async () => {
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-question-'));
+    const session = new Session({ id: `chat-question-${agent}`, name: agent, path: projectPath, agent, readChatApprovals: () => 'questions', ptySpawn: () => capturingPty([]) });
+    try {
+      session.transition('user_start');
+      session.transition('spawn_success', { spawnCwdExists: true });
+      session.transition('first_output');
+      session.transition('new_output');
+      const runningState = session.state;
+      const held = session.holdQuestionTool(questionRequest(), new AbortController().signal);
+      assert.ok(held, 'the question was not held for Chat');
+      assert.equal(session.state, STATES.WAITING, 'a question held for Chat shows the session as waiting');
+      session._approvals.releaseAfterHookEvent('pretooluse', ownToolEvent());
+      session._approvals.releaseAfterHookEvent('elicitation', ownToolEvent());
+      const approval = session.toSnapshot().conversationApproval;
+      assert.equal(approval?.kind, 'question');
+      assert.ok(approval?.questions && approval.questions.length > 0, 'the held question carries no questions for the card');
+      const answers = Object.fromEntries(approval.questions.map((question) => [question.question, question.options[0]?.label ?? '']));
+      assert.ok(session.answerConversationApproval(approval.requestId, answers));
+      const reason = String(questionDenyReasonOf(await held));
+      assert.match(reason, /^The operator answered in Glimmervoid: /);
+      for (const [question, answer] of Object.entries(answers)) assert.ok(reason.includes(`${question}: ${answer}`), `the reply leaves out ${question}`);
+      assert.equal(session.toSnapshot().conversationApproval, null);
+      assert.equal(session.state, runningState, 'an answered question puts the session back to work');
+      const dismissed = session.holdQuestionTool(questionRequest(), new AbortController().signal);
+      const dismissedApproval = session.toSnapshot().conversationApproval;
+      assert.ok(dismissed && dismissedApproval);
+      assert.ok(session.decideConversationApproval(dismissedApproval.requestId, 'deny'));
+      assert.match(String(questionDenyReasonOf(await dismissed)), /dismissed this question/);
     } finally {
       session.destroy();
       fs.rmSync(projectPath, { recursive: true, force: true });

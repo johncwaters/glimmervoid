@@ -38,7 +38,7 @@ type PreToolUseReply = { hookSpecificOutput: { hookEventName: 'PreToolUse'; perm
 export type PermissionHookReply = ClaudeHookReply | PreToolDecisionReply | PreToolUseReply;
 
 const DENIED_FROM_CHAT = 'The operator denied this from Chat.';
-const DISMISSED_FROM_CHAT = 'The operator dismissed this question from Chat without answering. Stop and wait for their next message.';
+export const DISMISSED_FROM_CHAT = 'The operator dismissed this question from Chat without answering. Stop and wait for their next message.';
 const ALLOWED_FROM_CHAT = 'The operator allowed this from Chat.';
 const RELEASE_ON_SAME_CALL_EVENTS: ReadonlySet<string> = new Set([...TOOL_RESULT_HOOK_EVENTS, 'permissionresult']);
 const COMMAND_INPUT_KEYS = ['command', 'CommandLine'];
@@ -129,7 +129,7 @@ function hookReply(decision: Record<string, unknown>): ClaudeHookReply {
   return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } };
 }
 
-function areAnswersComplete(approval: ConversationApproval, answers: ConversationAnswers): boolean {
+export function areAnswersComplete(approval: ConversationApproval, answers: ConversationAnswers): boolean {
   const questionTexts = (approval.questions ?? []).map((question) => question.question);
   if (questionTexts.length === 0) return false;
   const answeredTexts = Object.keys(answers);

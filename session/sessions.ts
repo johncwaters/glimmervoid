@@ -616,6 +616,8 @@ class Session extends EventEmitter {
         ingestStatus: (signal) => this._ingestHookSignal(signal),
         noteQuestionDismissed: () => this._ingestHookSignal({ signal: "ready", source: "hook", confidence: "high", ts: clock.nowMs() }),
         pushAuditEntry: (entry) => this._pushAuditEntry(entry),
+        noteQuestionHeldForChat: (toolName, payload) => this._ingestHookSignal({ signal: "awaiting-input", source: "hook", ts: clock.nowMs(), promptKind: "elicitation", promptToolName: toolName, payload }),
+        noteQuestionAnsweredFromChat: () => this._ingestHookSignal({ signal: "working", source: "hook", confidence: "high", ts: clock.nowMs() }),
         taskTitle: () => this.refocusTaskTitle,
       },
     });
