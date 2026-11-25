@@ -240,10 +240,10 @@ test('wargames launcher appends optional seat.setup.instructions after immutable
     assert.equal(started.ok, true);
     const s1Prompt = deliveredPrompts.get('Wargames ompt-1 - s1') ?? '';
     const s2Prompt = deliveredPrompts.get('Wargames ompt-1 - s2') ?? '';
-    assert.match(s1Prompt, /^You are playing Wargames match/);
+    assert.match(s1Prompt, /^You are seat s[12] \(/);
     assert.match(s1Prompt, /--- Pre-Game Strategy Instructions/);
     assert.match(s1Prompt, /Play defensively and rush walls before tick 5\./);
-    assert.match(s2Prompt, /^You are playing Wargames match/);
+    assert.match(s2Prompt, /^You are seat s[12] \(/);
     assert.equal(s2Prompt.includes('Pre-Game Strategy Instructions'), false);
     for (const seat of specWithStrategy.seats) assert.deepEqual(JSON.parse(await fsp.readFile(path.join(tempDir, 'wg-prompt-1', seat.seatId, '.mcp.json'), 'utf8')), { mcpServers: {} });
   } finally {

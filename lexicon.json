@@ -1575,11 +1575,11 @@
     },
     {
       "name": "beacon",
-      "definition": "A Wargames v6 site worth victory points while its owner keeps troops inside; it produces nothing, cannot be built on, and goes back to unowned when left empty at turn end"
+      "definition": "A Wargames site worth victory points while its owner keeps troops inside; it produces nothing, cannot be built on, and goes back to unowned when left empty at turn end"
     },
     {
       "name": "victory points",
-      "definition": "The Wargames v6 score (VP) each seat gains at every turn end from villages, held beacons and income, never lost; the first seat to its target wins"
+      "definition": "The Wargames score (VP) each seat gains at every turn end from villages, land and held beacons, never lost; the first seat to its target wins"
     },
     {
       "name": "live match",
@@ -1611,11 +1611,11 @@
     },
     {
       "name": "capture wave",
-      "definition": "Wargames v8 envoy-only army that never fights and drains loyalty only after the village's troops and wall are beaten that turn"
+      "definition": "A Wargames envoy-only army that never fights; it drains loyalty when the village's defense is beaten that turn or the village has no troops left, whatever its wall"
     },
     {
       "name": "troop cap",
-      "definition": "Wargames v8 limit on troops per village: a base plus a per farm level amount, counting home troops, guests and the village's troops out on the march"
+      "definition": "The Wargames limit on troops per village: a base plus a per farm level amount, counting home troops and the village's troops out on the march"
     },
     {
       "name": "morale",
@@ -1627,7 +1627,7 @@
     },
     {
       "name": "cost",
-      "definition": "In Wargames, the grain and ore a unit takes to train or a building level takes to build, read from the balance table of the match's rules version"
+      "definition": "In Wargames, the grain and ore a unit takes to train or a building level takes to build, read from the balance table"
     },
     {
       "name": "system line",
@@ -1635,19 +1635,19 @@
     },
     {
       "name": "land",
-      "definition": "In Wargames v9, a hex that is not a village and that a seat owns: the open hexes around each village the seat starts with, captures or founds, and hexes it claims by holding them with a standing army; it scores victory points and can hold one improvement"
+      "definition": "In Wargames, a hex that is not a village and that a seat owns: the open hexes around each village the seat starts with, captures or founds, and hexes it claims by holding them with a standing army; it scores victory points and can hold one improvement"
     },
     {
       "name": "claim",
-      "definition": "In Wargames v9, to make an open hex a seat's land by keeping an army standing on it through a full turn after it arrives, next to land the seat already holds and with no other seat standing there; at most one new hex per village the seat holds each turn"
+      "definition": "In Wargames, to make an open hex a seat's land by keeping an army standing on it through a full turn after it arrives, next to land the seat already holds and with no other seat standing there; at most one new hex per village the seat holds each turn"
     },
     {
       "name": "improvement",
-      "definition": "In Wargames v9, the one field, quarry, watchtower or outpost a land hex holds, built with a build order and paid by the seat's nearest village"
+      "definition": "In Wargames, the one field, quarry, watchtower or outpost a land hex holds, built with a build order and paid by the seat's nearest village"
     },
     {
       "name": "outpost",
-      "definition": "In Wargames v9, an improvement on a land hex that makes the owner's armies standing on it defend at +50%"
+      "definition": "In Wargames, an improvement on a land hex that makes the owner's armies standing on it defend at +50%"
     },
     {
       "name": "standard",
@@ -1656,6 +1656,14 @@
     {
       "name": "telemetry",
       "definition": "The usage and error events Glimmervoid sends to its own PostHog project under a random install id, which the operator turns off in Settings > Privacy, with GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true"
+    },
+    {
+      "name": "wall",
+      "definition": "A Wargames village building whose levels add defense and a defense multiplier; an attack that beats the defense knocks it down, and it alone does not stop a capture wave"
+    },
+    {
+      "name": "talk",
+      "definition": "The first phase of each Wargames tick, when seats send direct or public messages; nothing in the game enforces what is said"
     }
   ],
   "retired": [
