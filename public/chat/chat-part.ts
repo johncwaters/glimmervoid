@@ -7,8 +7,11 @@ export type ChatCard =
   | { cardType: 'notice'; cardId: string; data: { text: string }; resolution: null }
   | { cardType: 'board-change'; cardId: string; data: { changed: string; boardTitle: string | null }; resolution: null }
   | { cardType: 'live-terminal'; cardId: string; data: { heading: string }; resolution: null }
+  | { cardType: 'plan'; cardId: string; data: { agentName: string; planText: string; isPlanTruncated: boolean }; resolution: { decision: PlanVerdict; feedback: string | null } | null }
   | { cardType: 'sign-in'; cardId: string; data: { agentName: string; stage: SignInStage }; resolution: { isSignedIn: true } | null }
   | { cardType: 'usage-limit'; cardId: string; data: UsageLimit; resolution: { isContinuingAtReset: true } | { isPassed: true } | null };
+
+export type PlanVerdict = 'approve' | 'reject';
 
 export type SignInStage = 'offered' | 'signing-in' | 'refused-key';
 

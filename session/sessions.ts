@@ -1366,8 +1366,12 @@ class Session extends EventEmitter {
     return this._approvals.planGate;
   }
 
-  holdPlanPermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
-    return this._approvals.holdPlan(payload, abandoned);
+  holdPlanPermission(payload: unknown, abandoned: AbortSignal, isPlanGateOn: boolean): Promise<ClaudeHookReply | null> | null {
+    return this._approvals.holdPlan(payload, abandoned, isPlanGateOn);
+  }
+
+  get isChatApprovalsOn(): boolean {
+    return this._readChatApprovals() !== "off";
   }
 
   proposePlan(planText: string): void {

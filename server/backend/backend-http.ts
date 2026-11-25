@@ -572,10 +572,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       const abandonedByClaudeCode = new AbortController();
       const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
       const isQuestionToolHold = output.status === 200 && req.params.event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT;
-      const isPlanGateHold = output.status === 200 && req.params.event.toLowerCase() === PLAN_GATE_HOOK_EVENT && isPlanGateOn();
+      const isPlanGateHold = output.status === 200 && req.params.event.toLowerCase() === PLAN_GATE_HOOK_EVENT;
       const heldDecision = (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdConversationPermission(payload, abandonedByClaudeCode.signal) ?? null : null)
         || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null)
-        || (isPlanGateHold ? getSession(req.params.glimmervoidId)?.holdPlanPermission(payload, abandonedByClaudeCode.signal) ?? null : null);
+        || (isPlanGateHold ? getSession(req.params.glimmervoidId)?.holdPlanPermission(payload, abandonedByClaudeCode.signal, isPlanGateOn()) ?? null : null);
       if (!heldDecision) {
         answer(null);
         return;

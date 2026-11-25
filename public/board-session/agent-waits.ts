@@ -1,5 +1,5 @@
 import { renderCard } from '../chat/chat-cards.ts';
-import { chatApprovalOf } from '../chat/chat-page.ts';
+import { chatApprovalOf, chatPlanGateOf } from '../chat/chat-page.ts';
 import { createChatWaits } from '../chat/chat-waits.ts';
 import type { ChatWaitsView } from '../chat/chat-waits.ts';
 import { sendControlMsg } from '../control-ws.ts';
@@ -56,6 +56,7 @@ export function createAgentWaits(sessionId: string, showFailure: (failureText: s
     root: element,
     view: () => view,
     getApproval: () => chatApprovalOf(sessionId),
+    getPlanGate: () => chatPlanGateOf(sessionId),
     showFailure: (failureText) => {
       if (failureText !== null) showFailure(failureText);
     },

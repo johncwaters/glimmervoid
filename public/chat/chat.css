@@ -541,6 +541,30 @@
 
 .chat-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+.chat-card-plan {
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.chat-card-feedback {
+  min-height: calc(2lh + 12px);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.chat-card-feedback:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .chat-board-change {
   display: flex;
   align-items: center;

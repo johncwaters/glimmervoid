@@ -8,6 +8,9 @@ import { shortcutHint } from '../shortcuts-core.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { BOARDS_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
+import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
+import { renderPlanBlocks } from '../plan/plan-render.ts';
+import { PLAN_GATE_FEEDBACK_MAX_CHARS } from '#shared/contracts/plan-gate.ts';
 import { keycap } from '../ui/keycap.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ChatCard, ChatCardType } from './chat-part.ts';
@@ -349,6 +352,38 @@ function renderLiveTerminalCard(card: ChatCardByType['live-terminal']): HTMLElem
   return shell;
 }
 
+const PLAN_RECEIPT_BY_VERDICT = { approve: 'Approved', reject: 'Kept planning' } as const;
+
+function planReceiptOf(resolution: NonNullable<ChatCardByType['plan']['resolution']>): string {
+  const verdictText = PLAN_RECEIPT_BY_VERDICT[resolution.decision];
+  return resolution.feedback ? `${verdictText}: ${resolution.feedback}` : verdictText;
+}
+
+function renderPlanCard(card: ChatCardByType['plan']): HTMLElement {
+  const shell = cardShell(card, `${card.data.agentName} proposes a plan`);
+  const plan = el('div', 'chat-card-plan');
+  plan.append(renderPlanBlocks(parsePlanMarkdown(card.data.planText)));
+  shell.appendChild(plan);
+  if (card.data.isPlanTruncated) shell.appendChild(el('p', 'chat-card-text', 'The plan is longer than the card shows; read the rest in the terminal.'));
+  if (card.resolution) {
+    shell.appendChild(receipt(planReceiptOf(card.resolution)));
+    return shell;
+  }
+  const feedbackInput = el('textarea', 'chat-card-feedback');
+  feedbackInput.rows = 2;
+  feedbackInput.maxLength = PLAN_GATE_FEEDBACK_MAX_CHARS;
+  feedbackInput.placeholder = 'Feedback for the agent (optional)';
+  feedbackInput.setAttribute('aria-label', 'Feedback for the agent');
+  const approveButton = button({ variant: 'primary', textCase: 'sentence', label: 'Approve', shortcutKey: '1', onClick: () => dispatchCardAction(shell, card, 'plan-approve', feedbackInput.value.trim()) });
+  const keepPlanningButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Keep planning', shortcutKey: '2', onClick: () => dispatchCardAction(shell, card, 'plan-reject', feedbackInput.value.trim()) });
+  markCardKeys(approveButton, ['1']);
+  markCardKeys(keepPlanningButton, ['2']);
+  const actions = el('div', 'chat-card-actions');
+  actions.append(approveButton, keepPlanningButton);
+  shell.append(feedbackInput, actions);
+  return shell;
+}
+
 const MS_PER_SECOND = 1000;
 const LIMIT_COUNTDOWN_SELECTOR = '.chat-limit-countdown';
 
@@ -407,6 +442,7 @@ const RENDERER_BY_CARD_TYPE = {
   'live-terminal': renderLiveTerminalCard,
   'sign-in': renderSignInCard,
   'usage-limit': renderUsageLimitCard,
+  plan: renderPlanCard,
 } satisfies ChatCardRendererTable;
 
 const rendererByCardType: ChatCardRendererTable = RENDERER_BY_CARD_TYPE;

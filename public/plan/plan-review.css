@@ -58,6 +58,8 @@ html[data-layout="phone"] .plan-control { min-height: 40px; }
   background: color-mix(in oklab, var(--accent) 6%, transparent);
 }
 
+.session-card:has(> .session-chat) > .plan-gate-panel { display: none; }
+
 .plan-gate-heading {
   margin: 0;
   color: var(--text-head);
