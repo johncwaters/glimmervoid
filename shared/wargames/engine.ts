@@ -1123,13 +1123,15 @@ function resolveVillageBattles(state: MatchState, hostileByHex: Map<number, Army
     const defensePower = villageDefensePowerOf(state, targetVillage);
     const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
     state.rngState = nextRng;
-    const jitteredTotalAttack = totalAttackPower * (0.9 + rngRoll * 0.2);
-    const defenderFalls = jitteredTotalAttack >= defensePower;
+    const roles = state.balance.roles;
+    const jitteredTotalAttack = totalAttackPower * (1 - roles.attackVariance + rngRoll * 2 * roles.attackVariance);
+    const isBeatenInBattle = jitteredTotalAttack >= defensePower;
+    const defenderFalls = isBeatenInBattle || totalTroops(defenderBefore) === 0;
 
-    const defenderLossFraction = defenderFalls ? 1 : (jitteredTotalAttack / Math.max(1, defensePower)) * 0.65;
+    const defenderLossFraction = defenderFalls ? 1 : (jitteredTotalAttack / Math.max(1, defensePower)) * roles.repelledAttackDefenderLoss;
     const defenderLost = applyDefenderCasualties(targetVillage, defenderLossFraction);
     const wallBefore = targetVillage.buildings.wall;
-    if (defenderFalls) knockDownWall(targetVillage, jitteredTotalAttack, defensePower);
+    if (isBeatenInBattle) knockDownWall(targetVillage, jitteredTotalAttack, defensePower);
 
     type HexContestOutcome =
       | { kind: 'held' }
@@ -1149,14 +1151,14 @@ function resolveVillageBattles(state: MatchState, hostileByHex: Map<number, Army
         : { kind: 'tie_bounce' };
     }
 
-    const baseDefenderToll = defenderFalls ? (defensePower / Math.max(1, jitteredTotalAttack)) * 0.65 : 1;
+    const baseDefenderToll = defenderFalls ? Math.min(roles.maxWinningAttackLoss, (defensePower / Math.max(1, jitteredTotalAttack)) * roles.winningAttackLoss) : 1;
     const resolvedAttackers = activeAttackerSeats.map((entry) => {
       let lossFraction = baseDefenderToll;
       if (contestOutcome.kind === 'tie_bounce') {
-        lossFraction = Math.min(0.9, baseDefenderToll + 0.35);
+        lossFraction = Math.min(roles.maxWinningAttackLoss, baseDefenderToll + roles.tiedAttackExtraLoss);
       }
       if (contestOutcome.kind === 'won' && entry.seatId === contestOutcome.winnerSeatId && contestOutcome.runnerUpPower > 0) {
-        lossFraction = Math.min(0.9, baseDefenderToll + (contestOutcome.runnerUpPower / Math.max(1, entry.attackPower)) * 0.45);
+        lossFraction = Math.min(roles.maxWinningAttackLoss, baseDefenderToll + (contestOutcome.runnerUpPower / Math.max(1, entry.attackPower)) * roles.contestedAttackExtraLoss);
       }
       if (contestOutcome.kind === 'won' && entry.seatId !== contestOutcome.winnerSeatId) {
         lossFraction = 1;
@@ -1352,10 +1354,10 @@ function fightOnTile(state: MatchState, rule: WargamesTerritoryRule, battle: Til
   const defensePower = rolesDefenseOf(roles, defenderBefore) * tileDefenseMultiplierOf(state, rule, battle.hexIndex, battle.holder);
   const { value: rngRoll, nextState } = nextMulberry32(state.rngState);
   state.rngState = nextState;
-  const jitteredAttack = totalAttack * (0.9 + rngRoll * 0.2);
+  const jitteredAttack = totalAttack * (1 - roles.attackVariance + rngRoll * 2 * roles.attackVariance);
   const defenderFalls = jitteredAttack >= defensePower;
-  const defenderLossFraction = defenderFalls ? 1 : (jitteredAttack / Math.max(1, defensePower)) * 0.65;
-  const attackerLossFraction = defenderFalls ? (defensePower / Math.max(1, jitteredAttack)) * 0.65 : 1;
+  const defenderLossFraction = defenderFalls ? 1 : (jitteredAttack / Math.max(1, defensePower)) * roles.repelledAttackDefenderLoss;
+  const attackerLossFraction = defenderFalls ? (defensePower / Math.max(1, jitteredAttack)) * roles.winningAttackLoss : 1;
   const strongestSeat = [...attackPowerBySeat.entries()].sort((left, right) => right[1] - left[1] || seatIndexOf(left[0]) - seatIndexOf(right[0]))[0][0];
   const defenderLost = emptyTroops();
   for (const army of battle.defenders) {

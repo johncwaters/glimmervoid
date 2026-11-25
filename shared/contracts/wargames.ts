@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_ID = 'r1' as const;
+export const WARGAMES_RULES_ID = 'r2' as const;
 const WargamesRulesId = z.literal(WARGAMES_RULES_ID);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -179,6 +179,12 @@ export interface WargamesRolesRule {
   readonly troopCapPerFarmLevel: number;
   readonly moraleFloor: number;
   readonly moraleMinAttackerPoints: number;
+  readonly repelledAttackDefenderLoss: number;
+  readonly winningAttackLoss: number;
+  readonly maxWinningAttackLoss: number;
+  readonly tiedAttackExtraLoss: number;
+  readonly contestedAttackExtraLoss: number;
+  readonly attackVariance: number;
 }
 
 export interface WargamesBalance {
@@ -209,9 +215,9 @@ export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
   victory: Object.freeze({
     beaconPoints: 4,
     targetByRadius: Object.freeze({
-      4: Object.freeze({ 4: 174, 6: 189 }),
-      6: Object.freeze({ 4: 534, 6: 516 }),
-      8: Object.freeze({ 4: 1202, 6: 1184 }),
+      4: Object.freeze({ 4: 139, 6: 151 }),
+      6: Object.freeze({ 4: 427, 6: 413 }),
+      8: Object.freeze({ 4: 962, 6: 947 }),
     }),
   }),
   sparseSites: Object.freeze({
@@ -243,6 +249,12 @@ export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
     troopCapPerFarmLevel: 20,
     moraleFloor: 0.5,
     moraleMinAttackerPoints: 20,
+    repelledAttackDefenderLoss: 0.9,
+    winningAttackLoss: 0.65,
+    maxWinningAttackLoss: 0.9,
+    tiedAttackExtraLoss: 0.35,
+    contestedAttackExtraLoss: 0.45,
+    attackVariance: 0.1,
   }),
   territory: Object.freeze({
     tilesPerPoint: 6,

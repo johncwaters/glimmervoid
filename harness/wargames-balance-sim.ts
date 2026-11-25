@@ -441,17 +441,24 @@ const COALITION_WALL_SHARE_MAX = 0.45;
 const COALITION_ENVOYS_MIN = 4;
 const COALITION_ENVOYS_MAX = 6;
 const SOLO_CAPTURE_CEILING = 0.2;
-const PAIR_CAPTURE_FLOOR = 0.6;
+const SEQUENTIAL_CAPTURE_FLOOR = 0.6;
+const DOUBLE_BUDGET_CAPTURE_FLOOR = 0.5;
+
+interface RaidWave {
+  owner: SeatId;
+  budgetShare: number;
+  bringsEnvoys: boolean;
+}
 
 interface CoalitionRow {
   name: string;
-  allyBudgetShare: number | null;
+  wavesByTurn: readonly (readonly RaidWave[])[];
 }
 
 const COALITION_ROWS: readonly CoalitionRow[] = [
-  { name: 'one seat alone (B)', allyBudgetShare: null },
-  { name: 'two allies (B + B)', allyBudgetShare: 1 },
-  { name: 'two allies (B + B/2)', allyBudgetShare: 0.5 },
+  { name: 'one seat alone (B)', wavesByTurn: [[{ owner: 's1', budgetShare: 1, bringsEnvoys: true }]] },
+  { name: 'one seat alone (2B)', wavesByTurn: [[{ owner: 's1', budgetShare: 2, bringsEnvoys: true }]] },
+  { name: 'two seats in turn (B, then B)', wavesByTurn: [[{ owner: 's1', budgetShare: 1, bringsEnvoys: false }], [{ owner: 's2', budgetShare: 1, bringsEnvoys: true }]] },
 ];
 
 function seededRandom(seed: number): () => number {
@@ -515,36 +522,38 @@ function playCoalitionRaid(row: CoalitionRow, seed: number): boolean {
   target.troops = { raider: 0, guard: 0, envoy: 0 };
   garrisonWithinFarmRoom(state, target, budget - wallLevels * wallCost);
   const envoys = COALITION_ENVOYS_MIN + Math.floor(random() * (COALITION_ENVOYS_MAX - COALITION_ENVOYS_MIN + 1));
-  const leadRaiders = unitsWithin(budget - envoys * totalCostOf(costs.envoy), costs.raider);
-  state.armies.set('lead-clear', marchingArmyAt('lead-clear', 's1', target.hexIndex, { raider: leadRaiders, guard: 0, envoy: 0 }));
-  state.armies.set('lead-wave', marchingArmyAt('lead-wave', 's1', target.hexIndex, { raider: 0, guard: 0, envoy: envoys }));
-  if (row.allyBudgetShare !== null) {
-    const allyRaiders = unitsWithin(budget * row.allyBudgetShare, costs.raider);
-    state.armies.set('ally-clear', marchingArmyAt('ally-clear', 's2', target.hexIndex, { raider: allyRaiders, guard: 0, envoy: 0 }));
-  }
   state = step(state, { type: 'seating_started' });
   for (const seat of state.seats) state = step(state, { type: 'seat_connected', seatId: seat.config.seatId });
-  state = step(state, { type: 'phase_advanced', reason: 'deadline' });
-  state = step(state, { type: 'phase_advanced', reason: 'all_submitted' });
-  return state.villages[target.hexIndex]?.owner === 's1';
+  for (const [turn, waves] of row.wavesByTurn.entries()) {
+    for (const wave of waves) {
+      const waveBudget = budget * wave.budgetShare;
+      const waveEnvoys = wave.bringsEnvoys ? envoys : 0;
+      const raiders = unitsWithin(waveBudget - waveEnvoys * totalCostOf(costs.envoy), costs.raider);
+      const armyId = `${wave.owner}-${turn}`;
+      state.armies.set(`${armyId}-clear`, marchingArmyAt(`${armyId}-clear`, wave.owner, target.hexIndex, { raider: raiders, guard: 0, envoy: 0 }));
+      if (waveEnvoys > 0) state.armies.set(`${armyId}-wave`, marchingArmyAt(`${armyId}-wave`, wave.owner, target.hexIndex, { raider: 0, guard: 0, envoy: waveEnvoys }));
+    }
+    state = step(state, { type: 'phase_advanced', reason: 'deadline' });
+    state = step(state, { type: 'phase_advanced', reason: 'all_submitted' });
+    state = step(state, { type: 'phase_advanced', reason: 'all_submitted' });
+  }
+  return state.villages[target.hexIndex]?.owner !== 's3';
 }
 
 function runCoalition(shouldAssert: boolean): void {
-  console.log(`Equal budget B per seat (${COALITION_BUDGET_MIN} to ${COALITION_BUDGET_MAX} grain+ore, ${COALITION_SEEDS.length} seeds): defender B in wall, farm room and guards, attackers B each in raiders, lead adds ${COALITION_ENVOYS_MIN} to ${COALITION_ENVOYS_MAX} envoys as a capture wave`);
+  console.log(`Budget B (${COALITION_BUDGET_MIN} to ${COALITION_BUDGET_MAX} grain+ore, ${COALITION_SEEDS.length} seeds): defender B in wall, farm room and guards; a wave spends its budget on raiders, and a capturing wave first buys ${COALITION_ENVOYS_MIN} to ${COALITION_ENVOYS_MAX} envoys`);
   console.log('| Attack | Captured |');
   console.log('|---|---|');
-  const captureRateByRow = new Map<string, number>();
+  const captureRates: number[] = [];
   for (const row of COALITION_ROWS) {
     const captures = COALITION_SEEDS.filter((seed) => playCoalitionRaid(row, seed)).length;
-    const captureRate = captures / COALITION_SEEDS.length;
-    captureRateByRow.set(row.name, captureRate);
+    captureRates.push(captures / COALITION_SEEDS.length);
     console.log(`| ${row.name} | ${percent(captures, COALITION_SEEDS.length)} |`);
   }
   if (!shouldAssert) return;
-  const soloRate = captureRateByRow.get(COALITION_ROWS[0].name) ?? 1;
-  const pairRate = captureRateByRow.get(COALITION_ROWS[1].name) ?? 0;
-  if (soloRate < SOLO_CAPTURE_CEILING && pairRate > PAIR_CAPTURE_FLOOR) return;
-  console.error(`coalition targets missed: solo ${soloRate} (needs under ${SOLO_CAPTURE_CEILING}), pair ${pairRate} (needs over ${PAIR_CAPTURE_FLOOR})`);
+  const [soloRate, doubleBudgetRate, sequentialRate] = captureRates;
+  if (soloRate < SOLO_CAPTURE_CEILING && sequentialRate > SEQUENTIAL_CAPTURE_FLOOR && doubleBudgetRate > DOUBLE_BUDGET_CAPTURE_FLOOR) return;
+  console.error(`coalition targets missed: solo B ${soloRate} (needs under ${SOLO_CAPTURE_CEILING}), sequential ${sequentialRate} (needs over ${SEQUENTIAL_CAPTURE_FLOOR}), solo 2B ${doubleBudgetRate} (needs over ${DOUBLE_BUDGET_CAPTURE_FLOOR})`);
   process.exitCode = 1;
 }
 

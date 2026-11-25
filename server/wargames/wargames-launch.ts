@@ -166,7 +166,7 @@ function captureLines(): string[] {
   const balance = WARGAMES_BALANCE;
   const roles = balance.roles;
   return [
-    '- Every village starts at 100 Loyalty. Capture is a separate wave: an army of only Envoys never fights, and Envoys drain Loyalty only once the village\'s defense is beaten this tick (an attack beat its troops and Wall), or it has no troops and no Wall.',
+    '- Every village starts at 100 Loyalty. Capture is a separate wave: an army of only Envoys never fights, and Envoys drain Loyalty only once the village\'s defense is beaten this tick (an attack beat its troops and Wall), or it has no troops left: a Wall alone does not stop Envoys.',
     `- Each surviving Envoy drains a random ${roles.captureDrainMin} to ${roles.captureDrainMax} Loyalty. Envoys marching with Raiders die with them in proportion; an Envoy-only army arriving at a defended village, or with a side that lost, is wiped.`,
   ];
 }

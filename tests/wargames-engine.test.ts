@@ -205,38 +205,42 @@ test('terrain on Large and Huge is seeded, the same around every seat, never und
   assert.equal(standard.terrain.every((kind) => kind === 'plain'), true);
 });
 
-test('v8 makes a lone raid fail where an allied pair clears the wall and its envoy-only wave captures', () => {
+test('a lone raid bounces off a guarded wall, but one seat can clear it and another seat\'s envoy-only wave takes it next turn despite the wall', () => {
   type Troops = { raider: number; guard: number; envoy: number };
-  const runRaid = (marches: readonly { owner: 's1' | 's2'; troops: Troops }[], defenders: Troops = { raider: 0, guard: 20, envoy: 0 }, owner: 's3' | null = null) => {
-    const spec: WargamesMatchSpec = { ...buildTestSpec() };
-    const state = createInitialMatchState('wg-v8-raid', 1000, spec);
-    const target = state.villages.find((village) => village && village.owner === null && !village.isBeacon);
-    assert.ok(target);
-    target.troops = defenders;
-    target.owner = owner;
-    target.buildings.wall = 3;
-    marches.forEach((march, index) => {
-      state.armies.set(`army-${index}`, {
-        id: `army-${index}`, owner: march.owner, status: 'marching', originHexIndex: target.hexIndex,
-        currentHexIndex: target.hexIndex, targetHexIndex: target.hexIndex, troops: march.troops,
-        departedTick: 0, scoutedBy: [],
-      });
-    });
-    const resolved = advanceToResolution(state);
-    const report = resolved.reportsBySeat.s1.find((entry) => entry.kind === 'battle');
-    assert.ok(report && report.kind === 'battle');
-    return { resolved, report, village: resolved.villages[target.hexIndex] };
+  const state = createInitialMatchState('wg-sequential-raid', 1000, { ...buildTestSpec() });
+  const target = present(state.villages.find((village) => village && village.owner === null && !village.isBeacon));
+  Object.assign(target, { owner: 's3', troops: { raider: 0, guard: 20, envoy: 0 } });
+  target.buildings.wall = 3;
+  const marchOn = (current: typeof state, owner: 's1' | 's2', armyId: string, troops: Troops) => current.armies.set(armyId, {
+    id: armyId, owner, status: 'marching', originHexIndex: target.hexIndex, currentHexIndex: target.hexIndex, targetHexIndex: target.hexIndex,
+    troops, departedTick: current.tick, scoutedBy: [],
+  });
+  const nextTurn = (current: typeof state) => {
+    let next = current;
+    for (const reason of ['all_submitted', 'deadline', 'all_submitted'] as const) {
+      const outcome = applyEvent(next, { seq: next.lastSeq + 1, type: 'phase_advanced', reason });
+      assert.equal(outcome.ok, true);
+      if (outcome.ok) next = outcome.state;
+    }
+    return next;
   };
 
-  const lone = runRaid([{ owner: 's1', troops: { raider: 20, guard: 0, envoy: 0 } }, { owner: 's1', troops: { raider: 0, guard: 0, envoy: 6 } }]);
-  assert.equal(lone.village?.owner, null);
-  assert.equal(lone.village?.loyalty, 100);
-  assert.equal(lone.report.wallAfter, 3);
-  assert.equal(lone.resolved.armies.get('army-1')?.status, 'destroyed');
+  const loneState = structuredClone(state);
+  marchOn(loneState, 's1', 'lone-clear', { raider: 20, guard: 0, envoy: 0 });
+  marchOn(loneState, 's1', 'lone-wave', { raider: 0, guard: 0, envoy: 6 });
+  const lone = advanceToResolution(loneState);
+  assert.equal(lone.villages[target.hexIndex]?.owner, 's3');
+  assert.equal(lone.villages[target.hexIndex]?.buildings.wall, 3);
+  assert.equal(lone.armies.get('lone-wave')?.status, 'destroyed');
 
-  const envoysAtEmptyWall = runRaid([{ owner: 's1', troops: { raider: 0, guard: 0, envoy: 6 } }], { raider: 0, guard: 0, envoy: 0 }, 's3');
-  assert.equal(envoysAtEmptyWall.village?.owner, 's3');
-  assert.equal(envoysAtEmptyWall.resolved.armies.get('army-0')?.status, 'destroyed');
+  marchOn(state, 's1', 'clear', { raider: 40, guard: 0, envoy: 0 });
+  const cleared = advanceToResolution(state);
+  const clearedVillage = present(cleared.villages[target.hexIndex]);
+  assert.deepEqual([clearedVillage.owner, clearedVillage.troops.guard], ['s3', 0]);
+  assert.ok(clearedVillage.buildings.wall > 0 && clearedVillage.buildings.wall < 3);
+  marchOn(cleared, 's2', 'wave', { raider: 0, guard: 0, envoy: 6 });
+  const captured = nextTurn(cleared);
+  assert.equal(captured.villages[target.hexIndex]?.owner, 's2');
 });
 
 test('v9 starts villages with their land ring, claims land as a front with land reports, builds improvements paid by the nearest village, halves them on capture, founds villages and scores territory VP', () => {
@@ -371,5 +375,5 @@ test('v9 starts villages with their land ring, claims land as a front with land 
 
 test('the rules id names one balance and one event schema, so a saved log replays on the rules that made it', () => {
   const rulesFingerprint = createHash('sha256').update(JSON.stringify([WARGAMES_BALANCE, z.toJSONSchema(WargamesEventSchema, { io: 'input' })])).digest('hex').slice(0, 16);
-  assert.deepEqual({ rules: WARGAMES_RULES_ID, rulesFingerprint }, { rules: 'r1', rulesFingerprint: '035de6021fe57e76' });
+  assert.deepEqual({ rules: WARGAMES_RULES_ID, rulesFingerprint }, { rules: 'r2', rulesFingerprint: '5828715e97312616' });
 });
