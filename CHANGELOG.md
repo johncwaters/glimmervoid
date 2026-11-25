@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Background dev servers no longer hold sessions in "Waiting on background work".** When an agent starts a long-lived service in a background shell (such as `npm run dev`, `pnpm start`, `python3 -m http.server`, or a local harness server), Glimmervoid now lets finished turns complete instead of holding the session in Monitoring / "Waiting on background work" for up to an hour. Finite background jobs (builds, test suites, `vite build`, harnesses) still hold completion until they finish.
-
 ## [0.65.0] - 2026-11-25
 
 ### Added
@@ -82,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Background dev servers no longer hold sessions in "Waiting on background work".** When an agent starts a long-lived service in a background shell (such as `npm run dev`, `pnpm start`, `python3 -m http.server`, or a local harness server), Glimmervoid now lets finished turns complete instead of holding the session in Monitoring / "Waiting on background work" for up to an hour. Finite background jobs (builds, test suites, `vite build`, harnesses) still hold completion until they finish.
 - **Restart fresh clears the chat too.** Restart fresh and restarting into an earlier conversation now start the chat empty, as the terminal does, and scrolling up no longer brings back the old conversation. A plain restart keeps the conversation and its history and shows a Restarted line where the new process started.
 - **Permission prompts in skip-permissions sessions show in Chat.** When a Claude Code, Codex, OpenCode or pi session running with skip-permissions still pauses for a confirmation, such as a `PreToolUse` hook asking before an MCP tool call, Chat now shows its Allow/Deny card instead of falling back to the embedded terminal. Antigravity and Kimi keep skipping normal tool prompts when skip-permissions is on.
 - **A restart no longer makes a second code map board.** A restart from the dashboard could start the new server while the old one still held the board database. The new server then saw no boards, so each code map drawn right after got a fresh board beside the old one. The server now waits for the database, and while it still cannot read the stored boards it refuses to create a board and asks to try again. Delete any duplicate code map board that is no longer updating.
