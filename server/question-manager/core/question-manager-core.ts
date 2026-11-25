@@ -173,14 +173,18 @@ export {
   MANAGER_BOOTSTRAP_PROMPT, MANAGER_ITEM_CHARS, MANAGER_PROMPT_FILENAME, MANAGER_RESULT_FILENAME, MANAGER_TIMEOUT_MS, MANAGER_UNTRUSTED_SOURCE, NO_RULE_REASON,
 };
 
-function answeredQuestionsText(verdict: ManagerAnswer): string {
-  return Object.entries(verdict.answers).map(([question, answer]) => `${question}: ${answer}`).join('; ');
+function answeredQuestionsText(answers: Readonly<Record<string, string>>): string {
+  return Object.entries(answers).map(([question, answer]) => `${question}: ${answer}`).join('; ');
 }
 
 export function questionToolDenyReason(verdict: ManagerAnswer): string {
-  return `The operator's question manager answered: ${answeredQuestionsText(verdict)}. Treat this as the operator's choice and continue without asking again.`;
+  return `The operator's question manager answered: ${answeredQuestionsText(verdict.answers)}. Treat this as the operator's choice and continue without asking again.`;
+}
+
+export function operatorAnswerDenyReason(answers: Readonly<Record<string, string>>): string {
+  return `The operator answered in Glimmervoid: ${answeredQuestionsText(answers)}. Treat this as the operator's choice and continue without asking again.`;
 }
 
 export function answeredSummary(verdict: ManagerAnswer): string {
-  return `${answeredQuestionsText(verdict)} (rule: ${verdict.ruleName})`;
+  return `${answeredQuestionsText(verdict.answers)} (rule: ${verdict.ruleName})`;
 }

@@ -3,18 +3,31 @@ import type { ChatApprovalMode, ConversationAnswers, ConversationApproval, Conve
 import { MANAGER_DECISION_AUDIT_KIND, MANAGER_DECISION_EVENT, QUESTION_TOOL_HOLD_HOOK_EVENT } from "../shared/contracts/question-manager.ts";
 import type { ManagerAnswer, ManagerDecision, ManagerVerdict } from "../shared/contracts/question-manager.ts";
 import type { QuestionDenyReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
-import { questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
-import { claudeAnswerReply, claudeApprovalFor, claudePermissionApprovalFor, isHoldReleasedByHookEvent, isReadOnlyCommandRequest, permissionReplyFor, parseClaudePermissionRequest, questionDismissedReply, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
+import { operatorAnswerDenyReason, questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
+import { areAnswersComplete, claudeAnswerReply, claudeApprovalFor, DISMISSED_FROM_CHAT, claudePermissionApprovalFor, isHoldReleasedByHookEvent, isReadOnlyCommandRequest, permissionReplyFor, parseClaudePermissionRequest, questionDismissedReply, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest, PermissionHookReply } from "./core/claude-approval-core.ts";
 import { clock } from '../shared/clock.ts';
 import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { claudePlanDecisionReply, isExitPlanModeTool, nextPlanGate, planTextOfToolInput, shouldClearPlanGate } from "./core/plan-gate-core.ts";
 import type { PlanGateEvent } from "./core/plan-gate-core.ts";
 
+type HeldReply = PermissionHookReply | QuestionToolDenyResponse;
+
+interface ChatHoldKind<Reply extends HeldReply> {
+  toAnswers(approval: ConversationApproval, answers: ConversationAnswers): Reply | null;
+  toDecision(approval: ConversationApproval, decision: PermissionDecision, denyMessage: string | null): Reply | null;
+  isReleasedBy(event: string, payload: Record<string, unknown>): boolean;
+  didHold(): void;
+  didSettle(): void;
+}
+
 interface ClaudeApprovalHold {
   request: ClaudePermissionRequest;
   approval: ConversationApproval;
-  resolve: (reply: PermissionHookReply | null) => void;
+  isReleasedBy(event: string, payload: Record<string, unknown>): boolean;
+  settleWithAnswers(answers: ConversationAnswers): boolean;
+  settleWithDecision(decision: PermissionDecision, denyMessage: string | null): boolean;
+  release(): void;
 }
 
 interface ApprovalPort<Signal extends QuestionStatusSignal> {
@@ -22,6 +35,8 @@ interface ApprovalPort<Signal extends QuestionStatusSignal> {
   ingestStatus: (signal: Signal) => void;
   noteQuestionDismissed: () => void;
   pushAuditEntry: (entry: Record<string, unknown>) => void;
+  noteQuestionHeldForChat: (toolName: string, payload: Record<string, unknown>) => void;
+  noteQuestionAnsweredFromChat: () => void;
   notePassedQuestion: (seq: number) => void;
   taskTitle: () => string | null;
 }
@@ -58,6 +73,7 @@ interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
   port: ApprovalPort<Signal>;
 }
 
+const QUESTION_TOOL_OWN_HOOK_EVENTS: ReadonlySet<string> = new Set(["pretooluse", QUESTION_TOOL_HOLD_HOOK_EVENT, "elicitation"]);
 const QUESTION_TOOL_NAMES: ReadonlySet<string> = new Set([ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME]);
 
 function questionCallKey(request: ClaudePermissionRequest): string {
@@ -319,20 +335,34 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       return null;
     }
     recordManagerAnswer(verdict);
-    const denyReason = questionToolDenyReason(verdict);
+    return questionToolDenyOf(questionToolDenyReason(verdict));
+  }
+
+  function questionToolDenyOf(denyReason: string): QuestionToolDenyResponse {
     if (questionDenyReply === "decision") return { decision: "deny", reason: denyReason };
     return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denyReason } };
+  }
+
+  function questionToolHoldKindFor(request: ClaudePermissionRequest): ChatHoldKind<QuestionToolDenyResponse> {
+    return {
+      toAnswers: (approval, answers) => (areAnswersComplete(approval, answers) ? questionToolDenyOf(operatorAnswerDenyReason(answers)) : null),
+      toDecision: (_approval, decision) => (decision === "deny" ? questionToolDenyOf(DISMISSED_FROM_CHAT) : null),
+      isReleasedBy: (event, payload) => !QUESTION_TOOL_OWN_HOOK_EVENTS.has(event.toLowerCase()) && isHoldReleasedByHookEvent(request, event, payload),
+      didHold: () => port.noteQuestionHeldForChat(request.toolName, { tool_name: request.toolName, tool_input: request.toolInput }),
+      didSettle: port.noteQuestionAnsweredFromChat,
+    };
   }
 
   function holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null {
     if (agentId === "claude-code") return null;
     const request = parseClaudePermissionRequest(payload);
     if (!request || !QUESTION_TOOL_NAMES.has(request.toolName)) return null;
-    if (!questionManager || !isManagerHolding()) {
-      settleHoldWithoutManager(request);
-      return null;
-    }
-    return holdForManager(questionManager, request, abandoned, denyReplyFromVerdict);
+    const managerReply = questionManager && isManagerHolding() ? holdForManager(questionManager, request, abandoned, denyReplyFromVerdict) : null;
+    if (managerReply === null) settleHoldWithoutManager(request);
+    if (readChatApprovals() === "off") return managerReply;
+    const holdQuestionForChat = () => holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned, questionToolHoldKindFor(request));
+    if (managerReply === null) return holdQuestionForChat();
+    return managerReply.then((reply) => (reply !== null || abandoned.aborted ? reply : holdQuestionForChat()));
   }
 
   function setConversationApproval(approval: ConversationApproval | null): void {
@@ -349,30 +379,55 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     if (!request) return null;
     if (request.toolName === ASK_USER_QUESTION_TOOL_NAME) return holdQuestion(request, abandoned);
     if (readChatApprovals() !== "questions-and-permissions" || isExitPlanModeTool(request.toolName) || isReadOnlyCommandRequest(request)) return null;
-    return holdForChat(request, (requestId) => claudePermissionApprovalFor(request, requestId), abandoned);
+    return holdForChat(request, (requestId) => claudePermissionApprovalFor(request, requestId), abandoned, claudeRepliesFor(request));
   }
 
 
   function holdQuestion(request: ClaudePermissionRequest, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null {
     if (agentId !== "claude-code") return null;
-    if (holdsQuestionsForParent) return holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned);
+    if (holdsQuestionsForParent) return holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned, claudeRepliesFor(request));
     const managerReply = questionManager && isManagerHolding() ? holdForManager(questionManager, request, abandoned, (approval, verdict) => replyFromVerdict(request, approval, verdict)) : null;
     if (managerReply === null) settleHoldWithoutManager(request);
     if (readChatApprovals() === "off") return managerReply;
-    const holdQuestionForChat = () => holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned);
+    const holdQuestionForChat = () => holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned, claudeRepliesFor(request));
     if (managerReply === null) return holdQuestionForChat();
     return managerReply.then((reply) => (reply !== null || abandoned.aborted ? reply : holdQuestionForChat()));
   }
 
-  function holdForChat(request: ClaudePermissionRequest, approvalFor: (requestId: string) => ConversationApproval, abandoned: AbortSignal): Promise<PermissionHookReply | null> {
+  function claudeRepliesFor(request: ClaudePermissionRequest): ChatHoldKind<PermissionHookReply> {
+    return {
+      toAnswers: (approval, answers) => claudeAnswerReply(request, approval, answers),
+      toDecision: decisionReplyOf,
+      isReleasedBy: (event, payload) => isHoldReleasedByHookEvent(request, event, payload),
+      didHold: () => {},
+      didSettle: () => {},
+    };
+  }
+
+  function holdForChat<Reply extends HeldReply>(request: ClaudePermissionRequest, approvalFor: (requestId: string) => ConversationApproval, abandoned: AbortSignal, replies: ChatHoldKind<Reply>): Promise<Reply | null> {
     releaseHolds((hold) => hold.request.agentKey === request.agentKey);
     const requestId = `claude-${nextApprovalNumber}`;
     nextApprovalNumber += 1;
-    return new Promise((resolve) => {
-      const hold: ClaudeApprovalHold = { request, approval: approvalFor(requestId), resolve };
+    return new Promise<Reply | null>((resolve) => {
+      const approval = approvalFor(requestId);
+      const settleWith = (reply: Reply | null): boolean => {
+        if (reply === null) return false;
+        resolve(reply);
+        replies.didSettle();
+        return true;
+      };
+      const hold: ClaudeApprovalHold = {
+        request,
+        approval,
+        isReleasedBy: replies.isReleasedBy,
+        settleWithAnswers: (answers) => settleWith(replies.toAnswers(approval, answers)),
+        settleWithDecision: (decision, denyMessage) => settleWith(replies.toDecision(approval, decision, denyMessage)),
+        release: () => resolve(null),
+      };
       holds.push(hold);
       abandoned.addEventListener("abort", () => releaseHolds((candidate) => candidate === hold), { once: true });
       showFirstApproval();
+      replies.didHold();
     });
   }
 
@@ -382,14 +437,14 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     if (planHold !== null && isHoldReleasedByHookEvent(planHold.request, event, payload)) releasePlanHold();
     if (shouldClearPlanGate(planGate, planHold !== null, normalizedEvent)) applyPlanEvent({ kind: "cleared" });
     if (holds.length === 0) return;
-    releaseHolds((hold) => isHoldReleasedByHookEvent(hold.request, event, payload));
+    releaseHolds((hold) => hold.isReleasedBy(event, payload));
   }
 
   function releaseHolds(isReleased: (hold: ClaudeApprovalHold) => boolean): void {
     const released = holds.filter(isReleased);
     if (released.length === 0) return;
     holds = holds.filter((hold) => !released.includes(hold));
-    for (const hold of released) hold.resolve(null);
+    for (const hold of released) hold.release();
     showFirstApproval();
   }
 
@@ -400,10 +455,8 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   function answer(requestId: number | string, answers: ConversationAnswers): boolean {
     const hold = holds.find((candidate) => candidate.approval.requestId === requestId);
     if (!hold) return false;
-    const reply = claudeAnswerReply(hold.request, hold.approval, answers);
-    if (!reply) return false;
+    if (!hold.settleWithAnswers(answers)) return false;
     holds = holds.filter((candidate) => candidate !== hold);
-    hold.resolve(reply);
     showFirstApproval();
     return true;
   }
@@ -417,10 +470,8 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   function decide(requestId: number | string, decision: PermissionDecision, denyMessage: string | null): boolean {
     const hold = holds.find((candidate) => candidate.approval.requestId === requestId);
     if (!hold) return false;
-    const reply = decisionReplyOf(hold.approval, decision, denyMessage);
-    if (!reply) return false;
+    if (!hold.settleWithDecision(decision, denyMessage)) return false;
     holds = holds.filter((candidate) => candidate !== hold);
-    hold.resolve(reply);
     showFirstApproval();
     if (hold.approval.kind === "question") port.noteQuestionDismissed();
     return true;
