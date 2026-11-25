@@ -2,7 +2,7 @@ import { normalizeExcludedSprites, normalizeFlyingAnimalsOptions } from './flyin
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
 import type { FocusLayout } from '#shared/contracts/focus-layout.ts';
 import { REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '#shared/settings-ranges.ts';
-import { getJSON, setJSON } from './local-store.ts';
+import { getJSON, getString, removeKeysWithPrefix, setJSON, setString } from './local-store.ts';
 import { parseFocusLayout } from './focus-view/pane-layout-core.ts';
 import type { SplitBoardBySession } from './focus-view/roster-groups-core.ts';
 import { parseSplitBoardBySession } from './focus-view/roster-groups-core.ts';
@@ -258,3 +258,14 @@ export const setLastFocusedSessionId = (id: string | null) => write('lastFocused
 export const setFlyingAnimalsExcludedSprites = (value: string[]) => write('flyingAnimalsExcludedSprites', value);
 
 export const getFlyingAnimalsOptions = () => normalizeFlyingAnimalsOptions({ flyingAnimalsExcludedSprites: read('flyingAnimalsExcludedSprites') });
+
+const CHAT_DRAFT_KEY_PREFIX = 'glimmervoid-chat-draft:';
+
+export const getChatDraft = (sessionId: string): string => (sessionId ? getString(`${CHAT_DRAFT_KEY_PREFIX}${sessionId}`) : '');
+export const setChatDraft = (sessionId: string, text: string): void => {
+  if (!sessionId) return;
+  setString(`${CHAT_DRAFT_KEY_PREFIX}${sessionId}`, text);
+};
+export const pruneChatDrafts = (liveSessionIds: ReadonlySet<string>): void => {
+  removeKeysWithPrefix(CHAT_DRAFT_KEY_PREFIX, (key) => liveSessionIds.has(key.slice(CHAT_DRAFT_KEY_PREFIX.length)));
+};

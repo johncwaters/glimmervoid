@@ -119,6 +119,9 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
     attachFiles(Array.from(event.dataTransfer.files));
   });
 
+  const notifyDraftChanged = (isImmediate: boolean) => {
+    element.dispatchEvent(new CustomEvent('chat-draft', { bubbles: true, composed: true, detail: { text: input.value, isImmediate } }));
+  };
   const submit = () => {
     const text = input.value.trim();
     if (text.length === 0 && attachedFileNames.length === 0) return;
@@ -127,10 +130,12 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
     clearAttachments();
     updateSendButton();
     fitInputHeight(input);
+    notifyDraftChanged(true);
   };
   input.addEventListener('input', () => {
     updateSendButton();
     fitInputHeight(input);
+    notifyDraftChanged(false);
   });
   input.addEventListener('focus', () => fitInputHeight(input));
   input.addEventListener('keydown', (event) => {
@@ -160,6 +165,7 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
     input.value = text;
     updateSendButton();
     fitInputHeight(input);
+    notifyDraftChanged(true);
   };
   const showAttachment = (fileName: string) => {
     if (attachedFileNames.includes(fileName)) return;

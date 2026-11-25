@@ -32,7 +32,7 @@ import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { donePanelModelOf } from './done-panel-core.ts';
-import { chatSessionStateOf, clearChatSnapshotState, noteChatOutboxEntries } from './chat-session-state.ts';
+import { chatDraftOf, chatSessionStateOf, clearChatSnapshotState, noteChatOutboxEntries, pruneChatDraftsForSessions, saveChatDraft, scheduleChatDraftSave } from './chat-session-state.ts';
 import { createOutboxEchoState, isOutboxAwaitingTurn, newestCancellableOutboxEntryOf, queuedOutboxEntriesOf, reconcileOutboxEcho, takeStandInsForPrompts } from './outbox-echo-core.ts';
 import { cardPartOf, createChatWaits } from './chat-waits.ts';
 
@@ -132,6 +132,15 @@ function attachChatListeners(targets: ChatListenerTargets): void {
       releaseSlots,
     );
   });
+  root.addEventListener('chat-draft', (event) => {
+    const text = stringDetailOf(event, 'text');
+    if (text === null) return;
+    if (detailFieldOf(event, 'isImmediate') === true) {
+      saveChatDraft(sessionId, text);
+      return;
+    }
+    scheduleChatDraftSave(sessionId, text);
+  });
   root.addEventListener('chat-send', (event) => {
     const text = stringDetailOf(event, 'text');
     if (text === null) return;
@@ -206,8 +215,8 @@ function restoreTextToSession(sessionId: string, text: string): void {
     builtChat.restoreText(text);
     return;
   }
-  const sessionState = chatSessionStateOf(sessionId);
-  sessionState.draft = draftWithRestoredText(text, sessionState.draft);
+  if (!sessionUIs.has(sessionId)) return;
+  saveChatDraft(sessionId, draftWithRestoredText(text, chatDraftOf(sessionId)));
 }
 
 function showSessionFailure(sessionId: string, failureText: string): void {
@@ -300,7 +309,7 @@ function buildChat(sessionId: string): MountedChat {
     for (const fileName of attachments) view.showAttachment(fileName);
     return view;
   };
-  let chatView = createSeededView(sessionState.draft, sessionState.draftAttachments);
+  let chatView = createSeededView(chatDraftOf(sessionId), sessionState.draftAttachments);
   sessionState.draftAttachments = [];
   const outboxEcho = createOutboxEchoState();
   const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
@@ -570,13 +579,13 @@ function buildChat(sessionId: string): MountedChat {
     park: () => {
       stopRail();
       chatView.stopActivityStats();
-      sessionState.draft = chatView.readDraft();
+      if (sessionUIs.has(sessionId)) saveChatDraft(sessionId, chatView.readDraft());
       waits.releaseTerminal();
     },
     close: () => {
       stopRail();
       chatView.stopActivityStats();
-      sessionState.draft = chatView.readDraft();
+      if (sessionUIs.has(sessionId)) saveChatDraft(sessionId, chatView.readDraft());
       sessionState.draftAttachments = chatView.readAttachments();
       waits.releaseTerminal();
       for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
@@ -669,6 +678,7 @@ export function applyChatTraceChanged(sessionId: string): void {
 
 export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[]; agentDoneLines?: readonly AgentDoneLine[] }[]): void {
   clearChatSnapshotState();
+  pruneChatDraftsForSessions(new Set(rows.map((row) => row.id)));
   for (const row of rows) {
     noteChatApproval(row.id, row.conversationApproval ?? null);
     noteChatOutbox(row.id, row.chatOutbox ?? []);

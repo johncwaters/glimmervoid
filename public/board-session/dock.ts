@@ -5,8 +5,9 @@ import { createChatFeed } from '../chat/chat-feed.ts';
 import { createComposer } from '../chat/composer.ts';
 import { listenForModelChange } from '../chat/model-picker.ts';
 import { canSwitchSessionModel } from '../session-card/card-model.ts';
+import { sessionUIs } from '../session-card/card-registry.ts';
 import { STAND_IN_UNRECORDED_MAX_MS, draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
-import { onChatOutboxNoted } from '../chat/chat-session-state.ts';
+import { chatDraftOf, onChatOutboxNoted, saveChatDraft, scheduleChatDraftSave } from '../chat/chat-session-state.ts';
 import { queuedStatusOf } from '../chat/chat-view.ts';
 import { createOutboxEchoState, reconcileOutboxEcho, takeStandInsForPrompts } from '../chat/outbox-echo-core.ts';
 import { stickToBottom } from '../chat/stick-to-bottom.ts';
@@ -303,6 +304,7 @@ export function createDock(session: DockSession): Dock {
   mentions.setAttribute('aria-label', 'Boxes');
   mentions.hidden = true;
   const composer = createComposer(() => NO_UPLOADS_URL);
+  composer.restoreDraft(chatDraftOf(session.sessionId));
   const pill = composer.element;
   pill.classList.add('bs-pill');
   pill.dataset.boardIsland = '';
@@ -799,6 +801,16 @@ export function createDock(session: DockSession): Dock {
     composer.showRail(session.railFields(canSwitchSessionModel(session.sessionId) && session.isTurnOver()));
   };
 
+  pill.addEventListener('chat-draft', (event) => {
+    const text = stringDetailOf(event, 'text');
+    if (text === null) return;
+    if (event instanceof CustomEvent && typeof event.detail === 'object' && event.detail !== null && Reflect.get(event.detail, 'isImmediate') === true) {
+      saveChatDraft(session.sessionId, text);
+      return;
+    }
+    scheduleChatDraftSave(session.sessionId, text);
+  }, { signal: dockListeners.signal });
+
   pill.addEventListener('chat-send', (event) => {
     const text = stringDetailOf(event, 'text');
     if (text === null || text.length === 0) return;
@@ -881,6 +893,7 @@ export function createDock(session: DockSession): Dock {
     },
     paintActivity,
     close: () => {
+      if (sessionUIs.has(session.sessionId)) saveChatDraft(session.sessionId, composer.readDraft());
       stopFollowingOutbox();
       stopFollowingBoardChanges();
       for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);

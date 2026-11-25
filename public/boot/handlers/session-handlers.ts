@@ -1,4 +1,5 @@
 import { applyChatSessionStatus, noteChatAgentDoneLines, noteChatApproval, noteChatOutbox } from '../../chat/chat-page.ts';
+import { forgetChatDraft } from '../../chat/chat-session-state.ts';
 import { noteBoardSessionStatusChanged } from '../../board-session/board-session-signals.ts';
 import { setSessionAccountId, setSessionWorkingDirectory, setSessionModelSelection } from '../../session-card/card-model.ts';
 import { refreshFavicon } from '../../favicon.ts';
@@ -25,7 +26,7 @@ const messageHandlers = {
   },
   'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); noteChatAgentDoneLines(msg.id, msg.agentDoneLines ?? []); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } setSessionModelSelection(msg.id, msg.modelSelection ?? null); setSessionAccountId(msg.id, msg.accountId ?? null); setSessionWorkingDirectory(msg.id, msg.workingDirectory); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
-  'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); forgetChatDraft(msg.id); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-done-lines': (msg) => noteChatAgentDoneLines(msg.id, msg.agentDoneLines),

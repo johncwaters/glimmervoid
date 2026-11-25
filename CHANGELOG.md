@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Persist unsent chat drafts across page refreshes.** Text typed into a session's Chat input or Studio's message bar is saved per session in local storage, restored after refreshing the page, cleared when sent, and cleaned up when the session is removed.
 - **Change the Orchestrator's model from Studio.** Click the model name under the Studio message bar to pick another model and effort, the same picker Chat has; the Orchestrator restarts on it and resumes its conversation. The name is clickable while the Orchestrator is idle.
 
 ### Changed
