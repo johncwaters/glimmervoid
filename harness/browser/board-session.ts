@@ -712,6 +712,11 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pollFor('the repo with no working agent to show folded to one card', BOARD_SESSION_TIMEOUT_MS, async () => await isRepoAreaFolded() === true ? true : null);
   await clickBoardBoxWhere(page, root, foldedBoardId, (element) => element.kind === 'box' && element.title === repoName);
   await pollFor('the folded repo to open when its card is clicked', BOARD_SESSION_TIMEOUT_MS, async () => await isRepoAreaFolded() === false ? true : null);
+  assert.equal(await root.getByRole('button', { name: 'Add note', exact: true }).count(), 0, 'clicking a map card never selects it for editing');
+  await clickBoardBoxWhere(page, root, foldedBoardId, (element) => element.kind === 'box' && element.title === repoName);
+  await pollFor('the open repo to fold when its card is clicked again', BOARD_SESSION_TIMEOUT_MS, async () => await isRepoAreaFolded() === true ? true : null);
+  await clickBoardBoxWhere(page, root, foldedBoardId, (element) => element.kind === 'box' && element.title === repoName);
+  await pollFor('the folded repo to open again on a third click', BOARD_SESSION_TIMEOUT_MS, async () => await isRepoAreaFolded() === false ? true : null);
   await root.getByRole('button', { name: 'Fit', exact: true }).click();
   await delay(MAP_GLIDE_SETTLE_MS);
 

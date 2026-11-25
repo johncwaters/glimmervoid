@@ -133,7 +133,8 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
   const secondRepoDir = await createRepo(tmpDir, 'second', ['.']);
   const wiring = openWhiteboardWiring({ boardsRoot: path.join(tmpDir, 'boards') });
   const busyRepoDirs = new Set<string>();
-  const codemap = createCodemapService({ whiteboards: wiring, specsRoot: path.join(tmpDir, 'specs'), isAreaIdle: (repoDir) => !busyRepoDirs.has(repoDir) });
+  const serviceFiles = { areasFilePath: path.join(tmpDir, 'studio-repos.json'), mapBoardFilePath: path.join(tmpDir, 'map-board.json') };
+  const codemap = createCodemapService({ whiteboards: wiring, areas: createStudioReposStore({ filePath: serviceFiles.areasFilePath, logger: console }), mapBoardFilePath: serviceFiles.mapBoardFilePath, specsRoot: path.join(tmpDir, 'specs'), isAreaIdle: (repoDir) => !busyRepoDirs.has(repoDir) });
   const reader = { id: 'folds-reader', name: 'reader', project: firstRepoDir };
   const areaFrameOf = async (areaTitle: string) => {
     const read = await wiring.readPlanBoard(reader, 'Code map');
@@ -178,4 +179,15 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
   busyRepoDirs.delete(firstRepoDir);
   codemap.noteBranchesChanged();
   assert.equal((await untilFolded('first', true)).isFolded, true, 'an area folds again when its last branch leaves');
+
+  assert.deepEqual(await codemap.setFolderOpen(firstRepoDir, foldedFirst.id, true), { ok: true, isOpen: true });
+  const [openFirstAtReply, movedSecondAtReply] = [await areaFrameOf('first'), await areaFrameOf('second')];
+  assert.equal(openFirstAtReply.isFolded, false);
+  assert.ok((movedSecondAtReply.left ?? 0) - (foldedFirst.left ?? 0) >= 1000, 'the area after an operator-opened one has moved by the time the open is answered');
+  assert.deepEqual(await codemap.setFolderOpen(firstRepoDir, foldedFirst.id, false), { ok: true, isOpen: false });
+  assert.equal((await areaFrameOf('second')).left, foldedSecond.left, 'the area after a folded one is back in place by the time the fold is answered');
+
+  const restartedCodemap = createCodemapService({ whiteboards: wiring, areas: createStudioReposStore({ filePath: serviceFiles.areasFilePath, logger: console }), mapBoardFilePath: serviceFiles.mapBoardFilePath, specsRoot: path.join(tmpDir, 'specs'), isAreaIdle: () => true });
+  assert.deepEqual(await restartedCodemap.setFolderOpen(firstRepoDir, foldedFirst.id, true), { ok: true, isOpen: true });
+  assert.ok(((await areaFrameOf('second')).left ?? 0) - (foldedFirst.left ?? 0) >= 1000, 'after a restart, opening an area still moves the areas after it before the open is answered');
 });

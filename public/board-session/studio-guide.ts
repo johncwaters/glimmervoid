@@ -15,7 +15,7 @@ const STEP_TEXT_BY_STEP: Record<StudioGuideStep, string> = {
 };
 const GUIDE_STEPS: readonly StudioGuideStep[] = ['talk', 'branch', 'diff', 'progress'];
 
-export type StudioMapState = 'drawn' | 'building' | 'failed';
+export type StudioMapState = 'drawn' | 'absent' | 'building' | 'failed';
 
 export interface StudioGuide {
   element: HTMLElement;
@@ -48,13 +48,16 @@ export function createStudioGuide(): StudioGuide {
   let doneSteps: ReadonlySet<StudioGuideStep> | null = null;
   let shownMapState: StudioMapState = 'drawn';
   let shownRepoLabel = '';
+  let hasShownDrawnMap = false;
+
+  const isShowingWelcome = () => !hasShownDrawnMap && (shownMapState === 'building' || shownMapState === 'failed');
 
   const isFinished = () => doneSteps !== null && GUIDE_STEPS.every((step) => doneSteps?.has(step));
 
   const paint = () => {
     element.hidden = doneSteps === null || isFinished();
     if (element.hidden) return;
-    const isWelcome = shownMapState !== 'drawn';
+    const isWelcome = isShowingWelcome();
     element.dataset.place = isWelcome ? 'center' : 'corner';
     title.textContent = isWelcome ? WELCOME_TITLE_TEXT : CORNER_TITLE_TEXT;
     lead.hidden = !isWelcome;
@@ -77,12 +80,13 @@ export function createStudioGuide(): StudioGuide {
     show: (mapState, repoLabel) => {
       shownMapState = mapState;
       shownRepoLabel = repoLabel;
+      hasShownDrawnMap = hasShownDrawnMap || mapState === 'drawn';
       paint();
     },
     markDone: (step) => {
       if (doneSteps?.has(step)) return;
       sendControlRequest('studio-guide', { step }, { timeoutMs: GUIDE_TIMEOUT_MS }).then(adopt).catch(() => {});
     },
-    isShowingWelcome: () => !element.hidden && shownMapState !== 'drawn',
+    isShowingWelcome: () => !element.hidden && isShowingWelcome(),
   };
 }

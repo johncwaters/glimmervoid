@@ -21,7 +21,7 @@ import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { Rect } from '../../shared/whiteboard-layout-core.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, matrixBoxIdOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapArea, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -442,12 +442,56 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   }
 
   async function setAreaOpen(repoDir: string, isOpen: boolean): Promise<{ ok: true; isOpen: boolean } | { ok: false; error: string }> {
-    if (isOpen) operatorOpenedRepoDirs.add(repoDir);
-    if (!isOpen) operatorOpenedRepoDirs.delete(repoDir);
-    const redrawn = await currentMap({ repoDir });
-    redrawListedAreas((listedRepos, listedIndex) => listedRepos[listedIndex]?.repoDir !== repoDir);
-    if (!('error' in redrawn) && redrawn.isBoardDrawn) return { ok: true, isOpen: !isAreaFolded(repoDir) };
-    return { ok: false, error: 'error' in redrawn ? redrawn.error : `the map area of ${path.basename(repoDir)} was not redrawn` };
+    const unmappedRepoDirs = (await areas.repos()).map((listed) => listed.repoDir).filter((listedRepoDir) => stateOf(listedRepoDir).latestStatus === null);
+    await Promise.all(unmappedRepoDirs.map((unmappedRepoDir) => currentMap({ repoDir: unmappedRepoDir })));
+    const isDrawn = await redrawFoldChange(repoDir, () => {
+      if (isOpen) operatorOpenedRepoDirs.add(repoDir);
+      if (!isOpen) operatorOpenedRepoDirs.delete(repoDir);
+    });
+    if (!isDrawn) return { ok: false, error: `the map area of ${path.basename(repoDir)} was not redrawn` };
+    return { ok: true, isOpen: !isAreaFolded(repoDir) };
+  }
+
+  function redrawFoldChange(repoDir: string, applyFoldChoice: () => void): Promise<boolean> {
+    if (!whiteboards) {
+      applyFoldChoice();
+      return Promise.resolve(true);
+    }
+    const boards = whiteboards;
+    const drawing = boardDrawing.then(async () => {
+      const wasFolded = isAreaFolded(repoDir);
+      applyFoldChoice();
+      const isFolded = isAreaFolded(repoDir);
+      if (wasFolded === isFolded) return true;
+      const listedRepos = await areas.repos();
+      const changedIndex = listedRepos.findIndex((listed) => listed.repoDir === repoDir);
+      const laterRepoDirs = listedRepos.slice(changedIndex + 1).map((listed) => listed.repoDir);
+      const drawOrder = isFolded ? [repoDir, ...laterRepoDirs] : [...laterRepoDirs, repoDir];
+      for (const drawnRepoDir of drawOrder) await drawAreaInPlace(boards, drawnRepoDir);
+      return true;
+    }).catch((error: unknown) => {
+      logger.warn(`[codemap] the map area of ${repoDir} was not ${isAreaFolded(repoDir) ? 'folded' : 'opened'}: ${errorMessage(error)}`);
+      return false;
+    });
+    boardDrawing = drawing;
+    return drawing;
+  }
+
+  async function drawAreaInPlace(boards: MapBoards, repoDir: string): Promise<void> {
+    const state = stateOf(repoDir);
+    const status = state.latestStatus;
+    if (!status) return;
+    const overlay = overlayDrawingOf(state, repoDir);
+    const shownPlace = await areaPlaceOf(repoDir);
+    await drawMapBoard(boards, repoDir, state.model, status, overlay);
+    markAreaDrawn(state, status, overlay, JSON.stringify([shownPlace.origin, shownPlace.isFolded]));
+  }
+
+  function markAreaDrawn(state: RepoMapState, status: CodemapStatus, overlay: OverlayDrawing, originKey: string): void {
+    state.drawnModel = state.model ?? state.drawnModel;
+    state.drawnStatusKey = JSON.stringify(status);
+    state.drawnOverlayKey = overlay.key;
+    state.drawnOriginKey = originKey;
   }
 
   function redrawListedAreas(isRedrawn: (listedRepos: readonly MapAreaRepo[], listedIndex: number) => boolean): void {
@@ -482,12 +526,20 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const place = await areaPlaceOf(repoDir);
     const area: MapArea = { ...place, hasRedWiresElsewhere: hasRedWiresOutside(read.board, place.repoKey) };
     const specOps = changedModel ? specPlanOpsOf(changedModel, overlay.specPlan, existingKindById, area.repoKey) : { removals: [], writes: [] };
-    const decorations = changedModel ? { ...overlay.decorations, matrixMedia: await matrixMediaOf(boards, repoDir, changedModel) } : overlay.decorations;
+    const decorations = changedModel ? { ...overlay.decorations, matrixMedia: drawnMatrixMediaOf(changedModel, read.board, place.repoKey) ?? await matrixMediaOf(boards, repoDir, changedModel) } : overlay.decorations;
     const rawOps = [...specOps.removals, ...mapStampOpsOf(status, existingKindById, area), ...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, read.board.legend, decorations, area) : []), ...overlayOpsOf(overlay.stamp, existingKindById, area), ...specOps.writes];
     for (const ops of chunkedBySize(withoutUnchangedSets(OpList.parse(rawOps), read.board))) {
       const reply = await boards.putWithoutReadCheck(caller, boardId, ops);
       if (reply.status !== 200) throw new Error(`the map board refused the regeneration: ${JSON.stringify(reply.body)}`);
     }
+  }
+
+  const modelsWithAttachedMatrix = new WeakSet<CodemapModel>();
+
+  function drawnMatrixMediaOf(model: CodemapModel, board: Pick<Board, 'elements'>, repoKey: string): BoxMedia | null {
+    if (!modelsWithAttachedMatrix.has(model)) return null;
+    const matrixBox = board.elements.get(matrixBoxIdOf(repoKey));
+    return matrixBox?.kind === 'box' ? matrixBox.media : null;
   }
 
   async function matrixMediaOf(boards: MapBoards, repoDir: string, model: CodemapModel): Promise<BoxMedia | null> {
@@ -499,6 +551,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const attached = written === null ? await boards.handleAgent(caller, { sub: 'attach', path: matrixPath }) : null;
     const media = attached ? AttachedMedia.safeParse(attached.body).data?.media ?? null : null;
     if (!media) logger.warn(`[codemap] the folder matrix of ${repoDir} was not attached, so the board keeps the one it has: ${written ?? JSON.stringify(attached?.body)}`);
+    if (media) modelsWithAttachedMatrix.add(model);
     return media;
   }
 
@@ -537,10 +590,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (!changedModel && state.drawnStatusKey === statusKey && !isOverlayChanged && !isAreaMoved) return true;
     if (clock.nowMs() < state.drawRetryAtMs) return false;
     if (await redrawMapBoard(repoDir, changedModel, status, overlay)) {
-      state.drawnModel = state.model ?? state.drawnModel;
-      state.drawnStatusKey = statusKey;
-      state.drawnOverlayKey = overlay.key;
-      state.drawnOriginKey = originKey;
+      markAreaDrawn(state, status, overlay, originKey);
       return true;
     }
     state.drawRetryAtMs = clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs;

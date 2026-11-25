@@ -1359,6 +1359,14 @@ function settleClickOpenedStacks(hasSelectionChanged: boolean): void {
   void sendOps(gatherOps);
 }
 
+function gatherClickedStack(frameId: string): void {
+  if (!selectedBoardId) return;
+  clickOpenedStacksByFrameId.delete(frameId);
+  const gatherOps: Op[] = [];
+  gatherStack(selectedBoardId, frameId, gatherOps);
+  void sendOps(gatherOps);
+}
+
 function gatherStack(boardId: string, frameId: string, gatherOps: Op[]): void {
   if (guest) {
     void guest.setStackOpen(boardId, frameId, false);
@@ -1813,6 +1821,7 @@ export function mountBoardHost(): HTMLElement {
     },
     onStackBoxes: stackBoxes,
     onOpenStack: openStack,
+    onGatherStack: gatherClickedStack,
     onClickBox: (boxId) => {
       const pullRequestUrl = pullRequestUrlOf(boxId);
       if (pullRequestUrl !== null) {

@@ -657,5 +657,5 @@ function createBoard({ id, title, nowMs, codeSessionId = null, project = null }:
   };
 }
 
-export { CODEMAP_AUTHOR, CODEMAP_ID_PREFIXES, OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, noteBoxTextOf, stageOps, unplacedNearTargetIdsOf };
+export { CODEMAP_AUTHOR, CODEMAP_ID_PREFIXES, OPERATOR_AUTHOR, applyBoardDiff, isCodemapOwnedId, applyOps, createBoard, noteBoxTextOf, stageOps, unplacedNearTargetIdsOf };
 export type { ApplyResult, Author, PinPositions, StagedOps };

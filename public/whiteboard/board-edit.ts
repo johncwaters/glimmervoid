@@ -17,6 +17,7 @@ import type { SlideChain } from '#shared/contracts/control/whiteboard-messages.t
 import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
 import type { BoardWheel } from './board-media-layer.ts';
 import { elementTableOf } from '#shared/contracts/whiteboard-element-table.ts';
+import { isCodemapOwnedId } from '#shared/contracts/whiteboard-ops-core.ts';
 import { clock } from '#shared/clock.ts';
 import { boardIndexOf, linkedIdsOf } from '#shared/whiteboard-board-index.ts';
 import { carriedWiresOf, centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf, shiftedWireOpOf } from './board-clipboard-core.ts';
@@ -97,6 +98,7 @@ interface BoardEditorOptions {
   onOpenImage: (image: PressedImage) => void;
   onStackBoxes: (targetBoxId: string, droppedBoxId: string, targetStack: Frame | null) => void;
   onOpenStack: (frameId: string) => void;
+  onGatherStack: (frameId: string) => void;
   onClickBox: (boxId: string) => void;
   isOpenedStack: (frameId: string) => boolean;
   onToolChange: (tool: BoardTool) => void;
@@ -516,7 +518,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function setSelection(nextSelectedIds: Set<string>): void {
-    selectedIds = nextSelectedIds;
+    selectedIds = new Set([...nextSelectedIds].filter((elementId) => !isCodemapOwnedId(elementId)));
     nudgeRun = null;
     renderer.setSelection(selectedIds);
     options.onSelectionChange(selectedIds);
@@ -963,6 +965,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (hit?.part === 'bend' && hit.bend) {
       startBend(event.pointerId, hit.id, hit.bend, toViewPoint(event.clientX, event.clientY));
+      return;
+    }
+    if (hit && isCodemapOwnedId(hit.id) && !isWireTool(activeTool)) {
+      gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: 'primary', tappedBoxId: hit.id, pressedImage: pressedImageOf(hit) };
       return;
     }
     const hitBoxRect = hit?.kind === 'box' ? renderer.boundsOf(hit.id) : null;
@@ -1517,6 +1523,27 @@ export function createBoardEditor(options: BoardEditorOptions) {
     });
   }
 
+  function clickCodemapCard(elementId: string): void {
+    const board = options.currentBoard();
+    if (!board) return;
+    const frames = [...board.elements.valuesOfKind('frame')];
+    const frameTopIds = new Set(frames.map((frame) => frame.contains[0]));
+    const openFramesLeft = frames.filter((frame) => !frame.collapsed && !frame.contains.includes(elementId)).map((frame) => frame.id);
+    for (const frameId of openFramesLeft) if (options.isOpenedStack(frameId)) options.onGatherStack(frameId);
+    const stack = stackTopped(elementId);
+    if (stack) {
+      options.onOpenStack(stack.id);
+      return;
+    }
+    const openAreaTopped = frames.find((frame) => !frame.collapsed && frame.contains[0] === elementId && frame.contains.slice(1).some((boxId) => frameTopIds.has(boxId)));
+    if (openAreaTopped) {
+      options.onGatherStack(openAreaTopped.id);
+      return;
+    }
+    if (board.elements.get(elementId)?.kind !== 'box') return;
+    options.onClickBox(elementId);
+  }
+
   function finishClick(drag: Extract<Gesture, { kind: 'drag' }>): void {
     toggleSelected(drag.boxId, drag.isAdditive);
     const stack = drag.isAdditive ? undefined : stackTopped(drag.boxId);
@@ -1575,6 +1602,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     if (finished?.kind !== 'pan' || finished.hasMoved || finished.pressedButton !== 'primary') return;
+    if (finished.tappedBoxId && isCodemapOwnedId(finished.tappedBoxId) && finished.pressedImage) {
+      options.onOpenImage(finished.pressedImage);
+      return;
+    }
+    if (finished.tappedBoxId && isCodemapOwnedId(finished.tappedBoxId)) {
+      clickCodemapCard(finished.tappedBoxId);
+      return;
+    }
     if (finished.pressedImage && isPhoneLayout()) {
       options.onOpenImage(finished.pressedImage);
       return;

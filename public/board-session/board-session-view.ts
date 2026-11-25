@@ -700,7 +700,7 @@ function showSession(sessionId: string | null): void {
     boardId = null;
     seatOnHost();
     mountDock();
-    showMapState('drawn');
+    showMapState('absent');
     showNotice(NO_SESSION_TEXT);
     return;
   }
