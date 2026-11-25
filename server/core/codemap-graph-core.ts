@@ -371,24 +371,52 @@ const MAP_TOP = BOARD_MARGIN + MAP_BOX_SPACING.y;
 const GENERATED_ID_MAX_LENGTH = 40;
 const GENERATED_HASH_LENGTH = 8;
 
-function generatedIdOf(prefix: string, displayPath: string, identity: string): string {
+const REPO_TAG_LENGTH = 6;
+
+type RepoKey = string;
+
+interface MapArea {
+  repoKey: RepoKey;
+  title: string;
+  origin: { x: number; y: number };
+  hasRedWiresElsewhere: boolean;
+}
+
+function repoIdPrefixOf(prefix: string, repoKey: RepoKey): string {
+  return `${prefix}${crypto.createHash('sha256').update(repoKey).digest('hex').slice(0, REPO_TAG_LENGTH)}-`;
+}
+
+function generatedIdOf(prefix: string, repoKey: RepoKey, displayPath: string, identity: string): string {
+  const repoPrefix = repoIdPrefixOf(prefix, repoKey);
   const hash = crypto.createHash('sha256').update(identity).digest('hex').slice(0, GENERATED_HASH_LENGTH);
-  const slugRoom = GENERATED_ID_MAX_LENGTH - prefix.length - hash.length - 1;
+  const slugRoom = GENERATED_ID_MAX_LENGTH - repoPrefix.length - hash.length - 1;
   const slug = displayPath.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(-slugRoom).replace(/^-+|-+$/g, '');
-  return slug ? `${prefix}${slug}-${hash}` : `${prefix}${hash}`;
+  return slug ? `${repoPrefix}${slug}-${hash}` : `${repoPrefix}${hash}`;
 }
 
-function moduleBoxIdOf(moduleId: string): string {
-  return generatedIdOf(CODEMAP_ID_PREFIXES.map, moduleId === ROOT_MODULE ? 'root' : moduleId, moduleId);
+function stampBoxIdOf(repoKey: RepoKey): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, 'map stamp', String.fromCharCode(0));
 }
 
-function fallbackBoxIdOf(model: CodemapModel): string {
-  return model.modules.some((summary) => summary.id === ROOT_MODULE) ? moduleBoxIdOf(ROOT_MODULE) : STAMP_BOX_ID;
+function matrixBoxIdOf(repoKey: RepoKey): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, 'folder matrix', `matrix${String.fromCharCode(0)}`);
 }
 
-function drawnBoxIdOfPath(model: CodemapModel, repoPath: string): string {
+function areaFrameIdOf(repoKey: RepoKey): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, 'area', `area${String.fromCharCode(0)}`);
+}
+
+function moduleBoxIdOf(repoKey: RepoKey, moduleId: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, moduleId === ROOT_MODULE ? 'root' : moduleId, moduleId);
+}
+
+function fallbackBoxIdOf(repoKey: RepoKey, model: CodemapModel): string {
+  return model.modules.some((summary) => summary.id === ROOT_MODULE) ? moduleBoxIdOf(repoKey, ROOT_MODULE) : stampBoxIdOf(repoKey);
+}
+
+function drawnBoxIdOfPath(repoKey: RepoKey, model: CodemapModel, repoPath: string): string {
   const moduleId = moduleOfPath(model, repoPath);
-  return moduleId === ROOT_MODULE ? fallbackBoxIdOf(model) : moduleBoxIdOf(moduleId);
+  return moduleId === ROOT_MODULE ? fallbackBoxIdOf(repoKey, model) : moduleBoxIdOf(repoKey, moduleId);
 }
 
 function boardTitleOf(text: string): string {
@@ -530,22 +558,22 @@ function folderTitleOf(folder: string): string {
   return folder === ROOT_MODULE ? 'repo root' : `${folder}/`;
 }
 
-function folderCardIdOf(folder: string): string {
-  return generatedIdOf(CODEMAP_ID_PREFIXES.map, `${folder} folder`, `folder\n${folder}`);
+function folderCardIdOf(repoKey: RepoKey, folder: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, `${folder} folder`, `folder\n${folder}`);
 }
 
-function branchBoxChoicesOf(model: CodemapModel, boxIdOfPath: (repoPath: string) => string): { boxId: string; title: string }[] {
+function branchBoxChoicesOf(repoKey: RepoKey, model: CodemapModel, boxIdOfPath: (repoPath: string) => string): { boxId: string; title: string }[] {
   const folders = [...new Set(model.modules.map((summary) => folderOf(summary.id)))];
   const titleOf = (moduleOrFolder: string) => moduleOrFolder === ROOT_MODULE ? REPO_ROOT_BRANCH_TITLE : moduleOrFolder.slice(-WHITEBOARD_LIMITS.title);
   return [
-    ...folders.map((folder) => ({ boxId: folderCardIdOf(folder), title: titleOf(folder) })),
-    ...model.modules.map((summary) => ({ boxId: moduleBoxIdOf(summary.id), title: titleOf(summary.id) })),
+    ...folders.map((folder) => ({ boxId: folderCardIdOf(repoKey, folder), title: titleOf(folder) })),
+    ...model.modules.map((summary) => ({ boxId: moduleBoxIdOf(repoKey, summary.id), title: titleOf(summary.id) })),
     ...model.paths.map((repoPath) => ({ boxId: boxIdOfPath(repoPath), title: repoPath.slice(-WHITEBOARD_LIMITS.title) })),
   ];
 }
 
-function folderFrameIdOf(folder: string): string {
-  return generatedIdOf(CODEMAP_ID_PREFIXES.map, `${folder} frame`, `frame\n${folder}`);
+function folderFrameIdOf(repoKey: RepoKey, folder: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, `${folder} frame`, `frame\n${folder}`);
 }
 
 function focusModulesOf(layers: ModuleLayers, overlaidModules: ReadonlySet<string>): Set<string> {
@@ -561,14 +589,13 @@ function openFoldersOf(focusModules: ReadonlySet<string>, folderChoices: Readonl
   return openFolders;
 }
 
-function folderOfMapBoxId(model: CodemapModel, boxId: string): string | null {
+function folderOfMapBoxId(repoKey: RepoKey, model: CodemapModel, boxId: string): string | null {
   for (const folder of new Set(model.modules.map((summary) => folderOf(summary.id)))) {
-    if (boxId === folderCardIdOf(folder) || boxId === folderFrameIdOf(folder)) return folder;
+    if (boxId === folderCardIdOf(repoKey, folder) || boxId === folderFrameIdOf(repoKey, folder)) return folder;
   }
   return null;
 }
 
-const MATRIX_BOX_ID = generatedIdOf(CODEMAP_ID_PREFIXES.map, 'folder matrix', `matrix${String.fromCharCode(0)}`);
 const MODULE_COLUMNS_PER_FOLDER = 6;
 const MATRIX_BOX_WIDTH = 640;
 const RED_WIRE = Object.freeze({ tone: 'fail', width: 'bold' });
@@ -596,23 +623,23 @@ function innerRowsOf(layers: ModuleLayers, folder: string): string[][] {
     .filter((row) => row.length > 0);
 }
 
-function placedFoldersOf(layers: ModuleLayers, openFolders: ReadonlySet<string>): Map<string, { x: number; y: number }> {
+function placedFoldersOf(layers: ModuleLayers, openFolders: ReadonlySet<string>, repoKey: RepoKey, origin: { x: number; y: number }): Map<string, { x: number; y: number }> {
   const placeById = new Map<string, { x: number; y: number }>();
-  let rowTop = MAP_TOP;
+  let rowTop = origin.y + MAP_TOP;
   for (const levelFolders of foldersByLevelOf(layers)) {
-    let blockLeft = 0;
+    let blockLeft = origin.x;
     let rowHeight: number = MAP_BOX_SPACING.y;
     for (const folder of levelFolders) {
       const cardPlace = { x: blockLeft, y: rowTop };
-      placeById.set(folderCardIdOf(folder), cardPlace);
+      placeById.set(folderCardIdOf(repoKey, folder), cardPlace);
       if (!openFolders.has(folder)) {
-        for (const summary of layers.modulesByFolder.get(folder) ?? []) placeById.set(moduleBoxIdOf(summary.id), cardPlace);
+        for (const summary of layers.modulesByFolder.get(folder) ?? []) placeById.set(moduleBoxIdOf(repoKey, summary.id), cardPlace);
         blockLeft += 2 * MAP_BOX_SPACING.x;
         continue;
       }
       const rows = innerRowsOf(layers, folder);
       for (const [rowIndex, row] of rows.entries()) {
-        for (const [column, moduleId] of row.entries()) placeById.set(moduleBoxIdOf(moduleId), { x: blockLeft + column * MAP_BOX_SPACING.x, y: rowTop + (rowIndex + 1) * MAP_BOX_SPACING.y });
+        for (const [column, moduleId] of row.entries()) placeById.set(moduleBoxIdOf(repoKey, moduleId), { x: blockLeft + column * MAP_BOX_SPACING.x, y: rowTop + (rowIndex + 1) * MAP_BOX_SPACING.y });
       }
       blockLeft += (Math.max(1, ...rows.map((row) => row.length)) + 1) * MAP_BOX_SPACING.x;
       rowHeight = Math.max(rowHeight, (rows.length + 1) * MAP_BOX_SPACING.y);
@@ -620,6 +647,25 @@ function placedFoldersOf(layers: ModuleLayers, openFolders: ReadonlySet<string>)
     rowTop += rowHeight + MAP_BOX_SPACING.y;
   }
   return placeById;
+}
+
+const AREA_GAP = 2 * MAP_BOX_SPACING.x;
+
+function areaWidthOf(model: CodemapModel): number {
+  const layers = moduleLayersOf(model);
+  const everyFolder = new Set(layers.modulesByFolder.keys());
+  const rightmostLeft = Math.max(0, ...[...placedFoldersOf(layers, everyFolder, '', { x: 0, y: 0 }).values()].map((place) => place.x));
+  return rightmostLeft + 2 * MAP_BOX_SPACING.x + MATRIX_BOX_WIDTH;
+}
+
+function areaOriginsOf(areas: readonly { repoKey: RepoKey; width: number }[]): Map<RepoKey, { x: number; y: number }> {
+  const originByRepoKey = new Map<RepoKey, { x: number; y: number }>();
+  let areaLeft = 0;
+  for (const area of areas) {
+    originByRepoKey.set(area.repoKey, { x: areaLeft, y: 0 });
+    areaLeft += area.width + AREA_GAP;
+  }
+  return originByRepoKey;
 }
 
 function folderMatrixCsvOf(model: CodemapModel): string {
@@ -646,60 +692,69 @@ function mapLegendOf(storedLegend: Board['legend'], hasRedWires: boolean): Board
   return [...othersLegend.slice(0, WHITEBOARD_LIMITS.legendEntries - 1), RED_WIRE_LEGEND_ENTRY];
 }
 
-function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, storedLegend: Board['legend'], { churnByModule, overlaidModules, folderChoices, matrixMedia }: MapDecorations): Record<string, unknown>[] {
+function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, storedLegend: Board['legend'], { churnByModule, overlaidModules, folderChoices, matrixMedia }: MapDecorations, { repoKey, title: areaTitle, origin, hasRedWiresElsewhere }: MapArea): Record<string, unknown>[] {
   const layers = moduleLayersOf(model);
   const focusModules = focusModulesOf(layers, overlaidModules);
   const focusFolders = openFoldersOf(focusModules, folderChoices);
-  const placeById = placedFoldersOf(layers, focusFolders);
+  const placeById = placedFoldersOf(layers, focusFolders, repoKey, origin);
+  const moduleBoxIdOfArea = (moduleId: string) => moduleBoxIdOf(repoKey, moduleId);
+  const folderCardIdOfArea = (folder: string) => folderCardIdOf(repoKey, folder);
+  const mapIdOfArea = (displayPath: string, identity: string) => generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, displayPath, identity);
+  const stampBoxId = stampBoxIdOf(repoKey);
+  const matrixBoxId = matrixBoxIdOf(repoKey);
   const isFeedback = (edge: WeightedEdge) => {
     const folder = folderOf(edge.from);
     if (folder !== folderOf(edge.to)) return layers.folders.feedbackKeys.has(edgeKeyOf(folder, folderOf(edge.to)));
     return layers.innerByFolder.get(folder)?.feedbackKeys.has(edgeKeyOf(edge.from, edge.to)) ?? false;
   };
-  const placeOf = (id: string) => ({ at: placeById.get(id) ?? { x: 0, y: MAP_TOP } });
-  const matrixLeft = Math.max(0, ...[...placeById.values()].map((place) => place.x)) + 2 * MAP_BOX_SPACING.x;
+  const placeOf = (id: string) => ({ at: placeById.get(id) ?? { x: origin.x, y: origin.y + MAP_TOP } });
+  const matrixLeft = Math.max(origin.x, ...[...placeById.values()].map((place) => place.x)) + 2 * MAP_BOX_SPACING.x;
   const moduleBoxes = model.modules.map((summary) => ({
     kind: 'box',
-    id: moduleBoxIdOf(summary.id),
+    id: moduleBoxIdOfArea(summary.id),
     title: boardTitleOf(summary.id === ROOT_MODULE ? 'repo root' : summary.id),
     lines: moduleLinesOf(summary, churnByModule),
     tone: overlaidModules.has(summary.id) ? OVERLAY_TONE : null,
     refs: summary.id !== ROOT_MODULE && AnchorRef.safeParse(summary.id).success ? [summary.id] : [],
-    place: placeOf(moduleBoxIdOf(summary.id)),
+    place: placeOf(moduleBoxIdOfArea(summary.id)),
   }));
   const folderCards = [...layers.modulesByFolder].map(([folder, summaries]) => ({
     kind: 'box',
-    id: folderCardIdOf(folder),
+    id: folderCardIdOfArea(folder),
     title: boardTitleOf(folderTitleOf(folder)),
     lines: [
       { text: `level ${layers.folders.levelById.get(folder) ?? 0}: ${summaries.length} modules, ${summaries.reduce((total, summary) => total + summary.fileCount, 0)} files`, muted: true },
       { text: `${layers.innerByFolder.get(folder)?.feedbackKeys.size ?? 0} crossed wires inside`, muted: true },
     ],
     tone: summaries.some((summary) => overlaidModules.has(summary.id)) ? OVERLAY_TONE : null,
-    place: placeOf(folderCardIdOf(folder)),
+    place: placeOf(folderCardIdOfArea(folder)),
   }));
-  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: MATRIX_BOX_ID, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: matrixLeft, y: MAP_TOP } } }] : [];
-  const frames = [...layers.modulesByFolder].map(([folder, summaries]) => ({
-    kind: 'frame', id: folderFrameIdOf(folder), title: boardTitleOf(folderTitleOf(folder)), contains: [folderCardIdOf(folder), ...summaries.map((summary) => moduleBoxIdOf(summary.id))], collapsed: !focusFolders.has(folder),
+  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: matrixBoxId, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: matrixLeft, y: origin.y + MAP_TOP } } }] : [];
+  const folderFrames = [...layers.modulesByFolder].map(([folder, summaries]) => ({
+    kind: 'frame', id: folderFrameIdOf(repoKey, folder), title: boardTitleOf(folderTitleOf(folder)), contains: [folderCardIdOfArea(folder), ...summaries.map((summary) => moduleBoxIdOfArea(summary.id))], collapsed: !focusFolders.has(folder),
   }));
   const folderWires = layers.folderEdges.map((edge) => ({
-    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.map, `${edge.to} folder`, `folder\n${edge.from}\n${edge.to}`), from: folderCardIdOf(edge.from), to: folderCardIdOf(edge.to),
+    kind: 'wire', id: mapIdOfArea(`${edge.to} folder`, `folder\n${edge.from}\n${edge.to}`), from: folderCardIdOfArea(edge.from), to: folderCardIdOfArea(edge.to),
     ...(layers.folders.feedbackKeys.has(edgeKeyOf(edge.from, edge.to)) ? { ...RED_WIRE, label: wireLabelOf(edge) } : { tone: 'plain', width: 'thin', label: null }),
   }));
   const moduleWires = layers.judgedEdges.filter((edge) => (folderOf(edge.from) === folderOf(edge.to) && isFeedback(edge)) || (focusModules.has(edge.from) && focusModules.has(edge.to))).map((edge) => ({
-    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.map, edge.to, `${edge.from}\n${edge.to}`), from: moduleBoxIdOf(edge.from), to: moduleBoxIdOf(edge.to),
+    kind: 'wire', id: mapIdOfArea(edge.to, `${edge.from}\n${edge.to}`), from: moduleBoxIdOfArea(edge.from), to: moduleBoxIdOfArea(edge.to),
     ...(isFeedback(edge) ? { ...RED_WIRE, label: wireLabelOf(edge) } : { tone: 'plain', width: 'thin', label: null }),
   }));
   const boxes = [...folderCards, ...moduleBoxes, ...matrixBoxes];
+  const keptMatrixBoxIds = matrixMedia === null && existingKindById.has(matrixBoxId) ? [matrixBoxId] : [];
+  const areaFrame = { kind: 'frame', id: areaFrameIdOf(repoKey), title: boardTitleOf(areaTitle), contains: [stampBoxId, ...keptMatrixBoxIds, ...boxes.map((box) => box.id)], collapsed: false };
+  const frames = [...folderFrames, areaFrame];
   const wires = [...folderWires, ...moduleWires];
-  const producedIds = new Set([STAMP_BOX_ID, MATRIX_BOX_ID, ...[...boxes, ...frames, ...wires].map((element) => element.id)]);
-  const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.map) && !producedIds.has(id));
+  const producedIds = new Set([stampBoxId, matrixBoxId, ...[...boxes, ...frames, ...wires].map((element) => element.id)]);
+  const areaIdPrefix = repoIdPrefixOf(CODEMAP_ID_PREFIXES.map, repoKey);
+  const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(areaIdPrefix) && !producedIds.has(id));
   const staleRemovalsOfKind = (isKind: (kind: string | undefined) => boolean) => staleIds.filter((id) => isKind(existingKindById.get(id))).map((id) => ({ op: 'remove', id }));
   const refreshOf = (element: { kind: string; id: string } & Record<string, unknown>) => {
     if (!existingKindById.has(element.id)) return { op: 'add', element };
     return { op: 'set', id: element.id, fields: generatedFieldsOf(element) };
   };
-  const hasRedWires = wires.some((wire) => wire.tone === RED_WIRE.tone);
+  const hasRedWires = hasRedWiresElsewhere || wires.some((wire) => wire.tone === RED_WIRE.tone);
   return [
     ...staleRemovalsOfKind((kind) => kind === 'wire'), ...staleRemovalsOfKind((kind) => kind === 'frame'), ...staleRemovalsOfKind((kind) => kind !== 'wire' && kind !== 'frame'),
     ...boxes.map(refreshOf), ...frames.map(refreshOf), ...wires.map(refreshOf),
@@ -723,7 +778,6 @@ function withoutUnchangedSets(ops: readonly Op[], board: Pick<Board, 'elements' 
   });
 }
 
-const STAMP_BOX_ID = generatedIdOf(CODEMAP_ID_PREFIXES.map, 'map stamp', String.fromCharCode(0));
 const STAMP_TONE_BY_STATE: Record<CodemapStatus['state'], string> = { current: 'green', behind: 'yellow', failed: 'pink' };
 
 function stampLinesOf(status: CodemapStatus): { text: string }[] {
@@ -732,29 +786,38 @@ function stampLinesOf(status: CodemapStatus): { text: string }[] {
   return lines;
 }
 
-function mapStampOpsOf(status: CodemapStatus, existingKindById: ReadonlyMap<string, string>): Record<string, unknown>[] {
+function mapStampOpsOf(status: CodemapStatus, existingKindById: ReadonlyMap<string, string>, { repoKey, origin }: Pick<MapArea, 'repoKey' | 'origin'>): Record<string, unknown>[] {
+  const stampBoxId = stampBoxIdOf(repoKey);
   const stamp = {
-    kind: 'box', id: STAMP_BOX_ID, title: `Map at ${shortSha(status.sha)}: ${status.state}`, lines: stampLinesOf(status), tone: STAMP_TONE_BY_STATE[status.state],
-    place: { at: { x: 0, y: BOARD_MARGIN } },
+    kind: 'box', id: stampBoxId, title: `Map at ${shortSha(status.sha)}: ${status.state}`, lines: stampLinesOf(status), tone: STAMP_TONE_BY_STATE[status.state],
+    place: { at: { x: origin.x, y: origin.y + BOARD_MARGIN } },
   };
-  return [existingKindById.has(STAMP_BOX_ID) ? { op: 'set', id: STAMP_BOX_ID, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
+  return [existingKindById.has(stampBoxId) ? { op: 'set', id: stampBoxId, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
 }
 
-const OVERLAY_STAMP_ID = generatedIdOf(CODEMAP_ID_PREFIXES.overlay, 'overlay stamp', String.fromCharCode(0));
 
 interface MapOverlay {
   title: string;
   lines: readonly string[];
 }
 
-function overlayOpsOf(overlay: MapOverlay | null, existingKindById: ReadonlyMap<string, string>): Record<string, unknown>[] {
-  const staleRemovals = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.overlay) && (overlay === null || id !== OVERLAY_STAMP_ID)).map((id) => ({ op: 'remove', id }));
+function overlayOpsOf(overlay: MapOverlay | null, existingKindById: ReadonlyMap<string, string>, { repoKey, origin }: Pick<MapArea, 'repoKey' | 'origin'>): Record<string, unknown>[] {
+  const overlayStampId = generatedIdOf(CODEMAP_ID_PREFIXES.overlay, repoKey, 'overlay stamp', String.fromCharCode(0));
+  const areaOverlayPrefix = repoIdPrefixOf(CODEMAP_ID_PREFIXES.overlay, repoKey);
+  const staleRemovals = [...existingKindById.keys()].filter((id) => id.startsWith(areaOverlayPrefix) && (overlay === null || id !== overlayStampId)).map((id) => ({ op: 'remove', id }));
   if (!overlay) return staleRemovals;
   const stamp = {
-    kind: 'box', id: OVERLAY_STAMP_ID, title: boardTitleOf(overlay.title), lines: overlay.lines.slice(0, WHITEBOARD_LIMITS.linesPerBox).map((text) => ({ text: text.slice(0, WHITEBOARD_LIMITS.line) })), tone: OVERLAY_TONE,
-    place: { at: { x: MAP_BOX_SPACING.x, y: BOARD_MARGIN } },
+    kind: 'box', id: overlayStampId, title: boardTitleOf(overlay.title), lines: overlay.lines.slice(0, WHITEBOARD_LIMITS.linesPerBox).map((text) => ({ text: text.slice(0, WHITEBOARD_LIMITS.line) })), tone: OVERLAY_TONE,
+    place: { at: { x: origin.x + MAP_BOX_SPACING.x, y: origin.y + BOARD_MARGIN } },
   };
-  return [...staleRemovals, existingKindById.has(OVERLAY_STAMP_ID) ? { op: 'set', id: OVERLAY_STAMP_ID, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
+  return [...staleRemovals, existingKindById.has(overlayStampId) ? { op: 'set', id: overlayStampId, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
+}
+
+function areaRemovalOpsOf(repoKey: RepoKey, existingKindById: ReadonlyMap<string, string>, storedLegend: Board['legend'], hasRedWiresElsewhere: boolean): Record<string, unknown>[] {
+  const areaPrefixes = Object.values(CODEMAP_ID_PREFIXES).map((prefix) => repoIdPrefixOf(prefix, repoKey));
+  const areaIds = [...existingKindById.keys()].filter((id) => areaPrefixes.some((areaPrefix) => id.startsWith(areaPrefix)));
+  const removalsOfKind = (isKind: (kind: string | undefined) => boolean) => areaIds.filter((id) => isKind(existingKindById.get(id))).map((id) => ({ op: 'remove', id }));
+  return [...removalsOfKind((kind) => kind === 'wire'), ...removalsOfKind((kind) => kind === 'frame'), ...removalsOfKind((kind) => kind !== 'wire' && kind !== 'frame'), { op: 'board', legend: mapLegendOf(storedLegend, hasRedWiresElsewhere) }];
 }
 
 interface SpecPlan {
@@ -764,15 +827,15 @@ interface SpecPlan {
   landedUnitIds: ReadonlySet<string>;
 }
 
-function specStepIdOf(slug: string, unitId: string): string {
-  return generatedIdOf(CODEMAP_ID_PREFIXES.steps, `${slug}-${unitId}`, `${slug}\n${unitId}`);
+function specStepIdOf(repoKey: RepoKey, slug: string, unitId: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.steps, repoKey, `${slug}-${unitId}`, `${slug}\n${unitId}`);
 }
 
-function specStepOf(slug: string, unit: DesignSpecUnit, isLanded: boolean) {
+function specStepOf(repoKey: RepoKey, slug: string, unit: DesignSpecUnit, isLanded: boolean) {
   const { title, lines } = noteBoxTextOf(`${unit.id} ${unit.title}`);
   return {
     kind: 'box',
-    id: specStepIdOf(slug, unit.id),
+    id: specStepIdOf(repoKey, slug, unit.id),
     title,
     lines: [...lines.slice(0, WHITEBOARD_LIMITS.linesPerBox - 1).map((text) => ({ text })), { text: `changes ${unit.changes.length} files`, muted: true }],
     refs: unit.changes.filter((change) => AnchorRef.safeParse(change).success).slice(0, WHITEBOARD_LIMITS.refsPerElement),
@@ -781,19 +844,22 @@ function specStepOf(slug: string, unit: DesignSpecUnit, isLanded: boolean) {
   };
 }
 
-function specPlanOpsOf(model: CodemapModel, plan: SpecPlan | null, existingKindById: ReadonlyMap<string, string>): { removals: Record<string, unknown>[]; writes: Record<string, unknown>[] } {
+function specPlanOpsOf(model: CodemapModel, plan: SpecPlan | null, existingKindById: ReadonlyMap<string, string>, repoKey: RepoKey): { removals: Record<string, unknown>[]; writes: Record<string, unknown>[] } {
   const moduleIds = new Set(model.modules.map((summary) => summary.id));
   const unitIds = new Set(plan?.units.map((unit) => unit.id) ?? []);
-  const steps = (plan?.units ?? []).map((unit) => specStepOf(plan?.slug ?? '', unit, plan?.landedUnitIds.has(unit.id) ?? false));
+  const stepIdOf = (unitId: string) => specStepIdOf(repoKey, plan?.slug ?? '', unitId);
+  const stepWireIdOf = (displayPath: string, identity: string) => generatedIdOf(CODEMAP_ID_PREFIXES.steps, repoKey, displayPath, identity);
+  const steps = (plan?.units ?? []).map((unit) => specStepOf(repoKey, plan?.slug ?? '', unit, plan?.landedUnitIds.has(unit.id) ?? false));
   const orderWires = (plan?.dependsOn ?? []).filter((edge) => unitIds.has(edge.from) && unitIds.has(edge.to)).map((edge) => ({
-    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.steps, edge.from, `${plan?.slug}\n${edge.to}\n${edge.from}`), from: specStepIdOf(plan?.slug ?? '', edge.to), to: specStepIdOf(plan?.slug ?? '', edge.from),
+    kind: 'wire', id: stepWireIdOf(edge.from, `${plan?.slug}\n${edge.to}\n${edge.from}`), from: stepIdOf(edge.to), to: stepIdOf(edge.from),
   }));
   const moduleWires = (plan?.units ?? []).flatMap((unit) => [...new Set(unit.changes.map((change) => moduleOfPath(model, change)))].filter((moduleId) => moduleIds.has(moduleId)).map((moduleId) => ({
-    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.steps, `${unit.id}-${moduleId}`, `${plan?.slug}\n${unit.id}\n${moduleId}`), from: specStepIdOf(plan?.slug ?? '', unit.id), to: moduleBoxIdOf(moduleId), dashed: true, arrows: 'none',
+    kind: 'wire', id: stepWireIdOf(`${unit.id}-${moduleId}`, `${plan?.slug}\n${unit.id}\n${moduleId}`), from: stepIdOf(unit.id), to: moduleBoxIdOf(repoKey, moduleId), dashed: true, arrows: 'none',
   })));
   const produced = [...steps, ...orderWires, ...moduleWires];
   const producedIds = new Set(produced.map((element) => element.id));
-  const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.steps) && !producedIds.has(id));
+  const areaStepPrefix = repoIdPrefixOf(CODEMAP_ID_PREFIXES.steps, repoKey);
+  const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(areaStepPrefix) && !producedIds.has(id));
   const removals = [...staleIds.filter((id) => existingKindById.get(id) === 'wire'), ...staleIds.filter((id) => existingKindById.get(id) !== 'wire')].map((id) => ({ op: 'remove', id }));
   const writes = produced.map((element) => {
     if (!existingKindById.has(element.id)) return { op: 'add', element };
@@ -1075,5 +1141,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...tangleLines, ...shallowLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
-export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };
+export { CODEMAP_EXPORT_FILE_BY_KIND, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export type { CodemapModel, MapArea, MapDecorations, MapOverlay, SpecPlan };

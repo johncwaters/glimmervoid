@@ -2677,11 +2677,11 @@ test('the code map board puts a moved box back at its generated place and keeps 
   const codemap = createCodemapService({ whiteboards: wiring, specsRoot, changesOfSession: async (sessionId) => (sessionId === 'worker' ? { name: 'worker', repos: [{ root: repoDir, paths: overlaidPaths }] } : null) });
   const reader = { id: 'codemap-reader', name: 'reader', project: repoDir };
   await codemap.handle({ repoDir }, { sub: 'map' });
-  const firstRead = await wiring.readPlanBoard(reader, 'Code map: mapped');
+  const firstRead = await wiring.readPlanBoard(reader, 'Code map');
   assert.ok(firstRead.ok);
   const boardId = firstRead.board.id;
   const libBoxId = [...firstRead.board.elements.values()].find((element) => element.kind === 'box' && element.title === 'lib')?.id ?? '';
-  assert.match(libBoxId, /^cm-lib-[0-9a-f]{8}$/);
+  assert.match(libBoxId, /^cm-[0-9a-f]{6}-lib-[0-9a-f]{8}$/);
 
   assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'set', id: libBoxId, fields: { place: { at: { x: 900, y: 900 } } } }]))).ok, true);
   const noted = await wiring.handleAgent(reader, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'lib-note', title: 'Shared parts', shape: 'note', place: { near: { of: libBoxId, side: 'right' } } } }, { op: 'add', element: { kind: 'wire', id: 'lib-note-wire', from: 'lib-note', to: libBoxId, dashed: true } }]) });

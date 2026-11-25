@@ -68,6 +68,7 @@ import { decideWasActiveFlip, shouldStartAfterModify } from '../session/core/ses
 import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
+import { createStudioReposStore } from '../board-session/studio-repos-store.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
 import { pruneOrphanedWargamesProjects } from '../wargames/wargames-launch.ts';
 import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
@@ -376,7 +377,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     codemapNoticeOf: (project) => codemap.noticeOf(project),
     studioBoardIdOf: studioMapBoardIdOf,
   });
-  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
+  const studioRepos = createStudioReposStore({ filePath: path.join(glimmervoidHomeDir(), 'studio-repos.json'), logger: console });
+  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), areas: studioRepos, configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
     changesOfSession: async (sessionId) => {
       const session = getSessionAny(sessionId);
       if (!session) return null;

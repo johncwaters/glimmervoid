@@ -11,7 +11,8 @@ import { execFileAsync } from '../server/child-process-safe.ts';
 import { createCodemapClient } from '../server/codemap/codemap-client.ts';
 import { readCodemapSetup, repoKeyOf } from '../server/codemap/codemap-store.ts';
 import { glimmervoidHomeDir } from '../server/core/config-path-core.ts';
-import { buildCodemapModel, mapBoardOpsOf } from '../server/core/codemap-graph-core.ts';
+import { buildCodemapModel, mapBoardOpsOf, mapStampOpsOf } from '../server/core/codemap-graph-core.ts';
+import { CODE_MAP_BOARD_TITLE } from '../shared/contracts/control/board-session-messages.ts';
 import { runGit } from '../server/git/git-exec.ts';
 import type { Board } from '../shared/contracts/whiteboard.ts';
 import { Element, Op, pointOfBox, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
@@ -163,8 +164,10 @@ async function codemapBoard(repoDir: string): Promise<Board> {
   const setupLookup = await readCodemapSetup(glimmervoidHomeDir(os.homedir(), process.env), repoKey);
   const moduleLayout = setupLookup.kind === 'ok' ? setupLookup.setup.modules : null;
   const model = buildCodemapModel(await createCodemapClient().extract(repoDir, head.out.trim()), moduleLayout);
-  const ops = z.array(Op).parse(mapBoardOpsOf(model, new Map(), [], { churnByModule: null, overlaidModules: new Set(), folderChoices: new Map(), matrixMedia: null }));
-  const drawn = applyOps(createBoard({ id: '00000000-0000-4000-8000-000000000001', title: `Code map: ${path.basename(repoDir)}`, nowMs: 0 }), ops, CODEMAP_AUTHOR, 0);
+  const area = { repoKey: repoDir, title: path.basename(repoDir), origin: { x: 0, y: 0 }, hasRedWiresElsewhere: false };
+  const stampOps = mapStampOpsOf({ sha: model.sha, mainlineSha: model.sha, state: 'current', reason: null }, new Map(), area);
+  const ops = z.array(Op).parse([...stampOps, ...mapBoardOpsOf(model, new Map(), [], { churnByModule: null, overlaidModules: new Set(), folderChoices: new Map(), matrixMedia: null }, area)]);
+  const drawn = applyOps(createBoard({ id: '00000000-0000-4000-8000-000000000001', title: CODE_MAP_BOARD_TITLE, nowMs: 0 }), ops, CODEMAP_AUTHOR, 0);
   if (!drawn.ok) throw new Error(`the code map of ${repoDir} did not draw: ${drawn.error}`);
   return drawn.board;
 }

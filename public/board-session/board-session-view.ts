@@ -52,7 +52,7 @@ import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
-import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX, codeMapBoardTitleOf } from '#shared/contracts/control/board-session-messages.ts';
+import { CODEMAP_BOXES_MAX_PATHS, CODE_MAP_BOARD_TITLE, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
 import type { OpenBoardAsk } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
 import { STATES } from '#shared/states.ts';
@@ -586,16 +586,13 @@ function isUnaskedPath(presencePath: string): boolean {
   return !(presencePath in boxIdByPath) && !answeredPaths.has(presencePath);
 }
 
-function titledMapBoardIdOf(sessionId: string): string | null {
-  const repoPath = sessionUIs.get(sessionId)?.path;
-  if (!repoPath) return null;
-  const title = codeMapBoardTitleOf(repoPath).toLowerCase();
-  const titledBoards = boardSummariesOf().filter((summary) => summary.title.toLowerCase() === title);
+function titledMapBoardIdOf(): string | null {
+  const titledBoards = boardSummariesOf().filter((summary) => summary.title.toLowerCase() === CODE_MAP_BOARD_TITLE.toLowerCase());
   return titledBoards.length === 1 ? titledBoards[0].id : null;
 }
 
 function knownMapBoardIdOf(sessionId: string): string | null {
-  return mapBoardIdBySessionId.get(sessionId) ?? titledMapBoardIdOf(sessionId);
+  return mapBoardIdBySessionId.get(sessionId) ?? titledMapBoardIdOf();
 }
 
 function missingMapOf(boardId: string | null): MissingMap {
