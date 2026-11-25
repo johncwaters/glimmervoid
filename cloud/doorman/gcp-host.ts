@@ -11,6 +11,7 @@ type HostAction = 'resume' | 'start' | 'stop' | 'suspend' | 'setMachineType';
 
 const COMPUTE_ORIGIN = 'https://compute.googleapis.com';
 const SETTLE_POLL_MS = 2000;
+const PENDING_OPERATION_FILTER = 'status != "DONE"';
 const OPERATION_TIMEOUT_MS = 120_000;
 const OPERATION_WAIT_REQUEST_TIMEOUT_MS = 150_000;
 const STOPPED_STATUSES: ReadonlySet<string> = new Set(['SUSPENDING', 'SUSPENDED', 'STOPPING', 'STOPPED', 'TERMINATED']);
@@ -22,6 +23,7 @@ const GceOperation = z.object({
   selfLink: z.url().optional(),
   error: z.object({ errors: z.array(z.object({ code: z.string() })).default([]) }).optional(),
 });
+const GceOperationList = z.object({ items: z.array(GceOperation.extend({ targetLink: z.string().optional() })).default([]) });
 type GceOperation = z.infer<typeof GceOperation>;
 
 function errorCodesOf(operation: GceOperation): string[] {
@@ -63,11 +65,25 @@ function createGcpHostAdapter({ fetchFn = fetch, now = clock.nowMs, settleTimeou
     }
   }
 
+  async function pendingOperationsOf(host: DoormanGcpHost): Promise<GceOperation[]> {
+    const instancePath = `/zones/${host.zone}/instances/${host.instance}`;
+    const listUrl = `${COMPUTE_ORIGIN}/compute/v1/projects/${host.project}/zones/${host.zone}/operations?filter=${encodeURIComponent(PENDING_OPERATION_FILTER)}`;
+    try {
+      const listed = GceOperationList.parse(await computeCall('GET', listUrl, `listing the pending operations of instance ${host.instance}`));
+      return listed.items.filter((operation) => operation.targetLink?.endsWith(instancePath) ?? false);
+    } catch (listError) {
+      if (!isRetryableRefusal(listError)) throw listError;
+      return [];
+    }
+  }
+
   async function settledStatus(host: DoormanGcpHost): Promise<string> {
     const deadlineMs = now() + settleTimeoutMs;
     let status = await statusUntil(host, deadlineMs);
     while ((status === null || isGceSettling(status)) && now() < deadlineMs) {
-      await sleep(settlePollMs);
+      const pendingOperations = status === null ? [] : await pendingOperationsOf(host);
+      if (pendingOperations.length === 0) await sleep(settlePollMs);
+      for (const operation of pendingOperations) await finishedOperation(operation, `a pending operation on instance ${host.instance}`);
       status = await statusUntil(host, deadlineMs);
     }
     if (status === null) throw new Error(`instance ${host.instance} status could not be read`);

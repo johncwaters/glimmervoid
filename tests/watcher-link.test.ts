@@ -1226,10 +1226,15 @@ test('a hosted doorman keeps a tenant with an owner asleep for every request and
   assert.deepEqual(wakeCalls, ['ownedtenant00001']);
 });
 
-test('the GCE host adapter resumes a suspended instance, starts a terminated one, waits out a suspend in progress and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call', async () => {
+test('the GCE host adapter resumes a suspended instance, starts a terminated one, awaits the pending operation of a suspend in progress, waits out one with no operation and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call', async () => {
   const instanceUrl = 'https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/instances/tenant-vm';
+  const operationsUrl = 'https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/operations';
+  const pendingSuspend = { status: 'RUNNING', selfLink: `${operationsUrl}/operation-suspend`, targetLink: 'https://www.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/instances/tenant-vm' };
+  const otherInstanceOperation = { status: 'RUNNING', selfLink: `${operationsUrl}/operation-other`, targetLink: 'https://www.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/instances/other-vm' };
   const statusReads: string[] = [];
   const calls: string[] = [];
+  const awaitedOperations: string[] = [];
+  let isSuspendPending = false;
   let refusesWith: number | null = null;
   const fakeGoogle: typeof fetch = async (input, init) => {
     const url = String(input);
@@ -1239,6 +1244,13 @@ test('the GCE host adapter resumes a suspended instance, starts a terminated one
     if (url === instanceUrl) {
       const status = statusReads.shift() ?? 'RUNNING';
       return status === 'BUSY' ? new Response('backend error', { status: 503 }) : Response.json({ status });
+    }
+    if (url === `${operationsUrl}?filter=${encodeURIComponent('status != "DONE"')}`) return Response.json({ items: isSuspendPending ? [otherInstanceOperation, pendingSuspend] : [otherInstanceOperation] });
+    if (url.startsWith(`${operationsUrl}/`)) {
+      assert.equal(url, `${pendingSuspend.selfLink}/wait`, 'only the instance\'s own pending operation is awaited, through zoneOperations.wait');
+      awaitedOperations.push(url);
+      isSuspendPending = false;
+      return Response.json({ ...pendingSuspend, status: 'DONE' });
     }
     calls.push(`${init?.method} ${url.slice(instanceUrl.length)}`);
     return Response.json({ kind: 'compute#operation' });
@@ -1250,8 +1262,10 @@ test('the GCE host adapter resumes a suspended instance, starts a terminated one
   await adapter.wake(tenant);
   statusReads.push('TERMINATED');
   await adapter.wake(tenant);
-  statusReads.push('SUSPENDING', 'SUSPENDING', 'SUSPENDED');
+  isSuspendPending = true;
+  statusReads.push('SUSPENDING', 'SUSPENDED');
   await adapter.wake(tenant);
+  assert.deepEqual(awaitedOperations, [`${pendingSuspend.selfLink}/wait`]);
   statusReads.push('SUSPENDING', 'BUSY', 'SUSPENDED');
   await adapter.wake(tenant);
   statusReads.push('RUNNING');

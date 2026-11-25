@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Waking or stopping a Glimmervoid Cloud host mid-transition no longer waits on a 2 second status check.** When the host is still suspending or starting, the doorman now waits on Google's own operation for that instance and acts the moment it finishes; only a shutdown started from inside the machine, which has no operation, still rereads the status.
 - **A revoked GitHub installation stops getting tokens at once on Glimmervoid Cloud.** The doorman kept a tenant's GitHub installations for up to 8 hours, so an organization that removed Glimmervoid could keep getting read tokens for hours. It now listens to the GitHub App's webhooks: an installation change rereads the tenant's installations through its own sign-in before the next token, a revoked authorization asks the tenant to reconnect, and a failed token mint rereads them too. The list otherwise refreshes hourly in case a webhook is lost.
 - **Glimmervoid Cloud routes a new or changed tenant at once.** The doorman checked its state bucket every 10 seconds; it now hears each change to the tenant table and routes through Pub/Sub.
 - **A Glimmervoid Cloud server uses its GitHub App tokens as soon as GitHub sign-in finishes.** It could wait up to an hour after sign-in finished at the doorman; the doorman now tells the awake server its GitHub connection changed.
