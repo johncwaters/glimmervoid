@@ -224,7 +224,7 @@ function withTestConcurrencyArg(argv: readonly string[], testConcurrency: number
       ? AbortSignal.any([stopController.signal, sessionController.signal])
       : stopController.signal;
     const acquired = dependencies.heavyCommandGate
-      ? await dependencies.heavyCommandGate.acquire({ sessionId, commandClass: classifyHeavyCommand(spec.command) ?? 'test', signal: waitSignal })
+      ? await dependencies.heavyCommandGate.acquire({ sessionId, toolUseId: `verify:${spec.id}`, commandClass: classifyHeavyCommand(spec.command) ?? 'test', signal: waitSignal })
       : null;
     if (acquired && acquired.status !== 'granted') return skippedOutcome(spec, 'the verification check was cancelled while waiting for a build slot');
     try {

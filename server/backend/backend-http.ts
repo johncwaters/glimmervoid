@@ -23,6 +23,8 @@ import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../.
 import { RESUME_NOTE_HOOK_EVENT } from '../../shared/contracts/refocus.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import type { PrFlowsWiring } from '../github/pr-flows-wiring.ts';
+import { classifyHeavyCommand } from '../spawn-gate.ts';
+import type { HeavyCommandGate } from '../spawn-gate.ts';
 import { PR_ACTION_REPORT_BODY_CAP_BYTES, PR_ACTION_REPORT_ROUTE, PrActionReportBody } from '../../shared/contracts/pr-flows.ts';
 import { mountAgentMcp } from '../../mcp/server.ts';
 import type { WargamesSeatPort } from '../../mcp/wargames-tools.ts';
@@ -142,6 +144,8 @@ interface BackendHttpDependencies {
   githubUserCredential?: () => Promise<GithubUserGrant | null>;
   recordOutcome?: OutcomeRecorder;
   isPlanGateOn?: () => boolean;
+  heavyCommandGate?: HeavyCommandGate;
+  heavyPreToolHoldMs?: number;
   previewPortOf?: (sessionId: string) => number | null;
   logger?: Pick<Console, 'warn'>;
 }
@@ -234,7 +238,7 @@ function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tok
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWargames' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'githubUserCredential' | 'recordOutcome' | 'isPlanGateOn' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWargames' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'githubUserCredential' | 'recordOutcome' | 'isPlanGateOn' | 'heavyCommandGate' | 'heavyPreToolHoldMs' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -495,6 +499,43 @@ function mountHostAllowList(app: Express, allowedHosts: string[]): void {
   });
 }
 
+const DEFAULT_HEAVY_PRETOOL_HOLD_MS = 25_000;
+const SHELL_TOOL_NAME_PATTERN = /^(?:bash|shell|terminal|run_command|execute_command|run_terminal_cmd|exec_command)$/i;
+
+function toolNameFromHookPayload(payload: Record<string, unknown>): string {
+  if (typeof payload.tool_name === 'string') return payload.tool_name;
+  if (typeof payload.toolName === 'string') return payload.toolName;
+  const toolCall = payload.toolCall && typeof payload.toolCall === 'object' ? payload.toolCall as Record<string, unknown> : null;
+  return typeof toolCall?.name === 'string' ? toolCall.name : '';
+}
+
+function isShellToolPayload(payload: Record<string, unknown>): boolean {
+  const toolName = toolNameFromHookPayload(payload);
+  return !toolName || SHELL_TOOL_NAME_PATTERN.test(toolName);
+}
+
+function shellCommandFromHookPayload(payload: Record<string, unknown>): string | null {
+  if (!isShellToolPayload(payload)) return null;
+  const rawInput = payload.tool_input ?? payload.toolInput;
+  const toolInput = rawInput && typeof rawInput === 'object' ? rawInput as Record<string, unknown> : null;
+  const toolCall = payload.toolCall && typeof payload.toolCall === 'object' ? payload.toolCall as Record<string, unknown> : null;
+  const toolCallArgs = toolCall?.args && typeof toolCall.args === 'object' ? toolCall.args as Record<string, unknown> : null;
+  const candidates = [toolInput?.command, toolInput?.CommandLine, toolInput?.cmd, toolCallArgs?.CommandLine, toolCallArgs?.command, payload.command];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
+  return null;
+}
+
+function toolUseIdFromHookPayload(payload: Record<string, unknown>): string | null {
+  const toolCall = payload.toolCall && typeof payload.toolCall === 'object' ? payload.toolCall as Record<string, unknown> : null;
+  const candidates = [payload.tool_use_id, payload.toolUseId, payload.tool_call_id, payload.call_id, toolCall?.id];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
+  return null;
+}
+
 function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDependencies): void {
   const {
     hookRouter,
@@ -508,6 +549,8 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     getWhiteboardLayouts = () => null,
     recordOutcome = () => {},
     isPlanGateOn = () => false,
+    heavyCommandGate,
+    heavyPreToolHoldMs = DEFAULT_HEAVY_PRETOOL_HOLD_MS,
     logger = console,
   } = dependencies;
 
@@ -531,6 +574,11 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       if (SILENT_OVERSIZE_HOOK_EVENTS.has(hookEventName)) return;
       logger.warn(`[hook] ${hookEventName} body of ${declaredBytes} bytes is over the ${bodyCapBytes} byte cap and was refused`);
     };
+    const abandonedByClaudeCode = new AbortController();
+    res.on('close', () => {
+      if (res.writableFinished) return;
+      abandonedByClaudeCode.abort();
+    });
     void readCappedBody(req, bodyCapBytes, overCap).then(async (body) => {
       if (body === null) return;
       const token = presentedToken(req);
@@ -570,23 +618,43 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         }
         res.status(200).json(replyForAgent);
       };
-      const abandonedByClaudeCode = new AbortController();
-      const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
-      const isQuestionToolHold = output.status === 200 && req.params.event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT;
-      const isPlanGateHold = output.status === 200 && req.params.event.toLowerCase() === PLAN_GATE_HOOK_EVENT;
-      const isElicitationHold = output.status === 200 && req.params.event.toLowerCase() === ELICITATION_HOOK_EVENT;
+      const eventLower = req.params.event.toLowerCase();
+      if (output.status === 200 && heavyCommandGate && (eventLower === 'posttooluse' || eventLower === 'posttoolusefailure')) {
+        const toolUseId = toolUseIdFromHookPayload(payload);
+        if (toolUseId !== null || isShellToolPayload(payload)) {
+          heavyCommandGate.releaseByToolUse(req.params.glimmervoidId, toolUseId);
+        }
+      }
+      const isConversationPermission = output.status === 200 && eventLower === CONVERSATION_PERMISSION_HOOK_EVENT;
+      const isQuestionToolHold = output.status === 200 && eventLower === QUESTION_TOOL_HOLD_HOOK_EVENT;
+      const isPlanGateHold = output.status === 200 && eventLower === PLAN_GATE_HOOK_EVENT;
+      const isElicitationHold = output.status === 200 && eventLower === ELICITATION_HOOK_EVENT;
+      const isResponseClosed = res.destroyed || res.closed || res.writableEnded || abandonedByClaudeCode.signal.aborted;
+      const heavyCommandClass = output.status === 200 && !isResponseClosed && heavyCommandGate && eventLower === 'pretooluse'
+        ? classifyHeavyCommand(shellCommandFromHookPayload(payload) ?? '')
+        : null;
       const heldDecision = (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdConversationPermission(payload, abandonedByClaudeCode.signal) ?? null : null)
         || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null)
         || (isPlanGateHold ? getSession(req.params.glimmervoidId)?.holdPlanPermission(payload, abandonedByClaudeCode.signal, isPlanGateOn()) ?? null : null)
-        || (isElicitationHold ? getSession(req.params.glimmervoidId)?.holdElicitation(payload, abandonedByClaudeCode.signal) ?? null : null);
+        || (isElicitationHold ? getSession(req.params.glimmervoidId)?.holdElicitation(payload, abandonedByClaudeCode.signal) ?? null : null)
+        || (heavyCommandClass && heavyCommandGate
+          ? heavyCommandGate.acquire({
+            sessionId: req.params.glimmervoidId,
+            toolUseId: toolUseIdFromHookPayload(payload),
+            commandClass: heavyCommandClass,
+            maxWaitMs: heavyPreToolHoldMs,
+            signal: abandonedByClaudeCode.signal,
+          }).then((outcome) => {
+            if (outcome.status === 'granted' && (res.destroyed || res.closed || res.writableEnded || abandonedByClaudeCode.signal.aborted)) {
+              heavyCommandGate.release(outcome.lease.id);
+            }
+            return null;
+          })
+          : null);
       if (!heldDecision) {
         answer(null);
         return;
       }
-      res.on('close', () => {
-        if (res.writableFinished) return;
-        abandonedByClaudeCode.abort();
-      });
       heldDecision.then(answer, () => { answer(null); });
     });
   });

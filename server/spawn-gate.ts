@@ -447,7 +447,7 @@ function createHeavyCommandGate({
       return;
     }
     for (const [leaseId, active] of activeById) {
-      if (active.lease.sessionId === sessionId) {
+      if (active.lease.sessionId === sessionId && active.lease.toolUseId === null) {
         release(leaseId);
         return;
       }

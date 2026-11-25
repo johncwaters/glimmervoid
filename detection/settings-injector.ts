@@ -252,7 +252,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   hooks.PostToolUseFailure = [{ matcher: FAILED_SHELL_TOOL_MATCHER, hooks: [{ type: 'http', url: hookUrl('PostToolUseFailure'), timeout: timeoutSec }] }];
   const preToolUse: SettingsHookEntry[] = [];
   if (observeToolCalls) {
-    preToolUse.push({ hooks: [{ type: 'http', url: hookUrl('PreToolUse'), timeout: timeoutSec }] });
+    preToolUse.push({ hooks: [{ type: 'http', url: hookUrl('PreToolUse'), timeout: Math.max(timeoutSec, 30) }] });
   }
   for (const tool of hookTools) preToolUse.push(HOOK_TOOLS[tool.id].claudeEntry(tool));
   if (preToolUse.length > 0) {

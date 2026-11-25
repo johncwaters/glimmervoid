@@ -100,7 +100,7 @@ test('the question hold event outwaits the plain post timeout and prints only it
   const stdout = { write: (text: string) => printed.push(text) };
   try {
     const held = await main([QUESTION_TOOL_HOLD_HOOK_EVENT], fakeStdin('{}'), env, stdout);
-    const plain = await main(['PreToolUse'], fakeStdin('{}'), env, stdout);
+    const plain = await main(['PostToolUse'], fakeStdin('{}'), env, stdout);
     assert.equal(held.reason, 'status-200');
     assert.equal(plain.reason, 'timeout');
     assert.deepEqual(printed.map((text) => JSON.parse(text)), [deny]);

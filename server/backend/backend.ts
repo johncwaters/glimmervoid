@@ -235,7 +235,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onConfigSaved: (freshConfig) => applyConfigReload(freshConfig),
   });
   const { agentAccounts, agentIngressServer, getHookPort, ghShimDir, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner } = sessionRuntime;
-
+  const hostResourceProfile = resolveHostResourceProfile(os.totalmem());
+  const heavyCommandGate = createHeavyCommandGate({
+    maxSlots: hostResourceProfile.heavyCommandSlots,
+    defaultLeaseTtlMs: hostResourceProfile.leaseTtlMs,
+  });
 
   const agentIngressDependencies: AgentIngressDependencies = {
     allowedHosts,
@@ -264,6 +268,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     githubUserCredential: () => githubUserCredentialOfLink(),
     recordOutcome,
     isPlanGateOn: () => isPlanGateEnabled(configStore.config.planGate),
+    heavyCommandGate,
+    heavyPreToolHoldMs: hostResourceProfile.preToolHoldMs,
     logger: console,
   };
   const frameSecret = crypto.randomBytes(32);
@@ -334,6 +340,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     void whiteboards.forgetSession(message.id);
     void reviews.forgetSession(message.id);
     verification.forgetSession(message.id);
+    heavyCommandGate.releaseSession(message.id);
     laneAssembly.sessionReview.forgetSession(message.id);
     sessionPreviews.forget(message.id);
     forgetSessionInSavedOrder(message.id);
@@ -396,11 +403,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const agentSessions = new Map<string, Session>();
   const fileClaims = createFileClaims({ findLiveSession: (sessionId) => allLiveSessions().find((session) => session.id === sessionId && session.state !== STATES.DONE && session.state !== STATES.FAILED) ?? null });
   const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), scanFiles: createCodemapClient().scanFiles, claimsByOthersOf: fileClaims.claimsByOthersOf });
-  const hostResourceProfile = resolveHostResourceProfile(os.totalmem());
-  const heavyCommandGate = createHeavyCommandGate({
-    maxSlots: hostResourceProfile.heavyCommandSlots,
-    defaultLeaseTtlMs: hostResourceProfile.leaseTtlMs,
-  });
   const verification = createVerificationWiring({
     getVerificationConfig: () => configStore.config.verification,
     builtInChecks: { outcomesOf: async (session, commitSha) => [...await codemap.builtInChecksOf(session, commitSha), ...await whiteboards.layoutChecksOf(session.id)], requiredIdsOf: (session) => codemap.requiredCheckIdsOf(session), freshnessOf: (session) => whiteboards.layoutFreshnessOf(session.id) },
@@ -675,6 +677,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     };
     session.on('state-change', noteIfBusy);
     session.on('agents-change', noteIfBusy);
+    session.on('exit', () => heavyCommandGate.releaseSession(session.id));
+    session.on('teardown', () => heavyCommandGate.releaseSession(session.id));
     session.on('pr-links-change', studioPrCards.syncSoon);
     agentApi?.watchSessionWakes(session);
     agentApi?.linkBranchSession(session);

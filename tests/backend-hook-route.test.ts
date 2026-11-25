@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createAgentIngressApp, listenAgentIngressSocket } from '../server/backend/backend-http.ts';
+import { createHeavyCommandGate } from '../server/spawn-gate.ts';
 import type { OutcomeName } from '../shared/outcome-names.ts';
 import type { Session } from '../session/sessions.ts';
 import { main as relayHook } from '../session/hook-relay.ts';
@@ -479,6 +480,65 @@ test('a Claude conversation gets the Glimmervoid start line with its first promp
   assert.equal((await postHook('UserPromptSubmit', { prompt: 'second' })).hookSpecificOutput, undefined);
 });
 
+
+test('PreToolUse queues heavy shell commands on heavyCommandGate and releases on PostToolUse or PostToolUseFailure', async () => {
+  const gate = createHeavyCommandGate({ maxSlots: 1, defaultLeaseTtlMs: 30_000 });
+  const ingressApp = createAgentIngressApp({
+    allowedHosts: [],
+    hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
+    getSession: () => null,
+    getUsage: () => ({ ingestStatusline: () => {} }),
+    heavyCommandGate: gate,
+    heavyPreToolHoldMs: 500,
+    logger: { warn: () => {} },
+  });
+  const ingressServer = http.createServer(ingressApp);
+  await listenOnLoopback(ingressServer);
+  const ingressBase = `http://127.0.0.1:${boundPort(ingressServer)}`;
+  const post = (sessionId: string, event: string, payload: Record<string, unknown>) => fetch(`${ingressBase}/hook/${sessionId}/${event}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  try {
+    const first = await post('sess-a', 'PreToolUse', { tool_name: 'Bash', tool_use_id: 'tu-1', tool_input: { command: 'npm test' } });
+    assert.equal(first.status, 200);
+    assert.equal(gate.snapshot().active.length, 1);
+
+    const light = await post('sess-b', 'PreToolUse', { tool_name: 'Bash', tool_use_id: 'tu-light', tool_input: { command: 'git status' } });
+    assert.equal(light.status, 200);
+
+    let secondResolved = false;
+    const secondPromise = post('sess-b', 'PreToolUse', { tool_name: 'Bash', tool_use_id: 'tu-2', tool_input: { command: 'npx tsc --noEmit' } })
+      .then((response) => { secondResolved = true; return response; });
+    for (let attempt = 0; attempt < 100 && gate.snapshot().queuedCount === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(secondResolved, false);
+    assert.equal(gate.snapshot().queuedCount, 1);
+
+    const unrelatedRead = await post('sess-a', 'PostToolUse', { tool_name: 'Read', tool_call_id: 'kimi-read-1' });
+    assert.equal(unrelatedRead.status, 200);
+    assert.equal(gate.snapshot().active.length, 1);
+    assert.equal(gate.snapshot().queuedCount, 1);
+
+    const releaseA = await post('sess-a', 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'tu-1' });
+    assert.equal(releaseA.status, 200);
+    const second = await secondPromise;
+    assert.equal(second.status, 200);
+    assert.equal(gate.snapshot().active.length, 1);
+    assert.equal(gate.snapshot().active[0]?.sessionId, 'sess-b');
+
+    const releaseB = await post('sess-b', 'PostToolUseFailure', { tool_name: 'Bash', tool_use_id: 'tu-2' });
+    assert.equal(releaseB.status, 200);
+    assert.equal(gate.snapshot().active.length, 0);
+  } finally {
+    gate.stop();
+    ingressServer.closeAllConnections();
+    await closeServer(ingressServer);
+  }
+});
 
 test('a backend boot adds no listener past the control socket server limit', () => {
   assert.deepEqual(bootWarnings.filter((warning) => warning.name === 'MaxListenersExceededWarning').map((warning) => warning.message), []);

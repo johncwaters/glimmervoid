@@ -6,6 +6,7 @@ const MAX_PAYLOAD_BYTES = 65536;
 const MAX_PAYLOAD_BYTES_BY_EVENT: Record<string, number> = { agentstate: 512 * 1024 };
 const MAX_RESPONSE_BYTES = 65536;
 const POST_TIMEOUT_MS = 1500;
+const PRETOOLUSE_HOLD_TIMEOUT_MS = 30_000;
 
 
 const EVENT_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
@@ -71,7 +72,11 @@ function decideRelayPost(
   if (payloadBytes > (MAX_PAYLOAD_BYTES_BY_EVENT[name] ?? MAX_PAYLOAD_BYTES)) return refusedPost("payload-too-large");
   const target = resolveHookTarget(baseUrl, name);
   if (!target.url) return refusedPost(target.reason);
-  const postTimeoutMs = HELD_RELAY_HOOK_EVENTS.has(name) ? QUESTION_TOOL_HOLD_TIMEOUT_MS : POST_TIMEOUT_MS;
+  const postTimeoutMs = HELD_RELAY_HOOK_EVENTS.has(name)
+    ? QUESTION_TOOL_HOLD_TIMEOUT_MS
+    : name === "pretooluse"
+      ? PRETOOLUSE_HOLD_TIMEOUT_MS
+      : POST_TIMEOUT_MS;
   return { post: true, url: target.url, event: name, postTimeoutMs, reason: "ok" };
 }
 
