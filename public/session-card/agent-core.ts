@@ -1,6 +1,10 @@
 export const DEFAULT_AGENT_ID = 'claude-code';
 export const SHELL_AGENT_ID = 'shell';
 
+export function removeActionLabel(agentId: string | null | undefined) {
+  return agentId === SHELL_AGENT_ID ? 'Remove terminal' : 'Remove session';
+}
+
 interface AgentOption {
   id?: unknown;
   label?: unknown;

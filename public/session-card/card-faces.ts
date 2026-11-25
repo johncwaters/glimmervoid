@@ -1,7 +1,7 @@
 import type { SessionState } from '#shared/states.ts';
 import { ownerIdOf } from '#shared/parent-link.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
-import { SHELL_AGENT_ID } from './agent-core.ts';
+import { removeActionLabel, SHELL_AGENT_ID } from './agent-core.ts';
 import { showsDebugItems } from './card-debug.ts';
 import { queryCardPart } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -16,7 +16,15 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnTrace.classList.toggle('visible', showsDebugItems(ui));
   ui.btnDebug.classList.toggle('visible', showsDebugItems(ui));
   queryCardPart(ui.card, '.overflow-snooze')?.classList.toggle('visible', (isKillable(state) || state === STATES.DONE) && !ownerIdOf(ui.parent) && ui.card.dataset.ephemeral === undefined && ui.agent !== SHELL_AGENT_ID);
+  paintRemoveLabel(ui);
   queryCardPart(ui.card, '.overflow-link-pr')?.classList.toggle('visible', ui.agent !== SHELL_AGENT_ID);
+}
+
+function paintRemoveLabel(ui: SessionUi) {
+  const label = removeActionLabel(ui.agent);
+  const removeMenuItem = queryCardPart(ui.card, '.overflow-remove');
+  if (removeMenuItem && removeMenuItem.textContent !== label) removeMenuItem.textContent = label;
+  if (ui.btnRemove.getAttribute('aria-label') !== label) ui.btnRemove.setAttribute('aria-label', label);
 }
 
 export { updateButtonVisibility };

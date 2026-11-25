@@ -14,7 +14,7 @@ import { attentionTally, sessionName, sessionUIs } from './session-card/card-reg
 import { CLOSING_ROW_STATE, CONFIRM_REMOVE_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS, armedRemovalReason, confirmArmedRemoval, keepArmedSession, pendingCloseStartedAt } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
-import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
+import { removeActionLabel, SHELL_AGENT_ID } from './session-card/agent-core.ts';
 import { sessionElapsedText } from './session-card/session-tick.ts';
 import { SIGNAL_TIER } from './signal-core.ts';
 import type { Signal } from './signal-core.ts';
@@ -336,9 +336,15 @@ export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: str
   paintCloseCountdown(row, deleteStartedAt);
 }
 
+function paintRowRemoveLabel(row: HTMLElement, agentId: string | null) {
+  const removeButton = row.parentElement?.querySelector<HTMLElement>(':scope > [data-action="remove-session"]');
+  if (removeButton) writeAttributeIfChanged(removeButton, 'aria-label', removeActionLabel(agentId));
+}
+
 function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi, state: string) {
   const isShell = ui.agent === SHELL_AGENT_ID;
   row.toggleAttribute('data-shell', isShell);
+  paintRowRemoveLabel(row, ui.agent ?? null);
   if (isShell) return paintShellRowMark(row, refs);
   return paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind, ui.usageLimit ?? null);
 }

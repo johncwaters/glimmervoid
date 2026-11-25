@@ -5,6 +5,7 @@ import { buildSessionRows } from './attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
 import { sendSessionAction } from './session-card/card-actions.ts';
+import { removeActionLabel } from './session-card/agent-core.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
@@ -139,16 +140,15 @@ export function spawnQuickSession(sourceId: string) {
 }
 
 const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;
-const REMOVE_SESSION_ERROR_SOURCE = 'Remove session';
 
 function reportRemovalRefusal(ui: SessionUi, id: string, reply: ServerMessageOf<'remove-session-result'>) {
   if (!reply.canDiscardWork) {
-    reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${reply.error ?? 'the server gave no reason'}. Try Remove again from its actions menu.` });
+    reportHeaderError({ source: removeActionLabel(ui.agent), sessionId: id, message: `"${sessionName(ui)}" was not removed: ${reply.error ?? 'the server gave no reason'}. Try Remove again from its actions menu.` });
     return;
   }
   settlePendingClose(id);
   armedRemovalById.set(id, {
-    reason: reply.error ?? `Remove session "${sessionName(ui)}"? Its unsaved work is deleted.`,
+    reason: reply.error ?? `${removeActionLabel(ui.agent)} "${sessionName(ui)}"? Its unsaved work is deleted.`,
     confirmedKeptPaths: (reply.keptPaths ?? []).map((kept) => kept.path),
   });
   markStatusDirty(id);
@@ -172,7 +172,7 @@ export function confirmArmedRemoval(id: string) {
 }
 
 function reportRemovalFailure(ui: SessionUi, id: string, reason: unknown, timeoutMs: number) {
-  reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${requestFailureText(reason, timeoutMs)} Try Remove again from its actions menu.` });
+  reportHeaderError({ source: removeActionLabel(ui.agent), sessionId: id, message: `"${sessionName(ui)}" was not removed: ${requestFailureText(reason, timeoutMs)} Try Remove again from its actions menu.` });
 }
 
 function settleSessionRemoving(id: string) {
