@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { canonicalizePath } from '../shared/canonical-paths.ts';
+import { watchFolderEntries, watchPath } from './path-watch.ts';
 import { equalsIgnoringCaseOnWindows } from '../shared/paths.ts';
 import { ENV_SECRET_BINDINGS, heldSecrets, nextStoredSecrets, readEnvSecrets, secretsHeldIn, stableConfigKey, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';
 import type { StoredSecrets } from './core/config-secrets-core.ts';
@@ -403,7 +404,6 @@ function createConfigStore({
 
   function watchForChanges(callback: (config: GlimmervoidConfig) => void, { reloadDebounceMs = CONFIG_RELOAD_DEBOUNCE_MS }: { reloadDebounceMs?: number } = {}): () => void {
     let reloadTimer: TimerHandle | null = null;
-    let watcher: fs.FSWatcher | null = null;
 
     function handleConfigChange(err: NodeJS.ErrnoException | null, data: string): void {
       if (err) {
@@ -433,32 +433,38 @@ function createConfigStore({
       console.log('[config] Reloaded config.json');
     }
 
-    try {
-
-      const canonicalConfigPath = canonicalizePath(configPath);
-      const watchDir = path.dirname(canonicalConfigPath);
-      const targetName = path.basename(canonicalConfigPath);
-
-      watcher = fs.watch(watchDir, (_event, filename) => {
-        if (filename != null && !equalsIgnoringCaseOnWindows(path.basename(String(filename)), targetName)) return;
-
-        if (reloadTimer) clearTimeoutFn(reloadTimer);
-        reloadTimer = setTimeoutFn(() => {
-          const selfWriteRevisionAtRead = selfWriteRevision;
-          fs.readFile(configPath, 'utf8', (err, data) => {
-            if (!err && isSelfWriteOvertakenSince(selfWriteRevisionAtRead, data)) return;
-            handleConfigChange(err, data);
-          });
-        }, reloadDebounceMs);
-      });
-      console.log('[config] Watching config.json for changes');
-    } catch (watchErr) {
-      console.warn('[config] Failed to watch config.json:', errorMessage(watchErr));
-    }
-    return function stop(): void {
+    const canonicalConfigPath = canonicalizePath(configPath);
+    const configFileName = path.basename(canonicalConfigPath);
+    function scheduleReload(): void {
       if (reloadTimer) clearTimeoutFn(reloadTimer);
-      if (watcher) { try { watcher.close(); } catch {} }
-      watcher = null;
+      reloadTimer = setTimeoutFn(() => {
+        const selfWriteRevisionAtRead = selfWriteRevision;
+        fs.readFile(configPath, 'utf8', (err, data) => {
+          if (!err && isSelfWriteOvertakenSince(selfWriteRevisionAtRead, data)) return;
+          handleConfigChange(err, data);
+        });
+      }, reloadDebounceMs);
+    }
+    let stopWatchingConfig: () => void = () => {};
+    let isStopped = false;
+    function followConfigPath(): void {
+      stopWatchingConfig();
+      if (isStopped) return;
+      stopWatchingConfig = watchPath(canonicalConfigPath, scheduleReload, { debounceMs: 0, onUnwatchable: (target, reason) => console.warn(`[config] Failed to watch ${target}: ${reason}`) });
+    }
+    let isFolderUnwatchable = false;
+    stopWatchingConfig = watchFolderEntries(path.dirname(canonicalConfigPath), (changedName) => {
+      if (changedName === null || equalsIgnoringCaseOnWindows(path.basename(changedName), configFileName)) scheduleReload();
+    }, {
+      onGone: () => { followConfigPath(); scheduleReload(); },
+      onUnwatchable: () => { isFolderUnwatchable = true; },
+    });
+    if (isFolderUnwatchable) followConfigPath();
+    console.log('[config] Watching config.json for changes');
+    return function stop(): void {
+      isStopped = true;
+      if (reloadTimer) clearTimeoutFn(reloadTimer);
+      stopWatchingConfig();
     };
   }
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 import { equalsIgnoringCaseOnWindows } from '../shared/paths.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -375,5 +376,9 @@ function watchTree(root: string, onChange: () => void, { debounceMs = DEFAULT_DE
   };
 }
 
-export { watchPath, watchTree };
+function watchFolderEntries(folder: string, onEntryChange: (changedName: string | null) => void, options: FolderEntryWatchOptions = {}): StopWatching {
+  return watchRealFolderEntries(canonicalizePath(folder), onEntryChange, options);
+}
+
+export { watchFolderEntries, watchPath, watchTree };
 export type { StopWatching };

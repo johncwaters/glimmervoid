@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { PACK_FILE_NAME, PackHeader, PackSourcesFile } from '../../shared/contracts/pack.ts';
 import type { PackRow, PackSourceRow } from '../../shared/contracts/control/pack-messages.ts';
-import { canonicalizePath } from '../../shared/canonical-paths.ts';
+import { watchTree } from '../path-watch.ts';
+import type { StopWatching } from '../path-watch.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { firstLine } from '../core/text-core.ts';
@@ -19,7 +20,6 @@ const PACK_SOURCES_FILE_NAME = 'pack-sources.json';
 export const EXAMPLES_SOURCE_SLUG = 'glimmervoid-examples';
 const EXAMPLES_SOURCE_URL = 'Ships with Glimmervoid';
 const EXAMPLES_FOLLOW_DEBOUNCE_MS = 1000;
-const EXAMPLES_REWATCH_MS = 30_000;
 const GIT_TIMEOUT_MS = 120_000;
 const PACK_FOLDER_MAX_DEPTH = 2;
 const MAX_CHILD_FOLDERS_PER_LEVEL = 200;
@@ -42,7 +42,6 @@ type PackSourcesDeps = {
   isApproved: (fingerprint: string) => boolean;
   onChange: () => void;
   runGitFn?: GitRunner;
-  examplesRewatchMs?: number;
 };
 
 async function packHereIn(folder: string): Promise<SourcePack[]> {
@@ -90,7 +89,7 @@ function gitFailureText(step: string, error: string): string {
   return `${step} failed: ${firstLine(error) || 'git gave no reason'}`;
 }
 
-export function createPackSources({ homeDir, env, examplePacksDir, log, packRows, isApproved, onChange, runGitFn = runGit, examplesRewatchMs = EXAMPLES_REWATCH_MS }: PackSourcesDeps) {
+export function createPackSources({ homeDir, env, examplePacksDir, log, packRows, isApproved, onChange, runGitFn = runGit }: PackSourcesDeps) {
   const sourcesDir = path.join(homeDir, PACK_SOURCES_DIR_NAME);
   const ledgerPath = path.join(homeDir, PACK_SOURCES_FILE_NAME);
   const installDeps = { homeDir, env, packRows, isApproved };
@@ -99,10 +98,9 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
   const gitOptions = (cwd: string) => ({ cwd, replaceEnv: gitEnv, timeoutMs: GIT_TIMEOUT_MS, preferStderr: true });
   let rows: PackSourceRow[] = [];
   let changes: Promise<unknown> = Promise.resolve();
-  let examplesWatcher: fs.FSWatcher | null = null;
+  let stopExamplesWatch: StopWatching = () => {};
   let followTimer: NodeJS.Timeout | null = null;
   let lifecycle: 'running' | 'stopped' = 'running';
-  let lastWatchFailure = '';
 
   const isBuiltIn = (source: SourceEntry) => source.slug === EXAMPLES_SOURCE_SLUG;
   const dirOf = (source: SourceEntry) => (isBuiltIn(source) ? examplePacksDir : path.join(sourcesDir, source.slug));
@@ -329,33 +327,19 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
     return outcome;
   }
 
-  function scheduleFollow(delayMs: number): void {
+  function scheduleFollow(): void {
     if (lifecycle === 'stopped') return;
     if (followTimer) clearTimeout(followTimer);
     followTimer = setTimeout(() => {
       followTimer = null;
-      watchExamples();
       void followExamples();
-    }, delayMs);
+    }, EXAMPLES_FOLLOW_DEBOUNCE_MS);
   }
 
   function watchExamples(): void {
-    examplesWatcher?.close();
-    examplesWatcher = null;
+    stopExamplesWatch();
     if (lifecycle === 'stopped') return;
-    try {
-      examplesWatcher = fs.watch(canonicalizePath(examplePacksDir), { recursive: true }, () => scheduleFollow(EXAMPLES_FOLLOW_DEBOUNCE_MS));
-      examplesWatcher.on('error', (error) => {
-        log.warn(`[packs] stopped watching ${examplePacksDir}: ${errorMessage(error)}`);
-        scheduleFollow(EXAMPLES_FOLLOW_DEBOUNCE_MS);
-      });
-      lastWatchFailure = '';
-    } catch (error: unknown) {
-      const failure = errorMessage(error);
-      if (failure !== lastWatchFailure) log.warn(`[packs] could not watch ${examplePacksDir}; trying again every ${examplesRewatchMs / 1000} s: ${failure}`);
-      lastWatchFailure = failure;
-      scheduleFollow(examplesRewatchMs);
-    }
+    stopExamplesWatch = watchTree(examplePacksDir, scheduleFollow, { onUnwatchable: (target, reason) => log.warn(`[packs] could not watch ${target}: ${reason}`) });
   }
 
   return {
@@ -368,8 +352,8 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
       lifecycle = 'stopped';
       if (followTimer) clearTimeout(followTimer);
       followTimer = null;
-      examplesWatcher?.close();
-      examplesWatcher = null;
+      stopExamplesWatch();
+      stopExamplesWatch = () => {};
     },
     rows: (): readonly PackSourceRow[] => rows,
     add: (url: string) => serialized(() => addNow(url)),

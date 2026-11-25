@@ -82,7 +82,7 @@ function createRerereWatcher(
     });
     const outerWatch = outer;
     if (!outerWatch || !commonGitDir) return false;
-    return outerWatch.watch(commonGitDir, (_evt, filename) => {
+    return outerWatch.watch(commonGitDir, (filename) => {
       if (!filename || filename === RR_CACHE_DIR) outerWatch.fire();
     });
   }

@@ -1,5 +1,3 @@
-import { watch } from 'node:fs';
-import type { FSWatcher } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +7,8 @@ import {
 } from '../core/claude-trust-core.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../../server/core/claude-config-paths-core.ts';
 import { writeTextAtomic } from '../../server/json-file.ts';
+import { watchFolderEntries } from '../../server/path-watch.ts';
+import { equalsIgnoringCaseOnWindows } from '../../shared/paths.ts';
 import { clock } from '../../shared/clock.ts';
 
 type FolderTrustOutcome = 'already-trusted' | 'granted';
@@ -38,21 +38,13 @@ function sleepFor(durationMs: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function startFolderWatch(folder: string, signal: AbortSignal, onChange: (changedName: string | null) => void): FSWatcher | null {
-  try {
-    return watch(folder, { persistent: false, signal }, (_eventType, changedName) => onChange(changedName));
-  } catch {
-    return null;
-  }
-}
-
 function watchForLockChange(lockPath: string, signal: AbortSignal): Promise<void> {
   const lockName = path.basename(lockPath);
   return new Promise((resolve) => {
-    const watcher = startFolderWatch(path.dirname(lockPath), signal, (changedName) => {
-      if (changedName === null || changedName === lockName) resolve();
+    const stopWatching = watchFolderEntries(path.dirname(lockPath), (changedName) => {
+      if (changedName === null || equalsIgnoringCaseOnWindows(changedName, lockName)) resolve();
     });
-    watcher?.on('error', () => watcher.close());
+    signal.addEventListener('abort', stopWatching, { once: true });
   });
 }
 

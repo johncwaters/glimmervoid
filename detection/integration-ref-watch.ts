@@ -52,7 +52,7 @@ function createIntegrationRefWatcher(
       const target = targets[index];
       const watcher = watchers[index];
       if (!target || !watcher || !directoryExists(target.watchDir)) continue;
-      watcher.watch(target.watchDir, (_evt, filename) => {
+      watcher.watch(target.watchDir, (filename) => {
         if (!filename || filename === target.leaf) changeTimer.schedule();
       });
     }

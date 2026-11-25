@@ -100,7 +100,7 @@ test('a running server reloads a value the CLI wrote through its file watch, wit
   const stopWatching = store.watchForChanges((config) => reloadedValue(valueAtPath(config, 'posthog.trafficSpikeEnabled')));
   try {
     assert.equal(run(['set', 'posthog.trafficSpikeEnabled', 'false']).exitCode, 0);
-    const timeout = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000).unref());
+    const timeout = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000));
     assert.equal(await Promise.race([reloaded, timeout]), false);
   } finally {
     stopWatching();

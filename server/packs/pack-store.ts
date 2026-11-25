@@ -4,7 +4,8 @@ import path from 'node:path';
 import type { PackRow, PackSourceRow, PacksStatus } from '../../shared/contracts/control/pack-messages.ts';
 import { PACK_FILE_NAME, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackMcpServer, PackOnDisk } from '../../shared/contracts/pack.ts';
-import { canonicalizePath } from '../../shared/canonical-paths.ts';
+import { watchPath, watchTree } from '../path-watch.ts';
+import type { StopWatching } from '../path-watch.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
@@ -68,13 +69,12 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   const packsDir = path.join(homeDir, PACKS_DIR_NAME);
   const readsByDir = new Map<string, PackRead>();
   const reloadTimersByDir = new Map<string, NodeJS.Timeout>();
-  const listedWatchersByDir = new Map<string, fs.FSWatcher | null>();
+  const listedWatchersByDir = new Map<string, StopWatching>();
   let homePackDirs: string[] = [];
   let installedFingerprintsByName: Readonly<Record<string, string>> | null = null;
-  let ledgerWatcher: fs.FSWatcher | null = null;
-  let ledgerRescanTimer: NodeJS.Timeout | null = null;
+  let stopLedgerWatch: StopWatching = () => {};
   let homeWarning: string | null = null;
-  let homeWatcher: fs.FSWatcher | null = null;
+  let stopHomeWatch: StopWatching = () => {};
   let isStopped = false;
   let resolveLauncherProject = (_project: string): LauncherProjectResolution => ({ ok: false, reason: 'projects are still being matched' });
   let providerStatusesOf = (_urls: readonly string[]): ProviderStatus[] => [];
@@ -85,16 +85,8 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     operatorMcpServerNames = await readOperatorMcpServerNames(env);
   }
 
-  function watchQuietly(target: string, onChange: (changedName: string | null) => void, isRecursive: boolean): fs.FSWatcher | null {
-    try {
-      const watcher = fs.watch(canonicalizePath(target), { recursive: isRecursive }, (_event, changedName) => onChange(changedName === null ? null : String(changedName)));
-      watcher.on('error', (error) => log.warn(`[packs] stopped watching ${target}: ${errorMessage(error)}`));
-      return watcher;
-    } catch (error) {
-      const isMissing = error instanceof Error && 'code' in error && error.code === 'ENOENT';
-      if (!isMissing) log.warn(`[packs] could not watch ${target}: ${errorMessage(error)}`);
-      return null;
-    }
+  function warnUnwatchable(target: string, reason: string): void {
+    log.warn(`[packs] could not watch ${target}: ${reason}`);
   }
 
   async function rereadPack(packDir: string): Promise<void> {
@@ -147,39 +139,24 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     if (!isStopped) emitter.emit('changed');
   }
 
-  function onHomePacksChange(changedName: string | null): void {
-    const topSegment = changedName?.split(/[\\/]/)[0] ?? '';
-    if (topSegment === '') {
-      void rescanHomePacks();
-      return;
-    }
-    scheduleReread(path.join(packsDir, topSegment));
-  }
-
   function watchHomePacks(): void {
     if (isStopped) return;
-    homeWatcher?.close();
-    homeWatcher = watchQuietly(packsDir, onHomePacksChange, true);
-    if (homeWatcher) return;
-    homeWatcher = watchQuietly(homeDir, (changedName) => {
-      if (changedName !== PACKS_DIR_NAME) return;
-      watchHomePacks();
-      void rescanHomePacks();
-    }, false);
+    stopHomeWatch();
+    stopHomeWatch = watchTree(packsDir, () => { void rescanHomePacks(); }, { debounceMs: reloadDebounceMs, onUnwatchable: warnUnwatchable });
   }
 
   function setListedPaths(listedPaths: readonly string[]): void {
     const wantedDirs = new Set(listedPaths.map((listedPath) => path.resolve(homeDir, listedPath)));
-    for (const [packDir, watcher] of listedWatchersByDir) {
+    for (const [packDir, stopListedWatch] of listedWatchersByDir) {
       if (wantedDirs.has(packDir)) continue;
-      watcher?.close();
+      stopListedWatch();
       listedWatchersByDir.delete(packDir);
       if (!homePackDirs.includes(packDir)) readsByDir.delete(packDir);
       emitter.emit('changed');
     }
     for (const packDir of wantedDirs) {
       if (listedWatchersByDir.has(packDir) || isStopped) continue;
-      listedWatchersByDir.set(packDir, watchQuietly(packDir, () => scheduleReread(packDir), true));
+      listedWatchersByDir.set(packDir, watchTree(packDir, () => scheduleReread(packDir), { onUnwatchable: warnUnwatchable }));
       void rereadPack(packDir);
     }
   }
@@ -295,14 +272,9 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
 
   function watchInstallLedger(): void {
     if (isStopped) return;
-    ledgerWatcher =watchQuietly(homeDir, (changedName) => {
-      if (changedName !== PACKS_INSTALLED_FILE_NAME || isStopped) return;
-      if (ledgerRescanTimer) clearTimeout(ledgerRescanTimer);
-      ledgerRescanTimer = setTimeout(() => {
-        ledgerRescanTimer = null;
-        void rescanHomePacks();
-      }, reloadDebounceMs);
-    }, false);
+    stopLedgerWatch = watchPath(path.join(homeDir, PACKS_INSTALLED_FILE_NAME), () => {
+      if (!isStopped) void rescanHomePacks();
+    }, { debounceMs: reloadDebounceMs, onUnwatchable: warnUnwatchable });
   }
 
   async function start(): Promise<void> {
@@ -314,10 +286,9 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
 
   function stop(): void {
     isStopped = true;
-    homeWatcher?.close();
-    ledgerWatcher?.close();
-    if (ledgerRescanTimer) clearTimeout(ledgerRescanTimer);
-    for (const watcher of listedWatchersByDir.values()) watcher?.close();
+    stopHomeWatch();
+    stopLedgerWatch();
+    for (const stopListedWatch of listedWatchersByDir.values()) stopListedWatch();
     for (const timer of reloadTimersByDir.values()) clearTimeout(timer);
     listedWatchersByDir.clear();
     reloadTimersByDir.clear();

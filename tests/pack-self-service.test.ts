@@ -66,8 +66,8 @@ function selfServiceFixture() {
   const session = idleSession(projectDir);
   const boardPackPreviews = createBoardPackPreviews({ env: process.env, homeDir, pagesDir: path.join(homeDir, 'pack-previews') });
   const shownOnBoard: Array<{ callerId: string; request: unknown }> = [];
-  const newPackSources = (examplesRewatchMs?: number) => createPackSources({
-    homeDir, env: process.env, examplePacksDir: bundledExamplesDir, log: { warn: () => {} }, examplesRewatchMs,
+  const newPackSources = () => createPackSources({
+    homeDir, env: process.env, examplePacksDir: bundledExamplesDir, log: { warn: () => {} },
     packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
     onChange: () => {}, runGitFn: gitServedFrom(path.join(homeDir, 'remotes')),
   });
@@ -852,7 +852,7 @@ test('an example enabled from the built-in Glimmervoid examples source follows a
     await waitFor(() => fixture.rowNamed('night-shift')?.version === 3, 'enabling an example over a pack Glimmervoid installed replaces it');
     restarted.stop();
 
-    restarted = fixture.newPackSources(100);
+    restarted = fixture.newPackSources();
     await restarted.start();
     const movedAwayDir = path.join(fixture.homeDir, 'examples-moved-away');
     fs.renameSync(fixture.bundledExamplesDir, movedAwayDir);

@@ -26,8 +26,6 @@ const FS_WATCH_CALL = /\b(?:fs\w*\.watch|watchFn)\(/g;
 const CANONICALIZED_ARG = /^canonicalizePath\(/;
 
 const ALLOWED = new Map([
-  [path.join(ROOT, "server", "config-store.js"), "watchDir"],
-  [path.join(ROOT, "server", "config-store.ts"), "watchDir"],
   [path.join(ROOT, "server", "path-watch.ts"), "realFolder"],
 ]);
 
@@ -72,7 +70,7 @@ test("every fs.watch target is canonicalized first (Windows 8.3 short paths abor
     }
   }
 
-  assert.ok(watchCallsSeen >= 4, `expected to find the known fs.watch sites, found ${watchCallsSeen}`);
+  assert.ok(watchCallsSeen >= 3, `expected to find the known fs.watch sites, found ${watchCallsSeen}`);
 
   assert.deepEqual(
     offenders,

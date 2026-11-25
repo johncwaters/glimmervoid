@@ -1,12 +1,12 @@
-import fs from 'node:fs';
-import type { FSWatcher, WatchListener } from 'node:fs';
-
 import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
-import { canonicalizePath } from '../shared/canonical-paths.ts';
+import { watchFolderEntries } from '../server/path-watch.ts';
+import type { StopWatching } from '../server/path-watch.ts';
+
+type EntryListener = (changedName: string | null) => void;
 
 export interface WatchDebounce {
   fire: () => void;
-  watch: (dir: string, listener?: WatchListener<string> | null) => boolean;
+  watch: (dir: string, listener?: EntryListener | null) => boolean;
   stop: () => void;
   readonly active: boolean;
   readonly stopped: boolean;
@@ -15,7 +15,7 @@ export interface WatchDebounce {
 function createWatchDebounce(
   { onChange, debounceMs }: { onChange: () => void; debounceMs: number },
 ): WatchDebounce {
-  let watcher: FSWatcher | null = null;
+  let stopWatcher: StopWatching | null = null;
   let stopped = false;
   const changeTimer = createCoalescedTimer({
     mode: 'leading',
@@ -30,32 +30,32 @@ function createWatchDebounce(
     changeTimer.schedule();
   }
 
-  function watch(dir: string, listener?: WatchListener<string> | null): boolean {
-    if (stopped || watcher) return !!watcher;
-    try {
-      watcher = fs.watch(canonicalizePath(dir), { persistent: false }, listener || (() => fire()));
-      watcher.on('error', stop);
-    } catch {
-      watcher = null;
-      return false;
-    }
+  function watch(dir: string, listener?: EntryListener | null): boolean {
+    if (stopped || stopWatcher) return !!stopWatcher;
+    let isUnwatchable = false;
+    const stopEntries = watchFolderEntries(dir, listener || (() => fire()), { onGone: noteFolderGone, onUnwatchable: () => { isUnwatchable = true; } });
+    if (isUnwatchable) return false;
+    stopWatcher = stopEntries;
     return true;
+  }
+
+  function noteFolderGone(): void {
+    stopWatcher = null;
+    fire();
   }
 
   function stop(): void {
     stopped = true;
     changeTimer.cancel();
-    if (watcher) {
-      try { watcher.close(); } catch {  }
-      watcher = null;
-    }
+    stopWatcher?.();
+    stopWatcher = null;
   }
 
   return {
     fire,
     watch,
     stop,
-    get active() { return !!watcher; },
+    get active() { return !!stopWatcher; },
     get stopped() { return stopped; },
   };
 }

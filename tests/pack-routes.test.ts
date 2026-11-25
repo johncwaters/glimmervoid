@@ -120,7 +120,9 @@ test('a pack store keeps values per approved pack with panels, refuses a write o
 
     const removed = once(first.packStore, 'removed');
     fs.rmSync(packDir, { recursive: true, force: true });
+    const removalDeadline = setTimeout(() => assert.fail('the pack store never reported the removed pack folder'), 5000);
     await removed;
+    clearTimeout(removalDeadline);
     await first.packData.forgetRemovedPacks();
     assert.equal(fs.existsSync(savedPath), false);
 
