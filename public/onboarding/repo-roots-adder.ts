@@ -12,14 +12,13 @@ import { MAX_CLONE_SOURCES_PER_REQUEST } from '#shared/contracts/control/setting
 import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
 import { applyCloneJobs, cloneJobOf, cloneJobStatusText, clonedSources, errorText, hasUnsettledCloneJobs, isCloneJobUnsettled, onCloneJobsChanged, requestGithubRepos, requestRepositoryClones } from './clone-jobs.ts';
 import type { GithubRepo } from './clone-jobs.ts';
+import { refreshWhileShown } from '../host-ready/host-ready-changes.ts';
 
 type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
 
 let adderSequence = 0;
 
 const FOLDER_COMPLETION_DELAY_MS = 150;
-const GITHUB_GRANT_WAIT_ATTEMPTS = 6;
-const GITHUB_GRANT_WAIT_MS = 5_000;
 const TRAILING_SEPARATORS_RE = /(.)[\\/]+$/;
 
 export async function saveRepoRoots(addedRoots: readonly string[]): Promise<string | null> {
@@ -104,8 +103,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     const reachedAccounts = connection?.state === 'connected' ? `${connection.login}: ${connection.accounts.join(',')}` : connection?.state ?? '';
     if (reachedAccounts === listedForConnection) return;
     listedForConnection = reachedAccounts;
-    forgetGithubRepos();
-    void loadGithubReposOnceGranted(connection?.state === 'connected' ? GITHUB_GRANT_WAIT_ATTEMPTS : 1);
+    listGithubReposAgain();
   }
 
   let isBusy = false;
@@ -179,7 +177,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   wireInputRow(cloneRow, (value) => { void clonePastedUrl(value); });
 
   let githubRepos: GithubRepo[] = [];
-  let githubListState: 'unloaded' | 'loading' | 'loaded' = 'unloaded';
+  let githubListState: 'unloaded' | 'loading' | 'relisting' | 'loaded' = 'unloaded';
 
   type GithubRepoRow = { repo: GithubRepo; selectBox: HTMLInputElement; progress: HTMLElement; status: HTMLElement; cancelButton: HTMLButtonElement; cloneButton: HTMLButtonElement };
   let githubRepoRows: GithubRepoRow[] = [];
@@ -296,7 +294,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   cloneSelectedButton.addEventListener('click', () => { void cloneSelected(); });
 
   function forgetGithubRepos() {
-    if (githubListState === 'loading') return;
+    if (githubListState === 'loading' || githubListState === 'relisting') return;
     githubListState = 'unloaded';
     githubRepos = [];
     githubFilter.hidden = true;
@@ -307,19 +305,33 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     githubHint.textContent = text;
   }
 
-  async function loadGithubReposOnceGranted(attemptsLeft: number) {
-    await loadGithubRepos();
-    if (githubListState === 'loaded' || attemptsLeft <= 1) return;
-    setTimeout(() => {
-      if (element.isConnected) void loadGithubReposOnceGranted(attemptsLeft - 1);
-    }, GITHUB_GRANT_WAIT_MS);
+  function relistGithubRepos() {
+    if (githubConnection?.state === 'connected') listGithubReposAgain();
+  }
+
+  function listGithubReposAgain() {
+    if (githubListState === 'loading' || githubListState === 'relisting') {
+      githubListState = 'relisting';
+      return;
+    }
+    forgetGithubRepos();
+    void loadGithubRepos();
+  }
+
+  function isListingStale() {
+    return githubListState === 'relisting';
   }
 
   async function loadGithubRepos() {
     if (githubListState !== 'unloaded' || listedForConnection === null) return;
     githubListState = 'loading';
     const listing = await requestGithubRepos();
+    const isStale = isListingStale();
     githubListState = 'unloaded';
+    if (isStale) {
+      void loadGithubRepos();
+      return;
+    }
     if (listing.kind === 'unreachable') {
       showGithubHint(githubRepoListHintOf(githubConnection));
       return;
@@ -380,5 +392,6 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     suggestionsSection.hidden = suggestions.length === 0;
   }
 
+  refreshWhileShown(element, relistGithubRepos);
   return { element, setSuggestions };
 }

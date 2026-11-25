@@ -841,6 +841,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     if (remoteListenerPort === null) return;
     await ensureDoorman({ glimmervoidHome: glimmervoidHomeDir(), localPort: port, bindHost: bindDecision.host, remoteListenerPort, version: packageJson.version });
   }
+  const announceHostReadyChanged = () => { broadcastControl?.({ type: 'host-ready-changed', timestamp: clock.nowMs() }); };
   const watcherLink = createWatcherLink({
     linkSecret: loadOrCreateLinkSecret(watcherLinkKeyPath(glimmervoidHomeDir()), legacyWatcherLinkKeyPath(glimmervoidHomeDir())),
     credentials: () => ({ github: laneAccessConfigOf(configStore.config, null).readToken, posthog: readPosthogReadConnection(configStore.config) }),
@@ -850,11 +851,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       prepareWatcher: prepareLocalDoorman,
       whenDoormanStops: () => configuredDoormanUrl === null ? whenLocalDoormanStops(glimmervoidHomeDir(), port) : null,
     }),
-    onGithubAppTokenChange: () => laneAssembly.restartServiceLanes(),
+    onGithubAppTokenChange: () => {
+      laneAssembly.restartServiceLanes();
+      announceHostReadyChanged();
+    },
   });
   githubAppGrantsOfLink = { tokenFor: watcherLink.githubAppTokenFor, tokens: watcherLink.githubAppTokens, hasAny: watcherLink.hasGithubAppGrants };
   githubUserCredentialOfLink = watcherLink.githubUserCredential;
-  const announceHostReadyChanged = () => { broadcastControl?.({ type: 'host-ready-changed', timestamp: clock.nowMs() }); };
   const commitSigning = createCommitSigning({ store: hostSigningKeys, githubUserCredential: () => githubUserCredentialOfLink(), githubConnectionState: () => watcherLink.githubConnection('read'), onChanged: announceHostReadyChanged });
   const githubConnection = followingGithubConnection(watcherLink.githubConnection, commitSigning, announceHostReadyChanged);
   const hostReady = createHostReady({ githubConnection: () => githubConnection('read'), commitSigningStatus: () => commitSigning.act('read'), ghShimDir });
