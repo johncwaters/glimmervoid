@@ -1,5 +1,6 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
+import { EventEmitter } from 'node:events';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -62,10 +63,13 @@ test('repos and folders of one repo with the same folder names draw their own bo
   assert.deepEqual(await areas.repos(), [], 'mapping a repo no one opened in Studio lists no area');
   assert.equal((await codemap.boxesOfSession(firstRepoDir, 'focus-session', ['lib/part0.ts'])).ok, false, 'a board ask from a repo not open in Studio is refused');
   assert.deepEqual(await areas.repos(), [], 'a refused board ask lists no area either');
+  const unopenedRepoDir = await createRepo(tmpDir, 'unopened', ['.']);
+  codemap.attachSession(Object.assign(new EventEmitter(), { id: 'outside-studio', path: unopenedRepoDir }));
   assert.ok(await codemap.openArea(firstRepoDir));
   assert.ok(await codemap.openArea(secondRepoDir));
   assert.equal((await codemap.handle({ repoDir: firstRepoDir }, { sub: 'map' })).ok, true);
   assert.equal((await codemap.handle({ repoDir: secondRepoDir }, { sub: 'map' })).ok, true);
+  assert.equal(codemap.noticeOf(unopenedRepoDir), null, 'a session starting in a repo not open in Studio builds no map');
   assert.equal(await codemap.mapBoardIdOfRepo(firstRepoDir), await codemap.mapBoardIdOfRepo(secondRepoDir), 'both repos draw on the one map board');
 
   const drawn = await readBoard();

@@ -1476,10 +1476,12 @@ function createWhiteboardWiring({
     const announcedVersionByBoardId = announcedBefore ?? new Map<string, number>();
     announcedVersionByBoardIdBySessionId.set(sessionId, announcedVersionByBoardId);
     const isFirstPrompt = announcedBefore === undefined;
-    const projectBoardsLine = isFirstPrompt && sessionProject !== null ? projectBoardsNoticeFor(recordsByBoardId.values(), { sessionId, project: sessionProject }, now()) : null;
+    const canReachCodeMap = reachesCodeMap(sessionId);
+    const noticedRecords = [...recordsByBoardId.values()].filter((record) => canReachCodeMap || !isCodeMapBoardTitle(record.board.title));
+    const projectBoardsLine = isFirstPrompt && sessionProject !== null ? projectBoardsNoticeFor(noticedRecords, { sessionId, project: sessionProject }, now()) : null;
     const notice = boardNoticeFor([...recordsByBoardId.values()], sessionId, announcedVersionByBoardId);
     for (const { boardId, version } of notice?.announced ?? []) announcedVersionByBoardId.set(boardId, version);
-    const codemapLine = isFirstPrompt && sessionProject !== null ? codemapNoticeOf(sessionProject) : null;
+    const codemapLine = isFirstPrompt && sessionProject !== null && canReachCodeMap ? codemapNoticeOf(sessionProject) : null;
     const lines = [takeAttachedBoardLine(sessionId), projectBoardsLine, codemapLine, notice?.text ?? null].filter((line) => line !== null);
     return lines.length === 0 ? null : lines.join('\n');
   }

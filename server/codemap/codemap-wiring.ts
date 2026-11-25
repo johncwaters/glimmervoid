@@ -789,13 +789,18 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (reloaded.ok && specPlanByRepoDir.get(repoDir) === shown) specPlanByRepoDir.set(repoDir, reloaded.plan);
   }
 
-  function refresh(session: MappedSession): void {
-    const state = stateOf(session.path);
+  async function refreshStudioMap(repoDir: string): Promise<void> {
+    if (!(await isStudioListed(repoDir))) return;
+    const state = stateOf(repoDir);
     state.refreshesInFlight += 1;
-    void reloadSpecPlan(session.path).then(() => currentMap({ repoDir: session.path })).catch((error: unknown) => {
-      logger.warn(`[codemap] the map of ${session.path} was not refreshed: ${errorMessage(error)}`);
-    }).finally(() => {
+    await reloadSpecPlan(repoDir).then(() => currentMap({ repoDir })).finally(() => {
       state.refreshesInFlight -= 1;
+    });
+  }
+
+  function refresh(session: MappedSession): void {
+    void refreshStudioMap(session.path).catch((error: unknown) => {
+      logger.warn(`[codemap] the map of ${session.path} was not refreshed: ${errorMessage(error)}`);
     });
   }
 

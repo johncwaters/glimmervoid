@@ -2659,7 +2659,7 @@ test('the code map board puts a moved box back at its generated place and keeps 
   for (let index = 0; index < 20; index++) writeSource(`app/screen${index}.ts`, `import { part${index} } from '../lib/part${index}.ts';\nexport const screen${index} = part${index};`);
   await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: repoDir });
   await commitAll();
-  const wiring = openWhiteboardWiring({ boardsRoot, reachesCodeMap: (sessionId) => sessionId !== 'outside-studio' });
+  const wiring = openWhiteboardWiring({ boardsRoot, reachesCodeMap: (sessionId) => sessionId !== 'outside-studio', codemapNoticeOf: () => 'Code map of mapped: current.' });
   let overlaidPaths = ['app/screen1.ts'];
   const specsRoot = path.join(boardsRoot, 'specs');
   const longStepTitle = 'Add a heavy-command semaphore in spawn-gate and gate verification-wiring with test-concurrency';
@@ -2690,6 +2690,8 @@ test('the code map board puts a moved box back at its generated place and keeps 
     const refused = await wiring.handleAgent(outsideStudio, withheld);
     assert.equal(refused.status, 403, `${withheld.sub} ${withheld.board} is refused outside Studio`);
   }
+  assert.equal(wiring.takeBoardNotice(outsideStudio.id, repoDir), null, 'the first prompt of a session outside Studio names neither the code map nor its board');
+  assert.match(wiring.takeBoardNotice('studio-newcomer', repoDir) ?? '', /"Code map" \([^)]+\)[\s\S]*Code map of mapped: current\./);
   const listedInStudio = await wiring.handleAgent(reader, { sub: 'list', all: true });
   assert.deepEqual('boards' in listedInStudio.body ? listedInStudio.body.boards.map((board) => board.id) : null, [boardId]);
 
