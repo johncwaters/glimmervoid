@@ -46,6 +46,8 @@ interface SegmentList<Entry> {
 interface TurnView {
   tasks: HTMLUListElement;
   taskSignature: string;
+  thinking: HTMLElement;
+  thinkingText: string | null;
   uploadUrlOf: UploadUrlOf;
   element: HTMLElement;
   brief: HTMLElement;
@@ -421,8 +423,10 @@ function createTurnView(uploadUrlOf: UploadUrlOf): TurnView {
   diff.hidden = true;
   const tasks = el('ul', 'chat-turn-tasks');
   tasks.hidden = true;
-  element.append(body, tasks, brief, meta, work, diff);
-  return { uploadUrlOf, element, tasks, taskSignature: '', brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
+  const thinking = el('div', 'chat-turn-thinking');
+  thinking.hidden = true;
+  element.append(body, tasks, brief, meta, thinking, work, diff);
+  return { uploadUrlOf, element, tasks, taskSignature: '', thinking, thinkingText: null, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
 }
 
 function syncBodySegments(view: TurnView, segments: readonly TurnSegment[], isArriving: boolean): void {
@@ -450,7 +454,7 @@ function tickToolNumber(view: TurnView, toolCount: number): void {
 }
 
 function showRunningRow(view: TurnView, part: TurnPart): void {
-  view.hasWork = part.toolCount > 0;
+  view.hasWork = part.toolCount > 0 || part.thinkingText !== null;
   if (view.toolCount.parentElement !== view.meta) view.meta.replaceChildren(view.chevron, view.toolCount);
   tickToolNumber(view, part.toolCount);
   view.toolWord.textContent = part.toolCount === 1 ? 'tool call' : 'tool calls';
@@ -458,7 +462,7 @@ function showRunningRow(view: TurnView, part: TurnPart): void {
 
 function showEndedRow(view: TurnView, part: TurnPart, turnEnd: TurnEnd | null): void {
   const digest = digestTurn(part.segments, part.toolCount);
-  view.hasWork = digest.isFoldable;
+  view.hasWork = digest.isFoldable || part.thinkingText !== null;
   view.element.toggleAttribute('data-foldable', digest.isFoldable);
   view.element.toggleAttribute('data-asks', digest.asked !== null);
   view.brief.replaceChildren(...(digest.asked === null ? [] : [renderAsked(digest.asked)]));
@@ -497,8 +501,16 @@ function syncTaskList(view: TurnView, taskList: TurnPart['taskList']): void {
   }));
 }
 
+function syncThinking(view: TurnView, thinkingText: string | null): void {
+  if (thinkingText === view.thinkingText) return;
+  view.thinkingText = thinkingText;
+  view.thinking.hidden = thinkingText === null;
+  view.thinking.replaceChildren(...(thinkingText === null ? [] : [renderPlanBlocks(parsePlanMarkdown(thinkingText), { fileRefs: CHAT_FILE_REFS })]));
+}
+
 function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: boolean, turnEnd: TurnEnd | null): void {
   syncTaskList(view, part.taskList);
+  syncThinking(view, part.thinkingText);
   dropLeadingSegments(view.bodySegments, part.droppedSegmentCount, (element) => element);
   syncBodySegments(view, part.segments, areNewSegmentsArriving);
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
@@ -512,6 +524,7 @@ function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: 
   view.part = part;
   view.element.toggleAttribute('data-over', part.isOver);
   view.element.toggleAttribute('data-has-tools', part.toolCount > 0);
+  view.element.toggleAttribute('data-has-thinking', part.thinkingText !== null);
   if (part.isOver) showEndedRow(view, part, turnEnd);
   if (!part.isOver) showRunningRow(view, part);
   showWork(view);

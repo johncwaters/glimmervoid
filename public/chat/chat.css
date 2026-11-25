@@ -381,6 +381,7 @@
 .chat-turn-meta { display: none; }
 
 :root:not([data-chat-brief-off]) .chat-turn:not([data-over])[data-has-tools] .chat-turn-meta,
+:root:not([data-chat-brief-off]) .chat-turn[data-over][data-has-thinking] .chat-turn-meta,
 :root:not([data-chat-brief-off]) .chat-turn[data-over][data-foldable] .chat-turn-meta {
   display: flex;
   align-items: center;
@@ -1089,6 +1090,10 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 .chat-turn .plan-paragraph { white-space: pre-line; }
 
 .chat-card-recommended { color: var(--text-muted); font-size: var(--type-meta); font-weight: 400; }
+
+.chat-turn-thinking { margin: 4px 0 8px; padding-left: 12px; border-left: 2px solid var(--border-dim); color: var(--text-muted); font-style: italic; }
+
+.chat-turn:not([data-open]) .chat-turn-thinking { display: none; }
 
 .chat-turn-tasks { display: grid; gap: 4px; margin: 4px 0 12px; padding: 0; list-style: none; font-size: var(--type-meta); }
 

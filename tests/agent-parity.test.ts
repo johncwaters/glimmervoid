@@ -627,6 +627,25 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
+const THINKING_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture> = {
+  'claude-code': { file: 'claude-thinking.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
+  codex: { file: 'codex-thinking.jsonl', vendorSessionId: '01a0f157-57d9-7090-adf0-332e965e79f2' },
+  kimi: CONVERSATION_FIXTURE_BY_AGENT.kimi as ConversationFixture,
+  opencode: CONVERSATION_FIXTURE_BY_AGENT.opencode as ConversationFixture,
+  pi: CONVERSATION_FIXTURE_BY_AGENT.pi as ConversationFixture,
+  antigravity: CONVERSATION_FIXTURE_BY_AGENT.antigravity as ConversationFixture,
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  test(`thinking text in Chat on ${agent}`, () => {
+    const fixture = THINKING_FIXTURE_BY_AGENT[agent];
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    const reply: TraceRecord = { ts: Number.MAX_SAFE_INTEGER, uuid: null, parentUuid: null, vendorSessionId: fixture.vendorSessionId, kind: 'assistant', text: 'done' };
+    const { parts } = appendChatRecords(createChatPartsState(), [...records, reply]);
+    assert.ok(parts.some((part) => part.kind === 'turn' && (part.thinkingText ?? '').length > 0), `${agent} lost its thinking text`);
+  });
+}
+
 function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
   const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
   const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);

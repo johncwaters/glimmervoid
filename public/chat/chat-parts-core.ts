@@ -28,6 +28,8 @@ interface ChatTurn {
   filePatches: FilePatch[];
   unshownPatchCount: number;
   thinkingMs: number | null;
+  thinkingTexts: string[];
+  thinkingChars: number;
   thinkingFrom: number | null;
   previousRecordAt: number | null;
   lastAt: number;
@@ -92,7 +94,7 @@ export function createChatPartsState(workingDirectory: string | null = null): Ch
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
-  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingFrom: null, previousRecordAt: null, lastAt: 0, taskList: null, isOver: false };
+  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingTexts: [], thinkingChars: 0, thinkingFrom: null, previousRecordAt: null, lastAt: 0, taskList: null, isOver: false };
 }
 
 function durationTextOf(turn: ChatTurn): string | null {
@@ -123,6 +125,7 @@ function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
     filePatches: [...turn.filePatches],
     unshownPatchCount: turn.unshownPatchCount,
     thoughtText: turn.isOver ? thoughtTextOf(turn) : null,
+    thinkingText: turn.thinkingTexts.length > 0 ? turn.thinkingTexts.join('\n\n') : null,
     taskList: turn.taskList,
     durationText: turn.isOver ? durationTextOf(turn) : null,
     isOver: turn.isOver,
@@ -255,8 +258,19 @@ function settleToolCall(turn: ChatTurn, record: Extract<TraceRecord, { kind: 'to
   return true;
 }
 
+const MAX_TURN_THINKING_CHARS = 20000;
+
+function keepThinkingText(turn: ChatTurn, text: string): void {
+  const roomLeft = MAX_TURN_THINKING_CHARS - turn.thinkingChars;
+  if (roomLeft <= 0) return;
+  const keptText = text.slice(0, roomLeft);
+  turn.thinkingTexts.push(keptText);
+  turn.thinkingChars += keptText.length;
+}
+
 function noteThinking(turn: ChatTurn, record: TraceRecord): void {
   if (record.kind === 'thinking' && record.text.trim().length > 0) {
+    keepThinkingText(turn, record.text.trim());
     turn.thinkingMs ??= 0;
     turn.thinkingFrom ??= turn.previousRecordAt ?? record.ts;
   }
