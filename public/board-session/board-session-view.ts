@@ -118,6 +118,7 @@ let askGlide: { askBoxIds: ReadonlySet<string>; returnArea: Rect; shownArea: Rec
 const ASK_VIEW_TOP_MARGIN_PX = 64;
 const ASK_VIEW_SIDE_MARGIN_PX = 24;
 let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
+let shownFixedAreas: readonly Rect[] = [];
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
 let mapRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -162,6 +163,10 @@ function boxIdAtPointer(event: PointerEvent, overlayHost: HTMLElement): string |
   }) ?? null;
 }
 
+function peekSpotOf(bounds: Rect): { left: number; top: number } {
+  return { left: (bounds.x + bounds.width - hostCamera.x) * hostCamera.scale - PEEK_OVERLAP_PX, top: (bounds.y - hostCamera.y) * hostCamera.scale };
+}
+
 function paintChangesPeek(): void {
   if (!parts) return;
   const bounds = peekedBoxId === null ? null : boundsOfHostBox(peekedBoxId);
@@ -170,13 +175,22 @@ function paintChangesPeek(): void {
     return;
   }
   const files = changedFilesOfShownSession().filter((file) => boxIdByPath[file.path] === peekedBoxId);
-  const left = (bounds.x + bounds.width - hostCamera.x) * hostCamera.scale - PEEK_OVERLAP_PX;
-  const top = (bounds.y - hostCamera.y) * hostCamera.scale;
+  const { left, top } = peekSpotOf(bounds);
   parts.changesPeek.show(files, left, top);
 }
 
+function moveOverlaysWithCamera(): void {
+  if (!parts) return;
+  parts.agentCards.place(hostCamera);
+  parts.askCards.place(hostCamera);
+  const peekBounds = peekedBoxId === null ? null : boundsOfHostBox(peekedBoxId);
+  if (peekBounds === null) return;
+  const { left, top } = peekSpotOf(peekBounds);
+  parts.changesPeek.moveTo(left, top);
+}
+
 function peekChangedBox(event: PointerEvent): void {
-  if (!parts || shownSessionId === null) return;
+  if (!parts || shownSessionId === null || event.buttons !== 0) return;
   if (event.target instanceof Node && parts.changesPeek.element.contains(event.target)) return;
   const overlayHost = parts.changesPeek.element.parentElement;
   const boxId = overlayHost === null ? null : boxIdAtPointer(event, overlayHost);
@@ -466,6 +480,15 @@ function fixedAreasIn(overlay: HTMLElement): Rect[] {
   return [...shownAreaIn(overlay, parts.dockSlot), ...shownAreaIn(overlay, parts.guide.element)];
 }
 
+function observeFixedAreas(observed: readonly HTMLElement[]): void {
+  const observer = new ResizeObserver(() => {
+    if (!parts) return;
+    shownFixedAreas = fixedAreasIn(parts.agentCards.element);
+    parts.agentCards.place(hostCamera);
+  });
+  for (const target of observed) observer.observe(target);
+}
+
 function paintPresence(): void {
   if (!parts) return;
   const tierByBoxId = new Map<string, GlowTier>();
@@ -484,7 +507,7 @@ function paintPresence(): void {
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
   parts.presenceLayer.paint({ glows }, board);
   const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
-  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, fixedAreasIn(parts.agentCards.element));
+  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, () => shownFixedAreas);
   dock?.paintActivity();
   paintAsks();
 }
@@ -825,8 +848,13 @@ function mountBoardSessionView(panel: HTMLElement): void {
       paintPresence();
       paintChangesPeek();
     },
+    onCameraMoved: (camera) => {
+      hostCamera = camera;
+      moveOverlaysWithCamera();
+    },
   };
   parts = { root, menu, menuOpener: null, topLeft, noRepoChip, notice, dockSlot, presenceLayer, askCards, agentCards, changesPeek, diffPanel, guide, guest };
+  observeFixedAreas([dockSlot, guide.element, agentCards.element]);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
   });

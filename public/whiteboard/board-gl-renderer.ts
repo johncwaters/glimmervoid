@@ -314,8 +314,15 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     postPaint({ kind: 'fonts', fontFamily, faces: boardFontFacesOf(fontFamily) });
   }
 
+  let canvasCssSize = { width: 0, height: 0 };
+  function canvasSizeOf(): { width: number; height: number } {
+    if (canvasCssSize.width === 0) canvasCssSize = { width: canvas.clientWidth, height: canvas.clientHeight };
+    return canvasCssSize;
+  }
+
   function postView(): void {
-    postPaint({ kind: 'view', camera, pixelRatio: window.devicePixelRatio || 1, cssWidth: canvas.clientWidth, cssHeight: canvas.clientHeight });
+    const { width, height } = canvasSizeOf();
+    postPaint({ kind: 'view', camera, pixelRatio: window.devicePixelRatio || 1, cssWidth: width, cssHeight: height });
   }
 
   function postBlocks(tint: Rgba): void {
@@ -362,9 +369,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function viewArea(): Rect {
-    const width = (canvas.clientWidth || 1) / camera.scale;
-    const height = (canvas.clientHeight || 1) / camera.scale;
-    return { x: camera.x, y: camera.y, width, height };
+    const size = canvasSizeOf();
+    return { x: camera.x, y: camera.y, width: (size.width || 1) / camera.scale, height: (size.height || 1) / camera.scale };
   }
 
   function lodStepOf(scale: number): number {
@@ -630,7 +636,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function reportView(): void {
     if (!onViewChange || camera.scale <= 0) return;
-    const view = { x: camera.x, y: camera.y, width: canvas.clientWidth / camera.scale, height: canvas.clientHeight / camera.scale };
+    const size = canvasSizeOf();
+    const view = { x: camera.x, y: camera.y, width: size.width / camera.scale, height: size.height / camera.scale };
     const viewKey = `${view.x}:${view.y}:${view.width}:${view.height}`;
     if (viewKey === lastViewKey) return;
     lastViewKey = viewKey;
@@ -990,7 +997,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   }
 
-  const canvasResizeObserver = new ResizeObserver(() => {
+  const canvasResizeObserver = new ResizeObserver(([entry]) => {
+    if (entry) canvasCssSize = { width: entry.contentRect.width, height: entry.contentRect.height };
     reportView();
     isGatherDirty = true;
     requestDraw();

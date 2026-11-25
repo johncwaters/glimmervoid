@@ -17,6 +17,12 @@ const NOT_SENT_TEXT = 'The answer was not sent.';
 export interface AskCards {
   element: HTMLElement;
   paint(boardId: string | null, asks: readonly OpenBoardAsk[], camera: Camera): OpenBoardAsk[];
+  place(camera: Camera): void;
+}
+
+interface ShownAskCard {
+  card: HTMLElement;
+  rect: OpenBoardAsk['rect'];
 }
 
 export function asksOfSessions(openAsks: readonly OpenBoardAsk[], sessionIds: ReadonlySet<string>): OpenBoardAsk[] {
@@ -95,7 +101,15 @@ function createAskCard(boardId: string, shown: OpenBoardAsk): HTMLElement {
 
 export function createAskCards(): AskCards {
   const element = el('div', 'bs-asks');
-  const cardByKey = new Map<string, HTMLElement>();
+  const shownByKey = new Map<string, ShownAskCard>();
+
+  const place = (camera: Camera) => {
+    for (const { card, rect } of shownByKey.values()) {
+      const left = (rect.x - CARD_RING_COVER - camera.x) * camera.scale;
+      const top = (rect.y - CARD_RING_COVER - camera.y) * camera.scale;
+      card.style.transform = `translate(${left}px, ${top}px) scale(${camera.scale})`;
+    }
+  };
 
   return {
     element,
@@ -107,24 +121,24 @@ export function createAskCards(): AskCards {
         if (boardId === null) continue;
         const key = `${boardId}:${shown.askBoxId}`;
         shownKeys.add(key);
-        const card = cardByKey.get(key) ?? createAskCard(boardId, shown);
-        if (!cardByKey.has(key)) {
+        const known = shownByKey.get(key);
+        const card = known?.card ?? createAskCard(boardId, shown);
+        if (!known) {
           newAsks.push(shown);
-          cardByKey.set(key, card);
           element.append(card);
         }
-        const left = (rect.x - CARD_RING_COVER - camera.x) * camera.scale;
-        const top = (rect.y - CARD_RING_COVER - camera.y) * camera.scale;
+        shownByKey.set(key, { card, rect });
         card.style.width = `${rect.width + CARD_RING_COVER * 2}px`;
         card.style.height = `${rect.height + CARD_RING_COVER * 2}px`;
-        card.style.transform = `translate(${left}px, ${top}px) scale(${camera.scale})`;
       }
-      for (const [key, card] of cardByKey) {
+      for (const [key, { card }] of shownByKey) {
         if (shownKeys.has(key)) continue;
         card.remove();
-        cardByKey.delete(key);
+        shownByKey.delete(key);
       }
+      place(camera);
       return newAsks;
     },
+    place,
   };
 }

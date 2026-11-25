@@ -151,6 +151,7 @@ export interface BoardHostGuest {
   setStackOpen: (boardId: string, frameId: string, isOpen: boolean) => Promise<boolean>;
   onBoxClicked: (boardId: string, boxId: string) => void;
   onPainted: (camera: Camera) => void;
+  onCameraMoved: (camera: Camera) => void;
 }
 
 let guest: BoardHostGuest | null = null;
@@ -1771,7 +1772,7 @@ export function mountBoardHost(): HTMLElement {
       if (selectedBoardId) showTilesFor(selectedBoardId, view, scale);
       paintAgentChange();
       hostCamera = { x: view.x, y: view.y, scale };
-      guest?.onPainted(hostCamera);
+      guest?.onCameraMoved(hostCamera);
     },
   });
   renderer = boardRenderer;

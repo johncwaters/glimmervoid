@@ -48,7 +48,8 @@ interface AgentCardActions {
 
 export interface AgentCards {
   element: HTMLElement;
-  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, mapBounds: readonly Rect[], camera: Camera, fixedAreas: readonly Rect[]): void;
+  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, mapBounds: readonly Rect[], camera: Camera, fixedAreasOf: () => readonly Rect[]): void;
+  place(camera: Camera): void;
 }
 
 interface ShownCard {
@@ -56,6 +57,9 @@ interface ShownCard {
   shrunkFace: HTMLElement;
   wire: SVGElement;
   placement: CardPlacement | null;
+  boxRect: Rect | null;
+  isCardShrunk: boolean;
+  cardSize: { width: number; height: number };
   setModel(model: AgentCardModel): void;
 }
 
@@ -167,6 +171,9 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
     shrunkFace,
     wire,
     placement: null,
+    boxRect: null,
+    isCardShrunk: false,
+    cardSize: { width: 0, height: 0 },
     setModel: (model) => {
       const previous = shownModel;
       shownModel = model;
@@ -232,68 +239,98 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
   element.append(wires);
   const shownBySessionId = new Map<string, ShownCard>();
 
+  let paintedOrder: ShownCard[] = [];
+  let shownMapBounds: readonly Rect[] = [];
+  let shownFixedAreasOf: () => readonly Rect[] = () => [];
+  let shownCamera: Camera | null = null;
+  let viewSize = { width: 0, height: 0 };
+  const shownByCard = new Map<Element, ShownCard>();
+  const sizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const [borderBox] = entry.borderBoxSize;
+      if (entry.target === element) viewSize = { width: entry.contentRect.width, height: entry.contentRect.height };
+      const shown = shownByCard.get(entry.target);
+      if (shown && borderBox && borderBox.inlineSize > 0) shown.cardSize = { width: borderBox.inlineSize, height: borderBox.blockSize };
+    }
+    if (shownCamera) place(shownCamera);
+  });
+  sizeObserver.observe(element);
+
   const shownCardOf = (sessionId: string): ShownCard => {
     const known = shownBySessionId.get(sessionId);
     if (known) return known;
     const created = createShownCard(sessionId, actions, wires);
     shownBySessionId.set(sessionId, created);
+    shownByCard.set(created.card, created);
+    sizeObserver.observe(created.card);
     element.append(created.card, created.shrunkFace);
     return created;
   };
 
+  const place = (camera: Camera) => {
+    shownCamera = camera;
+    const placedCardRects: Rect[] = [...shownFixedAreasOf()];
+    const view: Rect = { x: 0, y: UNPLACED_MAIN_TOP_PX, width: viewSize.width, height: Math.max(0, viewSize.height - UNPLACED_MAIN_TOP_PX) };
+    const placementArea = cardPlacementAreaOf(shownMapBounds.map((rect) => screenRectOf(rect, camera)), view);
+    const placementSignature = [view.width, view.height, camera.scale, ...shownMapBounds.flatMap((rect) => [rect.x, rect.y, rect.width, rect.height])].join(' ');
+    for (const shown of paintedOrder) {
+      const rect = shown.boxRect;
+      if (rect === null) continue;
+      const boxOnScreen = screenRectOf(rect, camera);
+      if (shown.isCardShrunk) {
+        shown.shrunkFace.style.transform = `translate(${boxOnScreen.x + boxOnScreen.width - FACE_SIZE_PX / 2}px, ${boxOnScreen.y - FACE_SIZE_PX / 2}px)`;
+        continue;
+      }
+      const { cardSize } = shown;
+      const placementKey = [rect.x, rect.y, rect.width, rect.height, cardSize.width, cardSize.height, placementSignature].join(' ');
+      const cachedRect = shown.placement === null ? null : { x: boxOnScreen.x + shown.placement.offsetX, y: boxOnScreen.y + shown.placement.offsetY, ...cardSize };
+      const isCachedSpotNewlyBlocked = cachedRect !== null && shown.placement?.isClearWhenPlaced === true && placedCardRects.some((placedRect) => rectsOverlap(cachedRect, placedRect));
+      if (shown.placement?.key !== placementKey || isCachedSpotNewlyBlocked) {
+        const spot = cardSpotOf(boxOnScreen, cardSize, placementArea, placedCardRects);
+        const spotRect = { x: spot.x, y: spot.y, ...cardSize };
+        const isClearWhenPlaced = !placedCardRects.some((placedRect) => rectsOverlap(spotRect, placedRect));
+        shown.placement = { key: placementKey, offsetX: spot.x - boxOnScreen.x, offsetY: spot.y - boxOnScreen.y, side: spot.side, isClearWhenPlaced };
+      }
+      const cardRect = { x: boxOnScreen.x + shown.placement.offsetX, y: boxOnScreen.y + shown.placement.offsetY, ...cardSize };
+      placedCardRects.push(cardRect);
+      shown.card.style.transform = `translate(${cardRect.x}px, ${cardRect.y}px)`;
+      shown.wire.setAttribute('d', wirePathOf(boxOnScreen, cardRect, shown.placement.side));
+    }
+  };
+
   return {
     element,
-    paint: (models, boundsOf, mapBounds, camera, fixedAreas) => {
-      const placedCardRects: Rect[] = [...fixedAreas];
-      const view: Rect = { x: 0, y: UNPLACED_MAIN_TOP_PX, width: element.clientWidth, height: Math.max(0, element.clientHeight - UNPLACED_MAIN_TOP_PX) };
-      const placementArea = cardPlacementAreaOf(mapBounds.map((rect) => screenRectOf(rect, camera)), view);
-      const placementSignature = [view.width, view.height, camera.scale, ...mapBounds.flatMap((rect) => [rect.x, rect.y, rect.width, rect.height])].join(' ');
-      const paintedIds = new Set<string>();
+    paint: (models, boundsOf, mapBounds, camera, fixedAreasOf) => {
+      shownMapBounds = mapBounds;
+      shownFixedAreasOf = fixedAreasOf;
+      const painted: ShownCard[] = [];
       for (const model of models) {
         const boxId = model.boxIds.find((candidate) => boundsOf(candidate) !== null);
         const rect = boxId === undefined ? null : boundsOf(boxId);
-        if ((rect === null || boxId === undefined) && !model.isMain) continue;
-        paintedIds.add(model.sessionId);
+        if (rect === null && !model.isMain) continue;
         const shown = shownCardOf(model.sessionId);
+        painted.push(shown);
         shown.setModel(model);
-        if (rect === null || boxId === undefined) {
-          shown.card.hidden = false;
-          shown.shrunkFace.hidden = true;
-          shown.wire.toggleAttribute('data-hidden', true);
-          shown.card.style.transform = `translate(${UNPLACED_MAIN_LEFT_PX}px, ${UNPLACED_MAIN_TOP_PX}px)`;
-          continue;
-        }
-        const boxOnScreen = screenRectOf(rect, camera);
-        const isCardShrunk = isShrunk(model);
-        shown.card.hidden = isCardShrunk;
-        shown.shrunkFace.hidden = !isCardShrunk;
-        shown.wire.toggleAttribute('data-hidden', isCardShrunk);
-        if (isCardShrunk) {
-          shown.shrunkFace.style.transform = `translate(${boxOnScreen.x + boxOnScreen.width - FACE_SIZE_PX / 2}px, ${boxOnScreen.y - FACE_SIZE_PX / 2}px)`;
-          continue;
-        }
-        const cardSize = { width: shown.card.offsetWidth, height: shown.card.offsetHeight };
-        const placementKey = [rect.x, rect.y, rect.width, rect.height, cardSize.width, cardSize.height, placementSignature].join(' ');
-        const cachedRect = shown.placement === null ? null : { x: boxOnScreen.x + shown.placement.offsetX, y: boxOnScreen.y + shown.placement.offsetY, ...cardSize };
-        const isCachedSpotNewlyBlocked = cachedRect !== null && shown.placement?.isClearWhenPlaced === true && placedCardRects.some((placedRect) => rectsOverlap(cachedRect, placedRect));
-        if (shown.placement?.key !== placementKey || isCachedSpotNewlyBlocked) {
-          const spot = cardSpotOf(boxOnScreen, cardSize, placementArea, placedCardRects);
-          const spotRect = { x: spot.x, y: spot.y, ...cardSize };
-          const isClearWhenPlaced = !placedCardRects.some((placedRect) => rectsOverlap(spotRect, placedRect));
-          shown.placement = { key: placementKey, offsetX: spot.x - boxOnScreen.x, offsetY: spot.y - boxOnScreen.y, side: spot.side, isClearWhenPlaced };
-        }
-        const cardRect = { x: boxOnScreen.x + shown.placement.offsetX, y: boxOnScreen.y + shown.placement.offsetY, ...cardSize };
-        placedCardRects.push(cardRect);
-        shown.card.style.transform = `translate(${cardRect.x}px, ${cardRect.y}px)`;
-        shown.wire.setAttribute('d', wirePathOf(boxOnScreen, cardRect, shown.placement.side));
+        shown.boxRect = rect;
+        shown.isCardShrunk = rect !== null && isShrunk(model);
+        shown.card.hidden = shown.isCardShrunk;
+        shown.shrunkFace.hidden = !shown.isCardShrunk;
+        shown.wire.toggleAttribute('data-hidden', rect === null || shown.isCardShrunk);
+        if (rect === null) shown.card.style.transform = `translate(${UNPLACED_MAIN_LEFT_PX}px, ${UNPLACED_MAIN_TOP_PX}px)`;
       }
+      const paintedSet = new Set(painted);
       for (const [sessionId, shown] of shownBySessionId) {
-        if (paintedIds.has(sessionId)) continue;
+        if (paintedSet.has(shown)) continue;
+        sizeObserver.unobserve(shown.card);
+        shownByCard.delete(shown.card);
         shown.card.remove();
         shown.shrunkFace.remove();
         shown.wire.remove();
         shownBySessionId.delete(sessionId);
       }
+      paintedOrder = painted;
+      place(camera);
     },
+    place,
   };
 }

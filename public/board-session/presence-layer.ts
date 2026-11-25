@@ -55,18 +55,24 @@ export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null): P
   const glows = el('div', 'bs-presence-glows');
   glows.setAttribute('aria-hidden', 'true');
   element.append(glows);
+  let paintedGlowsKey: string | null = null;
 
   return {
     element,
     paint: (marks, board) => {
       const shownBoundsOf = shownBoundsOfBoard(board, boundsOf);
-      glows.replaceChildren(...marks.glows.flatMap(({ boxId, tier }) => {
+      const shownGlows = marks.glows.flatMap(({ boxId, tier }) => {
         const rect = shownBoundsOf(boxId);
-        if (rect === null) return [];
+        return rect === null ? [] : [{ tier, rect: { x: rect.x - GLOW_PADDING, y: rect.y - GLOW_PADDING, width: rect.width + GLOW_PADDING * 2, height: rect.height + GLOW_PADDING * 2 } }];
+      });
+      const glowsKey = shownGlows.map(({ tier, rect }) => `${tier} ${rect.x} ${rect.y} ${rect.width} ${rect.height}`).join('|');
+      if (glowsKey === paintedGlowsKey) return;
+      paintedGlowsKey = glowsKey;
+      glows.replaceChildren(...shownGlows.map(({ tier, rect }) => {
         const glow = el('span', 'bs-presence-glow');
         glow.dataset.tier = tier;
-        place(glow, { x: rect.x - GLOW_PADDING, y: rect.y - GLOW_PADDING, width: rect.width + GLOW_PADDING * 2, height: rect.height + GLOW_PADDING * 2 });
-        return [glow];
+        place(glow, rect);
+        return glow;
       }));
     },
   };

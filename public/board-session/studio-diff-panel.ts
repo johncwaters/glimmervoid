@@ -10,6 +10,7 @@ type ChangedFile = Pick<ReaderFile, 'path' | 'added' | 'removed' | 'patch'>;
 export interface ChangesPeek {
   element: HTMLElement;
   show(files: readonly ChangedFile[], left: number, top: number): void;
+  moveTo(left: number, top: number): void;
   hide(): void;
 }
 
@@ -32,14 +33,17 @@ function fileRowOf(file: ChangedFile, openFile: (file: ChangedFile) => void): HT
 export function createChangesPeek(openFile: (file: ChangedFile) => void): ChangesPeek {
   const element = el('div', 'bs-changes');
   element.hidden = true;
+  const moveTo = (left: number, top: number) => {
+    element.style.transform = `translate(${left}px, ${top}px)`;
+  };
   return {
     element,
     show: (files, left, top) => {
       element.replaceChildren(...files.map((file) => fileRowOf(file, openFile)));
-      element.style.left = `${left}px`;
-      element.style.top = `${top}px`;
+      moveTo(left, top);
       element.hidden = files.length === 0;
     },
+    moveTo,
     hide: () => {
       element.hidden = true;
     },
