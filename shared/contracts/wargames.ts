@@ -527,6 +527,14 @@ export const SignedReportPayload = z.discriminatedUnion('kind', [
     buildings: BuildingLevels,
     spottedArmyIds: z.array(z.string().min(1).max(64)).max(128),
   }),
+  z.strictObject({
+    kind: z.literal('land'),
+    reportId: z.string().min(1).max(64),
+    tick: z.number().int().min(1),
+    hexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
+    claimer: SeatId,
+    previousOwner: SeatId.nullable(),
+  }),
 ]);
 export type SignedReportPayload = z.infer<typeof SignedReportPayload>;
 

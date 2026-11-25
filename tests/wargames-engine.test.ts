@@ -1190,7 +1190,7 @@ test('v8 and v9 start on byte-identical maps, so stored v8 logs replay on the sa
   assert.equal(fingerprint.digest('hex').slice(0, 16), '019506ddced347e1');
 });
 
-test('v9 claims land as a front, builds improvements paid by the nearest village, halves them on capture, founds villages and scores territory VP', () => {
+test('v9 starts villages with their land ring, claims land as a front with land reports, builds improvements paid by the nearest village, halves them on capture, founds villages and scores territory VP', () => {
   const spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v9', mapRadius: 6, seats: buildTestSpec().seats.slice(0, 4) });
   let state = createInitialMatchState('wg-v9-land', 1000, spec);
   const signer = createTestSigner(9);
@@ -1217,16 +1217,31 @@ test('v9 claims land as a front, builds improvements paid by the nearest village
   const isOpenLand = (hexIndex: number) => state.villages[hexIndex] === null && state.terrain[hexIndex] !== 'mountain' && state.terrain[hexIndex] !== 'lake';
   const neighborsOf = (hexIndex: number) => state.hexes.filter((tile) => distanceBetween(hexIndex, tile.index) === 1).map((tile) => tile.index);
   const [fieldHex, outpostHex] = neighborsOf(home.hexIndex).filter(isOpenLand);
-  const farHex = state.hexes.find((tile) => isOpenLand(tile.index) && distanceBetween(home.hexIndex, tile.index) === 2)?.index;
-  assert.ok(fieldHex !== undefined && outpostHex !== undefined && farHex !== undefined);
+  assert.ok(fieldHex !== undefined && outpostHex !== undefined);
+  for (const village of state.villages) {
+    if (village === null) continue;
+    const ringOwner = village.owner !== null && !village.isBeacon ? village.owner : undefined;
+    for (const hexIndex of neighborsOf(village.hexIndex).filter(isOpenLand)) {
+      if (ringOwner !== undefined) assert.equal(state.territory.get(hexIndex)?.owner, ringOwner);
+    }
+  }
+  const touchesS1Land = (hexIndex: number) => neighborsOf(hexIndex).some((neighbor) => state.territory.get(neighbor)?.owner === 's1' || state.villages[neighbor]?.owner === 's1');
+  const frontierHex = present(state.hexes.find((tile) => isOpenLand(tile.index) && !state.territory.has(tile.index) && distanceBetween(home.hexIndex, tile.index) === 2 && touchesS1Land(tile.index))).index;
+  const farHex = present(state.hexes.find((tile) => isOpenLand(tile.index) && !state.territory.has(tile.index) && distanceBetween(home.hexIndex, tile.index) === 3 && !touchesS1Land(tile.index))).index;
+  const s1LandView = projectSeatState(state, 's1').yourLand;
+  assert.equal(s1LandView?.hexes, territoryCountOf(state, 's1'));
+  assert.ok((s1LandView?.claimable.length ?? 0) > 0 && s1LandView?.claimable.every((hex) => touchesS1Land(hex.hexIndex) && !state.territory.has(hex.hexIndex)));
+  assert.equal(s1LandView?.examples.claim?.toHexIndex, s1LandView?.claimable[0].hexIndex);
+  assert.equal(s1LandView?.examples.improve?.building, 'field');
   const scout = (toHexIndex: number) => ({ kind: 'march', fromHexIndex: home.hexIndex, toHexIndex, troops: { raider: 1, guard: 0, envoy: 0 } });
 
-  playTurn({ s1: [scout(fieldHex), scout(outpostHex), scout(farHex)] });
-  assert.equal(state.territory.has(fieldHex), false);
+  playTurn({ s1: [present(s1LandView?.examples.claim), scout(frontierHex), scout(farHex), scout(fieldHex)] });
+  assert.equal(state.territory.has(frontierHex), false);
   playTurn({});
-  assert.equal(state.territory.get(fieldHex)?.owner, 's1');
-  assert.equal(state.territory.get(outpostHex)?.owner, 's1');
+  assert.equal(state.territory.get(frontierHex)?.owner, 's1');
+  assert.equal(state.territory.get(present(s1LandView?.examples.claim).toHexIndex)?.owner, 's1');
   assert.equal(state.territory.has(farHex), false);
+  assert.ok(state.reportsBySeat.s1.some((report) => report.payload.kind === 'land' && report.payload.hexIndex === frontierHex && report.payload.claimer === 's1' && report.payload.previousOwner === null));
 
   const incomeBefore = villageIncomeOf(state, homeVillage());
   const stockBefore = { ...homeVillage().resources };
@@ -1256,6 +1271,9 @@ test('v9 claims land as a front, builds improvements paid by the nearest village
   playTurn({});
   assert.equal(state.territory.get(fieldHex)?.owner, 's2');
   assert.equal(state.territory.get(fieldHex)?.level, 1);
+  for (const seatId of ['s1', 's2'] as const) {
+    assert.ok(state.reportsBySeat[seatId].some((report) => report.payload.kind === 'land' && report.payload.hexIndex === fieldHex && report.payload.claimer === 's2' && report.payload.previousOwner === 's1'));
+  }
   assert.deepEqual(standingAt(fieldHex).map((army) => army.owner), ['s2']);
   assert.ok(state.reportsBySeat.s1.some((report) => report.payload.kind === 'battle' && report.payload.hexIndex === fieldHex));
 
@@ -1281,4 +1299,23 @@ test('v9 claims land as a front, builds improvements paid by the nearest village
   assert.equal(state.villages.filter((village) => village?.owner === 's1').length, villagesBefore + 1);
   assert.equal(state.villages[siteHex.index]?.owner, 's1');
   assert.equal(state.territory.has(siteHex.index), false);
+  assert.ok(neighborsOf(siteHex.index).filter(isOpenLand).every((hexIndex) => state.territory.has(hexIndex)));
+
+  const barbarian = present(state.villages.find((village) => village?.owner === null && !village.isBeacon
+    && neighborsOf(village.hexIndex).some((hexIndex) => isOpenLand(hexIndex) && !state.territory.has(hexIndex))));
+  const barbarianRing = neighborsOf(barbarian.hexIndex).filter(isOpenLand);
+  const heldRingHex = present(barbarianRing.find((hexIndex) => !state.territory.has(hexIndex)));
+  const unownedRing = barbarianRing.filter((hexIndex) => !state.territory.has(hexIndex) && hexIndex !== heldRingHex);
+  state.territory.set(heldRingHex, { owner: 's3', improvement: null, level: 0 });
+  barbarian.troops = { raider: 0, guard: 0, envoy: 0 };
+  barbarian.buildings.wall = 0;
+  barbarian.loyalty = 1;
+  state.armies.set('army-capture', {
+    id: 'army-capture', owner: 's1', status: 'marching', originHexIndex: home.hexIndex, currentHexIndex: barbarian.hexIndex, targetHexIndex: barbarian.hexIndex,
+    troops: { raider: 6, guard: 0, envoy: 2 }, departedTick: state.tick, intendedTargetOwner: null, scoutedBy: [],
+  });
+  playTurn({});
+  assert.equal(state.villages[barbarian.hexIndex]?.owner, 's1');
+  assert.ok(unownedRing.every((hexIndex) => state.territory.get(hexIndex)?.owner === 's1'));
+  assert.equal(state.territory.get(heldRingHex)?.owner, 's3');
 });

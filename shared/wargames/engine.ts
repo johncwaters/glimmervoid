@@ -201,6 +201,24 @@ interface SeatStateView {
   victoryPointTarget: number | null;
   territory?: TerritoryTileView[];
   yourVillagesFounded?: number;
+  yourLand?: LandSummaryView;
+}
+
+interface ClaimableHexView {
+  hexIndex: number;
+  terrain: TerrainKind;
+  suits: 'field' | 'quarry';
+  incomePerLevel: number;
+}
+
+interface LandSummaryView {
+  hexes: number;
+  vpPerTick: number;
+  claimable: ClaimableHexView[];
+  examples: {
+    claim: Extract<OrderItem, { kind: 'march' }> | null;
+    improve: Extract<OrderItem, { kind: 'build' }> | null;
+  };
 }
 
 interface TerritoryTileView {
@@ -814,7 +832,7 @@ export function createInitialMatchState(
     reportsBySeat[seatId] = [];
     scoutedHexesBySeat[seatId] = [];
   }
-  return {
+  const state: MatchState = {
     matchId,
     createdAtMs,
     spec,
@@ -848,6 +866,10 @@ export function createInitialMatchState(
     territory: new Map(),
     villagesFoundedBySeat: Object.fromEntries(seatIds.map((seatId) => [seatId, 0])) as Record<SeatId, number>,
   };
+  for (const village of villages) {
+    if (village !== null) grantUnownedRing(state, village);
+  }
+  return state;
 }
 
 function reject(code: WargamesRejection['code'], message: string): TransitionOutcome {
@@ -964,13 +986,21 @@ function nearestOwnedVillageOf(state: MatchState, seatId: SeatId, hexIndex: numb
   return nearest;
 }
 
-function improvementYieldOf(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, tile: TerritoryTile, village: VillageState): ResourceBundle {
-  if (tile.improvement === 'field' && hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex]) === 1) {
-    return { grain: tile.level * rule.improvements.field.yieldPerLevel, ore: 0 };
-  }
-  if (tile.improvement !== 'quarry') return { grain: 0, ore: 0 };
+function yieldPerLevelOf(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, kind: ImprovementKind, payerDistance: number): ResourceBundle {
+  if (kind === 'field' && payerDistance === 1) return { grain: rule.improvements.field.yieldPerLevel, ore: 0 };
+  if (kind !== 'quarry') return { grain: 0, ore: 0 };
   const oreTileBonus = state.terrain[hexIndex] === 'ore' ? rule.quarryOreTileBonus : 0;
-  return { grain: 0, ore: tile.level * (rule.improvements.quarry.yieldPerLevel + oreTileBonus) };
+  return { grain: 0, ore: rule.improvements.quarry.yieldPerLevel + oreTileBonus };
+}
+
+function improvementYieldOf(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, tile: TerritoryTile, village: VillageState): ResourceBundle {
+  if (tile.improvement === null) return { grain: 0, ore: 0 };
+  const perLevel = yieldPerLevelOf(state, rule, hexIndex, tile.improvement, hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex]));
+  return { grain: tile.level * perLevel.grain, ore: tile.level * perLevel.ore };
+}
+
+function landPointsFor(rule: WargamesTerritoryRule, landHexes: number): number {
+  return Math.floor(landHexes / rule.tilesPerPoint);
 }
 
 function improvementIncomeOf(state: MatchState, village: VillageState): ResourceBundle {
@@ -1225,9 +1255,25 @@ function defenseMultiplierOf(state: MatchState, village: VillageState): number {
   return (isLastVillage(state, village) ? state.balance.lastVillageDefenseMultiplier : 1) * forestMultiplier;
 }
 
+function openRingOf(state: MatchState, hexIndex: number): number[] {
+  const center = state.hexes[hexIndex];
+  return AXIAL_DIRECTIONS
+    .map((direction) => hexIndexAt(center.q + direction.q, center.r + direction.r, state.spec.mapRadius))
+    .filter((neighborIndex) => neighborIndex >= 0 && state.villages[neighborIndex] === null && isPassable(state.terrain[neighborIndex]));
+}
+
+function grantUnownedRing(state: MatchState, village: VillageState): void {
+  const owner = village.owner;
+  if (state.balance.territory === null || owner === null || village.isBeacon) return;
+  for (const hexIndex of openRingOf(state, village.hexIndex)) {
+    if (!state.territory.has(hexIndex)) state.territory.set(hexIndex, { owner, improvement: null, level: 0 });
+  }
+}
+
 function captureVillage(state: MatchState, village: VillageState, newOwner: SeatId): void {
   village.owner = newOwner;
   village.loyalty = state.balance.capturedLoyalty;
+  grantUnownedRing(state, village);
   const razeFraction = state.balance.captureRazeFraction;
   if (razeFraction <= 0) return;
   for (const building of BuildingKind.options) {
@@ -1725,13 +1771,17 @@ function payFromVillage(village: VillageState, cost: ResourceBundle): boolean {
   return true;
 }
 
+function canImproveTile(rule: WargamesTerritoryRule, tile: TerritoryTile | undefined, seatId: SeatId, kind: ImprovementKind): tile is TerritoryTile {
+  if (!tile || tile.owner !== seatId) return false;
+  if (tile.improvement !== null && tile.improvement !== kind) return false;
+  return tile.level < rule.improvements[kind].maxLevel;
+}
+
 function buildImprovement(state: MatchState, seatId: SeatId, hexIndex: number, kind: ImprovementKind): boolean {
   const rule = state.balance.territory;
   const tile = state.territory.get(hexIndex);
-  if (rule === null || !tile || tile.owner !== seatId || state.villages[hexIndex] !== null) return false;
-  if (tile.improvement !== null && tile.improvement !== kind) return false;
+  if (rule === null || state.villages[hexIndex] !== null || !canImproveTile(rule, tile, seatId, kind)) return false;
   const improvementRule = rule.improvements[kind];
-  if (tile.level >= improvementRule.maxLevel) return false;
   const payer = nearestOwnedVillageOf(state, seatId, hexIndex);
   if (payer === null || !payFromVillage(payer, improvementRule.cost)) return false;
   tile.improvement = kind;
@@ -1780,6 +1830,7 @@ function foundVillage(state: MatchState, seatId: SeatId, hexIndex: number): bool
     guests: [],
   };
   state.villages[hexIndex] = village;
+  grantUnownedRing(state, village);
   for (const army of standingArmiesAt(state, hexIndex)) garrisonNewVillage(state, village, army);
   return true;
 }
@@ -1950,8 +2001,25 @@ function isAlliedSupportOnTile(state: MatchState, army: ArmyState, holder: SeatI
   return territoryOwnerAt(state, army.targetHexIndex) === supported || arrivals.some((other) => other.owner === supported);
 }
 
-function takeTile(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, seatId: SeatId): void {
+interface LandReportContext {
+  effects: EngineEffect[];
+  signatures: Readonly<Record<string, string>>;
+  signer?: ReportSigner;
+}
+
+function reportLandChange(state: MatchState, hexIndex: number, claimer: SeatId, previousOwner: SeatId | null, context: LandReportContext): void {
+  const reportId = `rep-${state.nextReportNumber}`;
+  state.nextReportNumber += 1;
+  const report = makeSignedReport(state, { kind: 'land', reportId, tick: state.tick, hexIndex, claimer, previousOwner }, context.signatures, context.signer);
+  for (const seatId of previousOwner === null ? [claimer] : [claimer, previousOwner]) {
+    state.reportsBySeat[seatId].push(report);
+    context.effects.push({ kind: 'report_signed', detail: { reportId, seatId, signature: report.signature } });
+  }
+}
+
+function takeTile(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, seatId: SeatId, context: LandReportContext): void {
   const tile = state.territory.get(hexIndex);
+  reportLandChange(state, hexIndex, seatId, tile?.owner ?? null, context);
   if (!tile) {
     state.territory.set(hexIndex, { owner: seatId, improvement: null, level: 0 });
     return;
@@ -1961,7 +2029,8 @@ function takeTile(state: MatchState, rule: WargamesTerritoryRule, hexIndex: numb
   if (tile.level === 0) tile.improvement = null;
 }
 
-function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, arrivedThisTurn: ReadonlySet<string>, effects: EngineEffect[]): void {
+function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, arrivedThisTurn: ReadonlySet<string>, context: LandReportContext): void {
+  const { effects } = context;
   const holdersByHex = new Map<number, ArmyState[]>();
   for (const army of state.armies.values()) {
     if (army.status !== 'standing' || state.villages[army.currentHexIndex] !== null) continue;
@@ -1983,7 +2052,7 @@ function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, ar
     if (claimsLeft <= 0) continue;
     if (claim.tileOwner !== null && shouldBounceOffPact(state, claim.seatId, claim.armies, claim.tileOwner, effects)) continue;
     claimsLeftBySeat.set(claim.seatId, claimsLeft - 1);
-    takeTile(state, rule, claim.hexIndex, claim.seatId);
+    takeTile(state, rule, claim.hexIndex, claim.seatId, context);
   }
 }
 
@@ -2270,7 +2339,7 @@ function resolveTick(
     resolveV2SimultaneousBattles(state, hostileByHex, supportByHex, effects, signatures, signer);
     if (state.balance.territory !== null) {
       resolveTileArrivals(state, state.balance.territory, tileArrivalsByHex, effects, signatures, signer);
-      settleStandingClaims(state, state.balance.territory, new Set([...tileArrivalsByHex.values()].flat().map((army) => army.id)), effects);
+      settleStandingClaims(state, state.balance.territory, new Set([...tileArrivalsByHex.values()].flat().map((army) => army.id)), { effects, signatures, signer });
     }
   }
 
@@ -2311,7 +2380,7 @@ function settleBeaconsAndVictoryPoints(state: MatchState): void {
     if (seat.status === 'eliminated') continue;
     const seatId = seat.config.seatId;
     const economyPoints = victory.economyIncomePerPoint > 0 ? Math.floor(seatIncomeOf(state, seatId) / victory.economyIncomePerPoint) : 0;
-    const territoryPoints = state.balance.territory === null ? 0 : Math.floor(territoryCountOf(state, seatId) / state.balance.territory.tilesPerPoint);
+    const territoryPoints = state.balance.territory === null ? 0 : landPointsFor(state.balance.territory, territoryCountOf(state, seatId));
     state.victoryPointsBySeat[seatId] += villagesOwnedBy(state, seatId) + beaconsHeldBy(state, seatId) * victory.beaconPoints + economyPoints + territoryPoints;
   }
 }
@@ -2847,7 +2916,11 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     sites: state.villages.flatMap((village) => (village === null ? [] : [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon }])),
     victoryPointsBySeat: { ...state.victoryPointsBySeat },
     victoryPointTarget: victoryPointTargetOf(state),
-    ...(state.balance.territory === null ? {} : { territory: territoryViewOf(state), yourVillagesFounded: state.villagesFoundedBySeat[seatId] ?? 0 }),
+    ...(state.balance.territory === null ? {} : {
+      territory: territoryViewOf(state),
+      yourVillagesFounded: state.villagesFoundedBySeat[seatId] ?? 0,
+      yourLand: landSummaryOf(state, state.balance.territory, seatId),
+    }),
   };
 }
 
@@ -2873,4 +2946,72 @@ function territoryViewOf(state: MatchState): TerritoryTileView[] {
       improvement: tile.improvement,
       level: tile.level,
     }));
+}
+
+const MAX_CLAIMABLE_HEXES_SHOWN = 8;
+
+function ownedVillagesOf(state: MatchState, seatId: SeatId): VillageState[] {
+  return state.villages.filter((village): village is VillageState => village !== null && !village.isBeacon && village.owner === seatId);
+}
+
+function distanceToNearest(state: MatchState, hexIndex: number, villages: readonly VillageState[]): number {
+  return Math.min(...villages.map((village) => hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex])));
+}
+
+function suitedImprovementAt(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, villages: readonly VillageState[]): Omit<ClaimableHexView, 'hexIndex' | 'terrain'> {
+  const payerDistance = distanceToNearest(state, hexIndex, villages);
+  const fieldYield = yieldPerLevelOf(state, rule, hexIndex, 'field', payerDistance);
+  if (fieldYield.grain > 0) return { suits: 'field', incomePerLevel: fieldYield.grain };
+  return { suits: 'quarry', incomePerLevel: yieldPerLevelOf(state, rule, hexIndex, 'quarry', payerDistance).ore };
+}
+
+function claimableHexesOf(state: MatchState, rule: WargamesTerritoryRule, seatId: SeatId, villages: readonly VillageState[]): ClaimableHexView[] {
+  const busyHexes = new Set([...state.armies.values()]
+    .filter((army) => army.status === 'standing' || (army.status === 'marching' && army.owner === seatId))
+    .map((army) => (army.status === 'standing' ? army.currentHexIndex : army.targetHexIndex)));
+  return state.hexes
+    .filter((tile) => state.villages[tile.index] === null && isPassable(state.terrain[tile.index]) && !state.territory.has(tile.index) && !busyHexes.has(tile.index))
+    .filter((tile) => touchesLandOf(state, seatId, tile.index))
+    .map((tile) => ({ hexIndex: tile.index, terrain: state.terrain[tile.index], ...suitedImprovementAt(state, rule, tile.index, villages) }))
+    .sort((left, right) => right.incomePerLevel - left.incomePerLevel
+      || distanceToNearest(state, left.hexIndex, villages) - distanceToNearest(state, right.hexIndex, villages)
+      || left.hexIndex - right.hexIndex)
+    .slice(0, MAX_CLAIMABLE_HEXES_SHOWN);
+}
+
+function claimExampleOf(state: MatchState, claimable: readonly ClaimableHexView[], villages: readonly VillageState[]): LandSummaryView['examples']['claim'] {
+  const target = claimable[0];
+  if (target === undefined) return null;
+  const senders = villages
+    .filter((village) => village.troops.raider + village.troops.guard > 0)
+    .sort((left, right) => hexDistance(state.hexes[left.hexIndex], state.hexes[target.hexIndex]) - hexDistance(state.hexes[right.hexIndex], state.hexes[target.hexIndex]));
+  const sender = senders[0];
+  if (sender === undefined) return null;
+  const troops = sender.troops.raider > 0 ? { raider: 1, guard: 0, envoy: 0 } : { raider: 0, guard: 1, envoy: 0 };
+  return { kind: 'march', fromHexIndex: sender.hexIndex, toHexIndex: target.hexIndex, troops };
+}
+
+function improveExampleOf(state: MatchState, rule: WargamesTerritoryRule, seatId: SeatId, villages: readonly VillageState[]): LandSummaryView['examples']['improve'] {
+  const candidates = [...state.territory.entries()]
+    .map(([hexIndex, tile]) => ({ hexIndex, tile, suited: suitedImprovementAt(state, rule, hexIndex, villages) }))
+    .filter(({ tile, suited }) => canImproveTile(rule, tile, seatId, suited.suits))
+    .sort((left, right) => left.tile.level - right.tile.level || right.suited.incomePerLevel - left.suited.incomePerLevel || left.hexIndex - right.hexIndex);
+  const best = candidates[0];
+  if (best === undefined) return null;
+  return { kind: 'build', hexIndex: best.hexIndex, building: best.suited.suits };
+}
+
+function landSummaryOf(state: MatchState, rule: WargamesTerritoryRule, seatId: SeatId): LandSummaryView {
+  const hexes = territoryCountOf(state, seatId);
+  const villages = ownedVillagesOf(state, seatId);
+  const claimable = villages.length === 0 ? [] : claimableHexesOf(state, rule, seatId, villages);
+  return {
+    hexes,
+    vpPerTick: landPointsFor(rule, hexes),
+    claimable,
+    examples: {
+      claim: claimExampleOf(state, claimable, villages),
+      improve: villages.length === 0 ? null : improveExampleOf(state, rule, seatId, villages),
+    },
+  };
 }
