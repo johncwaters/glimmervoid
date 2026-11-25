@@ -3,6 +3,7 @@ import { isImageBlock, pastedImagesRecordOf, traceImagesField, traceImagesIn } f
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
 import { parseJsonRecord } from './json-core.ts';
 import { rawTextOr, textOr } from '../../shared/coerce.ts';
+import { withoutTerminalEscapes } from '../../shared/terminal-text.ts';
 
 type SpillWrappingAgent = 'claude-code' | 'kimi' | 'pi' | 'antigravity';
 type UnwrappedToolOutput = { output: string; isSpilled: boolean };
@@ -109,6 +110,7 @@ interface TranscriptLine {
   isCompactSummary?: unknown;
   sourceToolUseID?: unknown;
   subtype?: unknown;
+  content?: unknown;
   message?: { content?: unknown };
   apiError?: unknown;
   apiErrorParams?: { rate_limit_info?: { resetsAt?: unknown; rateLimitType?: unknown } | null } | null;
@@ -352,7 +354,9 @@ function mapUserLine(
   if (!text) return [rawRecord(rawLine, line, context)];
   if (isTaskNotificationLine(line)) return [{ ...base, kind: 'expansion', ...boundedTextFields(text) }];
   if (CLAUDE_INTERRUPT_MARKERS.has(text.trim())) return [{ ...base, kind: 'notice', text: 'Interrupted' }];
-  if (typeof content === 'string' && /<command-name>[\s\S]*?<\/command-name>/.test(content)) {
+  const commandOutput = typeof content === 'string' ? commandOutputRecord(base, content) : null;
+  if (commandOutput) return [commandOutput];
+  if (typeof content === 'string' && isTypedCommandText(content)) {
     return [{ ...base, kind: 'expansion', ...boundedTextFields(content) }];
   }
   const promptRecord: TraceRecord = { ...base, kind: 'prompt', ...boundedTextFields(text) };
@@ -422,11 +426,36 @@ function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceL
   return records;
 }
 
+const COMMAND_OUTPUT_PATTERN = /^\s*<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>\s*$/;
+
+function commandOutputRecord(base: TraceRecordBase & Pick<TraceRecord, 'transcriptOffset'>, content: string): TraceRecord | null {
+  const match = COMMAND_OUTPUT_PATTERN.exec(content);
+  if (!match) return null;
+  const output = withoutTerminalEscapes(match[2] ?? '').trim();
+  return { ...base, kind: 'command-output', text: output.slice(0, MAX_RAW_LINE_CHARS), isError: match[1] === 'stderr', ...(output.length > MAX_RAW_LINE_CHARS ? { truncated: true } : {}) };
+}
+
+const TYPED_COMMAND_PATTERN = /^\s*(?:<command-message>[\s\S]*?)?<command-name>[^<\r\n]+<\/command-name>/;
+
+function isTypedCommandText(content: string): boolean {
+  return TYPED_COMMAND_PATTERN.test(content);
+}
+
+function localCommandRecords(line: TranscriptLine, context: TraceLineContext): TraceRecord[] | null {
+  if (line.type !== 'system' || line.subtype !== 'local_command' || typeof line.content !== 'string') return null;
+  const base = baseRecord(line, context);
+  if (isTypedCommandText(line.content)) return [{ ...base, kind: 'expansion', ...boundedTextFields(line.content) }];
+  const record = commandOutputRecord(base, line.content);
+  return record ? [record] : [];
+}
+
 function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineContext): TraceRecord[] {
   const line = parseTranscriptLine(rawLine);
   if (!line) return [rawRecord(rawLine, null, context)];
   const queuedRecords = queuedCommandRecords(line, context);
   if (queuedRecords) return queuedRecords;
+  const localCommand = localCommandRecords(line, context);
+  if (localCommand) return localCommand;
   if (isDroppedLine(line)) return [];
   if (line.type === 'user') return mapUserLine(rawLine, line, context);
   if (line.type === 'assistant') return mapAssistantLine(rawLine, line, context);

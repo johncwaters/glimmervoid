@@ -438,6 +438,34 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
+const SLASH_COMMAND_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-commands.jsonl', vendorSessionId: 'd086de86-7fcd-40b7-8b9c-fe3b3857e5cd' },
+  codex: { unproducible: 'No Codex rollout on the capture host holds a typed slash command; the Codex TUI runs /model, /status and /diff itself and writes no rollout item for them' },
+  kimi: { unproducible: 'kimi-code 2.7.3 declares no wire record type for a slash command (its wire types are turn, context, compaction, hook and llm records), so a typed command never reaches wire.jsonl' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed command event exists to capture' },
+  pi: { unproducible: 'pi writes no session entry for a slash command; a model chosen mid-session is written as a model_change entry, which the converter shows as a model change line' },
+  antigravity: { unproducible: 'None of the 265 USER_INPUT steps in the 141 Antigravity transcripts on the capture host holds a slash command, and no step type (GENERIC, PLANNER_RESPONSE, USER_INPUT, SYSTEM_MESSAGE, EPHEMERAL_MESSAGE, CHECKPOINT) records one' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = SLASH_COMMAND_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`typed slash commands on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`typed slash commands on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    assert.ok(records.some((record) => record.kind === 'expansion' && record.text.includes('<command-name>/login</command-name>')), `${agent} dropped the typed command`);
+    assert.ok(records.some((record) => record.kind === 'command-output' && record.text === 'Login interrupted'), `${agent} dropped the command output`);
+    assert.ok(records.some((record) => record.kind === 'command-output' && record.text === 'Login successful'), `${agent} dropped the output of a command written as a system line`);
+    assert.equal(records.filter((record) => record.kind === 'expansion' && record.text.includes('<command-name>/login</command-name>')).length, 2, `${agent} dropped a /login written as a user or system line`);
+    const quotedTagPrompt = JSON.stringify({ type: 'user', uuid: 'quoted-tag', sessionId: fixture.vendorSessionId, timestamp: '2026-10-30T13:56:00.000Z', message: { role: 'user', content: 'Why does Chat drop this line? <command-name>/clear</command-name>' } });
+    const quotedRecords = transcriptSourceOf(agent)?.recordsFromLine(quotedTagPrompt, { vendorSessionId: fixture.vendorSessionId, now: 0 }) ?? [];
+    assert.deepEqual(quotedRecords.map((record) => record.kind), ['prompt'], `${agent} read a prompt quoting a command tag as a typed command`);
+    assert.ok(records.every((record) => record.kind !== 'prompt' && record.kind !== 'raw'), `${agent} turned a command line into a prompt or raw record`);
+  });
+}
+
 function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
   const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
   const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);

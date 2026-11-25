@@ -7,7 +7,8 @@ export { hasEarlierTracePages } from './trace-store-core.ts';
 export type { TracePrepend, TraceSessionOption, TraceTurn, TraceTurnAppend, TraceViewRow } from './trace-store-core.ts';
 
 export function traceRecordBody(record: TraceRecord): string {
-  if (record.kind === 'prompt' || record.kind === 'expansion' || record.kind === 'thinking' || record.kind === 'assistant' || record.kind === 'notice' || record.kind === 'usage_limit') return record.text;
+  if (record.kind === 'prompt' || record.kind === 'expansion' || record.kind === 'thinking' || record.kind === 'assistant' || record.kind === 'notice' || record.kind === 'usage_limit' || record.kind === 'command-output') return record.text;
+  if (record.kind === 'model-change') return record.model;
   if (record.kind === 'tool_result') return record.content;
   if (record.kind === 'raw') return record.line;
   if (record.kind === 'attachments') return record.files.join('\n');

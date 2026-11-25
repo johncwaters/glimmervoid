@@ -95,6 +95,8 @@ const TRACE_TAG_BY_KIND: Record<TraceRecord['kind'], string> = {
   'board-answer': 'BOARD ANSWER',
   subagent: 'SUBAGENT',
   'background-task': 'BACKGROUND',
+  'command-output': 'OUTPUT',
+  'model-change': 'MODEL',
   raw: 'RAW',
 };
 
@@ -110,6 +112,8 @@ function traceLabelParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<strin
   if (record.kind === 'notice') return { prefix: 'Notice: ', text: firstDetailLine(record.text) };
   if (record.kind === 'usage_limit') return { prefix: 'Limit: ', text: firstDetailLine(record.text) };
   if (record.kind === 'raw') return { prefix: 'Raw: ', text: firstDetailLine(record.line) };
+  if (record.kind === 'command-output') return { prefix: 'Command output: ', text: firstDetailLine(record.text) };
+  if (record.kind === 'model-change') return { prefix: 'Model: ', text: record.model };
   if (record.kind === 'attachments') return { prefix: 'Attached: ', text: record.files.join(', ') };
   if (record.kind === 'board-answer') return { prefix: '', text: 'Board question answered' };
   if (record.kind === 'session') return { prefix: 'Session: ', text: `${record.vendor} ${record.vendorSessionId}` };

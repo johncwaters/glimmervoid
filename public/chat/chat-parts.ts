@@ -478,6 +478,20 @@ function renderSystemLine(part: Extract<ChatPart, { kind: 'system-line' }>): HTM
   return line;
 }
 
+function renderCommand(part: Extract<ChatPart, { kind: 'command' }>): HTMLElement {
+  const row = el('div', 'chat-command');
+  const chip = el('div', 'chat-command-chip');
+  chip.append(el('span', 'chat-command-name', part.name));
+  if (part.args) chip.append(el('span', 'chat-command-args', part.args));
+  row.append(chip);
+  if (part.output !== null) {
+    const output = el('pre', 'chat-command-output', part.output);
+    output.toggleAttribute('data-error', part.isOutputError);
+    row.append(output);
+  }
+  return row;
+}
+
 function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
   const skillRow = el('div', 'chat-subagent chat-skill');
   const row = el('div', 'chat-subagent-row');
@@ -517,6 +531,7 @@ const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   skill: renderSkill,
   'system-line': renderSystemLine,
+  command: renderCommand,
   'background-task': renderBackgroundTask,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;

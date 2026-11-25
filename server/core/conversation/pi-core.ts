@@ -7,13 +7,13 @@ import type { TraceLineContext } from '../trace-core.ts';
 import { boundedToolOutput, parsedJson, textRecords } from './converter-parts.ts';
 import type { RecordBase } from './converter-parts.ts';
 
-const CONVERSATION_LINE_MARKERS = ['"type":"message"', '"type":"custom_message"'];
+const CONVERSATION_LINE_MARKERS = ['"type":"message"', '"type":"custom_message"', '"type":"model_change"'];
 
 const ContentBlock = z.object({ type: z.string() }).passthrough();
 const MessageContent = z.union([z.string(), z.array(ContentBlock)]);
 
 const SessionEntry = z.object({
-  type: z.enum(['message', 'custom_message']),
+  type: z.enum(['message', 'custom_message', 'model_change']),
   id: z.string().min(1),
   parentId: z.string().nullish(),
   timestamp: z.string().optional(),
@@ -26,6 +26,7 @@ const BashExecutionMessage = z.object({ role: z.literal('bashExecution'), comman
 const CustomMessage = z.object({ role: z.literal('custom'), content: MessageContent });
 const CustomMessageEntry = z.object({ content: MessageContent });
 const MessageEntry = z.object({ message: z.unknown() });
+const ModelChangeEntry = z.object({ modelId: z.string().min(1).max(200) });
 
 const TextBlock = z.object({ type: z.literal('text'), text: z.string() });
 const ThinkingBlock = z.object({ type: z.literal('thinking'), thinking: z.string().default('') });
@@ -93,6 +94,11 @@ function piRecordsFromLine(rawLine: string, context: TraceLineContext): TraceRec
     parentUuid: entry.data.parentId ?? null,
     vendorSessionId: context.vendorSessionId,
   };
+  if (entry.data.type === 'model_change') {
+    const modelChange = ModelChangeEntry.safeParse(rawEntry);
+    const isSessionStartModel = base.parentUuid === null;
+    return modelChange.success && !isSessionStartModel ? [{ ...base, kind: 'model-change', model: modelChange.data.modelId }] : [];
+  }
   if (entry.data.type === 'custom_message') {
     const customEntry = CustomMessageEntry.safeParse(rawEntry);
     return customEntry.success ? textRecords(base, 'expansion', contentText(customEntry.data.content)) : [];

@@ -108,6 +108,15 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     text: z.string().max(MAX_RAW_LINE_CHARS),
   }),
   TraceRecordBase.extend({
+    kind: z.literal('command-output'),
+    text: z.string().max(MAX_RAW_LINE_CHARS),
+    isError: z.boolean(),
+  }),
+  TraceRecordBase.extend({
+    kind: z.literal('model-change'),
+    model: z.string().min(1).max(200),
+  }),
+  TraceRecordBase.extend({
     kind: z.literal('raw'),
     line: z.string().max(MAX_RAW_LINE_CHARS),
   }),

@@ -1,3 +1,5 @@
+import { withoutTerminalEscapes } from '../../shared/terminal-text.ts';
+
 export const GIT_FETCH_TIMEOUT_MS = 8000;
 
 type BranchSyncState = 'no-upstream' | 'unknown' | 'diverged' | 'ahead' | 'behind' | 'in-sync';
@@ -94,11 +96,7 @@ function firstGitErrorLine(err: unknown): string {
 
   const maxGitErrorLineLength = 200;
   const raw = errorMessageOrText(err);
-  const msg = raw
-    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
-    .replace(/^Command failed:[^\n]*\n?/, '');
+  const msg = withoutTerminalEscapes(raw).replace(/^Command failed:[^\n]*\n?/, '');
   const lines = msg.split('\n').map((line) => line.trim()).filter(Boolean);
   const preferredLine = lines.find((line) => line.startsWith('fatal:') || line.startsWith('error:') || line.startsWith('! ['));
   const line = preferredLine || lines[0];

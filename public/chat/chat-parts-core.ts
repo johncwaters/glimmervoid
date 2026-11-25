@@ -1,7 +1,7 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
-import type { BackgroundTaskPart, ChatCard, ChatPart, TurnPart } from './chat-part.ts';
+import type { BackgroundTaskPart, ChatCard, ChatPart, CommandPart, TurnPart } from './chat-part.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import { glimmervoidLineLabelOf, isRelayNewsLine, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
@@ -53,6 +53,7 @@ interface ChatPartsState {
   pendingBoardAnswer: SentBoardAnswer | null;
   latestPrompt: PromptPart | null;
   newestPrompt: PromptPart | null;
+  latestCommand: CommandPart | null;
   openUsageLimitCard: UsageLimitCard | null;
   runningSubagents: Set<TrackedSubagent>;
   subagentByToolUseId: Map<string, TrackedSubagent>;
@@ -81,7 +82,7 @@ const BACKGROUND_TASK_TYPE_BY_TOOL_NAME: ReadonlyMap<string, string> = new Map([
 const BACKGROUND_TASK_LABEL_BY_TYPE: ReadonlyMap<string, string> = new Map([['shell', 'Shell'], ['monitor', 'Monitor'], ['workflow', 'Workflow']]);
 
 export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, pendingBoardAnswer: null, latestPrompt: null, newestPrompt: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), backgroundCallByToolUseId: new Map(), backgroundLaunchByTaskId: new Map(), backgroundTaskById: new Map(), workingDirectory };
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, pendingBoardAnswer: null, latestPrompt: null, newestPrompt: null, latestCommand: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), backgroundCallByToolUseId: new Map(), backgroundLaunchByTaskId: new Map(), backgroundTaskById: new Map(), workingDirectory };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
@@ -298,6 +299,7 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
   if (record.agentId !== undefined) return null;
   if (record.kind === 'attachments') return attachedPromptOf(state, record);
   if (record.kind === 'board-answer') return answeredPromptOf(state, record);
+  if (COMMAND_ENDING_KINDS.has(record.kind)) state.latestCommand = null;
   const part = nonPromptPartOf(state, record);
   if (part !== null || record.kind === 'assistant') state.latestPrompt = null;
   if (record.kind !== 'prompt' || part !== null) return part;
@@ -337,7 +339,33 @@ function systemLinePartOf(state: ChatPartsState, record: TraceRecord): ChatPart 
   return { kind: 'system-line', id: nextPartId(state, 'system-line'), label, at: record.ts, isRelayNews };
 }
 
+const COMMAND_ENDING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['prompt', 'assistant', 'tool_call']);
+const COMMAND_NAME_PATTERN = /^\s*(?:<command-message>[\s\S]*?)?<command-name>([^<\r\n]+)<\/command-name>/;
+const COMMAND_ARGS_PATTERN = /<command-args>([\s\S]*?)<\/command-args>/;
+
+function typedCommandPartOf(state: ChatPartsState, record: TraceRecord): CommandPart | null {
+  if (record.kind !== 'expansion' || record.toolUseId !== undefined) return null;
+  const name = COMMAND_NAME_PATTERN.exec(record.text)?.[1]?.trim();
+  if (!name) return null;
+  const args = COMMAND_ARGS_PATTERN.exec(record.text)?.[1]?.trim() ?? '';
+  const command: CommandPart = { kind: 'command', id: nextPartId(state, 'command'), name, args, output: null, isOutputError: false, at: record.ts };
+  state.latestCommand = command;
+  return command;
+}
+
+function commandWithOutputOf(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'command-output' }>): CommandPart | null {
+  const command = state.latestCommand;
+  if (command === null || record.text.length === 0) return null;
+  const output = command.output === null ? record.text : `${command.output}\n${record.text}`;
+  state.latestCommand = { ...command, output, isOutputError: command.isOutputError || record.isError };
+  return state.latestCommand;
+}
+
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
+  const commandPart = typedCommandPartOf(state, record);
+  if (commandPart !== null) return commandPart;
+  if (record.kind === 'command-output') return commandWithOutputOf(state, record);
+  if (record.kind === 'model-change') return { kind: 'system-line', id: nextPartId(state, 'system-line'), label: `Model set to ${record.model}`, at: record.ts, isRelayNews: false };
   const systemLinePart = systemLinePartOf(state, record);
   if (systemLinePart !== null) return systemLinePart;
   if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
