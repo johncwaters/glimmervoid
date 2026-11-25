@@ -1,5 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
+import type { MemoryReading } from '../core/memory-admission-core.ts';
 import type { MemoryGateStatus } from '../spawn-gate.ts';
 import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
@@ -7,11 +8,31 @@ import { clock } from '../../shared/clock.ts';
 
 const HEALTH_SNAPSHOT_INTERVAL_MS = 10000;
 
+interface HealthSession {
+  readonly id: string;
+  readonly state: Session['state'];
+  readonly stateSince: number;
+  readonly hasLivePty: boolean;
+  readonly resumeSessionId: string | null;
+  readonly ephemeral?: boolean;
+  readonly hasBackgroundWork: boolean;
+  snooze(): { ok: boolean; reason?: string };
+  getHealthStats(): ReturnType<Session['getHealthStats']>;
+  getDetectionStats(): ReturnType<Session['getDetectionStats']>;
+}
+
+interface IdleHibernationOptions {
+  idleHibernateMs: number | null;
+  headroomFloorBytes: number;
+  readHeadroom: () => Promise<MemoryReading>;
+}
+
 interface BackendHealthDependencies {
-  sessions: Map<string, Session>;
-  getAllSessions: () => Session[];
+  sessions: Map<string, HealthSession>;
+  getAllSessions: () => HealthSession[];
   sessionDataClients: Map<string, Map<WebSocket, unknown>>;
   getMemoryGateStatus: () => MemoryGateStatus;
+  idleHibernation?: IdleHibernationOptions;
   controlWss: { clients: Set<WebSocket> };
   viewerControlClientCount: () => number;
   dataWss: { clients: Set<WebSocket> };
@@ -20,6 +41,7 @@ interface BackendHealthDependencies {
 
 interface BackendHealth {
   buildHealthSnapshot(): Record<string, unknown>;
+  runIdleHibernationSweep(): Promise<string[]>;
   healthInterval: NodeJS.Timeout;
 }
 
@@ -88,13 +110,66 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     };
   }
 
+  let hibernationSweepInFlight: Promise<string[]> | null = null;
+
+  function hasActiveTerminalViewer(id: string): boolean {
+    const clients = dependencies.sessionDataClients.get(id);
+    if (!clients) return false;
+    for (const viewer of clients.values()) {
+      if (viewer !== null) return true;
+    }
+    return false;
+  }
+
+  function isEligibleForHibernation(id: string, session: HealthSession): boolean {
+    if (session.ephemeral || !session.hasLivePty || !session.resumeSessionId) return false;
+    if (session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) return false;
+    if (hasActiveTerminalViewer(id)) return false;
+    if (session.hasBackgroundWork) return false;
+    return true;
+  }
+
+  async function runIdleHibernationSweep(): Promise<string[]> {
+    const config = dependencies.idleHibernation;
+    if (!config) return [];
+    const { idleHibernateMs, headroomFloorBytes, readHeadroom } = config;
+    if (idleHibernateMs === null && headroomFloorBytes <= 0) return [];
+    const reading = headroomFloorBytes > 0 ? await readHeadroom() : { ok: false as const, reason: 'disabled' };
+    const isUnderMemoryPressure = reading.ok && reading.headroomBytes < headroomFloorBytes;
+    const nowMs = clock.nowMs();
+    const snoozedIds: string[] = [];
+    let oldestVictim: { id: string; session: HealthSession; stateSince: number } | null = null;
+
+    for (const [id, session] of dependencies.sessions) {
+      if (!isEligibleForHibernation(id, session)) continue;
+      if (idleHibernateMs !== null && nowMs - session.stateSince >= idleHibernateMs) {
+        if (session.snooze().ok) snoozedIds.push(id);
+        continue;
+      }
+      if (!isUnderMemoryPressure) continue;
+      if (oldestVictim === null || session.stateSince < oldestVictim.stateSince) {
+        oldestVictim = { id, session, stateSince: session.stateSince };
+      }
+    }
+
+    if (isUnderMemoryPressure && snoozedIds.length === 0 && oldestVictim !== null) {
+      if (oldestVictim.session.snooze().ok) snoozedIds.push(oldestVictim.id);
+    }
+    return snoozedIds;
+  }
+
   const healthInterval = setInterval(() => {
+    if (dependencies.idleHibernation && hibernationSweepInFlight === null) {
+      hibernationSweepInFlight = runIdleHibernationSweep()
+        .catch(() => [])
+        .finally(() => { hibernationSweepInFlight = null; });
+    }
     if (dependencies.viewerControlClientCount() === 0) return;
     dependencies.broadcastControl({ type: 'health-snapshot', stats: buildHealthSnapshot() });
   }, HEALTH_SNAPSHOT_INTERVAL_MS);
   healthInterval.unref();
 
-  return { buildHealthSnapshot, healthInterval };
+  return { buildHealthSnapshot, runIdleHibernationSweep, healthInterval };
 }
 
 export { createBackendHealth };

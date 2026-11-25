@@ -117,6 +117,7 @@ import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createVerificationWiring } from '../verification/verification-wiring.ts';
 import { resolveHostResourceProfile } from '../core/memory-admission-core.ts';
+import { readMemoryHeadroom } from '../memory-probe.ts';
 import { createHeavyCommandGate } from '../spawn-gate.ts';
 import { createLoopGuardWiring } from '../session/loop-guard-wiring.ts';
 import { createReactionsWiring } from '../reactions-wiring.ts';
@@ -419,6 +420,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getAllSessions: () => allLiveSessions(),
     sessionDataClients,
     getMemoryGateStatus: () => laneAssembly.memoryAdmission.gateStatus(),
+    idleHibernation: {
+      idleHibernateMs: hostResourceProfile.idleHibernateMs,
+      headroomFloorBytes: hostResourceProfile.headroomFloorBytes,
+      readHeadroom: readMemoryHeadroom,
+    },
     controlWss,
     viewerControlClientCount,
     dataWss,
