@@ -1,4 +1,5 @@
 import type { PackRow, PackSettingsView } from '#shared/contracts/control/pack-messages.ts';
+import { settingReachesCommand } from '#shared/contracts/pack-bridge.ts';
 import { packVaultName } from '#shared/contracts/secrets.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -25,19 +26,42 @@ async function requestSettings(type: 'pack-settings-get' | 'pack-settings-save',
   }
 }
 
-function secretHint(setting: SettingRow, vaultName: string, view: PackSettingsView | null): string {
+function vaultText(vaultName: string, view: PackSettingsView | null, state: string): string {
   if (view === null) return `Checking your vault for ${vaultName}`;
-  const state = view.secretStateByKey[setting.key] ?? 'missing';
   if (view.manager === null) return `Set up a vault in Settings to keep ${vaultName}`;
   if (state === 'unreadable') return `Your vault could not be read for ${vaultName}; check the vault in Settings`;
   if (view.manager === '1password') return state === 'found' ? `Found in 1Password as ${vaultName}` : `Create ${vaultName} in 1Password; Glimmervoid never writes there`;
-  return state === 'found' ? `Saved in your vault as ${vaultName}; paste a new key to replace it` : `Not set yet; saved to your vault as ${vaultName}`;
+  return state === 'found' ? `Kept in your vault as ${vaultName}` : `Saved to your vault as ${vaultName}`;
 }
 
-function missingText(view: PackSettingsView, settings: readonly SettingRow[]): string {
+function secretHint(setting: SettingRow, vaultName: string, view: PackSettingsView | null): string {
+  const state = view?.secretStateByKey[setting.key] ?? 'missing';
+  const vaultLine = vaultText(vaultName, view, state);
+  return setting.hint === null ? vaultLine : `${setting.hint}. ${vaultLine}`;
+}
+
+function secretPlaceholder(setting: SettingRow, view: PackSettingsView): string {
+  const isFound = view.secretStateByKey[setting.key] === 'found';
+  if (!isFound) return 'Paste a key to save it';
+  return view.manager === '1password' ? 'Found in 1Password' : 'Saved in your vault; paste a new key to replace it';
+}
+
+function labelsOf(settings: readonly SettingRow[], keys: readonly string[]): string {
+  return settings.filter((setting) => keys.includes(setting.key)).map((setting) => setting.label).join(', ');
+}
+
+function waitingSourcesText(row: PackRow, missingKeys: readonly string[]): string[] {
+  return (row.community?.sources ?? []).flatMap((source) => {
+    const waitingFor = row.settings.filter((setting) => missingKeys.includes(setting.key) && settingReachesCommand(setting, `community-source:${source.id}`)).map((setting) => setting.label);
+    return waitingFor.length === 0 ? [] : [`${source.label} waits for ${waitingFor.join(', ')}`];
+  });
+}
+
+function missingText(view: PackSettingsView, row: PackRow): string {
   if (view.missingKeys.length === 0) return 'All settings saved.';
-  const labels = settings.filter((setting) => view.missingKeys.includes(setting.key)).map((setting) => setting.label);
-  return `Still needed: ${labels.join(', ')}`;
+  const waitingSources = waitingSourcesText(row, view.missingKeys);
+  if (waitingSources.length > 0) return `${waitingSources.join('. ')}.`;
+  return `Still needed: ${labelsOf(row.settings, view.missingKeys)}`;
 }
 
 function createFieldParts(row: PackRow, setting: SettingRow): { parts: FieldParts; element: HTMLElement } {
@@ -82,12 +106,13 @@ export function createPackSettingsView(row: PackRow, request: SettingsRequest = 
     for (const parts of fieldsByKey.values()) {
       if (parts.setting.kind === 'secret') {
         parts.input.value = '';
+        parts.input.placeholder = secretPlaceholder(parts.setting, view);
         parts.setHint(secretHint(parts.setting, view.vaultNameByKey[parts.setting.key] ?? packVaultName(row.name, parts.setting.key), view));
         continue;
       }
       parts.input.value = view.valuesByKey[parts.setting.key] ?? '';
     }
-    paintActionStatus(status, view.missingKeys.length === 0 ? 'ok' : null, missingText(view, row.settings));
+    paintActionStatus(status, view.missingKeys.length === 0 ? 'ok' : null, missingText(view, row));
   }
 
   function enteredValues(): Record<string, string> {

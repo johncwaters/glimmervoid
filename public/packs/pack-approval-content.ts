@@ -61,7 +61,7 @@ async function requestDismissal(packName: string): Promise<{ ok: true } | { ok: 
   }
 }
 
-async function runPackRequest(packName: string, busyText: string, request: () => Promise<{ ok: true } | { ok: false; error: string }>, controls: PackApprovalControls): Promise<boolean> {
+async function runPackRequest(packName: string, busyText: string, request: () => Promise<{ ok: true } | { ok: false; error: string }>, controls: PackApprovalControls, closesOnSuccess = true): Promise<boolean> {
   approvalStatusByPackName.set(packName, { tone: 'busy', text: busyText });
   controls.repaint();
   const outcome = await request();
@@ -71,13 +71,15 @@ async function runPackRequest(packName: string, busyText: string, request: () =>
     return false;
   }
   approvalStatusByPackName.delete(packName);
-  controls.close();
+  if (closesOnSuccess) controls.close();
+  if (!closesOnSuccess) controls.repaint();
   return true;
 }
 
 async function approve(row: PackRow, fingerprint: string, controls: PackApprovalControls): Promise<void> {
-  const isApproved = await runPackRequest(row.name, `Approving ${row.name}`, () => requestPackApproval(fingerprint), controls);
-  if (isApproved) openFirstPackPanel(row.name);
+  const staysOnSetup = row.settings.length > 0 && controls.settingsView !== undefined;
+  const isApproved = await runPackRequest(row.name, `Approving ${row.name}`, () => requestPackApproval(fingerprint), controls, !staysOnSetup);
+  if (isApproved && !staysOnSetup) openFirstPackPanel(row.name);
 }
 
 function dismiss(row: PackRow, controls: PackApprovalControls): Promise<boolean> {
