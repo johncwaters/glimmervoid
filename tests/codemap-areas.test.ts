@@ -9,9 +9,11 @@ import { createCodemapService } from '../server/codemap/codemap-wiring.ts';
 import { createStudioReposStore } from '../server/board-session/studio-repos-store.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { Board } from '../shared/contracts/whiteboard.ts';
+import { waitFor } from './helpers/wait-for.ts';
 import { openWhiteboardWiring } from './helpers/whiteboard-closables.ts';
 
 const BOX_WIDTH = 220;
+const MAP_REDRAW_DEADLINE_MS = 30_000;
 
 function writeLibAndApp(folderDir: string): void {
   const writeSource = (repoPath: string, text: string) => {
@@ -80,7 +82,7 @@ test('repos and folders of one repo with the same folder names draw their own bo
 
   assert.deepEqual(await codemap.removeArea(firstRepoDir), { ok: true });
   assert.deepEqual((await areas.repos()).map((listed) => listed.repoDir), [secondRepoDir], 'removing an area takes its repo off the stored list in the same step');
-  for (let attempt = 0; attempt < 200 && areaSpanOf(await readBoard(), 'second').left !== firstSpan.left; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+  await waitFor(async () => areaSpanOf(await readBoard(), 'second').left === firstSpan.left, 'the area after a removed one moves into its place', MAP_REDRAW_DEADLINE_MS);
   const afterRemoval = await readBoard();
   assert.equal([...afterRemoval.elements.values()].some((element) => element.kind === 'frame' && element.title === 'first'), false, 'the removed area has left the board');
   assert.equal(libBoxIdsOf(afterRemoval).length, 1);
@@ -111,9 +113,8 @@ test('repos and folders of one repo with the same folder names draw their own bo
   fs.renameSync(secondRepoDir, path.join(tmpDir, 'second-moved'));
   assert.equal((await codemap.handle({ repoDir: path.join(tmpDir, 'second-moved') }, { sub: 'map' })).ok, true);
   const hasSecondArea = async () => [...(await readBoard()).elements.values()].some((element) => element.kind === 'frame' && element.title === 'second');
-  for (let attempt = 0; attempt < 200 && await hasSecondArea(); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(await hasSecondArea(), false, 'the area of a folder that is gone leaves when the next repo joins');
-  assert.equal((await areas.repos()).some((listed) => listed.repoDir === secondRepoDir), false);
+  await waitFor(async () => !(await areas.repos()).some((listed) => listed.repoDir === secondRepoDir), 'a folder that is gone leaves the Studio repo list when the next repo joins', MAP_REDRAW_DEADLINE_MS);
+  assert.equal(await hasSecondArea(), false, 'its area left the board before its repo left the list');
 });
 
 test('a repo with no branch agent folds to one card that keeps its place in the row, and opens when a branch starts there or the operator opens it', async () => {
@@ -134,7 +135,7 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
     return { id: areaFrame.id, isFolded: areaFrame.collapsed, cardTitle: firstBox?.kind === 'box' ? firstBox.title : null, left: firstBox?.kind === 'box' && typeof firstBox.place === 'object' && 'at' in firstBox.place ? firstBox.place.at.x : null, collapsedFolderCount };
   };
   const untilFolded = async (areaTitle: string, isFolded: boolean) => {
-    for (let attempt = 0; attempt < 300 && (await areaFrameOf(areaTitle)).isFolded !== isFolded; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(async () => (await areaFrameOf(areaTitle)).isFolded === isFolded, `the area of ${areaTitle} ${isFolded ? 'folds' : 'opens'}`, MAP_REDRAW_DEADLINE_MS);
     return areaFrameOf(areaTitle);
   };
 
@@ -149,8 +150,7 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
   codemap.noteBranchesChanged();
   const openedFirst = await untilFolded('first', false);
   assert.ok(openedFirst.collapsedFolderCount > 0, 'an open area folds its own folders again');
-  for (let attempt = 0; attempt < 300 && ((await areaFrameOf('second')).left ?? 0) - (foldedFirst.left ?? 0) < 1000; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(((await areaFrameOf('second')).left ?? 0) - (foldedFirst.left ?? 0) >= 1000, 'the area after an opened one moves right to make room');
+  await waitFor(async () => ((await areaFrameOf('second')).left ?? 0) - (foldedFirst.left ?? 0) >= 1000, 'the area after an opened one moves right to make room', MAP_REDRAW_DEADLINE_MS);
   assert.equal((await areaFrameOf('second')).isFolded, true);
 
   assert.deepEqual(await codemap.setFolderOpen(secondRepoDir, foldedSecond.id, true), { ok: true, isOpen: true });
