@@ -1,3 +1,4 @@
+import { MAX_RAW_LINE_CHARS } from '#shared/contracts/trace.ts';
 import { el } from '../dom-helpers.ts';
 import type { BackgroundTaskPart, ChatPart, ChatPartKind, TurnPart } from './chat-part.ts';
 import { backgroundTaskKindText, runTimeText } from './chat-parts-core.ts';
@@ -499,6 +500,14 @@ function renderAgentEvent(part: Extract<ChatPart, { kind: 'agent-event' }>): HTM
   return line;
 }
 
+function renderHookMessage(part: Extract<ChatPart, { kind: 'hook-message' }>): HTMLElement {
+  const row = el('div', 'chat-hook-message');
+  row.toggleAttribute('data-error', part.isError);
+  row.append(el('span', 'chat-hook-label', part.label), el('pre', 'chat-hook-text', part.text));
+  if (part.isCut) row.append(el('span', 'chat-hook-cut', `Cut at ${MAX_RAW_LINE_CHARS} characters; the terminal shows the rest`));
+  return row;
+}
+
 function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
   const skillRow = el('div', 'chat-subagent chat-skill');
   const row = el('div', 'chat-subagent-row');
@@ -540,6 +549,7 @@ const RENDERER_BY_PART_KIND = {
   'system-line': renderSystemLine,
   command: renderCommand,
   'agent-event': renderAgentEvent,
+  'hook-message': renderHookMessage,
   'background-task': renderBackgroundTask,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;

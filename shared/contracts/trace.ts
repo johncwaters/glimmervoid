@@ -125,6 +125,13 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     maxAttempts: z.number().int().positive().nullable(),
   }),
   TraceRecordBase.extend({
+    kind: z.literal('hook-message'),
+    hookEvent: z.string().min(1).max(200),
+    toolName: z.string().min(1).max(200).nullable(),
+    text: z.string().max(MAX_RAW_LINE_CHARS),
+    isError: z.boolean(),
+  }),
+  TraceRecordBase.extend({
     kind: z.literal('model-change'),
     model: z.string().min(1).max(200),
   }),

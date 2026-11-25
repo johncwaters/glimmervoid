@@ -14,6 +14,10 @@ export function compactionText(record: Extract<TraceRecord, { kind: 'compaction'
   return `Conversation compacted, ${thousandsText(record.tokensBefore)} to ${thousandsText(record.tokensAfter)} tokens`;
 }
 
+export function hookLabelOf(record: Extract<TraceRecord, { kind: 'hook-message' }>): string {
+  return record.toolName === null ? `hook ${record.hookEvent}` : `hook ${record.hookEvent}:${record.toolName}`;
+}
+
 export function agentErrorReasonOf(record: AgentErrorRecord): string {
   return record.text.trim().replace(/\.+$/, '');
 }

@@ -2,7 +2,7 @@ import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
 import type { AgentEventPart, BackgroundTaskPart, ChatCard, ChatPart, CommandPart, TurnPart } from './chat-part.ts';
-import { agentErrorReasonOf, agentErrorText, compactionText, settledRetryText } from '#shared/trace-event-text.ts';
+import { agentErrorReasonOf, agentErrorText, compactionText, hookLabelOf, settledRetryText } from '#shared/trace-event-text.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import { glimmervoidLineLabelOf, isRelayNewsLine, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
@@ -393,6 +393,7 @@ function settledRetryPartOf(state: ChatPartsState, record: TraceRecord): AgentEv
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
   if (record.kind === 'compaction') return { kind: 'agent-event', id: nextPartId(state, 'agent-event'), tone: 'plain', label: compactionText(record), at: record.ts };
   if (record.kind === 'agent-error') return agentErrorPartOf(state, record);
+  if (record.kind === 'hook-message') return { kind: 'hook-message', id: nextPartId(state, 'hook-message'), label: hookLabelOf(record), text: record.text, isError: record.isError, isCut: record.truncated === true, at: record.ts };
   const commandPart = typedCommandPartOf(state, record);
   if (commandPart !== null) return commandPart;
   if (record.kind === 'command-output') return commandWithOutputOf(state, record);

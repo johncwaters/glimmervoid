@@ -185,6 +185,15 @@
 
 .chat-agent-event[data-tone="error"] .chat-system-label { color: var(--state-failed); }
 
+.chat-hook-message { display: grid; gap: 2px; padding-left: 12px; border-left: 2px solid var(--border); font: var(--type-meta)/1.5 var(--font-mono); }
+
+.chat-hook-label, .chat-hook-cut { color: var(--text-muted); }
+
+.chat-hook-text { margin: 0; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.chat-hook-message[data-error] .chat-hook-label,
+.chat-hook-message[data-error] .chat-hook-text { color: var(--state-failed); }
+
 .chat-command { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 
 .chat-command-chip {

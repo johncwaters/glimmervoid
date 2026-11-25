@@ -50,10 +50,14 @@ function isRewoundCursor(request: TracePageRequest, next: number): boolean {
   return next < request.after;
 }
 
+const BOUNDED_TEXT_KINDS: ReadonlySet<string> = new Set(['command-output', 'agent-error', 'hook-message', 'usage_limit']);
+
 function clippedToTraceLimits(record: unknown): unknown {
   if (typeof record !== 'object' || record === null || !('kind' in record)) return record;
   if (record.kind === 'raw' && 'line' in record && typeof record.line === 'string' && record.line.length > MAX_RAW_LINE_CHARS) return { ...record, line: record.line.slice(0, MAX_RAW_LINE_CHARS), truncated: true };
   if (record.kind === 'notice' && 'text' in record && typeof record.text === 'string') return { ...record, text: record.text.slice(0, MAX_RAW_LINE_CHARS) };
+  const isBoundedText = typeof record.kind === 'string' && BOUNDED_TEXT_KINDS.has(record.kind);
+  if (isBoundedText && 'text' in record && typeof record.text === 'string' && record.text.length > MAX_RAW_LINE_CHARS) return { ...record, text: record.text.slice(0, MAX_RAW_LINE_CHARS), truncated: true };
   return record;
 }
 

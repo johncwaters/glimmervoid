@@ -25,6 +25,7 @@ export type ChatPart =
   | { kind: 'system-line'; id: string; label: string; at: number; isRelayNews: boolean }
   | CommandPart
   | AgentEventPart
+  | { kind: 'hook-message'; id: string; label: string; text: string; isError: boolean; isCut: boolean; at: number }
   | BackgroundTaskPart
   | { kind: 'card'; id: string; card: ChatCard };
 

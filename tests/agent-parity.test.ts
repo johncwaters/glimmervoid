@@ -511,6 +511,28 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
+const HOOK_MESSAGE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-hooks.jsonl', vendorSessionId: 'f0fa2e5d-c713-410b-bbca-9c6c549345f6' },
+  codex: { unproducible: 'None of the 847 Codex rollouts on the capture host holds a hook message; the rollout item types are messages, reasoning, tool calls, compaction and token counts' },
+  kimi: { unproducible: 'No Kimi Code session exists on the capture host; kimi-code 2.7.3 declares a hook.failed wire record whose fields stay unknown until one is captured' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed hook event exists to capture' },
+  pi: { unproducible: 'pi has no hook system; its extensions write custom_message entries, which already show as expansions' },
+  antigravity: { unproducible: 'None of the 141 Antigravity transcripts on the capture host records a hook step' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = HOOK_MESSAGE_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`hook messages on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`hook messages on ${agent}`, () => {
+    const hookMessages = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record)).filter((record) => record.kind === 'hook-message');
+    assert.deepEqual(hookMessages.map((record) => [record.hookEvent, record.toolName, record.isError]), [['Stop', null, false], ['PostToolUse', 'Edit', true], ['Stop', null, true]]);
+    assert.ok(hookMessages.every((record) => record.text.length > 0), `${agent} dropped a hook message text`);
+  });
+}
+
 function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
   const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
   const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);

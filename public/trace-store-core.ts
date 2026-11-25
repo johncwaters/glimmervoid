@@ -1,6 +1,6 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { firstDetailLine, toolDetailLine } from '#shared/tool-detail.ts';
-import { compactionText } from '#shared/trace-event-text.ts';
+import { compactionText, hookLabelOf } from '#shared/trace-event-text.ts';
 
 export const TRACE_MAX_RESIDENT_ROWS = 5000;
 
@@ -100,6 +100,7 @@ const TRACE_TAG_BY_KIND: Record<TraceRecord['kind'], string> = {
   'model-change': 'MODEL',
   compaction: 'COMPACTED',
   'agent-error': 'ERROR',
+  'hook-message': 'HOOK',
   raw: 'RAW',
 };
 
@@ -119,6 +120,7 @@ function traceLabelParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<strin
   if (record.kind === 'model-change') return { prefix: 'Model: ', text: record.model };
   if (record.kind === 'compaction') return { prefix: '', text: compactionText(record) };
   if (record.kind === 'agent-error') return { prefix: 'Agent error: ', text: firstDetailLine(record.text) };
+  if (record.kind === 'hook-message') return { prefix: `${hookLabelOf(record)}: `, text: firstDetailLine(record.text) };
   if (record.kind === 'attachments') return { prefix: 'Attached: ', text: record.files.join(', ') };
   if (record.kind === 'board-answer') return { prefix: '', text: 'Board question answered' };
   if (record.kind === 'session') return { prefix: 'Session: ', text: `${record.vendor} ${record.vendorSessionId}` };

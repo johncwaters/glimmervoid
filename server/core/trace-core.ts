@@ -127,6 +127,12 @@ interface TranscriptLine {
     commandMode?: unknown;
     origin?: { kind?: unknown } | null;
     prompt?: unknown;
+    hookName?: unknown;
+    hookEvent?: unknown;
+    content?: unknown;
+    stderr?: unknown;
+    stdout?: unknown;
+    blockingError?: unknown;
   };
 }
 
@@ -482,6 +488,33 @@ function apiErrorMessageRecord(line: TranscriptLine, context: TraceLineContext):
   return { ...baseRecord(line, context), kind: 'agent-error', text, retryInMs: null, attempt: null, maxAttempts: null };
 }
 
+const HOOK_MESSAGE_TEXT_BY_ATTACHMENT_TYPE: Readonly<Record<string, { isError: boolean; textOf: (attachment: NonNullable<TranscriptLine['attachment']>) => string | null }>> = {
+  hook_system_message: { isError: false, textOf: (attachment) => rawTextOr(attachment.content, null) },
+  hook_non_blocking_error: { isError: true, textOf: (attachment) => rawTextOr(attachment.stderr, null) || rawTextOr(attachment.stdout, null) },
+  hook_blocking_error: {
+    isError: true,
+    textOf: (attachment) => {
+      const blockingError = attachment.blockingError;
+      if (typeof blockingError === 'object' && blockingError !== null) return rawTextOr(Reflect.get(blockingError, 'blockingError'), null);
+      return rawTextOr(blockingError, null);
+    },
+  },
+};
+
+function hookMessageRecords(line: TranscriptLine, context: TraceLineContext): TraceRecord[] | null {
+  const attachment = line.attachment;
+  if (line.type !== 'attachment' || typeof attachment?.type !== 'string') return null;
+  const hookMessage = HOOK_MESSAGE_TEXT_BY_ATTACHMENT_TYPE[attachment.type];
+  if (hookMessage === undefined) return null;
+  const text = withoutTerminalEscapes(hookMessage.textOf(attachment) ?? '').trim();
+  const hookName = rawTextOr(attachment.hookName, null) ?? '';
+  const hookEvent = rawTextOr(attachment.hookEvent, null) || hookName.split(':')[0] || 'Hook';
+  const toolName = hookName.includes(':') ? hookName.slice(hookName.indexOf(':') + 1) || null : null;
+  if (!text) return [];
+  const isCut = text.length > MAX_RAW_LINE_CHARS;
+  return [{ ...baseRecord(line, context), kind: 'hook-message', hookEvent: hookEvent.slice(0, 200), toolName: toolName?.slice(0, 200) ?? null, text: text.slice(0, MAX_RAW_LINE_CHARS), isError: hookMessage.isError, ...(isCut ? { truncated: true } : {}) }];
+}
+
 function localCommandRecords(line: TranscriptLine, context: TraceLineContext): TraceRecord[] | null {
   if (line.type !== 'system' || line.subtype !== 'local_command' || typeof line.content !== 'string') return null;
   const base = baseRecord(line, context);
@@ -495,6 +528,8 @@ function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineConte
   if (!line) return [rawRecord(rawLine, null, context)];
   const queuedRecords = queuedCommandRecords(line, context);
   if (queuedRecords) return queuedRecords;
+  const hookMessages = hookMessageRecords(line, context);
+  if (hookMessages) return hookMessages;
   const localCommand = localCommandRecords(line, context);
   if (localCommand) return localCommand;
   const systemEvent = systemEventRecords(line, context);

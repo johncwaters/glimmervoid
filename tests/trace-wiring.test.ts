@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 
-import { TraceCheckpoint, TraceRecord } from '../shared/contracts/trace.ts';
+import { MAX_RAW_LINE_CHARS, TraceCheckpoint, TraceRecord } from '../shared/contracts/trace.ts';
 import { createTraceWiring, } from '../server/trace-wiring.ts';
 import {
   MAX_PARTIAL_LINE_BYTES,
@@ -1304,6 +1304,23 @@ test('a relayed record that is not a trace record leaves one notice naming the a
   assert.deepEqual(records.map((record) => record.kind), ['notice']);
   assert.equal(records[0].vendorSessionId, 'unknown');
   assert.match(records[0].kind === 'notice' ? records[0].text : '', /^opencode record refused at vendorSessionId: /);
+});
+
+test('a full-length hook message that grows when its secret is masked is clipped, not refused', async () => {
+  const { configDirectory } = makeWorkspace('masked-hook-message');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new TestTraceSession('masked-hook-session', 'opencode');
+  harness.wiring.attachSession(session);
+  const text = `password=hunter2 ${'x'.repeat(MAX_RAW_LINE_CHARS - 17)}`;
+  session.emit('conversation-records', { records: [{ ts: 1, uuid: null, parentUuid: null, vendorSessionId: 'vendor-session', kind: 'hook-message', hookEvent: 'PostToolUse', toolName: 'Edit', text, isError: true }] });
+  await harness.wiring.whenIdle();
+
+  const records = readTrace(harness.tracePath('masked-hook-session'));
+  assert.deepEqual(records.map((record) => [record.kind, record.truncated]), [['hook-message', true]]);
+  assert.ok(records[0].kind === 'hook-message' && !records[0].text.includes('hunter2'));
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
 });
 
 test('an agent without a transcript source binds no transcript it reports', async () => {
