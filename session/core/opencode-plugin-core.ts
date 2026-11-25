@@ -160,6 +160,7 @@ export default {
     const runningBackgroundShellIds = new Set();
     const conversationBySession = new Map();
     const permissionHoldById = new Map();
+    const questionHoldBySession = new Map();
     let rootSessionId = null;
     let rootSessionTitle = null;
     let executionPhase = null;
@@ -343,6 +344,13 @@ export default {
       });
     }
 
+    function stopQuestionHold(sessionID) {
+      const activeHold = questionHoldBySession.get(sessionID);
+      if (!activeHold) return;
+      questionHoldBySession.delete(sessionID);
+      activeHold.stop();
+    }
+
     function relayRootExecutionEvent(type, sessionID) {
       if (type === "session.execution.started") {
         executionPhase = "pending";
@@ -365,6 +373,7 @@ export default {
       }
       const endEvent = EXECUTION_END_EVENT_NAMES[type];
       if (!endEvent) return;
+      stopQuestionHold(sessionID);
       flushConversation(sessionID);
       const wasCompactionOnly = executionPhase === "compacting";
       executionPhase = null;
@@ -390,7 +399,12 @@ export default {
       if (packReason) throw new Error(packReason);
       if (event.tool !== OPENCODE_QUESTION_TOOL) return;
       questionInputBySession.set(event.sessionID, toolInput);
-      const reason = denialReason(await relayForReply(QUESTION_HOLD_EVENT, await payloadFor(event.sessionID, { tool_name: QUESTION_TOOL_NAME, tool_input: toolInput })));
+      stopQuestionHold(event.sessionID);
+      const hold = heldRelay(QUESTION_HOLD_EVENT, await payloadFor(event.sessionID, { tool_name: QUESTION_TOOL_NAME, tool_input: toolInput }));
+      questionHoldBySession.set(event.sessionID, hold);
+      const reason = denialReason(await hold.reply.finally(() => {
+        if (questionHoldBySession.get(event.sessionID) === hold) questionHoldBySession.delete(event.sessionID);
+      }));
       if (!reason) return;
       questionInputBySession.delete(event.sessionID);
       throw new Error(reason);
@@ -402,7 +416,11 @@ export default {
         await relayEvent(event.type, event.properties ?? event.data ?? {}).catch(() => {});
       }
     })().catch(() => {});
-    return () => subscription.abort();
+    return () => {
+      for (const hold of questionHoldBySession.values()) hold.stop();
+      questionHoldBySession.clear();
+      subscription.abort();
+    };
   },
 };
 `;

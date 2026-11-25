@@ -6,7 +6,7 @@ import type fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
-import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
+import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/contracts/question-manager.ts";
 import { CONVERSATION_PERMISSION_HOOK_EVENT, REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { ChatApprovalMode } from "../../shared/contracts/session.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
@@ -45,6 +45,7 @@ const PLAN_PROPOSED_FIELD = "glimmervoid_plan_proposed";
 const ROLLOUT_CHUNK_BYTES = 1024 * 1024;
 const ROLLOUT_SCAN_LIMIT_BYTES = 64 * ROLLOUT_CHUNK_BYTES;
 const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
+const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 
 const HOOK_EVENTS = LEGACY_HOOK_EVENTS;
 
@@ -266,12 +267,12 @@ function buildHookArgs({
   if (hasQuestionHook(argvMatchedHooks)) {
     const questionHoldCommand = buildHookCommand(relayLaunch, QUESTION_TOOL_HOLD_HOOK_EVENT);
     if (!questionHoldCommand) return null;
-    preToolUseGroups.push(`{matcher='${QUESTION_HOLD_MATCHER}',hooks=[{type='command',command='${questionHoldCommand}'}]}`);
+    preToolUseGroups.push(`{matcher='${QUESTION_HOLD_MATCHER}',hooks=[{type='command',command='${questionHoldCommand}',timeout=${QUESTION_HOLD_HOOK_TIMEOUT_SECONDS}}]}`);
   }
   if (chatApprovals === "questions-and-permissions" && !hasHomeHooks) {
     const permissionHoldCommand = buildHookCommand(relayLaunch, CONVERSATION_PERMISSION_HOOK_EVENT);
     if (!permissionHoldCommand) return null;
-    groupsByEvent.set("PermissionRequest", [...(groupsByEvent.get("PermissionRequest") ?? []), `{hooks=[{type='command',command='${permissionHoldCommand}'}]}`]);
+    groupsByEvent.set("PermissionRequest", [...(groupsByEvent.get("PermissionRequest") ?? []), `{hooks=[{type='command',command='${permissionHoldCommand}',timeout=${QUESTION_HOLD_HOOK_TIMEOUT_SECONDS}}]}`]);
   }
   const groups = argvHookTools.flatMap((tool) => {
     const group = HOOK_TOOLS[tool.id].codexGroup(tool);
@@ -347,12 +348,12 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
   if (hasQuestionHook(plan.matchedRelayHooks)) {
     const questionHoldCommand = buildHookCommand(RELAY_LAUNCH, QUESTION_TOOL_HOLD_HOOK_EVENT);
     if (!questionHoldCommand) return null;
-    hooks.push({ event: "PreToolUse", matcher: QUESTION_HOLD_MATCHER, command: questionHoldCommand });
+    hooks.push({ event: "PreToolUse", matcher: QUESTION_HOLD_MATCHER, command: questionHoldCommand, timeoutSeconds: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS });
   }
   if (plan.events.includes("PermissionRequest")) {
     const permissionHoldCommand = buildHookCommand(RELAY_LAUNCH, CONVERSATION_PERMISSION_HOOK_EVENT);
     if (!permissionHoldCommand) return null;
-    hooks.push({ event: "PermissionRequest", matcher: null, command: permissionHoldCommand });
+    hooks.push({ event: "PermissionRequest", matcher: null, command: permissionHoldCommand, timeoutSeconds: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS });
   }
   const saneYoloCommand = saneYoloHookCommand();
   if (!saneYoloCommand) return null;

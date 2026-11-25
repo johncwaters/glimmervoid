@@ -946,6 +946,8 @@ for (const [agent, { heldRequest: questionRequest, ownToolEvent }] of Object.ent
       assert.equal(session.state, STATES.WAITING, 'a question held for Chat shows the session as waiting');
       session._approvals.releaseAfterHookEvent('pretooluse', ownToolEvent());
       session._approvals.releaseAfterHookEvent('elicitation', ownToolEvent());
+      session.ingestHookSignal({ signal: 'working', source: 'hook', ts: 1, event: 'agentstate', payload: {} });
+      assert.equal(session.state, STATES.WAITING, 'a working hook poll while held for Chat leaves the session waiting');
       const approval = session.toSnapshot().conversationApproval;
       assert.equal(approval?.kind, 'question');
       assert.ok(approval?.questions && approval.questions.length > 0, 'the held question carries no questions for the card');

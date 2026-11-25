@@ -288,10 +288,11 @@ export default function (pi) {
     promptSnippet: "Ask the operator multiple-choice questions when a decision is theirs to make",
     promptGuidelines: ["Use ask_user_question when you need the operator to choose between options before continuing."],
     parameters: QUESTION_PARAMETERS,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       rememberSession(ctx);
-      const heldAnswer = denialReason(await relayForReply(QUESTION_HOLD_EVENT, payload({ tool_name: QUESTION_TOOL_NAME, tool_input: params })));
+      const heldAnswer = denialReason(await heldRelay(QUESTION_HOLD_EVENT, payload({ tool_name: QUESTION_TOOL_NAME, tool_input: params }), signal));
       if (heldAnswer) return textOf(heldAnswer);
+      if (signal?.aborted) return textOf("The operator dismissed the question.");
       if (!ctx.hasUI) return textOf("The operator cannot answer questions in this pi run.");
       const questionPayload = payload({ tool_name: QUESTION_TOOL_NAME, tool_input: params });
       relay("Elicitation", questionPayload);

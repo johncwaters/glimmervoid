@@ -1013,6 +1013,7 @@ class Session extends EventEmitter {
   ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
     if (this._approvals.parksQuestionStatus(raw)) return;
+    if (this._conversationApproval !== null && raw?.signal === "working") return;
     this._ingestHookSignal(raw);
   }
 

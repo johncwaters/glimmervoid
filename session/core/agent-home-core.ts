@@ -1005,6 +1005,7 @@ interface CodexHomeHook {
   matcher: string | null;
   command: string;
   isAsync?: boolean;
+  timeoutSeconds?: number;
 }
 
 function codexHookTables(hook: CodexHomeHook): string[] {
@@ -1012,6 +1013,7 @@ function codexHookTables(hook: CodexHomeHook): string[] {
   if (hook.matcher !== null) lines.push(`matcher = '${hook.matcher}'`);
   lines.push(`[[hooks.${hook.event}.hooks]]`, `type = "command"`, `command = '${hook.command}'`);
   if (hook.isAsync) lines.push("async = true");
+  if (hook.timeoutSeconds !== undefined) lines.push(`timeout = ${hook.timeoutSeconds}`);
   return lines;
 }
 

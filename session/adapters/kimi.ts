@@ -48,7 +48,8 @@ const TOOL_EVENTS: readonly string[] = Object.freeze(["PreToolUse", "PostToolUse
 const SUBAGENT_TOOL_NAME = "Agent";
 const MATCHED_TOOL_NAMES: readonly string[] = Object.freeze([ASK_USER_QUESTION_TOOL_NAME, SUBAGENT_TOOL_NAME]);
 const HOOKS_BLOCK_REFUSAL = "the hook relay path cannot be written into a kimi hooks block";
-const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
+const KIMI_MAX_HOOK_TIMEOUT_SECONDS = 600;
+const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.min(KIMI_MAX_HOOK_TIMEOUT_SECONDS, Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10);
 const SANE_YOLO_TOOL_NAMES: readonly string[] = Object.freeze(["Bash", "Read", "ReadMediaFile", "Write", "Edit", "Glob", "Grep"]);
 const PERMISSION_GATED_TOOL_NAMES: readonly string[] = Object.freeze(["Bash", "Write", "Edit"]);
 
