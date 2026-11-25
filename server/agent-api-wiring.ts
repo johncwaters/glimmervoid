@@ -49,6 +49,7 @@ function createAgentApiWiring({
   startRace = null,
   wargames = null,
   startWargames = null,
+  startBranch = null,
   reviewComments = null,
   repoClones = null,
   wakesFilePath = null,
@@ -67,7 +68,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, wargames, startWargames, reviewComments, repoClones, wakesFilePath, memoryFilePath, fileClaims, sessionPreviews, verification, codemap, boardAsks, budgetHoldReason, readBudgetHoldReason,
+    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, wargames, startWargames, startBranch, reviewComments, repoClones, wakesFilePath, memoryFilePath, fileClaims, sessionPreviews, verification, codemap, boardAsks, budgetHoldReason, readBudgetHoldReason,
     logger, setTimeoutFn, clearTimeoutFn, now,
     channelsByChildId: new Map<string, AgentChannel>(),
     linksByChildId: new Map<string, ChannelLink>(),

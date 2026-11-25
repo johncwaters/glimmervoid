@@ -1,13 +1,35 @@
-import type { Session } from '../../session/sessions.ts';
-import { branchParentIdOf } from '../../shared/parent-link.ts';
-import { mainAgentStepOf } from '../core/studio-main-core.ts';
+import fs from 'node:fs';
+import path from 'node:path';
 
-export function wakeStudioMain(sessions: Iterable<Session>, repoPath: string): string | null {
-  const repoSessions = [...sessions].filter((session) => session.path === repoPath && branchParentIdOf(session.parent) === null);
-  const step = mainAgentStepOf(repoSessions.map((session) => ({ id: session.id, state: session.state, isStudioMain: session.isStudioMain })));
+import type { Session } from '../../session/sessions.ts';
+import { glimmervoidHomeDir } from '../config-store.ts';
+import type { ProjectEntry } from '../config-store.ts';
+import { ORCHESTRATOR_NAME, STUDIO_HOME_FOLDER_NAME, orchestratorStepOf } from '../core/studio-main-core.ts';
+
+type OrchestratorLaunch = Pick<ProjectEntry, 'agent' | 'dangerouslySkipPermissions' | 'saneYolo'> & { accountId?: string | null };
+
+type CreateOrchestratorSession = (args: OrchestratorLaunch & { name: string; path: string; requireExistingPath: boolean; runSettings: Partial<ProjectEntry> }) => { ok: true; project: ProjectEntry } | { ok: false; error: string };
+
+type OrchestratorOutcome = { ok: true; orchestratorId: string; isCreated: boolean } | { ok: false; error: string };
+
+export function studioHomeDir(): string {
+  return path.join(glimmervoidHomeDir(), STUDIO_HOME_FOLDER_NAME);
+}
+
+export function wakeOrchestrator(sessions: Iterable<Session>): string | null {
+  const orchestrator = [...sessions].find((session) => session.isStudioMain && !session._destroyed) ?? null;
+  const step = orchestratorStepOf(orchestrator);
   if (step.kind === 'create') return null;
-  const main = repoSessions.find((session) => session.id === step.sessionId);
-  if (step.kind === 'start') void main?.start();
-  if (step.kind === 'restart') main?.restart();
+  if (step.kind === 'start') void orchestrator?.start();
+  if (step.kind === 'restart') orchestrator?.restart();
   return step.sessionId;
+}
+
+export function ensureOrchestrator(sessions: Iterable<Session>, createSession: CreateOrchestratorSession, launch: OrchestratorLaunch): OrchestratorOutcome {
+  const wokenId = wakeOrchestrator(sessions);
+  if (wokenId !== null) return { ok: true, orchestratorId: wokenId, isCreated: false };
+  fs.mkdirSync(studioHomeDir(), { recursive: true });
+  const created = createSession({ ...launch, name: ORCHESTRATOR_NAME, path: studioHomeDir(), requireExistingPath: true, runSettings: { isStudioMain: true } });
+  if (!created.ok) return created;
+  return { ok: true, orchestratorId: created.project.id, isCreated: true };
 }

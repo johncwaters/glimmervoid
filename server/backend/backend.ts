@@ -95,6 +95,8 @@ import { createSessionPreviews } from '../session/session-previews.ts';
 import { createCodemapService } from '../codemap/codemap-wiring.ts';
 import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createBranchMerge } from '../board-session/branch-merge.ts';
+import type { BranchWiring } from '../board-session/branch-wiring.ts';
+import { studioHomeDir } from '../board-session/studio-main.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
 import { createDirector, isStudioSession } from '../board-session/director.ts';
 import { createStudioPrCards } from '../board-session/studio-pr-cards.ts';
@@ -216,6 +218,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let closeSession: ((id: string) => Promise<{ ok: boolean; error?: string }>) | null = null;
   let raceLauncher: RaceLauncher | null = null;
   let wargamesLauncher: WargamesLauncher | null = null;
+  let branchLauncher: BranchWiring | null = null;
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   warnWhenGitIsTooOld({ log: console });
@@ -378,7 +381,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     studioBoardIdOf: studioMapBoardIdOf,
   });
   const studioRepos = createStudioReposStore({ filePath: path.join(glimmervoidHomeDir(), 'studio-repos.json'), logger: console });
-  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), areas: studioRepos, configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
+  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), areas: studioRepos, isMappedDir: (repoDir) => repoDir !== studioHomeDir(), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
     changesOfSession: async (sessionId) => {
       const session = getSessionAny(sessionId);
       if (!session) return null;
@@ -613,6 +616,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     startRace: (spec, permissions) => (raceLauncher ? raceLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Races are not running' })),
     wargames: laneAssembly.wargames,
     startWargames: (spec, permissions) => (wargamesLauncher ? wargamesLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Wargames is not running' })),
+    startBranch: (request) => (branchLauncher ? branchLauncher.spawn(request) : Promise.resolve({ ok: false as const, error: 'Studio branches are not running' })),
     wakesFilePath: configSiblingPath(configStore.configPath, 'wakes.json'),
     memoryFilePath: configSiblingPath(configStore.configPath, 'memory.json'),
     fileClaims,
@@ -1026,7 +1030,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
   };
 
-  ({ removeExitedSession, closeSession, raceLauncher, wargamesLauncher } = createBackendControl({
+  ({ removeExitedSession, closeSession, raceLauncher, wargamesLauncher, branches: branchLauncher } = createBackendControl({
     onControlConnection,
     sessions,
     agentSessions,

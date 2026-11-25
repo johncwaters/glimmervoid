@@ -188,7 +188,7 @@ interface ControlHandlerDeps {
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   director?: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
   studioGuide?: StudioGuideStore | null;
-  codemap?: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf'> | null;
+  codemap?: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo'> | null;
   boardAsks?: Pick<BoardAsks, 'answer' | 'openAsksOf'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
@@ -221,6 +221,8 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
   const branches = createBranchWiring({
     findSession: (sessionId) => context.findSession({ id: sessionId }),
     listSessions: () => context.sessions.values(),
+    listRepos: async () => deps.codemap ? deps.codemap.listedRepos() : [],
+    repoOfBox: async (boxId) => deps.codemap ? deps.codemap.repoOfBox(boxId) : null,
     resolveTarget: async (repoDir, about) => deps.codemap ? deps.codemap.branchTargetOf(repoDir, about) : { ok: false, error: 'the code map is not running, so a branch has no box to work on' },
     createProjectSession: context.createProjectSession,
   });

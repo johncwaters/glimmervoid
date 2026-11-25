@@ -158,7 +158,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       bypassHookTrust: project.codexBypassHookTrust === true,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,
-      gitWorkspace: isMachineShell ? null : dependencies.getGitWorkspace(),
+      gitWorkspace: isMachineShell || project.isStudioMain === true ? null : dependencies.getGitWorkspace(),
       integrationBranch: project.baseBranch || configuredIntegrationBranch(config),
       autoRebase: project.isStartPinned !== true,
       syncOnStart: true,

@@ -1,28 +1,23 @@
 import { RESTARTABLE_STATES, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 
-interface RepoSessionFact {
+interface OrchestratorFact {
   id: string;
   state: SessionState;
-  isStudioMain: boolean;
 }
 
-type MainAgentStep =
+type OrchestratorStep =
   | { kind: 'use'; sessionId: string }
   | { kind: 'start'; sessionId: string }
   | { kind: 'restart'; sessionId: string }
   | { kind: 'create' };
 
-export function mainAgentStepOf(repoSessions: readonly RepoSessionFact[]): MainAgentStep {
-  const main = repoSessions.find((session) => session.isStudioMain);
-  if (main === undefined) return { kind: 'create' };
-  if (main.state === STATES.DORMANT) return { kind: 'start', sessionId: main.id };
-  if (RESTARTABLE_STATES.includes(main.state)) return { kind: 'restart', sessionId: main.id };
-  return { kind: 'use', sessionId: main.id };
-}
+export const ORCHESTRATOR_NAME = 'Orchestrator';
+export const STUDIO_HOME_FOLDER_NAME = 'studio-home';
 
-export function mainAgentNameOf(repoPath: string): string {
-  const trimmedPath = repoPath.replace(/[\\/]+$/, '');
-  const repoLabel = trimmedPath.slice(Math.max(trimmedPath.lastIndexOf('/'), trimmedPath.lastIndexOf('\\')) + 1) || trimmedPath;
-  return `${repoLabel} main`;
+export function orchestratorStepOf(orchestrator: OrchestratorFact | null): OrchestratorStep {
+  if (orchestrator === null) return { kind: 'create' };
+  if (orchestrator.state === STATES.DORMANT) return { kind: 'start', sessionId: orchestrator.id };
+  if (RESTARTABLE_STATES.includes(orchestrator.state)) return { kind: 'restart', sessionId: orchestrator.id };
+  return { kind: 'use', sessionId: orchestrator.id };
 }

@@ -171,6 +171,8 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
       ...(typeof values.model === 'string' ? { model: values.model } : {}),
       ...(typeof values.effort === 'string' ? { effort: values.effort } : {}),
       ...(typeof values.done === 'string' ? { done: values.done.split(';').map((line) => line.trim()).filter((line) => line.length > 0) } : {}),
+      ...(typeof values.repo === 'string' ? { repo: values.repo } : {}),
+      ...(typeof values.about === 'string' ? { about: values.about } : {}),
     };
   },
   send: ({ positionals, values }) => {

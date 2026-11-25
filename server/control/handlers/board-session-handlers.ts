@@ -8,13 +8,12 @@ import { SESSION_GONE_TEXT } from '../control-context.ts';
 import type { BranchWiring } from '../../board-session/branch-wiring.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import type { Session } from '../../../session/sessions.ts';
-import { mainAgentNameOf } from '../../core/studio-main-core.ts';
-import { wakeStudioMain } from '../../board-session/studio-main.ts';
+import { ensureOrchestrator } from '../../board-session/studio-main.ts';
 
 const CODE_MAP_OFF_TEXT = 'The code map is not running';
 const BOARD_ASKS_OFF_TEXT = 'Board questions are not running';
 
-const WORKSPACE_MAIN_TEXT = 'A workspace of several repos has no main agent; open one of its repos.';
+const WORKSPACE_MAIN_TEXT = 'A workspace of several repos does not open in Studio; open one of its repos.';
 
 type MainAgentOutcome = { ok: true; mainId: string } | { ok: false; error: string };
 
@@ -23,22 +22,11 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
   const { codemap = null, boardAsks = null, director = null, studioGuide = null } = deps;
 
   function ensureMainAgent(anchor: Session): MainAgentOutcome {
-    const repoPath = anchor.path;
     if (findConfiguredProject(anchor.id)?.repos) return { ok: false, error: WORKSPACE_MAIN_TEXT };
-    const mainId = wakeStudioMain(sessions.values(), repoPath);
-    if (mainId !== null) return { ok: true, mainId };
-    const created = createProjectSession({
-      name: mainAgentNameOf(repoPath),
-      path: repoPath,
-      agent: anchor.agentId,
-      dangerouslySkipPermissions: anchor.dangerouslySkipPermissions,
-      saneYolo: anchor.saneYolo,
-      accountId: anchor.accountId,
-      requireExistingPath: true,
-      runSettings: { isStudioMain: true },
-    });
-    if (!created.ok) return created;
-    return { ok: true, mainId: created.project.id };
+    if (!anchor.isStudioMain) codemap?.openArea(anchor.path);
+    const ensured = ensureOrchestrator(sessions.values(), createProjectSession, { agent: anchor.agentId, dangerouslySkipPermissions: anchor.dangerouslySkipPermissions, saneYolo: anchor.saneYolo, accountId: anchor.accountId });
+    if (!ensured.ok) return ensured;
+    return { ok: true, mainId: ensured.orchestratorId };
   }
 
   const handlers = {
@@ -77,7 +65,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
     'branch-spawn': async (message: ClientMessageOf<'branch-spawn'>, ws: ControlSocket) => {
       const reply = { type: 'branch-spawn-result', id: message.id, requestId: message.requestId ?? null };
       try {
-        const outcome = await branches.spawn({ parentId: message.id, about: { boxId: message.aboutBoxId }, prompt: message.prompt });
+        const outcome = await branches.spawn({ orchestratorId: message.id, place: { boxId: message.aboutBoxId }, prompt: message.prompt });
         if (!outcome.ok) return ws.send(JSON.stringify({ ...reply, ok: false, error: outcome.error }));
         ws.send(JSON.stringify({ ...reply, ok: true, branchId: outcome.sessionId }));
       } catch (error) {
@@ -122,10 +110,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       try {
         const branches = [...sessions.values()].filter((candidate) => branchParentIdOf(candidate.parent) === main.id && !candidate._destroyed);
         const agents = [main, ...branches].map((agent) => ({ sessionId: agent.id, name: agent.name }));
-        const boardIdOf = async () => {
-          const boxes = codemap ? await codemap.boxesOfSession(main.path, main.id, []) : null;
-          return boxes?.ok ? boxes.boardId : null;
-        };
+        const boardIdOf = async () => (codemap ? codemap.mapBoardIdOfRepo(main.path) : null);
         const isAnswered = await director.answerProgress({ mainSessionId: main.id, agents, question: message.text, boardIdOf });
         ws.send(JSON.stringify({ ...reply, ok: true, isAnswered }));
       } catch (error) {

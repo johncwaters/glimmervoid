@@ -122,7 +122,8 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   const isolationForProject = (project: ProjectEntry, sessionTempFolder: string | null): SessionIsolation | null => {
     if (isWargamesSeatProject(project)) return seatIsolation(project, sessionTempFolder);
     if (!isSessionSandboxOn || sessionSandbox === null) return null;
-    return { prepareSandbox: sessionSandbox.sandboxFor(sessionTempFolder, []), privateHomeKey: null, extraClaudeArgs: [] };
+    const ownHiddenFolders = project.isStudioMain === true ? [project.path] : [];
+    return { prepareSandbox: sessionSandbox.sandboxFor(sessionTempFolder, ownHiddenFolders), privateHomeKey: null, extraClaudeArgs: [] };
   };
   const seatSandboxRefusal = async () => sessionSandbox === null ? SEAT_NEEDS_SANDBOX_PLATFORM : sessionSandbox.refusal();
   const makeSession = createSessionFactory({

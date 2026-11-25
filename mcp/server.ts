@@ -106,7 +106,7 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
 }
 
 function studioRoleOf(session: Session): StudioRole | null {
-  if (session.isStudioMain) return 'main';
+  if (session.isStudioMain) return 'orchestrator';
   if (branchParentIdOf(session.parent) !== null) return 'branch';
   return null;
 }

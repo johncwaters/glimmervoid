@@ -31,10 +31,10 @@ import { runGit } from '../../git/git-exec.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
 import { decidePermissions } from '../../../shared/session-permissions.ts';
 import { resolvePackageBin } from '../../runtime-paths.ts';
-import { wakeStudioMain } from '../../board-session/studio-main.ts';
+import { studioHomeDir, wakeOrchestrator } from '../../board-session/studio-main.ts';
 import { isBranchWorkElsewhere } from '../../board-session/branch-merge.ts';
 import { branchParentIdOf } from '../../../shared/parent-link.ts';
-import { mainAgentNameOf } from '../../core/studio-main-core.ts';
+import { ORCHESTRATOR_NAME } from '../../core/studio-main-core.ts';
 import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
@@ -184,13 +184,19 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       return;
     }
     const repoPath = path.resolve(msg.path.trim());
-    const mainId = wakeStudioMain(sessions.values(), repoPath);
-    if (mainId !== null) {
-      sendFirstPrompt(mainId, msg.prompt);
-      reply({ ok: true, sessionId: mainId });
+    if (!isExistingDirectory(repoPath)) {
+      refuseAddSession(msg, reply, { error: missingFolderError(msg.path) });
       return;
     }
-    createAddedSession({ ...msg, name: mainAgentNameOf(repoPath) }, reply, { ...runSettings, isStudioMain: true });
+    deps.codemap?.openArea(repoPath);
+    const orchestratorId = wakeOrchestrator(sessions.values());
+    if (orchestratorId !== null) {
+      sendFirstPrompt(orchestratorId, msg.prompt);
+      reply({ ok: true, sessionId: orchestratorId });
+      return;
+    }
+    fs.mkdirSync(studioHomeDir(), { recursive: true });
+    createAddedSession({ ...msg, path: studioHomeDir(), name: ORCHESTRATOR_NAME }, reply, { ...runSettings, isStudioMain: true });
   }
 
   async function handlePackLaunch(msg: ClientMessageOf<'pack-launch'>, ws: ControlSocket): Promise<void> {

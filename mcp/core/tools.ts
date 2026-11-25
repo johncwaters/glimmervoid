@@ -129,6 +129,8 @@ const SESSION_TOOL: GroupedTool = {
     model: AgentSpawnRequest.shape.model.describe("spawn: the model the new session runs, by the agent's own model id; defaults to the agent's configured model"),
     effort: AgentSpawnRequest.shape.effort.describe('spawn: the reasoning effort the new session runs at, where the agent takes one'),
     done: AgentSpawnRequest.shape.done.describe("spawn: what finished means, one line each; they join the new session's prompt, which proves them with its own done commands"),
+    repo: AgentSpawnRequest.shape.repo.describe('spawn, from the Studio Orchestrator: the Studio repo the branch works in, by the key or name codemap map lists'),
+    about: AgentSpawnRequest.shape.about.describe('spawn, from the Studio Orchestrator: the folder, module or file path in that repo the branch works on, or repo root'),
     child: ChildField.optional(),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
     to: AgentSendRequest.shape.to.describe('send, from a spawned session: a sibling the same parent spawned, by id or name, to message instead of the parent'),
@@ -139,7 +141,7 @@ const SESSION_TOOL: GroupedTool = {
     lines: AgentDoneRequest.shape.lines.optional().describe("done: what finished means for the operator's request, one line each, every line with the command that proves it (a plain program and arguments, no shell syntax, exiting 0 when the line holds); session check runs them in the worktree and returns each result, and a later done call replaces these lines"),
   },
   actions: {
-    spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
+    spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done', 'repo', 'about'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
     send: { verb: 'send', required: ['text'], accepts: ['child', 'text', 'to'], hints: WRITES, toPayload: sendPayload },
     read: routeTo('read', ['child'], { hints: WRITES }),
     close: routeTo('close', ['child', 'discard'], { required: ['child'], hints: DESTROYS }),

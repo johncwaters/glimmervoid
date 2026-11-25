@@ -1,8 +1,8 @@
 export const BRANCH_PROMPT_PREFIX = 'You are a branch of the session ';
 const OPERATOR_PART_MARKER = ' The operator asks: ';
 
-export function branchPromptOf(parentName: string, aboutTitle: string, operatorPrompt: string): string {
-  return `${BRANCH_PROMPT_PREFIX}${parentName}, started from its last commit to work on ${aboutTitle}. Commit your work on this branch; Glimmervoid brings your commits into ${parentName} when you go idle.${OPERATOR_PART_MARKER}${operatorPrompt}`;
+export function branchPromptOf(orchestratorName: string, repoName: string, aboutTitle: string, operatorPrompt: string): string {
+  return `${BRANCH_PROMPT_PREFIX}${orchestratorName}, working in ${repoName} on ${aboutTitle}. Commit your work on this branch.${OPERATOR_PART_MARKER}${operatorPrompt}`;
 }
 
 export function operatorPartOfPrompt(promptText: string): string {
@@ -14,7 +14,7 @@ export function operatorPartOfPrompt(promptText: string): string {
 
 export const REPO_ROOT_BRANCH_TITLE = 'repo root';
 
-export type BranchAbout = { boxId: string };
+export type BranchAbout = { boxId: string } | { repoPath: string };
 export type BranchTarget = { ok: true; boxId: string; title: string } | { ok: false; error: string };
 
 function folderPrefixOf(aboutTitle: string): string {

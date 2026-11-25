@@ -23,6 +23,7 @@ import type { FileClaims } from '../file-claims.ts';
 import type { VerificationWiring } from '../verification/verification-wiring.ts';
 import type { SessionPreviews } from '../session/session-previews.ts';
 import type { CodemapService } from '../codemap/codemap-wiring.ts';
+import type { BranchWiring } from '../board-session/branch-wiring.ts';
 import type { BoardAsks } from '../whiteboard/board-ask.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
@@ -66,6 +67,7 @@ interface AgentApiWiringOptions {
   startRace?: RaceLauncher['start'] | null;
   wargames?: Pick<WargamesRunner, 'statusFrame' | 'historyFrame' | 'abortMatch' | 'isWargamesSession'> | null;
   startWargames?: WargamesLauncher['start'] | null;
+  startBranch?: BranchWiring['spawn'] | null;
   reviewComments?: Pick<ReviewPort, 'read' | 'reply' | 'resolve'> | null;
   repoClones?: Pick<GitWorkspaceInstance, 'originUrl' | 'cloneRepository'> | null;
   wakesFilePath?: string | null;
@@ -73,7 +75,7 @@ interface AgentApiWiringOptions {
   fileClaims?: Pick<FileClaims, 'handle'> | null;
   sessionPreviews?: Pick<SessionPreviews, 'handle'> | null;
   verification?: Pick<VerificationWiring, 'checkNow'> | null;
-  codemap?: Pick<CodemapService, 'handle'> | null;
+  codemap?: Pick<CodemapService, 'handle' | 'listedRepos'> | null;
   boardAsks?: Pick<BoardAsks, 'ask'> | null;
   budgetHoldReason?: () => string | null;
   readBudgetHoldReason?: () => Promise<string | null>;

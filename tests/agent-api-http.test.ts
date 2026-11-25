@@ -447,16 +447,21 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
   }
 });
 
-test('a Studio main starts no session of its own, and a retired about is refused', async () => {
+test('the Studio Orchestrator starts no agent child: its spawn needs a repo and a box, and a session outside Studio may name neither', async () => {
   const fixture = wiringFixture({ parentIsStudioMain: true });
+  const focusFixture = wiringFixture();
   try {
-    const refused = await fixture.spawn(fixture.parent, { prompt: 'fix the api' });
-    assert.equal(refused.status, 403);
+    const unplaced = await fixture.spawn(fixture.parent, { prompt: 'fix the api' });
+    assert.equal(unplaced.status, 400);
+    const placed = await fixture.spawn(fixture.parent, { prompt: 'fix the api', repo: 'api', about: 'server' });
+    assert.equal(placed.status, 503, 'with no branch wiring the placed spawn is refused, never run as an agent child');
     assert.equal(fixture.created.length, 0);
-    const withAbout = await fixture.spawn(fixture.parent, { prompt: 'fix the api', about: 'server/' });
-    assert.equal(withAbout.status, 400);
+    const fromFocus = await focusFixture.spawn(focusFixture.parent, { prompt: 'fix the api', repo: 'api', about: 'server' });
+    assert.equal(fromFocus.status, 400);
+    assert.equal(focusFixture.created.length, 0);
   } finally {
     fixture.destroyAll();
+    focusFixture.destroyAll();
   }
 });
 
@@ -1029,7 +1034,7 @@ test('a Studio branch and its main message each other on a channel opened from t
   const fixture = wiringFixture({ parentIsStudioMain: true, laneSessions: [branch] });
   try {
     fixture.wiring.linkBranchSession(fixture.parent);
-    assert.equal((await fixture.spawn(fixture.parent, { prompt: 'build the ui' })).status, 403, 'a Studio main starts no session of its own');
+    assert.equal((await fixture.spawn(fixture.parent, { prompt: 'build the ui' })).status, 400, 'the Orchestrator starts no session without a repo and a box');
     assert.equal((await fixture.wiring.handle(branch, 'send', { words: ['need', 'a', 'shared', 'type'] })).status, 200);
     const mainRead = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', {})).body).channels;
     assert.deepEqual(mainRead.flatMap(({ sessionId, entries }) => entries.map(({ from, text }) => [sessionId, from, text])), [['branch-server', 'child', 'need a shared type']]);

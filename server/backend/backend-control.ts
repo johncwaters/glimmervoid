@@ -12,6 +12,7 @@ import { glimmervoidHomeDir } from '../config-store.ts';
 import { createStartPicksStore } from '../start-picks-store.ts';
 import { createStudioGuideStore } from '../board-session/studio-guide-store.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
+import type { BranchWiring } from '../board-session/branch-wiring.ts';
 import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
 import type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, SessionWakesControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
@@ -131,7 +132,7 @@ interface BackendControlDependencies {
   hostReady: HostReadyReader;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   director: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
-  codemap: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf'> | null;
+  codemap: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo'> | null;
   boardAsks: Pick<BoardAsks, 'answer' | 'openAsksOf'> | null;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
@@ -142,7 +143,7 @@ interface BackendControlDependencies {
   logger: Pick<Console, 'warn'>;
 }
 
-function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; closeSession: (id: string) => Promise<{ ok: boolean; error?: string }>; raceLauncher: RaceLauncher; wargamesLauncher: WargamesLauncher } {
+function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; closeSession: (id: string) => Promise<{ ok: boolean; error?: string }>; raceLauncher: RaceLauncher; wargamesLauncher: WargamesLauncher; branches: BranchWiring } {
   const {
     onControlConnection,
     sessions,
@@ -262,7 +263,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => dependencies.secrets.approvalsMessage() }));
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
-  return { removeExitedSession: controlHandlers.removeExitedSession, closeSession: controlHandlers.closeSession, raceLauncher: controlHandlers.raceLauncher, wargamesLauncher: controlHandlers.wargamesLauncher };
+  return { removeExitedSession: controlHandlers.removeExitedSession, closeSession: controlHandlers.closeSession, raceLauncher: controlHandlers.raceLauncher, wargamesLauncher: controlHandlers.wargamesLauncher, branches: controlHandlers.branches };
 }
 
 export { createBackendControl };

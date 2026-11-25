@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { branchParentIdOf, ownerIdOf } from '../../shared/parent-link.ts';
 import path from 'node:path';
+import { SPAWNED_SESSIONS_DEFAULT } from '../../shared/settings-ranges.ts';
 import { unsafeLaunchValueOf } from '../../shared/agent-models-core.ts';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
@@ -83,6 +84,8 @@ function repoRelativePath(rootDir: string, target: string): string {
   return relativePath.startsWith('..') || path.isAbsolute(relativePath) ? target : relativePath.split(path.sep).join('/');
 }
 
+const STUDIO_CODEMAP_SUBS: readonly AgentCodemapRequest['sub'][] = ['map', 'where', 'impact', 'overlay'];
+
 function repoRelativeCodemapRequest(rootDir: string, request: AgentCodemapRequest): AgentCodemapRequest {
   if (request.sub === 'where') return { ...request, target: repoRelativePath(rootDir, request.target) };
   if (request.sub === 'impact') return { ...request, paths: request.paths.map((target) => repoRelativePath(rootDir, target)) };
@@ -91,8 +94,9 @@ function repoRelativeCodemapRequest(rootDir: string, request: AgentCodemapReques
 
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, wargames: wargamesRunner, startWargames, reviewComments, repoClones, readBudgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, wargames: wargamesRunner, startWargames, startBranch, reviewComments, repoClones, readBudgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
+  const branchSpawns = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf, liveSessionOf, tellParent } = channels;
 
@@ -283,11 +287,50 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
-    if (session.isStudioMain || branchParentIdOf(session.parent) !== null) return refusal(403, 'a Studio session starts no sessions: the operator starts branches from the board, and whiteboard run starts the plan steps');
+    if (session.isStudioMain) return branchSpawnReply(session, request);
+    if (branchParentIdOf(session.parent) !== null) return refusal(403, 'a Studio branch starts no sessions: tell the Orchestrator what is needed with session send, and it starts the branch');
+    if (request.repo !== undefined || request.about !== undefined) return refusal(400, 'repo and about place a Studio branch, and only the Studio Orchestrator starts those: drop repo and about');
     const outcome = await spawn(session, request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
     const note = `this session owns ${outcome.name} until the task is done: glimmervoid read ${outcome.sessionId} reads its messages, glimmervoid send ${outcome.sessionId} <text> steers it, and glimmervoid close ${outcome.sessionId} ends it and discards its worktree, refusing while it holds work that is not on the integration branch unless you add --discard`;
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
+  }
+
+  async function branchSpawnReply(orchestrator: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
+    if (!request.repo || !request.about) return refusal(400, 'the Orchestrator starts a branch in one repo and box: give repo (a key or name from codemap map) and about (a folder, module or file path in that repo, or repo root)');
+    if (!startBranch) return refusal(503, 'Studio branches are not available in this Glimmervoid');
+    const place = { repo: request.repo, about: request.about };
+    return branchSpawns.run(orchestrator.id, () => gatedBranchSpawnReply(startBranch, orchestrator, place, request.prompt));
+  }
+
+  async function gatedBranchSpawnReply(start: NonNullable<typeof startBranch>, orchestrator: Session, place: { repo: string; about: string }, prompt: string): Promise<AgentReplyOf<'spawn'>> {
+    const holdReason = await readBudgetHoldReason();
+    if (holdReason !== null) return refusal(429, `no new sessions: ${holdReason}`);
+    const liveBranchCount = listAllSessions().filter((candidate) => branchParentIdOf(candidate.parent) === orchestrator.id && !candidate._destroyed).length;
+    const liveBranchMax = config.spawnedSessionsMax ?? SPAWNED_SESSIONS_DEFAULT;
+    if (liveBranchCount >= liveBranchMax) return refusal(429, `at most ${liveBranchMax} branches may be live at once, and ${liveBranchCount} are: send the work to one of them, or wait for one to land and leave`);
+    const memoryShortfall = await describeMemoryShortfall();
+    if (memoryShortfall) return refusal(503, memoryShortfall);
+    const outcome = await start({ orchestratorId: orchestrator.id, place, prompt });
+    if (!outcome.ok) return refusal(409, outcome.error);
+    const note = `${outcome.name} works in ${outcome.repoName} on ${outcome.title}, on a worktree cut from that repo's integration branch: session read ${outcome.sessionId} reads its messages and session send ${outcome.sessionId} <text> steers it`;
+    return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
+  }
+
+  async function studioCodemapReply(studioCodemap: NonNullable<typeof codemap>, request: AgentCodemapRequest): Promise<AgentReplyOf<'codemap'>> {
+    if (!STUDIO_CODEMAP_SUBS.includes(request.sub)) return refusal(400, `codemap ${request.sub} acts on one repo's checkout, and the Orchestrator has none: start a branch in that repo to run it`);
+    const listedRepos = await studioCodemap.listedRepos();
+    if (listedRepos.length === 0) return refusal(404, 'Studio has no repo yet; the operator adds one by opening it in Studio');
+    const answers = await Promise.all(listedRepos.map(async (listed) => {
+      const outcome = await studioCodemap.handle({ repoDir: listed.repoDir }, request);
+      return { heading: `Repo ${path.basename(listed.repoDir)} (key ${listed.repoKey}) at ${listed.repoDir}`, outcome };
+    }));
+    const answered = answers.flatMap(({ heading, outcome }) => (outcome.ok ? [{ heading, reply: outcome.reply }] : []));
+    const firstAnswered = answered[0];
+    if (!firstAnswered) return refusal(answers[0]?.outcome.ok === false ? answers[0].outcome.status : 404, answers.map(({ heading, outcome }) => `${heading}: ${outcome.ok ? '' : outcome.error}`).join('\n'));
+    const shownAnswers = request.sub === 'map' ? answers : answers.filter(({ outcome }) => outcome.ok);
+    const text = shownAnswers.map(({ heading, outcome }) => `${heading}\n${outcome.ok ? outcome.reply.text : outcome.error}`).join('\n\n');
+    return { status: 200, body: { ...firstAnswered.reply, text } };
   }
 
   function sendToSibling(session: Session, target: string, text: string): AgentReplyOf<'send'> {
@@ -586,6 +629,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     },
     codemap: async (session, request) => {
       if (!codemap) return refusal(503, 'the code map is not available in this Glimmervoid');
+      if (session.isStudioMain) return studioCodemapReply(codemap, request);
       const outcome = await codemap.handle({ repoDir: session.path, worktreeDir: session.worktreeDir, sessionId: session.id }, repoRelativeCodemapRequest(session.worktreeDir ?? session.path, request));
       return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
     },

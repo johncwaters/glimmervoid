@@ -18,11 +18,11 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 ## Invariants
 
 ### Studio
-- Studio is its own place, not a view of Focus: its sessions (a repo's main, marked `isStudioMain`, and its branches, marked `branchOf`; `isStudioSession` in `studio-target.ts`) never show in Focus rows, and Focus sessions never show in Studio, because the operator found one shared pool confusing. Studio reuses shared components (board host, add-session picker, status icon) rather than copying them.
+- Studio is its own place, not a view of Focus: its sessions (the one Orchestrator, marked `isStudioMain`, and its branches, marked by a `parent` link with a box; `isStudioSession` in `studio-target.ts`) never show in Focus rows, and Focus sessions never show in Studio, because the operator found one shared pool confusing. Studio reuses shared components (board host, add-session picker, status icon) rather than copying them.
 - Studio shows a repo, never a picked session: the repo chip changes it, and opening a Studio session from elsewhere opens Studio on its repo.
 - Studio sessions stay out of Focus's attention tally as well as its rows, so the tab title and phone dot never count a session no list shows.
 - The browser names a repo by its main's session id, and a new repo only through `add-session` with `studio`, never by a bare path, because the server must resolve every path it acts on (trust boundary).
-- Studio's repos are exactly the repos with a main; `add-session` with `studio` wakes or creates it (use, start, restart or create, decided in `server/core/studio-main-core.ts`), so a repo never gets two mains.
+- Studio's repos are the stored Studio repo list, one map area each; `add-session` with `studio` adds the repo and wakes or creates the one Orchestrator (decided in `server/core/studio-main-core.ts`). It runs in a Studio home outside every repo, so a sandboxed Orchestrator reads every repo and can write none.
 - Studio agent behavior lives in `mcp/core/studio-playbook.ts`, one entry per behavior and role, so changing how Studio agents work is editing an entry there, never adding prose to other instructions.
 - Whether a branch's work is safely elsewhere is `isBranchWorkElsewhere` in `server/board-session/branch-merge.ts`, the one place that changes when branches land on the integration branch instead of the Orchestrator's; self-close and the close refusal both read it.
 - The log keeps prompts and replies only; tool, skill, subagent and workflow activity shows on branch cards, box glows and the Orchestrator's one activity line closing the log, never as log rows.

@@ -265,6 +265,8 @@ export const AgentSpawnRequest = z.object({
   model: z.string({ error: 'model must be a string' }).max(200, { error: 'model must be at most 200 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'model uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
   effort: z.string({ error: 'effort must be a string' }).max(40, { error: 'effort must be at most 40 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'effort uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
   done: DoneMeansLines.optional(),
+  repo: z.string({ error: 'repo must be a string' }).min(1, { error: 'repo must not be empty' }).max(4096, { error: 'repo must be at most 4096 characters' }).optional(),
+  about: z.string({ error: 'about must be a string' }).min(1, { error: 'about must not be empty' }).max(4096, { error: 'about must be at most 4096 characters' }).optional(),
 }).strict();
 
 const SessionTarget = z.string({ error: 'the session must be a string' }).min(1, { error: 'the session must not be empty' }).max(300, { error: 'the session must be at most 300 characters' });

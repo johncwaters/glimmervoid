@@ -21,7 +21,7 @@ import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { Rect } from '../../shared/whiteboard-layout-core.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapArea, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -274,6 +274,7 @@ interface CodemapServiceOptions {
   whiteboards?: MapBoards | null;
   mapBoardFilePath?: string | null;
   areas?: MapAreaList;
+  isMappedDir?: (repoDir: string) => boolean;
   configuredMainlineBranch?: () => string | null;
   homeDir?: string | null;
   structureRunner?: StructureRunner | null;
@@ -303,7 +304,7 @@ function chunkedBySize(ops: readonly Op[]): Op[][] {
 
 const OpList = z.array(Op);
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardFilePath = null, areas = createMemoryAreaList(), configuredMainlineBranch = () => null, homeDir = null, structureRunner = homeDir ? createStructureRunner({ homeDir, client }) : null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardFilePath = null, areas = createMemoryAreaList(), isMappedDir = () => true, configuredMainlineBranch = () => null, homeDir = null, structureRunner = homeDir ? createStructureRunner({ homeDir, client }) : null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
   const overlayByRepoDir = new Map<string, SessionOverlay>();
   const folderChoicesByRepoDir = new Map<string, Map<string, boolean>>();
   const specPlanByRepoDir = new Map<string, SpecPlan>();
@@ -356,6 +357,22 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const added = await areas.addRepo(repoDir);
     removeAreasOfMissingFolders(repoDir);
     return added;
+  }
+
+  async function isAreaOwed(repoDir: string): Promise<boolean> {
+    if ((await areas.repos()).some((listed) => listed.repoDir === repoDir)) return true;
+    return (await repoKeyOf(repoDir)) !== null;
+  }
+
+  async function repoOfBox(boxId: string): Promise<MapAreaRepo | null> {
+    const areaPrefixesOf = (repoKey: string) => Object.values(CODEMAP_ID_PREFIXES).map((prefix) => repoIdPrefixOf(prefix, repoKey));
+    return (await areas.repos()).find((listed) => areaPrefixesOf(listed.repoKey).some((areaPrefix) => boxId.startsWith(areaPrefix))) ?? null;
+  }
+
+  function openArea(repoDir: string): void {
+    currentMap({ repoDir }).then((map) => {
+      if ('error' in map) logger.warn(`[codemap] the map area of ${repoDir} was not opened: ${map.error}`);
+    }, (error: unknown) => logger.warn(`[codemap] the map area of ${repoDir} was not opened: ${errorMessage(error)}`));
   }
 
   function removeAreasOfMissingFolders(keptRepoDir: string): void {
@@ -456,6 +473,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const statusKey = JSON.stringify(status);
     const overlay = overlayDrawingOf(state, repoDir);
     const isOverlayChanged = state.drawnOverlayKey !== overlay.key;
+    if (!state.model && !(await isAreaOwed(repoDir))) return true;
     const originKey = JSON.stringify((await areaPlaceOf(repoDir)).origin);
     const isAreaMoved = state.drawnOriginKey !== originKey;
     const changedModel = state.model && (state.drawnModel !== state.model || isOverlayChanged || isAreaMoved) ? state.model : null;
@@ -507,6 +525,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   }
 
   async function currentMap(repo: CodemapRepo): Promise<CurrentMap | { error: string }> {
+    if (!isMappedDir(repo.repoDir)) return { error: `${repo.repoDir} is not a repo Glimmervoid maps` };
     const state = stateOf(repo.repoDir);
     state.startedCheckCount += 1;
     const checkNumber = state.startedCheckCount;
@@ -773,11 +792,22 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
     const model = map.model;
     const { repoKey } = await areaRepoOf(repoDir);
+    if ('repoPath' in about) return branchTargetOfPath(repoKey, model, path.basename(repoDir), about.repoPath);
     const folder = folderOfMapBoxId(repoKey, model, about.boxId);
     if (folder !== null) return branchTargetAt(about.boxId, folder);
     const moduleId = model.modules.map((summary) => summary.id).find((candidate) => candidate !== '.' && moduleBoxIdOf(repoKey, candidate) === about.boxId) ?? (about.boxId === fallbackBoxIdOf(repoKey, model) ? '.' : null);
     if (moduleId === null) return { ok: false, error: 'that box is not a folder or file on the code map any more; pick another' };
     return branchTargetOfModule(repoKey, model, moduleId);
+  }
+
+  function branchTargetOfPath(repoKey: string, model: CodemapModel, repoName: string, aboutPath: string): BranchTarget {
+    const repoPath = aboutPath.trim().replace(/^\.\//, '').replace(/\/+$/, '');
+    if (repoPath === '' || repoPath === '.' || repoPath.toLowerCase() === REPO_ROOT_BRANCH_TITLE) return branchTargetOfModule(repoKey, model, '.');
+    const moduleIds = model.modules.map((summary) => summary.id);
+    if (moduleIds.includes(repoPath)) return branchTargetOfModule(repoKey, model, repoPath);
+    if (moduleIds.some((moduleId) => folderOf(moduleId) === repoPath)) return branchTargetAt(folderCardIdOf(repoKey, repoPath), repoPath);
+    if (model.indexByPath.has(repoPath) || moduleIds.some((moduleId) => repoPath.startsWith(`${moduleId}/`))) return branchTargetOfModule(repoKey, model, moduleOfPath(model, repoPath));
+    return { ok: false, error: `${aboutPath} is not a folder, module or file on the code map of ${repoName}; codemap map lists them, and repo root names the whole repo` };
   }
 
   function overlayTextOf(repoName: string, drawing: OverlayDrawing): string {
@@ -920,7 +950,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, boxRectsOf, branchTargetOf, setFolderOpen, mapBoardIdOfRepo, removeArea };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, boxRectsOf, branchTargetOf, setFolderOpen, mapBoardIdOfRepo, removeArea, openArea, repoOfBox, listedRepos: () => areas.repos() };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;
