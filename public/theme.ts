@@ -102,6 +102,8 @@ let _currentThemeId: string | null = null;
 let requestedThemeId: string | null = null;
 let packThemesById: Record<string, ThemeDefinition> = {};
 
+const themeShownListeners = new Set<() => void>();
+
 function themeById(themeId: string): ThemeDefinition | undefined {
   return Object.hasOwn(THEMES, themeId) ? THEMES[themeId] : packThemesById[themeId];
 }
@@ -133,10 +135,16 @@ function showTheme(themeId: string) {
     root.style.setProperty(prop, value);
   }
   setThemeColors(theme.colors);
+  for (const listener of [...themeShownListeners]) listener();
 
   if (themeId !== 'unicorn') return;
   if (prev === null || prev === 'unicorn') return;
   unicornThemeEnteredListener?.();
+}
+
+export function onThemeShown(listener: () => void): () => void {
+  themeShownListeners.add(listener);
+  return () => { themeShownListeners.delete(listener); };
 }
 
 export function onUnicornThemeEntered(listener: () => void) {

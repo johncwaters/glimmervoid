@@ -15,7 +15,7 @@ import { paintTaskTitle } from './card-titles.ts';
 import { closeDebugOverlay, setDebugMode } from './card-debug.ts';
 import type { SessionUi } from './card-registry.ts';
 import { syncLiveSession } from './session-tick.ts';
-import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
+import { attentionTally, container, findSessionUi, noteSessionCardsChanged, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../attention-core.ts';
 import { isStudioSession } from '../board-session/studio-target.ts';
 import { closeSessionNotifications } from '../notifications.ts';
@@ -44,6 +44,7 @@ export function setSessionTaskTitle(id: unknown, title: unknown, isCustom: unkno
     if (!target) continue;
     paintTaskTitle(target, ui.taskTitle);
   }
+  noteSessionCardsChanged();
 }
 
 export function hasSession(id: unknown) {
@@ -149,6 +150,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   }
 
   updateAttentionTitle();
+  noteSessionCardsChanged();
   return sessionUi;
 }
 
@@ -161,6 +163,7 @@ export function setSessionAgent(sessionId: unknown, agent: unknown, agentDrawsAl
   if (agentMarkEl) paintAgentMark(agentMarkEl, ui.agent);
   paintSessionAccount(ui);
   updateButtonVisibility(ui);
+  noteSessionCardsChanged();
 }
 
 export function setSessionWorktree(sessionId: unknown, worktree: unknown) {
@@ -197,6 +200,7 @@ export function setSessionUnseenOutcome(sessionId: unknown, unseenOutcome: Unsee
   tallyRemove(attentionTally, tallyRowOf(ui));
   ui.unseenOutcome = unseenOutcome ?? null;
   tallyAdd(attentionTally, tallyRowOf(ui));
+  noteSessionCardsChanged();
 }
 
 function applyMergeDataset(card: HTMLElement, ms: string) {
@@ -225,6 +229,7 @@ export function renameSessionCard(sessionId: unknown, newName: unknown) {
   const name = asText(newName);
   ui.card.dataset.session = name;
   ui.nameEl.textContent = name;
+  noteSessionCardsChanged();
 }
 
 export function removeSessionCard(sessionId: unknown) {
@@ -246,6 +251,7 @@ export function removeSessionCard(sessionId: unknown) {
   ui.fitAddon = null;
   if (ui.card) ui.card.remove();
   updateAttentionTitle();
+  noteSessionCardsChanged();
 }
 
 function _handleEndedTransition(ui: SessionUi, wasActive: boolean, state: string) {
@@ -325,4 +331,5 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   }
 
   updateAttentionTitle();
+  noteSessionCardsChanged();
 }

@@ -20,6 +20,7 @@ interface AttachedReviewQueueView {
 export type ReviewQueueChange = { kind: 'reveal' } | { kind: 'return-to-queue' };
 
 let groups: QueueGroup[] = [];
+const rebuiltListeners = new Set<() => void>();
 let navigation: ReviewQueueNavigation | null = null;
 let attachedView: AttachedReviewQueueView | null = null;
 let pendingRevealKey: string | null = null;
@@ -81,7 +82,13 @@ export function rebuildReviewQueue(): QueueGroup[] {
   groups = split.groups;
   if (hasBothLanes() && split.movedEntries.length !== storedMovedEntries.length) setReviewsMovedToWaiting(split.movedEntries);
   refreshActivity();
+  for (const listener of [...rebuiltListeners]) listener();
   return groups;
+}
+
+export function onReviewQueueRebuilt(listener: () => void): () => void {
+  rebuiltListeners.add(listener);
+  return () => { rebuiltListeners.delete(listener); };
 }
 
 export function acknowledgeReviewQueueAttention(): void {

@@ -16,8 +16,10 @@ type PackDataFile = z.infer<typeof PackDataFile>;
 type PackDataRead = { ok: true; data: PackStoreData } | { ok: false; error: string };
 type DataFileRead = { ok: true; file: PackDataFile | null } | { ok: false; error: string };
 
-export function createPackData({ homeDir, panelPackDir, packDirInUse = () => null }: { homeDir: string; panelPackDir: (packName: string) => string | null; packDirInUse?: (packName: string) => string | null }) {
+export function createPackData({ homeDir, panelPackDir, packDirInUse = () => null, onWritten = () => {} }: { homeDir: string; panelPackDir: (packName: string) => string | null; packDirInUse?: (packName: string) => string | null; onWritten?: (packName: string, data: PackStoreData) => void }) {
   const writes = createKeyedSerialQueue();
+  const queuedWriteCountByPack = new Map<string, number>();
+  const unannouncedDataByPack = new Map<string, PackStoreData>();
   const dataDir = path.join(homeDir, PACK_DATA_DIR_NAME);
   const dataPathOf = (packName: string) => path.join(dataDir, `${packName}${DATA_FILE_SUFFIX}`);
 
@@ -57,13 +59,36 @@ export function createPackData({ homeDir, panelPackDir, packDirInUse = () => nul
     return { ok: true, data: next };
   }
 
+  function announceOnceDrained(packName: string): void {
+    const queuedWriteCount = (queuedWriteCountByPack.get(packName) ?? 1) - 1;
+    if (queuedWriteCount > 0) {
+      queuedWriteCountByPack.set(packName, queuedWriteCount);
+      return;
+    }
+    queuedWriteCountByPack.delete(packName);
+    const written = unannouncedDataByPack.get(packName);
+    unannouncedDataByPack.delete(packName);
+    if (written) onWritten(packName, written);
+  }
+
+  async function queueWrite(packName: string, write: () => Promise<PackDataRead>): Promise<PackDataRead> {
+    queuedWriteCountByPack.set(packName, (queuedWriteCountByPack.get(packName) ?? 0) + 1);
+    try {
+      const outcome = await writes.run(packName, write);
+      if (outcome.ok) unannouncedDataByPack.set(packName, outcome.data);
+      return outcome;
+    } finally {
+      announceOnceDrained(packName);
+    }
+  }
+
   function set(packName: string, key: string, value: unknown): Promise<PackDataRead> {
     if (key.startsWith(JOB_OUTPUT_KEY_PREFIX)) return Promise.resolve({ ok: false, error: `a ${JOB_OUTPUT_KEY_PREFIX} key holds a job's output, which only that job writes` });
-    return writes.run(packName, () => setNow(packName, key, value));
+    return queueWrite(packName, () => setNow(packName, key, value));
   }
 
   function setFromJob(packName: string, jobId: string, value: unknown): Promise<PackDataRead> {
-    return writes.run(packName, () => setNow(packName, `${JOB_OUTPUT_KEY_PREFIX}${jobId}`, value, packDirInUse));
+    return queueWrite(packName, () => setNow(packName, `${JOB_OUTPUT_KEY_PREFIX}${jobId}`, value, packDirInUse));
   }
 
   async function forgetIfPackRemoved(packName: string): Promise<void> {

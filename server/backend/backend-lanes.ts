@@ -300,7 +300,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     const pack = owner === null ? null : packStore.packInUse(owner.packName);
     return owner === null || pack === null ? NO_COMMAND_SETTINGS : packSettings.commandSettings(pack, packCommandRef(kind, owner.localId));
   };
-  const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName), packDirInUse: (packName) => packStore.packDirInUse(packName) });
+  const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName), packDirInUse: (packName) => packStore.packDirInUse(packName), onWritten: (pack, data) => broadcastControl({ type: 'pack-data-changed', pack, data }) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {
     const frame = packStore.statusFrame();

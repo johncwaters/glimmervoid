@@ -315,6 +315,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'pack-approve-result', requestId: 'pack-1', ok: false, error: 'That pack changed or is already approved; check the list again.' },
   { type: 'pack-request-dismiss-result', requestId: 'pack-2', ok: true },
   { type: 'pack-data-result', requestId: 'pack-2', ok: true, data: { sort: 'newest', pinned: ['acme/api#12'] } },
+  { type: 'pack-data-changed', pack: 'acme-reviews', data: { sort: 'newest', pinned: ['acme/api#12'] } },
   { type: 'pack-settings-result', requestId: 'pack-3', ok: true, settings: { manager: 'age', valuesByKey: { FORUM_HOST: 'forum.example' }, secretStateByKey: { FORUM_TOKEN: 'found' }, vaultNameByKey: { FORUM_TOKEN: 'GLIMMERVOID_PACK_KEYED__FORUM_TOKEN' }, missingKeys: [] } },
   { type: 'pack-session-send-result', requestId: 'pack-3', ok: false, error: 'No live session s9' },
   { type: 'pack-source-result', requestId: 'pack-4', ok: true, text: 'Added the pack source example.test-team-packs', error: null },

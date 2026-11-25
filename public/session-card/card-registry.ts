@@ -73,6 +73,17 @@ export interface SessionUi {
 export const sessionUIs = new Map<string, SessionUi>();
 export const attentionTally = createAttentionTally();
 
+const sessionCardsChangedListeners = new Set<() => void>();
+
+export function onSessionCardsChanged(listener: () => void): () => void {
+  sessionCardsChangedListeners.add(listener);
+  return () => { sessionCardsChangedListeners.delete(listener); };
+}
+
+export function noteSessionCardsChanged(): void {
+  for (const listener of [...sessionCardsChangedListeners]) listener();
+}
+
 export function sessionName(ui: SessionUi) {
   return ui.card?.dataset.session || ui.nameEl?.textContent || '';
 }

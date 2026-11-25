@@ -10,8 +10,9 @@ import { sessionHandlers } from './handlers/session-handlers.ts';
 import { whiteboardHandlers } from './handlers/whiteboard-handlers.ts';
 import { worktreeHandlers } from './handlers/worktree-handlers.ts';
 import { refreshViewsIfVisible } from './view-tabs.ts';
+import { packBridgeHandlers } from '../packs/pack-bridge-host.ts';
 
-const handlersByType = mergeMessageHandlerGroups([serverHandlers, sessionHandlers, worktreeHandlers, faceHandlers, whiteboardHandlers, githubHandlers, laneHandlers]);
+const handlersByType = mergeMessageHandlerGroups([serverHandlers, sessionHandlers, worktreeHandlers, faceHandlers, whiteboardHandlers, githubHandlers, laneHandlers, packBridgeHandlers]);
 
 function dispatchControlMessage<Type extends ServerMessage['type']>(message: { [Variant in ServerMessage['type']]: ServerMessageOf<Variant> }[Type]) {
   const handler = handlersByType[message.type];

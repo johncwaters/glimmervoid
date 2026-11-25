@@ -1,5 +1,6 @@
 import { HostToPanel, PACK_LOG_LINES_PER_MINUTE, PanelActionEnvelope, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
 import type { PackBridgeTopic, PackBridgeTopicData, PackPanelAct, PackStoreData } from '#shared/contracts/pack-bridge.ts';
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { panelActionDecision, panelActionLogText } from '#shared/contracts/pack-action-core.ts';
 import type { z } from 'zod';
 import { clock } from '#shared/clock.ts';
@@ -7,15 +8,14 @@ import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { REQUEST_TIMED_OUT_TEXT } from '../updates-view-core.ts';
 import { countAttentionByKind } from '../attention-core.ts';
-import { reviewsSnapshot } from '../github/review-queue-store.ts';
-import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { currentThemeColors } from '../theme.ts';
+import { onReviewQueueRebuilt, reviewsSnapshot } from '../github/review-queue-store.ts';
+import { onSessionCardsChanged, sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import { currentThemeColors, onThemeShown } from '../theme.ts';
 import { uiState } from '../ui-state-core.ts';
-import { usageSnapshot } from '../usage/usage-store.ts';
-import { packsSnapshot } from './packs-store.ts';
+import { subscribeUsage, usageSnapshot } from '../usage/usage-store.ts';
+import { packsSnapshot, subscribePacks } from './packs-store.ts';
 import { planWindowOf } from '../usage/usage-store-core.ts';
 
-const BRIDGE_PUSH_INTERVAL_MS = 1000;
 const PANEL_ACTION_TIMEOUT_MS = 120_000;
 export const PANEL_HELLO_TIMEOUT_MS = 10_000;
 const LOG_RATE_WINDOW_MS = 60_000;
@@ -40,7 +40,8 @@ type BridgedFrame = {
 };
 
 const bridgedFrameByViewId = new Map<string, BridgedFrame>();
-let pushTimer: ReturnType<typeof setInterval> | null = null;
+const changedTopics = new Set<PackBridgeTopic>();
+let isTopicPushQueued = false;
 
 const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: (packName: string) => PackBridgeTopicData[Topic] } = {
   sessions: () => ({
@@ -93,16 +94,31 @@ function pushTopic(bridged: BridgedFrame, topic: PackBridgeTopic, framesThisTick
 }
 
 function pushChangedTopics(): void {
-  let hasSubscriber = false;
+  isTopicPushQueued = false;
+  const topics = [...changedTopics];
+  changedTopics.clear();
   const framesThisTick = new Map<string, TopicFrame>();
   for (const bridged of bridgedFrameByViewId.values()) {
-    for (const topic of bridged.subscribedTopics) pushTopic(bridged, topic, framesThisTick);
-    hasSubscriber ||= bridged.subscribedTopics.size > 0;
+    for (const topic of topics) {
+      if (bridged.subscribedTopics.has(topic)) pushTopic(bridged, topic, framesThisTick);
+    }
   }
-  if (hasSubscriber || pushTimer === null) return;
-  clearInterval(pushTimer);
-  pushTimer = null;
 }
+
+function notePackTopicsChanged(topics: readonly PackBridgeTopic[]): void {
+  if (bridgedFrameByViewId.size === 0) return;
+  for (const topic of topics) changedTopics.add(topic);
+  if (isTopicPushQueued || changedTopics.size === 0) return;
+  isTopicPushQueued = true;
+  queueMicrotask(pushChangedTopics);
+}
+
+onSessionCardsChanged(() => notePackTopicsChanged(['sessions', 'attention']));
+uiState.subscribe(() => notePackTopicsChanged(['focus']));
+onThemeShown(() => notePackTopicsChanged(['theme']));
+subscribeUsage(() => notePackTopicsChanged(['usage']));
+onReviewQueueRebuilt(() => notePackTopicsChanged(['reviews']));
+subscribePacks(() => notePackTopicsChanged(['providers']));
 
 type PackDataReply = { ok: true; data: PackStoreData } | { ok: false; error: string };
 
@@ -138,10 +154,16 @@ async function saveStoreKey(bridged: BridgedFrame, key: string, value: unknown):
     return;
   }
   lastStoreByPackName.set(bridged.packName, reply.data);
-  for (const sibling of bridgedFrameByViewId.values()) {
-    if (sibling.packName === bridged.packName) postStore(sibling, null);
+}
+
+function applyPackDataChanged(message: ServerMessageOf<'pack-data-changed'>): void {
+  lastStoreByPackName.set(message.pack, message.data);
+  for (const bridged of bridgedFrameByViewId.values()) {
+    if (bridged.packName === message.pack) postStore(bridged, null);
   }
 }
+
+export const packBridgeHandlers = { 'pack-data-changed': applyPackDataChanged };
 
 function writePanelLog(bridged: BridgedFrame, text: string): void {
   const line = `${bridged.packName}/${bridged.panelId} ${text}`;
@@ -187,7 +209,6 @@ function subscribe(bridged: BridgedFrame, topics: readonly PackBridgeTopic[]): v
   post(bridged, { v: 1, kind: 'hello', granted: [...bridged.subscribedTopics] });
   void sendStore(bridged);
   for (const topic of bridged.subscribedTopics) pushTopic(bridged, topic);
-  pushTimer ??= setInterval(pushChangedTopics, BRIDGE_PUSH_INTERVAL_MS);
 }
 
 function postActionResult(bridged: BridgedFrame, actionId: string, result: Record<string, unknown> | null, error: string | null, isTimedOut = false): void {
