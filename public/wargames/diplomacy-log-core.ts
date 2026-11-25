@@ -29,11 +29,8 @@ const KIND_ORDER_WITHIN_TURN: Readonly<Record<DiplomacyEntryKind, number>> = Obj
   breached: 5,
 });
 
-function isMessageVisible(state: MatchState, pov: 'god' | SeatId, message: MatchState['messages'][number]): boolean {
-  if (pov === 'god' || message.from === pov || message.to === pov || message.channel === 'public') return true;
-  if (message.channel !== 'tribe') return false;
-  const povTribeId = state.seats.find((seat) => seat.config.seatId === pov)?.tribeId ?? null;
-  return povTribeId !== null && povTribeId === message.tribeId;
+function isMessageVisible(pov: 'god' | SeatId, message: MatchState['messages'][number]): boolean {
+  return pov === 'god' || message.from === pov || message.to === pov || message.channel === 'public';
 }
 
 function contractEntriesOf(contract: ContractRecord): DiplomacyEntry[] {
@@ -58,7 +55,7 @@ function isContractVisible(pov: 'god' | SeatId, contract: ContractRecord): boole
 
 export function diplomacyEntriesOf(state: MatchState, pov: 'god' | SeatId, notes: readonly SeatNote[]): DiplomacyEntry[] {
   const messageEntries = state.messages
-    .filter((message) => isMessageVisible(state, pov, message))
+    .filter((message) => isMessageVisible(pov, message))
     .map((message): DiplomacyEntry => ({
       key: message.id,
       tick: message.tick,

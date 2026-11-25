@@ -1,10 +1,14 @@
 import './helpers/isolate-home.ts';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 
 import {
+  WARGAMES_BALANCE,
+  WARGAMES_RULES_ID,
   WARGAMES_SEAT_IDS,
+  WargamesEvent as WargamesEventSchema,
   WargamesMatchSpec,
 } from '../shared/contracts/wargames.ts';
 import type { WargamesEvent } from '../shared/contracts/wargames.ts';
@@ -157,8 +161,6 @@ test('4-seat matches seat s1 to s4 on an even map, refuse other seat sets, and r
 
   state = appendAndApply(log, state, advance(), signer);
   state = appendAndApply(log, state, advance(), signer);
-  const outsidePartner = applyEvent(state, { seq: seq + 1, type: 'orders_submitted', seatId: 's1', orders: [{ kind: 'tribe_join', partner: 's5' }] }, signer);
-  assert.equal(outsidePartner.ok ? null : outsidePartner.rejection.code, 'invalid_target');
 
   const s1Home = state.villages.find((village) => village?.owner === 's1');
   const s1Target = state.villages.find((village) => village !== null && village.owner === null);
@@ -412,13 +414,14 @@ test('v9 starts villages with their land ring, claims land as a front with land 
   assert.equal(state.territory.has(farHex), false);
   assert.ok(state.reportsBySeat.s1.some((report) => report.payload.kind === 'land' && report.payload.hexIndex === frontierHex && report.payload.claimer === 's1' && report.payload.previousOwner === null));
 
+  state.terrain[fieldHex] = 'fertile';
   const incomeBefore = villageIncomeOf(state, homeVillage());
   const stockBefore = { ...homeVillage().resources };
   playTurn({ s1: [{ kind: 'build', hexIndex: fieldHex, building: 'field' }, { kind: 'build', hexIndex: outpostHex, building: 'outpost' }] });
   const territoryRule = present(state.balance.territory);
   assert.equal(state.territory.get(fieldHex)?.level, 1);
   assert.equal(state.territory.get(outpostHex)?.improvement, 'outpost');
-  assert.equal(villageIncomeOf(state, homeVillage()).grain, incomeBefore.grain + territoryRule.improvements.field.yieldPerLevel);
+  assert.equal(villageIncomeOf(state, homeVillage()).grain, incomeBefore.grain + territoryRule.improvements.field.yieldPerLevel + territoryRule.tileBonusPerLevel);
   assert.ok(homeVillage().resources.ore < stockBefore.ore + incomeBefore.ore);
 
   const standingAt = (hexIndex: number) => [...state.armies.values()].filter((army) => army.status === 'standing' && army.currentHexIndex === hexIndex);
@@ -452,9 +455,7 @@ test('v9 starts villages with their land ring, claims land as a front with land 
   const s1Land = territoryCountOf(state, 's1');
   playTurn({});
   const s1Villages = state.villages.filter((village): village is NonNullable<typeof village> => village?.owner === 's1' && !village.isBeacon);
-  const s1Income = s1Villages.reduce((sum, village) => sum + villageIncomeOf(state, village).grain + villageIncomeOf(state, village).ore, 0);
-  const economyIncomePerPoint = state.balance.victory.economyIncomePerPoint;
-  assert.equal(state.victoryPointsBySeat.s1 - pointsBefore, s1Villages.length + Math.floor(s1Land / territoryRule.tilesPerPoint) + Math.floor(s1Income / economyIncomePerPoint));
+  assert.equal(state.victoryPointsBySeat.s1 - pointsBefore, s1Villages.length + Math.floor(s1Land / territoryRule.tilesPerPoint));
   for (const hexIndex of extraLand) state.territory.delete(hexIndex);
 
   const siteHex = present(state.hexes.find((tile) => isOpenLand(tile.index) && !state.territory.has(tile.index)
@@ -487,4 +488,9 @@ test('v9 starts villages with their land ring, claims land as a front with land 
   assert.equal(state.villages[barbarian.hexIndex]?.owner, 's1');
   assert.ok(unownedRing.every((hexIndex) => state.territory.get(hexIndex)?.owner === 's1'));
   assert.equal(state.territory.get(heldRingHex)?.owner, 's3');
+});
+
+test('the rules id names one balance and one event schema, so a saved log replays on the rules that made it', () => {
+  const rulesFingerprint = createHash('sha256').update(JSON.stringify([WARGAMES_BALANCE, z.toJSONSchema(WargamesEventSchema, { io: 'input' })])).digest('hex').slice(0, 16);
+  assert.deepEqual({ rules: WARGAMES_RULES_ID, rulesFingerprint }, { rules: 'r1', rulesFingerprint: 'aeaac3175e51b803' });
 });

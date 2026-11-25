@@ -548,12 +548,10 @@ export function createWargamesRunner({
       }
       if (toolName === 'read_messages') {
         const sinceTick = typeof args.since_tick === 'number' ? args.since_tick : 0;
-        const seat = live.state.seats[seatIndexOf(seatId)];
         const messages = live.state.messages.filter((message) => {
           if (message.tick < sinceTick) return false;
           if (message.channel === 'public') return true;
-          if (message.channel === 'dm') return message.from === seatId || message.to === seatId;
-          return seat.tribeId !== null && message.tribeId === seat.tribeId;
+          return message.from === seatId || message.to === seatId;
         });
         return { ok: true, payload: { messages } };
       }

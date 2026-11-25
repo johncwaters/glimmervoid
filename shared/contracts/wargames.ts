@@ -20,7 +20,6 @@ export const WARGAMES_MAP_SIZES = [
 ] as const;
 export type WargamesMapSize = (typeof WARGAMES_MAP_SIZES)[number];
 export const WARGAMES_NOTE_MAX_BYTES = 4096;
-export const WARGAMES_MAX_TRIBE_SIZE = 2;
 export const WARGAMES_TRAVEL_HEXES_PER_TICK = 2;
 
 export const SeatId = z.enum(WARGAMES_SEAT_IDS);
@@ -59,7 +58,7 @@ export type VillageProductionState = z.infer<typeof VillageProductionState>;
 export const ArmyStatus = z.enum(['mustering', 'marching', 'arrived', 'standing', 'returning', 'home', 'destroyed']);
 export type ArmyStatus = z.infer<typeof ArmyStatus>;
 
-export const BuildingKind = z.enum(['farm', 'mine', 'barracks', 'wall']);
+export const BuildingKind = z.enum(['farm', 'mine', 'wall']);
 export type BuildingKind = z.infer<typeof BuildingKind>;
 
 export const ImprovementKind = z.enum(['field', 'quarry', 'watchtower', 'outpost']);
@@ -97,7 +96,6 @@ export type TroopCounts = z.infer<typeof TroopCounts>;
 export const BuildingLevels = z.strictObject({
   farm: z.number().int().min(0).max(10),
   mine: z.number().int().min(0).max(10),
-  barracks: z.number().int().min(0).max(10),
   wall: z.number().int().min(0).max(10),
 });
 export type BuildingLevels = z.infer<typeof BuildingLevels>;
@@ -128,7 +126,6 @@ export type WargamesMatchSpec = z.infer<typeof WargamesMatchSpec>;
 
 interface WargamesVictoryRule {
   readonly beaconPoints: number;
-  readonly economyIncomePerPoint: number;
   readonly targetByRadius: Readonly<Record<number, Readonly<Record<WargamesSeatCount, number>>>>;
 }
 
@@ -159,7 +156,7 @@ export interface WargamesTerritoryRule {
   readonly tilesPerPoint: number;
   readonly claimsPerVillagePerTurn: number;
   readonly improvements: Readonly<Record<ImprovementKind, WargamesImprovementRule>>;
-  readonly quarryOreTileBonus: number;
+  readonly tileBonusPerLevel: number;
   readonly watchtowerRange: number;
   readonly outpostDefenseBonus: number;
   readonly captureLevelLoss: number;
@@ -214,14 +211,12 @@ export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
   buildingCosts: Object.freeze({
     farm: Object.freeze({ grain: 40, ore: 30 }),
     mine: Object.freeze({ grain: 30, ore: 40 }),
-    barracks: Object.freeze({ grain: 50, ore: 50 }),
     wall: Object.freeze({ grain: 30, ore: 60 }),
   }),
   barbarianGuardGrowthPerTurn: 1,
   barbarianGuardCap: 10,
   victory: Object.freeze({
     beaconPoints: 4,
-    economyIncomePerPoint: 200,
     targetByRadius: Object.freeze({
       4: Object.freeze({ 4: 174, 6: 189 }),
       6: Object.freeze({ 4: 534, 6: 516 }),
@@ -268,7 +263,7 @@ export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
       watchtower: Object.freeze({ cost: Object.freeze({ grain: 20, ore: 40 }), maxLevel: 1, yieldPerLevel: 0 }),
       outpost: Object.freeze({ cost: Object.freeze({ grain: 40, ore: 60 }), maxLevel: 1, yieldPerLevel: 0 }),
     }),
-    quarryOreTileBonus: 10,
+    tileBonusPerLevel: 10,
     watchtowerRange: 2,
     outpostDefenseBonus: 0.5,
     captureLevelLoss: 0.5,
@@ -370,23 +365,12 @@ const ScoutOrder = z.strictObject({
   toHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
 });
 
-const TribeJoinOrder = z.strictObject({
-  kind: z.literal('tribe_join'),
-  partner: SeatId,
-});
-
-const TribeLeaveOrder = z.strictObject({
-  kind: z.literal('tribe_leave'),
-});
-
 export const OrderItem = z.discriminatedUnion('kind', [
   BuildOrder,
   FoundOrder,
   TrainOrder,
   MarchOrder,
   ScoutOrder,
-  TribeJoinOrder,
-  TribeLeaveOrder,
 ]);
 export type OrderItem = z.infer<typeof OrderItem>;
 
@@ -440,7 +424,7 @@ export const SignedReport = z.strictObject({
 });
 export type SignedReport = z.infer<typeof SignedReport>;
 
-export const MessageChannel = z.enum(['dm', 'tribe', 'public']);
+export const MessageChannel = z.enum(['dm', 'public']);
 export type MessageChannel = z.infer<typeof MessageChannel>;
 
 export const MessageRecord = z.strictObject({
@@ -449,7 +433,6 @@ export const MessageRecord = z.strictObject({
   from: SeatId,
   to: SeatId.nullable(),
   channel: MessageChannel,
-  tribeId: z.string().max(64).nullable().default(null),
   text: z.string().min(1).max(2000),
   attachedReport: SignedReport.nullable().default(null),
 });

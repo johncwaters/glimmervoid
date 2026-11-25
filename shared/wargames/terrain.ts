@@ -6,7 +6,6 @@ export type TerrainKind = 'plain' | 'mountain' | 'lake' | 'forest' | 'fertile' |
 
 export const TERRAIN_MIN_RADIUS = 6;
 export const FOREST_DEFENSE_MULTIPLIER = 1.25;
-export const BONUS_TILE_YIELD = 20;
 const FOREST_MARCH_COST = 2;
 const MAX_GENERATION_ATTEMPTS = 64;
 

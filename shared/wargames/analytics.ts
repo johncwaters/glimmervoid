@@ -23,8 +23,7 @@ function summarizeOrder(order: OrderItem): string {
   if (order.kind === 'build') return `build(${order.building}@${order.hexIndex})`;
   if (order.kind === 'train') return `train(${order.count} ${order.troop}@${order.hexIndex})`;
   if (order.kind === 'scout') return `scout(${order.fromHexIndex}->${order.toHexIndex})`;
-  if (order.kind === 'tribe_join') return `tribe_join(${order.partner})`;
-  return 'tribe_leave';
+  return `found(${order.hexIndex})`;
 }
 
 export function summarizeMatch(state: MatchState, finishedAtMs: number | null, eventCount: number): WargamesMatchSummary {

@@ -65,8 +65,8 @@ export const EMPTY_ECONOMY_TIMELINE: EconomyTimeline = {
 function holdingsOf(state: MatchState): (VillageHolding | null)[] {
   return state.villages.map((village) => {
     if (!village) return null;
-    const { farm, mine, barracks, wall } = village.buildings;
-    return { owner: village.owner, levels: farm + mine + barracks + wall };
+    const { farm, mine, wall } = village.buildings;
+    return { owner: village.owner, levels: farm + mine + wall };
   });
 }
 

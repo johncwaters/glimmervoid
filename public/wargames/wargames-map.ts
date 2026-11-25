@@ -74,7 +74,7 @@ const DIPLOMACY_BREACH_BEAT_MS = 2400;
 const DIPLOMACY_MAX_PENDING_BEATS = 10;
 
 type UnitKey = 'raider' | 'guard' | 'envoy';
-type BuildingKey = 'farm' | 'mine' | 'barracks' | 'wall';
+type BuildingKey = 'farm' | 'mine' | 'wall';
 
 export const UNIT_GLYPH_PATHS: readonly { key: UnitKey; label: string; color: string; path: string }[] = [
   { key: 'raider', label: 'Raider', color: '#f77f6a', path: 'M 3 13 L 13 3 M 10 3 H 13 V 6 M 4.5 9.5 L 6.5 11.5' },
@@ -85,7 +85,6 @@ export const UNIT_GLYPH_PATHS: readonly { key: UnitKey; label: string; color: st
 export const BUILDING_GLYPH_PATHS: readonly { key: BuildingKey; label: string; color: string; path: string }[] = [
   { key: 'farm', label: 'Farm', color: '#84cc16', path: 'M 2 13.5 L 4.5 5.5 H 11.5 L 14 13.5 Z M 8 5.5 V 13.5 M 3.3 9.5 H 12.7' },
   { key: 'mine', label: 'Mine', color: '#94a3b8', path: 'M 2.5 6.5 Q 8 1.5 13.5 6.5 M 8 4 V 14' },
-  { key: 'barracks', label: 'Barracks', color: '#f59e0b', path: 'M 2.5 13 L 8 3.5 L 13.5 13 Z M 6.5 13 L 8 9.5 L 9.5 13' },
   { key: 'wall', label: 'Wall', color: '#a8a29e', path: 'M 3 13.5 V 4.5 H 5.5 V 6.5 H 7 V 4.5 H 9 V 6.5 H 10.5 V 4.5 H 13 V 13.5 Z' },
 ];
 
@@ -1385,7 +1384,6 @@ export function createWargamesMap(
   function messageSpeakerLabel(state: MatchState, message: MatchState['messages'][number]): string {
     const speakerLabel = seatLabelOf(state, message.from);
     if (message.channel === 'dm' && message.to !== null) return `${speakerLabel} to ${seatLabelOf(state, message.to)}`;
-    if (message.channel === 'tribe') return `${speakerLabel} to tribe`;
     if (message.channel === 'public') return `${speakerLabel} to everyone`;
     return speakerLabel;
   }
@@ -1409,13 +1407,11 @@ export function createWargamesMap(
     if (!prefersMotion()) return;
 
     const beats: BoardAnimationBeat[] = [];
-    const povSeat = pov === 'god' ? null : state.seats.find((candidate) => candidate.config.seatId === pov) ?? null;
     for (const [offset, message] of newMessages.entries()) {
       const isVisible = pov === 'god'
         || message.from === pov
         || message.to === pov
-        || message.channel === 'public'
-        || (message.channel === 'tribe' && povSeat !== null && povSeat.tribeId !== null && povSeat.tribeId === message.tribeId);
+        || message.channel === 'public';
       if (!isVisible) continue;
       const speakerSlot = seatAnchorSlot(state, pov, message.from);
       if (!speakerSlot) continue;

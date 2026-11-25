@@ -4,7 +4,6 @@ import {
   WARGAMES_HEX_RADIUS,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_MAX_HEX_RADIUS,
-  WARGAMES_MAX_TRIBE_SIZE,
   WARGAMES_MIN_HEX_RADIUS,
   WARGAMES_NOTE_MAX_BYTES,
   WARGAMES_SEAT_IDS,
@@ -48,7 +47,7 @@ import {
   transitionSeat,
   transitionTick,
 } from './machines.ts';
-import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateClusteredTerrain, isPassable, marchCostOf, pickBeaconKeys, pickVillageKeys, tileKey } from './terrain.ts';
+import { FOREST_DEFENSE_MULTIPLIER, generateClusteredTerrain, isPassable, marchCostOf, pickBeaconKeys, pickVillageKeys, tileKey } from './terrain.ts';
 import type { TerrainKind } from './terrain.ts';
 
 export interface ReportSigner {
@@ -108,7 +107,6 @@ interface SeatRuntimeState {
   status: SeatStatus;
   note: string;
   sealedOrders: OrderItem[];
-  tribeId: string | null;
 }
 
 interface VerificationLogEntry {
@@ -174,8 +172,6 @@ interface SeatStateView {
   phase: TickPhase;
   yourSeatId: SeatId;
   yourStatus: SeatStatus;
-  yourTribeId: string | null;
-  tribeMembers: SeatId[];
   seatStatuses: Record<SeatId, SeatStatus>;
   visibleVillages: VillageState[];
   nearbyHexOwners: NearbyHexOwner[];
@@ -679,7 +675,7 @@ export function createInitialMatchState(
         productionState: 'producing',
         loyalty: INITIAL_LOYALTY,
         resources: { grain: STARTING_GRAIN, ore: STARTING_ORE },
-        buildings: { farm: 1, mine: 1, barracks: 1, wall: 0 },
+        buildings: { farm: 1, mine: 1, wall: 0 },
         troops: { raider: 6, guard: 6, envoy: 1 },
         isBeacon: false,
         guests: [],
@@ -696,7 +692,7 @@ export function createInitialMatchState(
       productionState: 'producing',
       loyalty: INITIAL_LOYALTY,
       resources: { grain: 0, ore: 0 },
-      buildings: { farm: 0, mine: 0, barracks: 0, wall: 0 },
+      buildings: { farm: 0, mine: 0, wall: 0 },
       troops: { raider: 0, guard: BEACON_GUARDS, envoy: 0 },
       isBeacon: true,
       guests: [],
@@ -711,7 +707,7 @@ export function createInitialMatchState(
       productionState: 'producing',
       loyalty: INITIAL_LOYALTY,
       resources: { grain: BARBARIAN_GRAIN, ore: BARBARIAN_ORE },
-      buildings: { farm: 1, mine: 1, barracks: 0, wall: 1 },
+      buildings: { farm: 1, mine: 1, wall: 1 },
       troops: { raider: 3, guard: 4, envoy: 0 },
       isBeacon: false,
       guests: [],
@@ -724,7 +720,6 @@ export function createInitialMatchState(
       status: 'disconnected' as SeatStatus,
       note: '',
       sealedOrders: [] as OrderItem[],
-      tribeId: null,
     };
   });
   const reportsBySeat = {} as Record<SeatId, SignedReport[]>;
@@ -851,23 +846,13 @@ function beaconsHeldBy(state: MatchState, seatId: SeatId): number {
   return count;
 }
 
-function bonusTilesAround(state: MatchState, hexIndex: number, kind: TerrainKind): number {
-  const center = state.hexes[hexIndex];
-  let count = state.terrain[hexIndex] === kind ? 1 : 0;
-  for (const direction of AXIAL_DIRECTIONS) {
-    const neighborIndex = hexIndexAt(center.q + direction.q, center.r + direction.r, state.spec.mapRadius);
-    if (neighborIndex >= 0 && state.terrain[neighborIndex] === kind) count += 1;
-  }
-  return count;
-}
-
 export function villageIncomeOf(state: MatchState, village: VillageState): ResourceBundle {
   if (village.isBeacon) return { grain: 0, ore: 0 };
   const gain = villageYieldOf(village);
   const improvementGain = improvementIncomeOf(state, village);
   return {
-    grain: gain.grain + bonusTilesAround(state, village.hexIndex, 'fertile') * BONUS_TILE_YIELD + improvementGain.grain,
-    ore: gain.ore + bonusTilesAround(state, village.hexIndex, 'ore') * BONUS_TILE_YIELD + improvementGain.ore,
+    grain: gain.grain + improvementGain.grain,
+    ore: gain.ore + improvementGain.ore,
   };
 }
 
@@ -885,16 +870,23 @@ function nearestOwnedVillageOf(state: MatchState, seatId: SeatId, hexIndex: numb
   return nearest;
 }
 
-function yieldPerLevelOf(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, kind: ImprovementKind, payerDistance: number): ResourceBundle {
-  if (kind === 'field' && payerDistance === 1) return { grain: rule.improvements.field.yieldPerLevel, ore: 0 };
-  if (kind !== 'quarry') return { grain: 0, ore: 0 };
-  const oreTileBonus = state.terrain[hexIndex] === 'ore' ? rule.quarryOreTileBonus : 0;
-  return { grain: 0, ore: rule.improvements.quarry.yieldPerLevel + oreTileBonus };
+const BONUS_TERRAIN_BY_IMPROVEMENT: Readonly<Partial<Record<ImprovementKind, TerrainKind>>> = Object.freeze({ field: 'fertile', quarry: 'ore' });
+
+export function improvementYieldPerLevelOn(state: Pick<MatchState, 'terrain' | 'balance'>, hexIndex: number, kind: 'field' | 'quarry'): number {
+  const rule = state.balance.territory;
+  const tileBonus = state.terrain[hexIndex] === BONUS_TERRAIN_BY_IMPROVEMENT[kind] ? rule.tileBonusPerLevel : 0;
+  return rule.improvements[kind].yieldPerLevel + tileBonus;
 }
 
-function improvementYieldOf(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, tile: TerritoryTile, village: VillageState): ResourceBundle {
+function yieldPerLevelOf(state: MatchState, hexIndex: number, kind: ImprovementKind, payerDistance: number): ResourceBundle {
+  if (kind === 'field' && payerDistance === 1) return { grain: improvementYieldPerLevelOn(state, hexIndex, 'field'), ore: 0 };
+  if (kind !== 'quarry') return { grain: 0, ore: 0 };
+  return { grain: 0, ore: improvementYieldPerLevelOn(state, hexIndex, 'quarry') };
+}
+
+function improvementYieldOf(state: MatchState, hexIndex: number, tile: TerritoryTile, village: VillageState): ResourceBundle {
   if (tile.improvement === null) return { grain: 0, ore: 0 };
-  const perLevel = yieldPerLevelOf(state, rule, hexIndex, tile.improvement, hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex]));
+  const perLevel = yieldPerLevelOf(state, hexIndex, tile.improvement, hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex]));
   return { grain: tile.level * perLevel.grain, ore: tile.level * perLevel.ore };
 }
 
@@ -903,13 +895,12 @@ function landPointsFor(rule: WargamesTerritoryRule, landHexes: number): number {
 }
 
 function improvementIncomeOf(state: MatchState, village: VillageState): ResourceBundle {
-  const rule = state.balance.territory;
   const income = { grain: 0, ore: 0 };
   if (village.owner === null) return income;
   for (const [hexIndex, tile] of state.territory) {
     if (tile.owner !== village.owner || tile.level === 0) continue;
     if (nearestOwnedVillageOf(state, tile.owner, hexIndex) !== village) continue;
-    const tileYield = improvementYieldOf(state, rule, hexIndex, tile, village);
+    const tileYield = improvementYieldOf(state, hexIndex, tile, village);
     income.grain += tileYield.grain;
     income.ore += tileYield.ore;
   }
@@ -1594,7 +1585,7 @@ function foundVillage(state: MatchState, seatId: SeatId, hexIndex: number): bool
     productionState: 'producing',
     loyalty: state.balance.capturedLoyalty,
     resources: { grain: 0, ore: 0 },
-    buildings: { farm: 0, mine: 0, barracks: 0, wall: 0 },
+    buildings: { farm: 0, mine: 0, wall: 0 },
     troops: emptyTroops(),
     isBeacon: false,
     guests: [],
@@ -1861,34 +1852,6 @@ function resolveTick(
   }
 
   for (const seat of state.seats) {
-    for (const order of seat.sealedOrders) {
-      if (order.kind !== 'tribe_leave' || seat.tribeId === null) continue;
-      const formerTribe = seat.tribeId;
-      for (const member of state.seats) {
-        if (member.tribeId === formerTribe) member.tribeId = null;
-      }
-    }
-  }
-
-  for (const seat of state.seats) {
-    for (const order of seat.sealedOrders) {
-      if (order.kind !== 'tribe_join' || order.partner === seat.config.seatId) continue;
-      const partnerSeat = state.seats[seatIndexOf(order.partner)];
-      if (seat.tribeId !== null || partnerSeat.tribeId !== null) continue;
-      const partnerRequested = partnerSeat.sealedOrders.some(
-        (partnerOrder) => partnerOrder.kind === 'tribe_join' && partnerOrder.partner === seat.config.seatId,
-      );
-      if (!partnerRequested) continue;
-      const pair = [seat.config.seatId, order.partner].sort();
-      const tribeId = `tribe-${pair[0]}-${pair[1]}`;
-      const membersCount = state.seats.filter((candidate) => candidate.tribeId === tribeId).length;
-      if (membersCount >= WARGAMES_MAX_TRIBE_SIZE) continue;
-      seat.tribeId = tribeId;
-      partnerSeat.tribeId = tribeId;
-    }
-  }
-
-  for (const seat of state.seats) {
     const builtHexes = new Set<number>();
     for (const order of seat.sealedOrders) {
       if (order.kind === 'found') {
@@ -2108,9 +2071,8 @@ function settleBeaconsAndVictoryPoints(state: MatchState): void {
   for (const seat of state.seats) {
     if (seat.status === 'eliminated') continue;
     const seatId = seat.config.seatId;
-    const economyPoints = victory.economyIncomePerPoint > 0 ? Math.floor(seatIncomeOf(state, seatId) / victory.economyIncomePerPoint) : 0;
     const territoryPoints = landPointsFor(state.balance.territory, territoryCountOf(state, seatId));
-    state.victoryPointsBySeat[seatId] += villagesOwnedBy(state, seatId) + beaconsHeldBy(state, seatId) * victory.beaconPoints + economyPoints + territoryPoints;
+    state.victoryPointsBySeat[seatId] += villagesOwnedBy(state, seatId) + beaconsHeldBy(state, seatId) * victory.beaconPoints + territoryPoints;
   }
 }
 
@@ -2169,7 +2131,6 @@ function seatsNamedAsTargets(event: WargamesEvent): SeatId[] {
   if (event.type === 'contract_proposed') return [event.terms.counterparty];
   if (event.type === 'orders_submitted') {
     return event.orders.flatMap((order) => {
-      if (order.kind === 'tribe_join') return [order.partner];
       if (order.kind === 'march' && order.support !== undefined) return [order.support];
       return [];
     });
@@ -2291,9 +2252,6 @@ export function applyEvent(
     if (event.channel === 'dm' && (event.to === null || event.to === event.seatId)) {
       return reject('invalid_target', 'dm requires another seat as recipient');
     }
-    if (event.channel === 'tribe' && seat.tribeId === null) {
-      return reject('invalid_target', 'seat is not in a tribe');
-    }
     const id = `msg-${state.nextMessageNumber}`;
     state.nextMessageNumber += 1;
     state.messages.push({
@@ -2302,7 +2260,6 @@ export function applyEvent(
       from: event.seatId,
       to: event.channel === 'dm' ? event.to : null,
       channel: event.channel,
-      tribeId: event.channel === 'tribe' ? seat.tribeId : null,
       text: event.text,
       attachedReport: event.attachedReport,
     });
@@ -2562,9 +2519,6 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
   }
   const seatStatuses = {} as Record<SeatId, SeatStatus>;
   for (const entry of state.seats) seatStatuses[entry.config.seatId] = entry.status;
-  const tribeMembers = seat.tribeId === null
-    ? []
-    : state.seats.filter((entry) => entry.tribeId === seat.tribeId).map((entry) => entry.config.seatId);
   const visibleContracts = [...state.contracts.values()].filter(
     (contract) => contract.proposer === seatId || contract.counterparty === seatId,
   );
@@ -2577,8 +2531,6 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     yourSeatId: seatId,
     yourStatus: seat.status,
     yourLand: landSummaryOf(state, state.balance.territory, seatId),
-    yourTribeId: seat.tribeId,
-    tribeMembers,
     seatStatuses,
     visibleVillages,
     nearbyHexOwners,
@@ -2629,21 +2581,21 @@ function distanceToNearest(state: MatchState, hexIndex: number, villages: readon
   return Math.min(...villages.map((village) => hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex])));
 }
 
-function suitedImprovementAt(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, villages: readonly VillageState[]): Omit<ClaimableHexView, 'hexIndex' | 'terrain'> {
+function suitedImprovementAt(state: MatchState, hexIndex: number, villages: readonly VillageState[]): Omit<ClaimableHexView, 'hexIndex' | 'terrain'> {
   const payerDistance = distanceToNearest(state, hexIndex, villages);
-  const fieldYield = yieldPerLevelOf(state, rule, hexIndex, 'field', payerDistance);
+  const fieldYield = yieldPerLevelOf(state, hexIndex, 'field', payerDistance);
   if (fieldYield.grain > 0) return { suits: 'field', incomePerLevel: fieldYield.grain };
-  return { suits: 'quarry', incomePerLevel: yieldPerLevelOf(state, rule, hexIndex, 'quarry', payerDistance).ore };
+  return { suits: 'quarry', incomePerLevel: yieldPerLevelOf(state, hexIndex, 'quarry', payerDistance).ore };
 }
 
-function claimableHexesOf(state: MatchState, rule: WargamesTerritoryRule, seatId: SeatId, villages: readonly VillageState[]): ClaimableHexView[] {
+function claimableHexesOf(state: MatchState, seatId: SeatId, villages: readonly VillageState[]): ClaimableHexView[] {
   const busyHexes = new Set([...state.armies.values()]
     .filter((army) => army.status === 'standing' || (army.status === 'marching' && army.owner === seatId))
     .map((army) => (army.status === 'standing' ? army.currentHexIndex : army.targetHexIndex)));
   return state.hexes
     .filter((tile) => state.villages[tile.index] === null && isPassable(state.terrain[tile.index]) && !state.territory.has(tile.index) && !busyHexes.has(tile.index))
     .filter((tile) => touchesLandOf(state, seatId, tile.index))
-    .map((tile) => ({ hexIndex: tile.index, terrain: state.terrain[tile.index], ...suitedImprovementAt(state, rule, tile.index, villages) }))
+    .map((tile) => ({ hexIndex: tile.index, terrain: state.terrain[tile.index], ...suitedImprovementAt(state, tile.index, villages) }))
     .sort((left, right) => right.incomePerLevel - left.incomePerLevel
       || distanceToNearest(state, left.hexIndex, villages) - distanceToNearest(state, right.hexIndex, villages)
       || left.hexIndex - right.hexIndex)
@@ -2664,7 +2616,7 @@ function claimExampleOf(state: MatchState, claimable: readonly ClaimableHexView[
 
 function improveExampleOf(state: MatchState, rule: WargamesTerritoryRule, seatId: SeatId, villages: readonly VillageState[]): LandSummaryView['examples']['improve'] {
   const candidates = [...state.territory.entries()]
-    .map(([hexIndex, tile]) => ({ hexIndex, tile, suited: suitedImprovementAt(state, rule, hexIndex, villages) }))
+    .map(([hexIndex, tile]) => ({ hexIndex, tile, suited: suitedImprovementAt(state, hexIndex, villages) }))
     .filter(({ tile, suited }) => canImproveTile(rule, tile, seatId, suited.suits))
     .sort((left, right) => left.tile.level - right.tile.level || right.suited.incomePerLevel - left.suited.incomePerLevel || left.hexIndex - right.hexIndex);
   const best = candidates[0];
@@ -2675,7 +2627,7 @@ function improveExampleOf(state: MatchState, rule: WargamesTerritoryRule, seatId
 function landSummaryOf(state: MatchState, rule: WargamesTerritoryRule, seatId: SeatId): LandSummaryView {
   const hexes = territoryCountOf(state, seatId);
   const villages = ownedVillagesOf(state, seatId);
-  const claimable = villages.length === 0 ? [] : claimableHexesOf(state, rule, seatId, villages);
+  const claimable = villages.length === 0 ? [] : claimableHexesOf(state, seatId, villages);
   return {
     hexes,
     vpPerTick: landPointsFor(rule, hexes),

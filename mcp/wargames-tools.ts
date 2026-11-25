@@ -98,7 +98,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('read_messages', {
     title: 'Read Messages',
-    description: 'Read DMs addressed to you or sent by you, your tribe channel, and public channel messages every seat sees, since a given tick.',
+    description: 'Read DMs addressed to you or sent by you, and public channel messages every seat sees, since a given tick.',
     inputSchema: z.strictObject({ since_tick: z.number().int().min(0).default(0) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'read_messages', args)));
 
@@ -110,7 +110,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('send_message', {
     title: 'Send Message',
-    description: 'Send a direct, tribe, or public (every seat reads it) message during the talk phase. Optionally attach a signed or modified report.',
+    description: 'Send a direct or public (every seat reads it) message during the talk phase. Optionally attach a signed or modified report.',
     inputSchema: z.strictObject({
       channel: MessageChannel.default('dm'),
       to: SeatId.nullable().default(null),
@@ -133,7 +133,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('submit_orders', {
     title: 'Submit Sealed Orders',
-    description: `Seal your orders (build, found, train, march, scout, tribe_join, tribe_leave) for simultaneous resolution during the orders phase. A march may name support: an allied seat, to join that seat's attack on the target or its garrison there. Where the rules have land, a march to an open hex leaves the army standing there (holding it next to your land claims it), a march may start from a hex where your army stands, build takes ${ImprovementKind.options.join(', ')} on your land hex, and found turns your land hex into a village.`,
+    description: `Seal your orders (build, found, train, march, scout) for simultaneous resolution during the orders phase. A march may name support: an allied seat, to join that seat's attack on the target or its garrison there. Where the rules have land, a march to an open hex leaves the army standing there (holding it next to your land claims it), a march may start from a hex where your army stands, build takes ${ImprovementKind.options.join(', ')} on your land hex, and found turns your land hex into a village.`,
     inputSchema: z.strictObject({ orders: z.array(OrderItem).max(64) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'submit_orders', args)));
 

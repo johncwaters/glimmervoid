@@ -8,7 +8,7 @@ import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
 import { ArmyStatus, ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, WARGAMES_TRAVEL_HEXES_PER_TICK, victoryPointTargetFor, WARGAMES_BALANCE } from '../../shared/contracts/wargames.ts';
 import { terrainOf } from '../../shared/wargames/engine.ts';
-import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, marchCostOf } from '../../shared/wargames/terrain.ts';
+import { FOREST_DEFENSE_MULTIPLIER, marchCostOf } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesBalance, WargamesMatchSpec as WargamesMatchSpecType, WargamesTerritoryRule } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
@@ -108,23 +108,22 @@ function victoryPointLine(spec: WargamesMatchSpecType, clock: string): string {
   const balance = WARGAMES_BALANCE;
   const victory = balance.victory;
   const target = victoryPointTargetFor(balance, spec.mapRadius, spec.seats.length);
-  const economyRule = victory.economyIncomePerPoint > 0 ? ` plus 1 VP per ${victory.economyIncomePerPoint} income per tick,` : '';
   const landRule = ` plus 1 VP per ${balance.territory.tilesPerPoint} land hexes it holds,`;
   return [
-    `${clock} Victory points (VP) decide the match. At the end of every tick each seat gains 1 VP per village it holds and ${victory.beaconPoints} VP per Beacon it holds with at least 1 troop inside,${economyRule}${landRule} and VP are never lost.`,
-    ...landObjectiveLines(balance.territory, victory.economyIncomePerPoint),
+    `${clock} Victory points (VP) decide the match. At the end of every tick each seat gains 1 VP per village it holds and ${victory.beaconPoints} VP per Beacon it holds with at least 1 troop inside,${landRule} and VP are never lost.`,
+    ...landObjectiveLines(balance.territory),
     `The first seat to reach ${target} VP wins; otherwise the seat with the most VP after tick ${spec.maxTicks} wins (ties: more villages, then more income). get_state shows every seat's VP in victoryPointsBySeat and the target in victoryPointTarget.`,
     'Beacons are the sites with isBeacon true in get_state sites: they produce nothing and cannot be built on; capture them like a village, and a Beacon left with no troops goes back to unowned at the end of the tick. get_state sites lists every village and Beacon on the map, even ones you cannot see into.',
   ].join(' ');
 }
 
-function landObjectiveLines(territory: WargamesTerritoryRule, economyIncomePerPoint: number): string[] {
-  const { tilesPerPoint, quarryOreTileBonus } = territory;
+function landObjectiveLines(territory: WargamesTerritoryRule): string[] {
+  const { tilesPerPoint, tileBonusPerLevel } = territory;
   const { field, quarry } = territory.improvements;
   return [
     `Land wins matches: you start owning every open hex next to your villages, and every ${tilesPerPoint} land hexes score 1 VP per tick, as much as a whole village, with no battle. ${tilesPerPoint * 3} land hexes score 3 VP every tick.`,
     'Claim more: march 1 troop to an open hex touching your land; once it has stood there through the next tick, the hex is yours. A village you capture or found brings the unowned open hexes around it.',
-    `Improve land: a Field on land next to your village adds ${field.yieldPerLevel} grain per tick per level, a Quarry ${quarry.yieldPerLevel} ore (${quarry.yieldPerLevel + quarryOreTileBonus} on an Ore deposit), and every ${economyIncomePerPoint} income per tick is 1 more VP per tick.`,
+    `Improve land: a Field on land next to your village adds ${field.yieldPerLevel} grain per tick per level (${field.yieldPerLevel + tileBonusPerLevel} on a Fertile hex), a Quarry ${quarry.yieldPerLevel} ore (${quarry.yieldPerLevel + tileBonusPerLevel} on an Ore deposit); more income trains more troops.`,
     'get_state yourLand shows your land count, land VP per tick, the hexes you can claim next and what each suits, and in examples a claim march and a build order you can submit as written.',
   ];
 }
@@ -192,7 +191,7 @@ function terrainLines(spec: WargamesMatchSpecType): string[] {
     'Terrain (get_state lists every non-plain hex in terrain):',
     '- Mountain and Lake hexes are impassable and hold no village; armies march around them, so they make fronts and chokepoints.',
     `- Forest costs 2 of an army's 2 hexes of movement per tick to enter, and a village on Forest defends at ${FOREST_DEFENSE_MULTIPLIER}x power.`,
-    `- A village makes +${BONUS_TILE_YIELD} grain per tick for each Fertile hex on or next to it, and +${BONUS_TILE_YIELD} ore per tick for each Ore deposit on or next to it.`,
+    '- A Fertile hex raises a Field built on it, and an Ore deposit a Quarry built on it (see Improvements).',
     '- Terrain is symmetric: every seat faces the same terrain around its home.',
   ];
 }
@@ -211,7 +210,6 @@ function buildingLines(): string[] {
     `- Farm (${costs.farm.grain} grain / ${costs.farm.ore} ore): +20 grain/tick and +200 storage cap per level.`,
     `- Mine (${costs.mine.grain} grain / ${costs.mine.ore} ore): +20 ore/tick and +200 storage cap per level.`,
     wallLine(),
-    `- Barracks (${costs.barracks.grain} grain / ${costs.barracks.ore} ore): military infrastructure upgrade (training is instant and bounded by grain and ore).`,
   ];
 }
 
@@ -230,8 +228,8 @@ function landLines(spec: WargamesMatchSpecType): string[] {
     '- Fighting on land: an army that marches onto a hex where another seat\'s army stands attacks it (your attack against their defense times any Forest bonus, no Wall). If the defenders fall, your strongest seat\'s survivors stand there; if not, your army is wiped. Attacking or taking land from a seat you hold a NAP or alliance with breaks the pact, like an attack on a village.',
     `- Land VP: every tick you score 1 VP per ${territory.tilesPerPoint} land hexes you hold. Land produces nothing by itself; improvements do.`,
     `- Improvements: each land hex holds one, built with a build order on that hex (building: ${ImprovementKind.options.map((kind) => `"${kind}"`).join(', ')}). Your nearest village pays from its own stock. Repeat the order to raise the level. One build per hex per tick.`,
-    `  - Field (${costText(field.cost)}, up to level ${field.maxLevel}): +${field.yieldPerLevel} grain per tick per level to your nearest village, only while that village is next to the Field.`,
-    `  - Quarry (${costText(quarry.cost)}, up to level ${quarry.maxLevel}): +${quarry.yieldPerLevel} ore per tick per level to your nearest village, +${territory.quarryOreTileBonus} more per level on an Ore deposit hex.`,
+    `  - Field (${costText(field.cost)}, up to level ${field.maxLevel}): +${field.yieldPerLevel} grain per tick per level to your nearest village, only while that village is next to the Field, +${territory.tileBonusPerLevel} more per level on a Fertile hex.`,
+    `  - Quarry (${costText(quarry.cost)}, up to level ${quarry.maxLevel}): +${quarry.yieldPerLevel} ore per tick per level to your nearest village, +${territory.tileBonusPerLevel} more per level on an Ore deposit hex.`,
     `  - Watchtower (${costText(watchtower.cost)}): armies within ${territory.watchtowerRange} hexes of it show in your get_state visibleArmies.`,
     `  - Outpost (${costText(outpost.cost)}): your armies standing on it defend at +${Math.round(territory.outpostDefenseBonus * 100)}%.`,
     `- When your land is taken, its improvement loses half its levels (rounded up), so a level 1 improvement is destroyed.`,
@@ -249,18 +247,17 @@ function supportLine(): string {
 function diplomacyLines(): string[] {
   const shared = [
     '- Scouting: Up to 2 scouts per tick to reveal enemy garrisons, buildings, and marching armies. Orders are sealed and resolve simultaneously, so no seat sees another seat\'s orders before they resolve.',
-    '- Tribes: Up to 2 seats may form a tribe via tribe_join / tribe_leave orders to share a private tribe channel.',
   ];
   const diplomacy = WARGAMES_BALANCE.diplomacy;
   if (!diplomacy) {
     return [
-      '- Messages: Send direct or tribe messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',
+      '- Messages: Send direct messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',
       '- Contracts: Propose a Resource Escrow (atomic grain/ore swap) or a Non-Aggression Pact (NAP), where both seats lock collateral resources for N ticks. Attacking your NAP partner breaches the pact, forfeits your collateral to the victim, and records the breach on the public ledger.',
       ...shared,
     ];
   }
   return [
-    '- Messages: Send direct, tribe, or public messages during Talk; every seat reads the public channel. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report. Talk binds nothing; only contracts are enforced.',
+    '- Messages: Send direct or public messages during Talk; every seat reads the public channel. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report. Talk binds nothing; only contracts are enforced.',
     '- Escrow: an atomic grain/ore swap that settles the moment it is accepted.',
     `- Alliance VP: at the end of every turn an alliance is in force, each partner scores ${diplomacy.allianceVpPerTurn} VP. If one partner breaks it, the victim also scores the breaker's alliance VP for every turn the alliance stood (${diplomacy.allianceVpPerTurn} VP per turn).`,
     '- Alliance: two seats may hold one alliance at a time (one proposed or active). Both seats lock the stated collateral for N ticks. While it is active neither may attack the other, and each may support the other. When it runs its full term both get their collateral back. If one attacks the other, the alliance breaks: the victim takes the attacker\'s collateral and its own back, and the breach goes on the public ledger.',
@@ -287,7 +284,7 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     ...landLines(spec),
     ...terrainLines(spec),
     '',
-    'Diplomacy, Contracts & Tribes:',
+    'Diplomacy & Contracts:',
     ...diplomacyLines(),
     '',
     'Private Notes:',

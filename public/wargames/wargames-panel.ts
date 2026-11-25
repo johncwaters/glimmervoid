@@ -18,7 +18,7 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
+import { improvementYieldPerLevelOn, matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -208,7 +208,6 @@ const CONTRACT_KIND_LABELS: Readonly<Record<'escrow' | 'nap' | 'alliance', strin
 
 const MESSAGE_AUDIENCE_LABELS: Readonly<Record<MessageChannel, string>> = Object.freeze({
   dm: '',
-  tribe: ' to tribe',
   public: ' to everyone',
 });
 
@@ -702,12 +701,6 @@ function buildOrderElement(order: OrderItem, labelOf: (seatId: SeatId) => string
         ...hexRouteElements(order.fromHexIndex, order.toHexIndex),
       );
       return item;
-    case 'tribe_join':
-      item.append(el('span', '', `Join tribe with ${labelOf(order.partner)}`));
-      return item;
-    case 'tribe_leave':
-      item.append(el('span', '', 'Leave tribe'));
-      return item;
   }
 }
 
@@ -722,15 +715,11 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
   const swatch = el('span', 'wg-faction-swatch');
   swatch.style.background = SEAT_COLORS[seatId];
   const agentAndModel = formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay);
-  const tribePartner = seat.tribeId
-    ? state.seats.find((candidate) => candidate.tribeId === seat.tribeId && candidate.config.seatId !== seatId)?.config.seatId ?? null
-    : null;
   const labelOf = (otherSeatId: SeatId) => seatLabelOf(state, otherSeatId);
-  const tribeTag = tribePartner ? ` · Tribe with ${labelOf(tribePartner)}` : '';
   titleWrap.append(
     swatch,
     el('span', 'wg-card-title', seat.config.label),
-    el('span', 'wg-card-meta', `${agentAndModel} · ${formatSeatStatusLabel(displayedSeatStatus(state, seat), state.phase, state.status)}${tribeTag}`),
+    el('span', 'wg-card-meta', `${agentAndModel} · ${formatSeatStatusLabel(displayedSeatStatus(state, seat), state.phase, state.status)}`),
   );
   head.append(
     titleWrap,
@@ -1096,11 +1085,8 @@ type LandTile = NonNullable<ReturnType<MatchState['territory']['get']>>;
 function improvementEffectOf(state: MatchState, hexIndex: number, land: LandTile): string {
   const rule = state.balance.territory;
   if (land.improvement === null) return '';
-  if (land.improvement === 'field') return `+${land.level * rule.improvements.field.yieldPerLevel} grain to the village beside it`;
-  if (land.improvement === 'quarry') {
-    const oreTileBonus = state.terrain[hexIndex] === 'ore' ? rule.quarryOreTileBonus : 0;
-    return `+${land.level * (rule.improvements.quarry.yieldPerLevel + oreTileBonus)} ore to the nearest village`;
-  }
+  if (land.improvement === 'field') return `+${land.level * improvementYieldPerLevelOn(state, hexIndex, 'field')} grain to the village beside it`;
+  if (land.improvement === 'quarry') return `+${land.level * improvementYieldPerLevelOn(state, hexIndex, 'quarry')} ore to the nearest village`;
   if (land.improvement === 'watchtower') return `Sees armies within ${rule.watchtowerRange} hexes`;
   return `Armies holding it defend at +${Math.round(rule.outpostDefenseBonus * 100)}%`;
 }

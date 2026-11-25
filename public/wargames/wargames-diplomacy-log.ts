@@ -34,7 +34,6 @@ function speakerTextOf(state: MatchState, entry: DiplomacyEntry): string {
   const speaker = seatLabelOf(state, entry.from);
   if (entry.to !== null) return `${speaker} to ${seatLabelOf(state, entry.to)}`;
   if (entry.channel === 'public') return `${speaker} to everyone`;
-  if (entry.channel === 'tribe') return `${speaker} to tribe`;
   return speaker;
 }
 
