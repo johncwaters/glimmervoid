@@ -235,10 +235,9 @@ async function verifyPrCardOnMap(page: Page): Promise<void> {
   assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'clicking the pull request card does not address the message bar');
 }
 
-async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Box): Promise<void> {
+async function addressCardBox(page: Page, pillBefore: Box): Promise<void> {
   const root = page.locator('.board-session-view');
   const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
-  const addressText = root.locator('.bs-pill-address-text');
   await pillInput.fill('@card');
   const mention = root.getByRole('option').first();
   await mention.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -247,6 +246,13 @@ async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Bo
   await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith('New branch on'), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await pillInput.inputValue(), '', 'picking a box takes the @ mention out of the pill');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill with a branch address');
+}
+
+async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Box): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
+  const addressText = root.locator('.bs-pill-address-text');
+  await addressCardBox(page, pillBefore);
   await pillInput.fill('Add refunds');
   await pillInput.press('Enter');
   const branchReply = root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Committed refunds' }).first();
@@ -254,19 +260,33 @@ async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Bo
   await root.locator('.bs-row-you.bs-row-branch', { hasText: 'Add refunds' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-you.bs-row-branch', { hasText: 'You are a branch' }).count(), 0, 'the branch bubble shows only what the operator typed');
   await waitForRefundsInParent(projectDirectory);
+  await page.waitForFunction(() => document.querySelectorAll('.board-session-view .bs-card[data-branch]').length === 0, undefined, { timeout: DIRECTOR_TIMEOUT_MS });
+  assert.equal(await branchReply.isVisible(), true, 'a merged branch leaves the board and its reply stays in the log');
+
+  await addressCardBox(page, pillBefore);
+  await pillInput.fill('Draft refunds');
+  await pillInput.press('Enter');
+  const draftReply = root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Drafted refunds' }).first();
+  await draftReply.waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
   const branchFace = root.locator('.bs-card-shrunk:not([hidden]) .bs-card-shrunk-face').first();
   await branchFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-card[data-branch]:not([hidden])').count(), 0, 'an idle branch shows only its face');
   await branchFace.click();
-  await root.locator('.bs-card[data-branch]:not([hidden])').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const branchCard = root.locator('.bs-card[data-branch]:not([hidden])').first();
+  await branchCard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await branchCard.locator('[data-action="board-session-agent-menu"]').click();
+  await branchCard.locator('[data-action="board-session-agent-close"]').click();
+  const closeRefusal = branchCard.locator('.bs-card-refusal:not([hidden])');
+  await closeRefusal.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.match(await closeRefusal.textContent() ?? '', /uncommitted changes/, 'Close refuses a branch holding unlanded work and says why on its card');
 
   await root.locator('.bs-pill-address-clear').click();
   await addressText.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
-  await branchReply.locator('.bs-face').click();
+  await draftReply.locator('.bs-face').click();
   await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith('To '), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   await pillInput.fill('branch-follow-up');
   await pillInput.press('Enter');
-  await root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Refunds reuse' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Refunds reuse' }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
   await root.locator('.bs-pill-address-clear').click();
   await addressText.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the branch');

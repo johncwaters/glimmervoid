@@ -209,6 +209,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   let broadcastControl: ControlBroadcast | null = null;
   let removeExitedSession: ((id: string) => void) | null = null;
+  let closeSession: ((id: string) => Promise<{ ok: boolean; error?: string }>) | null = null;
   let raceLauncher: RaceLauncher | null = null;
   let wargamesLauncher: WargamesLauncher | null = null;
   let agentApi: AgentApiPort | null = null;
@@ -653,7 +654,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
 
-  const branchMerge = createBranchMerge({ findSession: getSessionAny, liveSessions: allLiveSessions, tellMain: (branchId, text) => agentApi?.tellParent(branchId, text) ?? false, logger: console });
+  const branchMerge = createBranchMerge({ findSession: getSessionAny, liveSessions: allLiveSessions, tellMain: (branchId, text) => agentApi?.tellParent(branchId, text) ?? false, closeBranch: async (branchId) => closeSession ? closeSession(branchId) : { ok: false, error: 'the control handlers are not ready' }, logger: console });
 
   function wireSessionEvents(session: Session): void {
     wireSessionStatusEvents(session);
@@ -996,7 +997,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
   };
 
-  ({ removeExitedSession, raceLauncher, wargamesLauncher } = createBackendControl({
+  ({ removeExitedSession, closeSession, raceLauncher, wargamesLauncher } = createBackendControl({
     onControlConnection,
     sessions,
     agentSessions,

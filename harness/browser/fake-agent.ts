@@ -133,6 +133,7 @@ const endpoint = readEndpoint(settingsPathFromArgv(process.argv.slice(2)));
 
 const BOARD_ANSWER_PREFIX = 'Answer to your board question';
 const BRANCH_FOLLOW_UP = 'branch-follow-up';
+const BRANCH_DRAFT_REQUEST = 'Draft refunds';
 const GIT_IDENTITY_ARGS = ['-c', 'user.name=Fake Agent', '-c', 'user.email=fake-agent@localhost', '-c', 'commit.gpgsign=false'];
 
 function commitRefunds(): void {
@@ -508,6 +509,14 @@ function dispatch(command: string): void {
   }
   if (command.startsWith(BOARD_ANSWER_PREFIX)) {
     answerPrompt(command, 'Noted.');
+    dispatch('stop');
+    return;
+  }
+  if (command.startsWith(BRANCH_PROMPT_PREFIX) && command.endsWith(BRANCH_DRAFT_REQUEST)) {
+    setTitle(WORKING_GLYPH, 'working');
+    fs.mkdirSync(path.join('src', 'payments'), { recursive: true });
+    fs.writeFileSync(path.join('src', 'payments', 'refund-draft.js'), 'export const draft = true;\n');
+    answerPrompt(command, 'Drafted refunds, not committed yet.');
     dispatch('stop');
     return;
   }

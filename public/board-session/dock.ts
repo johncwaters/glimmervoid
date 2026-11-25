@@ -726,7 +726,6 @@ export function createDock(session: DockSession): Dock {
       feed.close();
       feedBySessionId.delete(sessionId);
       speakerBySessionId.delete(sessionId);
-      removeSessionRows(sessionId);
       if (address.kind === 'branch' && address.sessionId === sessionId) setAddress(MAIN_ADDRESS);
     }
     for (const branch of branches) {

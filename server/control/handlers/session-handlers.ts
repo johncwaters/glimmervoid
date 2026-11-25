@@ -32,6 +32,8 @@ import { machineSkipsPermissionsByDefault } from '../../session/core/session-reg
 import { decidePermissions } from '../../../shared/session-permissions.ts';
 import { resolvePackageBin } from '../../runtime-paths.ts';
 import { wakeStudioMain } from '../../board-session/studio-main.ts';
+import { isBranchWorkElsewhere } from '../../board-session/branch-merge.ts';
+import { branchParentIdOf } from '../../../shared/parent-link.ts';
 import { mainAgentNameOf } from '../../core/studio-main-core.ts';
 import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
@@ -71,6 +73,7 @@ async function runGitForConversationHistory(args: string[], cwd: string): Promis
 
 interface SessionHandlerGroup extends ControlHandlerGroup {
   removeExitedSession(id: string): void;
+  closeSession(id: string): Promise<SessionRemoval>;
   discardSession(id: string): Promise<SessionRemoval>;
 }
 
@@ -524,7 +527,12 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   async function findLocalRemovalRefusal(sess: Session, confirmedKeptPaths: ReadonlySet<string>): Promise<RemovalRefusal | null> {
     const keptPaths = await sess.hasWorkspaceMembers() ? await sess.findWorkspaceKeptWork() : [];
-    if (!sess.isWorkspace && await sess.hasUnmergedWork()) {
+    const branchParentId = branchParentIdOf(sess.parent);
+    if (branchParentId !== null) {
+      const parent = sessions.get(branchParentId) ?? null;
+      if (!(await isBranchWorkElsewhere(sess, parent))) return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not yet in ${parent?.name ?? 'its parent'}. Closing it deletes them.`);
+    }
+    if (branchParentId === null && !sess.isWorkspace && await sess.hasUnmergedWork()) {
       const checkoutWork = keptPaths.length > 0 ? ` Its checkouts also hold work not saved: ${keptPaths.map((kept) => kept.path).join(', ')}.` : '';
       return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.${checkoutWork}`, keptPaths.length > 0 ? keptPaths : undefined);
     }
@@ -1017,7 +1025,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   } satisfies InvalidReplyTable;
 
   packLaunchers?.attachSessionStarter(startSession);
-  return { handlers, invalidReplies, connectFrames: sessionWakeFrames, removeExitedSession, discardSession };
+  return { handlers, invalidReplies, connectFrames: sessionWakeFrames, removeExitedSession, discardSession, closeSession: (id: string) => removeSession({ type: 'remove-session', id }) };
 }
 
 export { createSessionHandlers };

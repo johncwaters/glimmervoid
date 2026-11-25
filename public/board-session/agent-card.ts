@@ -18,6 +18,7 @@ const UNPLACED_MAIN_TOP_PX = 64;
 const MENU_TEXT = 'Agent menu';
 const RESTART_TEXT = 'Restart';
 const ACCOUNT_TEXT = 'Model and account';
+const CLOSE_TEXT = 'Close';
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const BUSY_PHASES: ReadonlySet<ChatPhase> = new Set(['starting', 'working', 'monitoring']);
 
@@ -41,6 +42,7 @@ interface AgentCardActions {
   address(model: AgentCardModel): void;
   restart(sessionId: string): void;
   switchAccount(sessionId: string): void;
+  close(sessionId: string): Promise<string | null>;
   toggleOpened(sessionId: string): void;
   toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void;
   answer(sessionId: string, cardId: string, action: string, value: string): void;
@@ -132,6 +134,18 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       actions.switchAccount(sessionId);
     }),
   );
+  const refusal = el('p', 'bs-card-digest bs-card-refusal');
+  refusal.setAttribute('role', 'status');
+  refusal.hidden = true;
+  const closeItem = menuItemOf(CLOSE_TEXT, 'board-session-agent-close', () => {
+    closeMenu();
+    refusal.hidden = true;
+    void actions.close(sessionId).then((error) => {
+      refusal.textContent = error ?? '';
+      refusal.hidden = error === null;
+    });
+  });
+  menu.append(closeItem);
   const repoButton = createPressable('bs-card-repo');
   repoButton.dataset.action = 'board-session-repo';
   repoButton.setAttribute('aria-haspopup', 'menu');
@@ -143,7 +157,7 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   const activity = createChatActivity();
   const digest = el('p', 'bs-card-digest');
   const approvals = el('div', 'bs-card-approvals-slot');
-  card.append(head, activity.element, digest, approvals, menu);
+  card.append(head, activity.element, digest, refusal, approvals, menu);
   card.addEventListener('chat-card', (event) => {
     const cardId = stringDetailOf(event, 'cardId');
     const action = stringDetailOf(event, 'action');
@@ -181,6 +195,7 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       card.toggleAttribute('data-main', model.isMain);
       card.toggleAttribute('data-branch', model.isBranch);
       wire.toggleAttribute('data-branch', model.isBranch);
+      closeItem.hidden = !model.isBranch;
       if (previous?.agentId !== model.agentId || previous?.name !== model.name || previous?.isMain !== model.isMain) {
         const face = faceOf(model, []);
         face.dataset.action = 'board-session-address-face';

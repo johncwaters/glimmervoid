@@ -142,7 +142,7 @@ interface BackendControlDependencies {
   logger: Pick<Console, 'warn'>;
 }
 
-function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; raceLauncher: RaceLauncher; wargamesLauncher: WargamesLauncher } {
+function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; closeSession: (id: string) => Promise<{ ok: boolean; error?: string }>; raceLauncher: RaceLauncher; wargamesLauncher: WargamesLauncher } {
   const {
     onControlConnection,
     sessions,
@@ -262,7 +262,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => dependencies.secrets.approvalsMessage() }));
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
-  return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher, wargamesLauncher: controlHandlers.wargamesLauncher };
+  return { removeExitedSession: controlHandlers.removeExitedSession, closeSession: controlHandlers.closeSession, raceLauncher: controlHandlers.raceLauncher, wargamesLauncher: controlHandlers.wargamesLauncher };
 }
 
 export { createBackendControl };

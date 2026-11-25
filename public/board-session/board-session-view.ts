@@ -5,6 +5,7 @@ import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { errorMessage } from '#shared/text.ts';
 import { el } from '../dom-helpers.ts';
 import { getJSON, setJSON } from '../local-store.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
@@ -59,6 +60,7 @@ const BOXES_TIMEOUT_MS = 10000;
 const MAP_RETRY_MS = 15000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const MAIN_ENSURE_TIMEOUT_MS = 15000;
+const BRANCH_CLOSE_TIMEOUT_MS = 60000;
 const TITLE_SIZE_FALLBACK_PX = 16;
 const PEEK_OVERLAP_PX = 4;
 const NO_SESSION_TEXT = 'Open a repo from the repo menu to see its code map.';
@@ -750,6 +752,13 @@ function restartAgent(sessionId: string): void {
   void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: true }));
 }
 
+async function closeBranchAgent(sessionId: string): Promise<string | null> {
+  const reply = await sendControlRequest('remove-session', { id: sessionId }, { timeoutMs: BRANCH_CLOSE_TIMEOUT_MS }).catch((reason: unknown) => errorMessage(reason));
+  if (typeof reply === 'string') return reply;
+  if (reply.type !== 'remove-session-result' || reply.ok) return null;
+  return reply.error ?? null;
+}
+
 function toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void {
   if (!parts) return;
   const isOpenHere = parts.menuOpener === repoButton && !parts.menu.hidden;
@@ -795,7 +804,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   const presenceLayer = createPresenceLayer(boundsOfHostBox);
-  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
+  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, close: closeBranchAgent, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
   const topLeft = el('div', 'bs-top-left');
   const noRepoChip = createPressable('bs-chip');
   noRepoChip.setAttribute('aria-haspopup', 'menu');

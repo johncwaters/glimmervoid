@@ -313,7 +313,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     });
   });
 
-  return { buildSnapshot, removeExitedSession: session.removeExitedSession, raceLauncher: race.launcher, wargamesLauncher: wargames.launcher, branches };
+  return { buildSnapshot, removeExitedSession: session.removeExitedSession, closeSession: session.closeSession, raceLauncher: race.launcher, wargamesLauncher: wargames.launcher, branches };
 }
 
 export {

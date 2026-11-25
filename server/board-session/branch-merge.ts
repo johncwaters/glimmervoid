@@ -10,6 +10,7 @@ const GIT_TIMEOUT_MS = 60000;
 const SETTLED_STATES: readonly SessionState[] = [STATES.IDLE, STATES.COMPLETE];
 const BUSY_MERGE_STATUSES: readonly string[] = ['merging', 'parked'];
 const OUTSIDE_PATHS_NAMED = 5;
+const LANDED_BRANCH_IDLE_MS = 30000;
 
 interface GitResult {
   ok: boolean;
@@ -21,6 +22,7 @@ interface BranchMergeDeps {
   findSession: (sessionId: string) => Session | null;
   liveSessions: () => readonly Session[];
   tellMain: (branchId: string, text: string) => boolean;
+  closeBranch: (branchId: string) => Promise<{ ok: boolean; error?: string }>;
   logger: Pick<Console, 'warn'>;
 }
 
@@ -46,8 +48,21 @@ function isWorktreeBusy(session: Session): boolean {
   return session.isAutoRebasing || BUSY_MERGE_STATUSES.includes(session.mergeStatus);
 }
 
-function createBranchMerge({ findSession, liveSessions, tellMain, logger }: BranchMergeDeps) {
+async function isBranchWorkElsewhere(branch: Session, parent: Session | null): Promise<boolean> {
+  if (!parent?.isWorktree || !branch.isWorktree) return !(await branch.hasUnmergedWork());
+  const branchDir = branch.effectiveCwd();
+  const parentBranch = await runGit(['symbolic-ref', '-q', '--short', 'HEAD'], parent.effectiveCwd());
+  if (!parentBranch.ok || parentBranch.out === '') return false;
+  const uncommitted = await runGit(['--no-optional-locks', 'status', '--porcelain'], branchDir);
+  if (!uncommitted.ok || uncommitted.out !== '') return false;
+  const ahead = await runGit(['rev-list', '--count', `${parentBranch.out}..HEAD`], branchDir);
+  return ahead.ok && Number(ahead.out) === 0;
+}
+
+function createBranchMerge({ findSession, liveSessions, tellMain, closeBranch, logger }: BranchMergeDeps) {
   const mergingBranchIds = new Set<string>();
+  const workedBranchIds = new Set<string>();
+  const closeTimerByBranchId = new Map<string, ReturnType<typeof setTimeout>>();
   const mergeQueueByParentId = new Map<string, Promise<void>>();
   const reportedHeadByBranchId = new Map<string, string>();
 
@@ -109,9 +124,36 @@ function createBranchMerge({ findSession, liveSessions, tellMain, logger }: Bran
     if (!parent?.isWorktree || !branch.isWorktree || !isSettled(parent) || isWorktreeBusy(parent)) return;
     try {
       await bringIn(branch, parent);
+      if (workedBranchIds.has(branch.id) && isSettled(branch)) scheduleIdleClose(branch.id);
     } catch (error) {
       logger.warn(`[branch-merge] ${branch.name}: ${errorMessage(error)}`);
     }
+  }
+
+  function cancelIdleClose(branchId: string): void {
+    clearTimeout(closeTimerByBranchId.get(branchId));
+    closeTimerByBranchId.delete(branchId);
+  }
+
+  function scheduleIdleClose(branchId: string): void {
+    cancelIdleClose(branchId);
+    const timer = setTimeout(() => {
+      closeTimerByBranchId.delete(branchId);
+      void closeIfLanded(branchId).catch((error: unknown) => logger.warn(`[branch-merge] closing ${branchId}: ${errorMessage(error)}`));
+    }, LANDED_BRANCH_IDLE_MS);
+    timer.unref();
+    closeTimerByBranchId.set(branchId, timer);
+  }
+
+  async function closeIfLanded(branchId: string): Promise<void> {
+    const branch = findSession(branchId);
+    if (!branch || branch._destroyed || !isSettled(branch)) return;
+    const parentId = branchParentIdOf(branch.parent);
+    const parent = parentId === null ? null : findSession(parentId);
+    if (!(await isBranchWorkElsewhere(branch, parent))) return;
+    const closed = await closeBranch(branch.id);
+    if (closed.ok) return void workedBranchIds.delete(branch.id);
+    logger.warn(`[branch-merge] could not close ${branch.name}: ${closed.error ?? 'refused'}`);
   }
 
   function queueMerge(branch: Session): void {
@@ -128,8 +170,10 @@ function createBranchMerge({ findSession, liveSessions, tellMain, logger }: Bran
 
   function attachSession(session: Session): void {
     session.on('state-change', ({ to }: { to: SessionState }) => {
-      if (!SETTLED_STATES.includes(to)) return;
-      if (branchParentIdOf(session.parent) !== null) return queueMerge(session);
+      const isBranch = branchParentIdOf(session.parent) !== null;
+      if (isBranch && to === STATES.RUNNING) workedBranchIds.add(session.id);
+      if (!SETTLED_STATES.includes(to)) return void cancelIdleClose(session.id);
+      if (isBranch) return queueMerge(session);
       for (const branch of liveSessions()) {
         if (branchParentIdOf(branch.parent) === session.id) queueMerge(branch);
       }
@@ -139,4 +183,4 @@ function createBranchMerge({ findSession, liveSessions, tellMain, logger }: Bran
   return { attachSession };
 }
 
-export { createBranchMerge };
+export { createBranchMerge, isBranchWorkElsewhere };
