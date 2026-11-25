@@ -16,6 +16,7 @@ import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import { boundsOfHostBox, glideHostTo, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
 import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
+import { boardSummariesOf, onBoardListChanged } from '../whiteboard/board-store.ts';
 import { dismissAgentChange, markAgentChangeShown, onAgentChange, ringAgentChange, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { SHOWN_BOX_ID_RE } from '#shared/whiteboard-constants.ts';
@@ -51,14 +52,13 @@ import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
-import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
+import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX, codeMapBoardTitleOf } from '#shared/contracts/control/board-session-messages.ts';
 import type { OpenBoardAsk } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
 import { STATES } from '#shared/states.ts';
 import { createLineIcon } from '../svg-dom.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
-const MAP_RETRY_MS = 15000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const MAIN_ENSURE_TIMEOUT_MS = 15000;
 const BRANCH_CLOSE_TIMEOUT_MS = 60000;
@@ -124,7 +124,10 @@ let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let shownFixedAreas: readonly Rect[] = [];
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
-let mapRetryTimer: ReturnType<typeof setTimeout> | null = null;
+type MissingMap = { boardId: string | null; boardVersion: number | null; knownBoardIds: ReadonlySet<string> };
+
+let missingMap: MissingMap | null = null;
+const mapBoardIdBySessionId = new Map<string, string>();
 let digestsRequestSerial = 0;
 let progressAnswers: readonly SessionProgressAnswer[] = [];
 let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null }>> = {};
@@ -578,27 +581,46 @@ function isUnaskedPath(presencePath: string): boolean {
   return !(presencePath in boxIdByPath) && !answeredPaths.has(presencePath);
 }
 
-function stopMapRetry(): void {
-  if (mapRetryTimer !== null) clearTimeout(mapRetryTimer);
-  mapRetryTimer = null;
+function titledMapBoardIdOf(sessionId: string): string | null {
+  const repoPath = sessionUIs.get(sessionId)?.path;
+  if (!repoPath) return null;
+  const title = codeMapBoardTitleOf(repoPath).toLowerCase();
+  const titledBoards = boardSummariesOf().filter((summary) => summary.title.toLowerCase() === title);
+  return titledBoards.length === 1 ? titledBoards[0].id : null;
+}
+
+function knownMapBoardIdOf(sessionId: string): string | null {
+  return mapBoardIdBySessionId.get(sessionId) ?? titledMapBoardIdOf(sessionId);
+}
+
+function missingMapOf(boardId: string | null): MissingMap {
+  const summaries = boardSummariesOf();
+  return { boardId, boardVersion: summaries.find((summary) => summary.id === boardId)?.version ?? null, knownBoardIds: new Set(summaries.map((summary) => summary.id)) };
+}
+
+function isMissingMapRedrawn(missing: MissingMap): boolean {
+  const summaries = boardSummariesOf();
+  if (missing.boardId === null) return summaries.some((summary) => !missing.knownBoardIds.has(summary.id));
+  return (summaries.find((summary) => summary.id === missing.boardId)?.version ?? null) !== missing.boardVersion;
+}
+
+function followMissingMap(): void {
+  if (!isActive || missingMap === null || !isMissingMapRedrawn(missingMap)) return;
+  missingMap = missingMapOf(missingMap.boardId);
+  requestBoxes();
 }
 
 function showMapState(mapState: StudioMapState): void {
   parts?.guide.show(mapState, shownSessionId === null ? NO_REPO_TEXT : shownRepoLabel());
 }
 
-function showMapMissing(text: string, isMapFailed: boolean): void {
+function showMapMissing(text: string, isMapFailed: boolean, mapBoardId: string | null): void {
   showMapState(isMapFailed ? 'failed' : 'building');
   showNotice(parts?.guide.isShowingWelcome() ? null : text);
-  stopMapRetry();
-  mapRetryTimer = setTimeout(() => {
-    mapRetryTimer = null;
-    if (isActive) requestBoxes();
-  }, MAP_RETRY_MS);
+  missingMap = missingMapOf(mapBoardId);
 }
 
 function requestBoxes(): void {
-  stopMapRetry();
   if (shownSessionId === null) return;
   const sessionId = shownSessionId;
   boxesRequestSerial += 1;
@@ -607,8 +629,10 @@ function requestBoxes(): void {
   sendControlRequest('codemap-boxes-of', { id: sessionId, paths: askedPaths }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== boxesRequestSerial || reply.type !== 'codemap-boxes-of-response') return;
-      if (!reply.ok) return showMapMissing(reply.error ?? NO_MAP_TEXT, reply.isMapFailed);
-      if (reply.boardId === null) return showMapMissing(NO_MAP_TEXT, false);
+      if (reply.boardId !== null) mapBoardIdBySessionId.set(sessionId, reply.boardId);
+      if (!reply.ok) return showMapMissing(reply.error ?? NO_MAP_TEXT, reply.isMapFailed, knownMapBoardIdOf(sessionId));
+      if (reply.boardId === null) return showMapMissing(NO_MAP_TEXT, false, knownMapBoardIdOf(sessionId));
+      missingMap = null;
       showNotice(null);
       showMapState('drawn');
       changedBoxIds = new Set(reply.changedBoxIds);
@@ -623,7 +647,7 @@ function requestBoxes(): void {
       if (watchedPaths().some(isUnaskedPath)) requestBoxes();
     })
     .catch(() => {
-      if (serial === boxesRequestSerial) showMapMissing(NO_MAP_TEXT, true);
+      if (serial === boxesRequestSerial) showMapMissing(NO_MAP_TEXT, true, knownMapBoardIdOf(sessionId));
     });
 }
 
@@ -876,6 +900,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
     if (menu.hidden || !(event.target instanceof Node) || menu.contains(event.target) || parts?.menuOpener?.contains(event.target)) return;
     closeMenu();
   });
+  onBoardListChanged(followMissingMap);
   onDirectorDigestKept((sessionId) => {
     if (isActive && (sessionId === shownSessionId || watchBySessionId.has(sessionId))) requestDigests();
   });
@@ -909,7 +934,7 @@ function activateBoardSessionView(): void {
 
 function deactivateBoardSessionView(): void {
   isActive = false;
-  stopMapRetry();
+  missingMap = null;
   closeWatches();
   shownRepoPath = null;
   ensuredRepoPath = null;

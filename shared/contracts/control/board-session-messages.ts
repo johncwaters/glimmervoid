@@ -3,10 +3,16 @@ import { loose, optionalError, requestId, sessionId } from './control-fields.ts'
 import { SessionProgressAnswer } from '../director-digests.ts';
 import { StudioGuideStep } from '../studio-guide.ts';
 import { BoardAsk } from '../whiteboard.ts';
+import { WHITEBOARD_LIMITS } from '../../whiteboard-constants.ts';
 
 export const CODEMAP_BOXES_MAX_PATHS = 200;
 const ASK_ANSWER_MAX_CHARS = 2000;
 export const CODEMAP_BOX_CHOICES_MAX = 5000;
+
+export function codeMapBoardTitleOf(repoPath: string): string {
+  const repoName = repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
+  return `Code map: ${repoName}`.slice(0, WHITEBOARD_LIMITS.title);
+}
 export const BRANCH_PROMPT_MAX_CHARS = 20000;
 export const DIRECTOR_DIGEST_SESSIONS_MAX = 50;
 const PROGRESS_QUESTION_MAX_CHARS = 2000;
