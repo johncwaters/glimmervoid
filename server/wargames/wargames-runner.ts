@@ -5,7 +5,6 @@ import { clock } from '../../shared/clock.ts';
 import type { AgentModelCatalog } from '../../shared/contracts/agent-models.ts';
 import { MessageChannel, OrderItem, SeatId } from '../../shared/contracts/wargames.ts';
 import type {
-  MatchStatus,
   ModelEloRow,
   SeatConfig,
   TickPhase,
@@ -42,8 +41,13 @@ type SeatLaunchFn = (
   bindSession: (sessionId: string) => void,
 ) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
 
+interface SeatSession {
+  sessionId: string;
+  seatId: SeatId;
+}
+
 interface WargamesMatchHooks {
-  onPhaseChanged?: (matchId: string, tick: number, phase: TickPhase, status: MatchStatus, sessionIds: readonly string[]) => void;
+  onPhaseChanged?: (state: MatchState, seatSessions: readonly SeatSession[]) => void;
   onMatchEnded?: (matchId: string, sessionIds: readonly string[]) => void;
 }
 
@@ -243,11 +247,11 @@ export function createWargamesRunner({
     return live.state.status === 'aborted' || live.state.status === 'finished';
   }
 
-  function activeSessionIds(live: LiveMatch): string[] {
-    return live.sessionIds.filter((sessionId) => {
+  function activeSeatSessions(live: LiveMatch): SeatSession[] {
+    return live.sessionIds.flatMap((sessionId) => {
       const binding = seatBySessionId.get(sessionId);
-      if (!binding) return false;
-      return live.state.seats[seatIndexOf(binding.seatId)].status !== 'eliminated';
+      if (!binding || live.state.seats[seatIndexOf(binding.seatId)].status === 'eliminated') return [];
+      return [{ sessionId, seatId: binding.seatId }];
     });
   }
 
@@ -278,7 +282,7 @@ export function createWargamesRunner({
     wakePhaseWaiters(live);
     if (live.state.status === 'running') {
       schedulePhaseDeadline(live);
-      live.hooks?.onPhaseChanged?.(live.state.matchId, live.state.tick, live.state.phase, live.state.status, activeSessionIds(live));
+      live.hooks?.onPhaseChanged?.(live.state, activeSeatSessions(live));
     }
   }
 
@@ -417,7 +421,7 @@ export function createWargamesRunner({
     if (wasSeating && live.state.status === 'running') {
       wakePhaseWaiters(live);
       schedulePhaseDeadline(live);
-      live.hooks?.onPhaseChanged?.(live.state.matchId, live.state.tick, live.state.phase, live.state.status, activeSessionIds(live));
+      live.hooks?.onPhaseChanged?.(live.state, activeSeatSessions(live));
     }
   }
 

@@ -152,7 +152,7 @@ test('wargames runner fast-advances talk when all seats pass ready, logs each lo
       buildSpec(),
       async (_matchId, seat) => ({ ok: true, sessionId: `sess-${seat.seatId}` }),
       {
-        onPhaseChanged: (_matchId, tick, phase) => phaseEvents.push(`${tick}:${phase}`),
+        onPhaseChanged: (state) => phaseEvents.push(`${state.tick}:${state.phase}`),
         onMatchEnded: (_matchId, sessionIds) => endedSessions.push(...sessionIds),
       },
     );

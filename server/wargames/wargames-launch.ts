@@ -7,7 +7,8 @@ import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../sess
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
 import { WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, WARGAMES_TRAVEL_HEXES_PER_TICK, victoryPointTargetFor, WARGAMES_BALANCE } from '../../shared/contracts/wargames.ts';
-import { terrainOf } from '../../shared/wargames/engine.ts';
+import { projectSeatState, terrainOf } from '../../shared/wargames/engine.ts';
+import type { MatchState } from '../../shared/wargames/engine.ts';
 import { FOREST_DEFENSE_MULTIPLIER, marchCostOf } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
@@ -161,7 +162,51 @@ function diplomacyLines(): string[] {
     '- Talk is a direct message to one seat or a public message every seat reads.',
     '- Agreements are words only: nothing enforces a promise, and any seat may attack any other at any time.',
     '- Seats can still work together across turns: one clears a village\'s defenders this tick, another captures it the next.',
+    '- Talk wins villages: seats that agree to take turns on a village take it, and a seat that stays quiet is the easy target its neighbors pick.',
+    '- A public message reaches every seat at once, which suits a warning or an accusation.',
   ];
+}
+
+type SeatView = ReturnType<typeof projectSeatState>;
+
+function lastSpokeText(seatId: string, lastMessageToTick: number | null): string {
+  return lastMessageToTick === null ? `you have never messaged ${seatId}` : `you have not messaged ${seatId} since tick ${lastMessageToTick}`;
+}
+
+function threatLineOf(view: SeatView): string | null {
+  const yourVillageHexes = new Set(view.yourVillages.map((village) => village.hexIndex));
+  const yourLandHexes = new Set(view.land.bySeat[view.yourSeatId] ?? []);
+  const threats = view.otherSeats.flatMap((other) => other.armiesNearYou
+    .filter((army) => army.turnsToArrive !== null && (yourVillageHexes.has(army.target) || yourLandHexes.has(army.target)))
+    .map((army) => ({ other, army })));
+  const biggest = threats.sort((left, right) => right.army.troops - left.army.troops)[0];
+  if (!biggest) return null;
+  const { other, army } = biggest;
+  const targetText = yourVillageHexes.has(army.target) ? `your village ${army.target}` : `your land ${army.target}`;
+  const turnsText = army.turnsToArrive === 1 ? 'next turn' : `in ${army.turnsToArrive} turns`;
+  return `Seat ${other.seatId} has ${army.troops} troops marching at ${targetText}, arriving ${turnsText}, and ${lastSpokeText(other.seatId, other.lastMessageToTick)}.`;
+}
+
+const BORDERING_HEXES = 3;
+
+function silenceLineOf(view: SeatView): string | null {
+  const reachable = view.otherSeats.filter((other) => other.status !== 'eliminated' && other.borderDistance !== null);
+  const bordering = reachable.filter((other) => (other.borderDistance ?? Number.POSITIVE_INFINITY) <= BORDERING_HEXES);
+  const pool = bordering.length > 0 ? bordering : reachable;
+  const quietest = [...pool].sort((left, right) => (left.lastMessageToTick ?? -1) - (right.lastMessageToTick ?? -1)
+    || (left.borderDistance ?? 0) - (right.borderDistance ?? 0))[0];
+  if (!quietest) return null;
+  const distanceText = quietest.borderDistance === 1 ? '1 hex' : `${quietest.borderDistance} hexes`;
+  return `Seat ${quietest.seatId}'s border is ${distanceText} from yours and ${lastSpokeText(quietest.seatId, quietest.lastMessageToTick)}.`;
+}
+
+function phaseNudgeOf(state: MatchState, seatId: SeatConfig['seatId']): string {
+  const opening = `Tick ${state.tick} (${state.phase} phase) started. Call get_state() to continue.`;
+  if (state.phase === 'orders') return `${opening} When get_state yourLand.examples.claim is present, it is a claim order you can submit as written.`;
+  if (state.phase !== 'talk') return opening;
+  const view = projectSeatState(state, seatId);
+  const prompt = threatLineOf(view) ?? silenceLineOf(view);
+  return prompt === null ? opening : `${opening} ${prompt}`;
 }
 
 function terrainLine(spec: WargamesMatchSpecType): string[] {
@@ -216,12 +261,11 @@ export function createWargamesLauncher({
   const discardedSessionIds = new Set<string>();
   const foldCase = process.platform === 'win32';
 
-  function nudgeIdleSeats(tick: number, phase: string, sessionIds: readonly string[]): void {
-    const landHint = phase === 'orders' ? ' When get_state yourLand.examples.claim is present, it is a claim order you can submit as written.' : '';
-    for (const sessionId of sessionIds) {
+  function nudgeIdleSeats(state: MatchState, seatSessions: readonly { sessionId: string; seatId: SeatConfig['seatId'] }[]): void {
+    for (const { sessionId, seatId } of seatSessions) {
       const session = sessions.get(sessionId);
       if (!session || session._destroyed || !IDLE_NUDGE_STATES.has(session.state)) continue;
-      session.deliver(`Tick ${tick} (${phase} phase) started. Call get_state() to continue.${landHint}`, {
+      session.deliver(phaseNudgeOf(state, seatId), {
         when: 'idle',
         submit: true,
         timeoutMs: SEAT_NUDGE_TIMEOUT_MS,
@@ -307,7 +351,7 @@ export function createWargamesLauncher({
       }
       return { ok: true as const, sessionId: session.id };
     }, {
-      onPhaseChanged: (_matchId, tick, phase, _status, sessionIds) => nudgeIdleSeats(tick, phase, sessionIds),
+      onPhaseChanged: nudgeIdleSeats,
       onMatchEnded: (matchId, sessionIds) => { void cleanupMatchSessions(sessionIds, matchId); },
     });
   }
