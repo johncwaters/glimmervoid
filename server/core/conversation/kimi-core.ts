@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { traceImagesField, withoutImageBlocks } from '../../trace/core/trace-image-core.ts';
 
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import { boundedToolCallInput } from '../trace-core.ts';
@@ -35,7 +36,7 @@ const ToolResultEvent = z.object({
 
 
 function outputText(output: unknown): string {
-  return typeof output === 'string' ? output : JSON.stringify(output ?? null);
+  return typeof output === 'string' ? output : JSON.stringify(withoutImageBlocks(output) ?? null);
 }
 
 function promptRecords(rawRecord: unknown, context: TraceLineContext): TraceRecord[] {
@@ -72,7 +73,7 @@ function loopEventRecords(rawRecord: unknown, context: TraceLineContext): TraceR
     case 'tool.result': {
       const toolResult = ToolResultEvent.safeParse(event);
       if (!toolResult.success) return [];
-      return [{ ...base, kind: 'tool_result', toolUseId: toolResult.data.toolCallId, isError: toolResult.data.result.isError === true, ...boundedToolOutput('kimi', outputText(toolResult.data.result.output)) }];
+      return [{ ...base, kind: 'tool_result', toolUseId: toolResult.data.toolCallId, isError: toolResult.data.result.isError === true, ...boundedToolOutput('kimi', outputText(toolResult.data.result.output)), ...traceImagesField(toolResult.data.result.output, base.ts) }];
     }
     default:
       return [];

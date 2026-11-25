@@ -71,6 +71,14 @@ const SPILLED_OUTPUT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixtu
   pi: { file: 'pi-spill.jsonl', vendorSessionId: '01a1eb36-5519-75b2-ad2e-f67b52e126e9' },
   antigravity: { file: 'antigravity-spill.jsonl', vendorSessionId: '36aa83a7-4886-494b-80f8-9aafc4c7c16a' },
 };
+const IMAGE_RESULT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-image-result.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
+  codex: { unproducible: 'Codex writes a viewed image as an ImageView item holding only the file path and puts the bytes on a separate response_item line under another call id, so the converter shows a view_image row without a thumbnail' },
+  kimi: { unproducible: 'No Kimi Code session on the capture host has a tool result carrying an image yet; its converter reads image parts through the shared trace-image walker' },
+  opencode: { unproducible: 'OpenCode tool results reach Glimmervoid as relayed plugin events whose strings are cut past 48000 bytes per event (session/core/opencode-plugin-core.ts), so a screenshot arrives as partial base64 and the converter shows no thumbnail' },
+  pi: { unproducible: 'No pi session on the capture host has a tool result carrying an image yet; its converter reads image blocks through the shared trace-image walker' },
+  antigravity: { unproducible: 'Antigravity writes tool results as a text-only content string, so no image bytes exist in its transcript' },
+};
 const USAGE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
   'claude-code': CONVERSATION_FIXTURE_BY_AGENT['claude-code'],
   codex: CONVERSATION_FIXTURE_BY_AGENT.codex,
@@ -411,6 +419,21 @@ for (const agent of FIRST_CLASS_AGENTS) {
     for (const kind of REQUIRED_CONVERSATION_KINDS) assert.ok(kinds.has(kind), `${agent} produced no ${kind} record`);
     const toolCallIds = new Set(records.flatMap((record) => record.kind === 'tool_call' ? [record.toolUseId] : []));
     assert.ok(records.some((record) => record.kind === 'tool_result' && toolCallIds.has(record.toolUseId)), `${agent} paired no tool_result to a tool_call`);
+  });
+}
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = IMAGE_RESULT_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`tool-result images on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`tool-result images on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    const imageResults = records.filter((record) => record.kind === 'tool_result' && (record.images?.length ?? 0) > 0);
+    assert.ok(imageResults.length > 0, `${agent} produced no tool_result with images`);
+    assert.ok(records.every((record) => record.kind !== 'tool_result' || !record.content.includes('base64')), `${agent} left image bytes in a tool_result body`);
+    assert.ok(records.some((record) => record.kind === 'attachments' && record.fromTranscript === true), `${agent} dropped the image pasted into its prompt`);
   });
 }
 

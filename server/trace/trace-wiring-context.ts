@@ -59,6 +59,7 @@ interface LineContext {
 
 interface TraceWiringContext {
   traceDirectory: string;
+  uploadsDirectoryOf(glimmervoidSessionId: string): string;
   emitter: EventEmitter;
   laneLog: LaneLog;
   nowFn: () => number;

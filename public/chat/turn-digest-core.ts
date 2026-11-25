@@ -13,6 +13,7 @@ export interface ToolCallEntry {
   startedAt: number;
   durationMs: number | null;
   outputHead: string | null;
+  imageFileNames: readonly string[];
 }
 
 export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; calls: ToolCallEntry[]; callCount: number; settledCount: number };

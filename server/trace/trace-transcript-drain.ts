@@ -17,6 +17,7 @@ import { MAX_REMEMBERED_FILE_REFUSALS, trimOldest } from './trace-wiring-context
 import type { LineContext, TraceBinding, TraceResumeState, TraceWiringContext } from './trace-wiring-context.ts';
 import type { TraceRecordStore } from './trace-record-store.ts';
 import { committedOffsetOf } from './trace-checkpoints.ts';
+import { createTraceImageFiles } from './trace-image-files.ts';
 import type { TraceCheckpoints } from './trace-checkpoints.ts';
 
 interface PendingCommit {
@@ -32,6 +33,7 @@ function createTraceTranscriptDrain(
   const { laneLog, nowFn, pendingRecordsBySessionId } = context;
   const { queueRecord, flushSession } = recordStore;
   const { stampCommittedOffset, writeCheckpoint, resumeStateFor } = checkpoints;
+  const { withStoredImages } = createTraceImageFiles(context.uploadsDirectoryOf, laneLog);
 
   function queueSessionRecord(binding: TraceBinding, reason: string | null): void {
     queueRecord(binding.glimmervoidSessionId, {
@@ -96,12 +98,13 @@ function createTraceTranscriptDrain(
     });
   }
 
-  function mapAndAppend(rawLine: string, binding: TraceBinding, context: LineContext = {}): void {
-    const records = binding.source.recordsFromLine(rawLine, {
+  async function mapAndAppend(rawLine: string, binding: TraceBinding, context: LineContext = {}): Promise<void> {
+    const mappedRecords = binding.source.recordsFromLine(rawLine, {
       vendorSessionId: binding.vendorSessionId,
       now: nowFn(),
       ...context,
     });
+    const records = await withStoredImages(binding.glimmervoidSessionId, rawLine, mappedRecords);
     for (const record of records) {
       queueRecord(binding.glimmervoidSessionId, record);
     }
@@ -130,7 +133,7 @@ function createTraceTranscriptDrain(
       dropPartial: binding.isSkippingOversizedLine,
     });
     binding.isSkippingOversizedLine = false;
-    for (const line of lines) mapAndAppend(line, binding);
+    for (const line of lines) await mapAndAppend(line, binding);
     if (!isOversizedPartialLine(binding.tailState.carry)) return;
     noteSkippedBytes(binding, binding.transcriptPath, Buffer.byteLength(binding.tailState.carry, 'utf8'));
     binding.tailState.carry = '';

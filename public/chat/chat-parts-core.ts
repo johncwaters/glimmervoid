@@ -33,7 +33,7 @@ interface ChatTurn {
 type PromptPart = Extract<ChatPart, { kind: 'prompt' }>;
 type UsageLimitCard = Extract<ChatCard, { cardType: 'usage-limit' }>;
 type SentBoardAnswer = Extract<TraceRecord, { kind: 'board-answer' }>;
-type SentAttachments = Pick<Extract<TraceRecord, { kind: 'attachments' }>, 'files' | 'pastedPrefix'>;
+type SentAttachments = Pick<Extract<TraceRecord, { kind: 'attachments' }>, 'files' | 'pastedPrefix' | 'fromTranscript'>;
 
 interface TrackedSubagent {
   subagentType: string;
@@ -167,7 +167,7 @@ function tallyFileEdits(turn: ChatTurn, edits: readonly FileEdit[]): void {
 function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): void {
   const { turn } = state;
   turn.toolCount += 1;
-  const call: ToolCallEntry = { toolUseId: record.toolUseId, label: toolLabelOf(record.name, record.input, state.workingDirectory), state: 'running', startedAt: record.ts, durationMs: null, outputHead: null };
+  const call: ToolCallEntry = { toolUseId: record.toolUseId, label: toolLabelOf(record.name, record.input, state.workingDirectory), state: 'running', startedAt: record.ts, durationMs: null, outputHead: null, imageFileNames: [] };
   turn.callByToolUseId.set(call.toolUseId, call);
   const lastSegment = turn.segments.at(-1);
   if (lastSegment?.kind === 'tools') {
@@ -195,6 +195,7 @@ function settleToolCall(turn: ChatTurn, record: Extract<TraceRecord, { kind: 'to
   call.state = record.isError ? 'failed' : 'done';
   call.durationMs = record.ts > call.startedAt ? record.ts - call.startedAt : null;
   call.outputHead = outputHeadOf(record.content);
+  call.imageFileNames = (record.images ?? []).map((image) => image.fileName);
   if (record.isError) turn.failedCount += 1;
   markSegmentChanged(turn, call);
   return true;
@@ -266,6 +267,8 @@ function promptWithAttachments(prompt: PromptPart, sent: SentAttachments | null)
 
 function attachedPromptOf(state: ChatPartsState, sent: SentAttachments): PromptPart | null {
   const latestPrompt = state.latestPrompt;
+  const hasNoPromptToJoin = latestPrompt === null || latestPrompt.attachments.length > 0;
+  if (hasNoPromptToJoin && sent.fromTranscript === true) return null;
   if (latestPrompt === null || latestPrompt.attachments.length > 0) {
     state.pendingAttachments = sent;
     return null;
