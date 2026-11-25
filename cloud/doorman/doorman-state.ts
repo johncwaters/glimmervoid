@@ -1,12 +1,11 @@
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { AwakeEvent, DOORMAN_ROUTES_PREFIX, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { isMissingFileError } from '../../shared/text.ts';
+import { watchPath } from '../../server/path-watch.ts';
 import { movedSecretPath } from '../../server/secrets/core/secret-files-core.ts';
 import { watcherFilesInFolder } from '../watcher/watcher-home.ts';
 import type { WatcherFiles } from '../watcher/watcher-home.ts';
@@ -43,8 +42,7 @@ const AWAKE_LEDGER_FILE_NAME = 'awake-ledger.jsonl';
 const STATE_TABLE_OBJECT_NAME = 'tenants.json';
 const LINK_SECRET_PATTERN = /^[0-9a-f]{64}$/;
 const LINK_SECRET_VERSION_ALIAS = 'latest';
-const TABLE_RELOAD_SETTLE_MS = 200;
-const TABLE_PRESENCE_POLL_MS = 2_000;
+const UNWATCHABLE_TABLE_RELOAD_MS = 2_000;
 const STATE_SUBSCRIPTION_ID = 'doorman-state';
 const PUBSUB_ORIGIN = 'https://pubsub.googleapis.com';
 const MAX_PULLED_MESSAGES = 100;
@@ -141,22 +139,20 @@ async function readFileTable(tablePath: string): Promise<DoormanTenantTable> {
   return table;
 }
 
-function watchTableFile(tablePath: string, onChange: () => Promise<boolean>): () => void {
-  let settleTimer: NodeJS.Timeout | null = null;
-  const watcher = fs.watch(canonicalizePath(path.dirname(tablePath)), (_event, changedName) => {
-    if (changedName !== null && changedName !== path.basename(tablePath)) return;
-    if (settleTimer !== null) clearTimeout(settleTimer);
-    settleTimer = setTimeout(onChange, TABLE_RELOAD_SETTLE_MS);
-  });
-  watcher.on('error', onChange);
-  const onTableStat = (current: fs.Stats) => {
-    if (current.nlink === 0) onChange();
+function watchTableFile(tablePath: string, onChange: () => Promise<boolean>, log: DoormanStateLog): () => void {
+  let fallbackReload: NodeJS.Timeout | null = null;
+  const reload = () => { void onChange(); };
+  const reloadOnInterval = (target: string, reason: string) => {
+    if (fallbackReload !== null) return;
+    log.warn(`[doorman] could not watch ${target}: ${reason}; rereading ${tablePath} every ${UNWATCHABLE_TABLE_RELOAD_MS / 1000} s instead`);
+    fallbackReload = setInterval(reload, UNWATCHABLE_TABLE_RELOAD_MS);
+    fallbackReload.unref();
   };
-  fs.watchFile(tablePath, { interval: TABLE_PRESENCE_POLL_MS, persistent: false }, onTableStat);
+  const stopWatching = watchPath(tablePath, reload, { onUnwatchable: reloadOnInterval });
   return () => {
-    if (settleTimer !== null) clearTimeout(settleTimer);
-    watcher.close();
-    fs.unwatchFile(tablePath, onTableStat);
+    stopWatching();
+    if (fallbackReload !== null) clearInterval(fallbackReload);
+    fallbackReload = null;
   };
 }
 
@@ -165,7 +161,7 @@ function createFileDoormanState({ tablePath, log = console }: { tablePath: strin
     where: tablePath,
     lockFolder: path.dirname(path.resolve(tablePath)),
     readTable: () => readFileTable(tablePath),
-    watchTable: (onChange) => watchTableFile(tablePath, onChange),
+    watchTable: (onChange) => watchTableFile(tablePath, onChange, log),
     tenantState: createFileTenantState({ log }),
     tenantRecords: null,
   };
