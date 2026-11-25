@@ -397,6 +397,7 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
   const prevEnv = process.env.GLIMMERVOID_CONFIG;
   const originalSpawn = pty.spawn;
   const calls: SpawnCall[] = [];
+  const spawnListeners: Array<() => void> = [];
   const live: { backend: ReturnType<typeof createBackend> | null } = { backend: null };
   const resumeNoteFrom = async (resumeNoteUrl: string) => {
     const replyText = await (await fetch(resumeNoteUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).text();
@@ -405,15 +406,37 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
   process.env.GLIMMERVOID_CONFIG = cfgPath;
   pty.spawn = (file: string, args: string[] | string) => {
     calls.push({ file, args: Array.isArray(args) ? args : [args] });
+    for (const listener of spawnListeners) listener();
     return fakeIPty();
   };
   const server = http.createServer();
   try {
     live.backend = createBackend(server, { staticDir: null });
     assert.equal(calls.length, 0, 'auto-resume waits until the HTTP listener is bound');
+    const bootSession = live.backend.getSession('boot-picked');
+    assert.ok(bootSession, 'the picked project has a session');
+    assert.equal(bootSession.state, STATES.DORMANT, 'the picked session waits dormant for boot auto-resume');
+    const holdBootResumePrompt = bootSession.holdResumePromptForNextStart.bind(bootSession);
+    const isPicked = { forBootResume: false };
+    bootSession.holdResumePromptForNextStart = (prompt) => {
+      isPicked.forBootResume = true;
+      holdBootResumePrompt(prompt);
+    };
+    const startBootSession = bootSession.start.bind(bootSession);
+    const firstSpawn = new Promise<void>((resolve, reject) => {
+      spawnListeners.push(resolve);
+      bootSession.start = (options) => startBootSession(options).then(() => {
+        if (calls.length === 0) reject(new Error('boot auto-resume start settled without spawning'));
+      }, (error: unknown) => {
+        reject(error);
+        throw error;
+      });
+    });
 
     const port = await listenOnLoopback(server);
-    await waitFor(() => calls.length === 1);
+    assert.ok(isPicked.forBootResume, 'boot auto-resume picks the session once the listener is bound');
+    await firstSpawn;
+    assert.equal(calls.length, 1, 'boot auto-resume spawns the picked session once');
 
     const settingsIndex = calls[0].args.indexOf('--settings');
     assert.notEqual(settingsIndex, -1, 'auto-resume spawn includes injected settings');
