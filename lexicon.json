@@ -1607,7 +1607,7 @@
     },
     {
       "name": "guest",
-      "definition": "Wargames v8 troops a seat lent to an active ally's village by a support march; they stay the lender's, defend with the host's wall, count against the host's troop cap, and march home when the alliance ends"
+      "definition": "A view seated on the shared Boards host (a BoardHostGuest, as Studio is) that brings its own chrome, overlays, world layer and box handlers while the host draws the board"
     },
     {
       "name": "capture wave",
