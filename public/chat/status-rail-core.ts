@@ -99,8 +99,18 @@ function countdownText(remainingMs: number): string {
   return `${Math.max(1, Math.ceil(remainingMs / MINUTE_MS))}m`;
 }
 
+function hasEffortInModelName(name: string, effort: string): boolean {
+  return name.trimEnd().toLowerCase().endsWith(`(${effort.toLowerCase()})`);
+}
+
+function modelTextOf(name: string, effort: string | null): string {
+  const trimmedEffort = effort?.trim() ?? '';
+  if (trimmedEffort === '' || hasEffortInModelName(name, trimmedEffort)) return name;
+  return `${name} ${trimmedEffort}`;
+}
+
 const RAIL_TEXT_BY_KIND: { [Kind in RailField['kind']]: (field: Extract<RailField, { kind: Kind }>) => string } = {
-  model: ({ name, effort }) => (effort === null ? name : `${name} ${effort}`),
+  model: ({ name, effort }) => modelTextOf(name, effort),
   plan: ({ label, pct, resetsInMs }) => (resetsInMs === null ? `${label} ${Math.round(pct)}%` : `${label} ${Math.round(pct)}% ${countdownText(resetsInMs)}`),
   context: ({ tokens, window }) => `ctx ${formatTokens(tokens)}/${formatTokens(window)}`,
   callCost: ({ usd }) => `~${formatUsd(usd)}/call`,

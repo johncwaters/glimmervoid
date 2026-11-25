@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { buildYourDay } from '../server/usage/core/usage-your-day-core.ts';
 import type { ActivityEvent } from '../server/usage/core/usage-your-day-core.ts';
 import { limitCards, yourDayHint } from '../public/usage/usage-view-core.ts';
-import { railFieldsOf } from '../public/chat/status-rail-core.ts';
+import { railFieldsOf, railTextOf } from '../public/chat/status-rail-core.ts';
 import type { PlanLimits } from '../public/usage/usage-store-core.ts';
 import { clock } from '../shared/clock.ts';
 
@@ -98,6 +98,11 @@ test('status rail and limitCards scope multi-bucket plan limits to the active mo
     agent: 'antigravity',
   });
   assert.equal(geminiRail.find((field) => field.kind === 'plan')?.pct, 0.7);
+  const geminiModel = geminiRail.find((field) => field.kind === 'model');
+  assert.ok(geminiModel);
+  assert.equal(railTextOf(geminiModel), 'Gemini 4 Neon (Medium)');
+  assert.equal(railTextOf({ kind: 'model', name: 'Opus 4.5', effort: 'high', canChange: false, agent: 'claude-code' }), 'Opus 4.5 high');
+  assert.equal(railTextOf({ kind: 'model', name: 'Orchestrator (Neon)', effort: 'medium', canChange: false, agent: 'antigravity' }), 'Orchestrator (Neon) medium');
 
   const thirdPartyRail = railFieldsOf({
     meter: { model: 'Claude Sonnet 4.6', effort: null, contextTokens: null, contextWindow: null, callCostUSD: null, outputStyle: null },
