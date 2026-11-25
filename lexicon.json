@@ -955,7 +955,10 @@
     },
     {
       "name": "budget",
-      "definition": "A cap on a spent resource: GitHub's hourly GraphQL and REST rate limit, a usage token or estimated-cost budget, or a time budget for a lane run"
+      "definition": "A cap on a spent resource: GitHub's hourly GraphQL and REST rate limit, an agent account's plan, rate or usage limit (shown in Usage, and making a Claude Code session that hits one wait), a usage token or estimated-cost budget, an Arena race's time limit, or a time budget for a lane run (also: limit)",
+      "aliases": [
+        "limit"
+      ]
     },
     {
       "name": "binary",
@@ -1674,6 +1677,18 @@
     {
       "name": "diplomacy",
       "definition": "In Wargames, the talk between seats: direct and public messages sent in the talk phase, which the dashboard's Diplomacy log lists with system lines about seats going offline"
+    },
+    {
+      "name": "notice",
+      "definition": "A one-line message the dashboard floats under its header and at the top of every phone screen (an available update, a security warning, old reports left in a repository, the usage data notice, a dependency install failure, an error), each written to the server log; also a browser or Telegram notification sent once about a coming change, such as a GitHub connection ending"
+    },
+    {
+      "name": "jobs",
+      "definition": "A pack's scheduled commands: each entry of a pack's jobs section is a command with a five-field cron schedule in the operator timezone, run once the pack is approved with the pack's settings and the keys that name it, saving the JSON it prints in the pack store for its panels; Settings > Background jobs is the page that lists lanes and their accounts (also: job)"
+    },
+    {
+      "name": "skill",
+      "definition": "A folder holding a SKILL.md an agent loads on demand: a pack's agent section lists skills folders every session gets, team review runs the operator's chosen review skill, and Chat shows a loaded one as a Skill row"
     }
   ],
   "retired": [
