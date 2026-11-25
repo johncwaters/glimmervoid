@@ -16,7 +16,7 @@ interface ChatModelPickerOptions {
   onClose(): void;
 }
 
-export interface ChatModelPicker {
+interface ChatModelPicker {
   close(): void;
 }
 
@@ -26,7 +26,7 @@ function isSameSetup(left: AgentSetup, right: AgentSetup): boolean {
   return providerOf(left) === providerOf(right) && left.model === right.model && effortOf(left) === effortOf(right);
 }
 
-export function openChatModelPicker({ composer, modelName, catalog, setup: runningSetup, onSwitch, onClose }: ChatModelPickerOptions): ChatModelPicker {
+function openChatModelPicker({ composer, modelName, catalog, setup: runningSetup, onSwitch, onClose }: ChatModelPickerOptions): ChatModelPicker {
   const panel = el('div', 'chat-model-pick add-session-popover');
   panel.setAttribute('role', 'group');
   panel.setAttribute('aria-label', 'Change model');
