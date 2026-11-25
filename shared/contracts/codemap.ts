@@ -105,7 +105,7 @@ const CodemapSetupVersion2 = z.looseObject({ version: z.literal(2) }).transform(
 
 export const StoredCodemapSetup = z.union([CodemapSetup, CodemapSetupVersion2, CodemapSetupVersion1]);
 
-const DesignSpecUnit = z.object({ kind: z.literal('unit'), id: z.string().min(1).max(40), title: z.string().min(1), changes: z.array(z.string()) });
+const DesignSpecUnit = z.object({ kind: z.literal('unit'), id: z.string().min(1).max(40), title: z.string().trim().min(1), changes: z.array(z.string()) });
 export type DesignSpecUnit = z.infer<typeof DesignSpecUnit>;
 
 export const DesignSpecForMap = z.object({

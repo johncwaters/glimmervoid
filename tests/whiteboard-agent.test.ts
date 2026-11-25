@@ -2656,15 +2656,17 @@ test('the code map board puts a moved box back at its generated place and keeps 
   const wiring = createWhiteboardWiring({ boardsRoot });
   let overlaidPaths = ['app/screen1.ts'];
   const specsRoot = path.join(boardsRoot, 'specs');
+  const longStepTitle = 'Add a heavy-command semaphore in spawn-gate and gate verification-wiring with test-concurrency';
   fs.mkdirSync(path.join(specsRoot, 'mapped'), { recursive: true });
   fs.writeFileSync(path.join(specsRoot, 'mapped', 'ship-parts.json'), JSON.stringify({
     status: 'challenged',
-    nodes: [{ id: 'G1', kind: 'goal', text: 'ship' }, { id: 'U1', kind: 'unit', title: 'Grow the parts', changes: ['lib/part1.ts'] }, { id: 'U2', kind: 'unit', title: 'Show the parts', changes: ['app/screen1.ts', 'lib/part2.ts'] }],
+    nodes: [{ id: 'G1', kind: 'goal', text: 'ship' }, { id: 'U1', kind: 'unit', title: 'Grow the parts', changes: ['lib/part1.ts'] }, { id: 'U2', kind: 'unit', title: 'Show the parts', changes: ['app/screen1.ts', 'lib/part2.ts'] }, { id: 'U3', kind: 'unit', title: longStepTitle, changes: [] }],
     edges: [{ from: 'U2', kind: 'dependsOn', to: 'U1' }, { from: 'U2', kind: 'dependsOn', to: 'U1' }],
   }));
   const otherRepoDir = path.join(boardsRoot, 'other');
   fs.mkdirSync(otherRepoDir);
   await execFileAsync('git', ['init', '-q'], { cwd: otherRepoDir });
+  fs.writeFileSync(path.join(specsRoot, 'mapped', 'blank.json'), JSON.stringify({ nodes: [{ id: 'U1', kind: 'unit', title: '   ', changes: [] }], edges: [] }));
   fs.writeFileSync(path.join(specsRoot, 'mapped', 'foreign.json'), JSON.stringify({ repoRoot: otherRepoDir, nodes: [], edges: [] }));
   const codemap = createCodemapService({ whiteboards: wiring, specsRoot, changesOfSession: async (sessionId) => (sessionId === 'worker' ? { name: 'worker', repos: [{ root: repoDir, paths: overlaidPaths }] } : null) });
   const reader = { id: 'codemap-reader', name: 'reader', project: repoDir };
@@ -2729,12 +2731,18 @@ test('the code map board puts a moved box back at its generated place and keeps 
   await execFileAsync('git', ['add', '-A'], { cwd: repoDir });
   await execFileAsync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'grow parts', '-m', 'Ticket: ship-parts/U1'], { cwd: repoDir });
   const planned = await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'spec', id: 'ship-parts' });
-  assert.match(planned.ok ? planned.reply.text : '', /spec ship-parts draws 2 units as plan steps, 1 landed/);
+  assert.match(planned.ok ? planned.reply.text : '', /spec ship-parts draws 3 units as plan steps, 1 landed/);
   const stepOf = async (title: string) => (await boxTitled(title))?.step?.status;
   assert.equal(await stepOf('U1 Grow the parts'), 'landed');
   assert.equal(await stepOf('U2 Show the parts'), 'planned');
   const planRead = await wiring.readPlanBoard(reader, boardId);
   assert.ok(planRead.ok);
+  const longStep = [...planRead.board.elements.values()].find((element) => element.kind === 'box' && element.title.startsWith('U3 '));
+  assert.ok(longStep?.kind === 'box');
+  assert.deepEqual([longStep.title, ...longStep.lines.map((line) => line.text)].join(' '), `U3 ${longStepTitle} changes 0 files`);
+  assert.deepEqual(longStep.lines.at(-1), { text: 'changes 0 files', muted: true, key: null, style: 'text' });
+  const blank = await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'spec', id: 'blank' });
+  assert.match(blank.ok ? '' : blank.error, /a unit node is malformed/);
   const titleById = new Map([...planRead.board.elements.values()].map((element) => [element.id, element.kind === 'box' ? element.title : '']));
   const wiredTitles = [...planRead.board.elements.values()].flatMap((element) => (element.kind === 'wire' && element.id.startsWith('cms-') ? [`${titleById.get(String(element.from))} > ${titleById.get(String(element.to))}`] : [])).sort();
   assert.deepEqual(wiredTitles, ['U1 Grow the parts > U2 Show the parts', 'U1 Grow the parts > lib', 'U2 Show the parts > app', 'U2 Show the parts > lib']);

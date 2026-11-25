@@ -5,7 +5,7 @@ import type { CodemapAllowEntry, CodemapExportKind, CodemapExtract, CodemapModul
 import { CODEMAP_SETUP_VERSION, moduleImportAllowsOf, structureAllowsOf } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
-import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.ts';
+import { CODEMAP_ID_PREFIXES, noteBoxTextOf } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 import { IMPORT_LANGUAGE_IDS, importLanguageOf } from './import-language-core.ts';
@@ -766,18 +766,23 @@ function specStepIdOf(slug: string, unitId: string): string {
   return generatedIdOf(CODEMAP_ID_PREFIXES.steps, `${slug}-${unitId}`, `${slug}\n${unitId}`);
 }
 
+function specStepOf(slug: string, unit: DesignSpecUnit, isLanded: boolean) {
+  const { title, lines } = noteBoxTextOf(`${unit.id} ${unit.title}`);
+  return {
+    kind: 'box',
+    id: specStepIdOf(slug, unit.id),
+    title,
+    lines: [...lines.slice(0, WHITEBOARD_LIMITS.linesPerBox - 1).map((text) => ({ text })), { text: `changes ${unit.changes.length} files`, muted: true }],
+    refs: unit.changes.filter((change) => AnchorRef.safeParse(change).success).slice(0, WHITEBOARD_LIMITS.refsPerElement),
+    place: 'plan',
+    step: { status: isLanded ? 'landed' : 'planned' },
+  };
+}
+
 function specPlanOpsOf(model: CodemapModel, plan: SpecPlan | null, existingKindById: ReadonlyMap<string, string>): { removals: Record<string, unknown>[]; writes: Record<string, unknown>[] } {
   const moduleIds = new Set(model.modules.map((summary) => summary.id));
   const unitIds = new Set(plan?.units.map((unit) => unit.id) ?? []);
-  const steps = (plan?.units ?? []).map((unit) => ({
-    kind: 'box',
-    id: specStepIdOf(plan?.slug ?? '', unit.id),
-    title: `${unit.id} ${unit.title}`.slice(0, WHITEBOARD_LIMITS.title),
-    lines: [{ text: `changes ${unit.changes.length} files`, muted: true }],
-    refs: unit.changes.filter((change) => AnchorRef.safeParse(change).success).slice(0, WHITEBOARD_LIMITS.refsPerElement),
-    place: 'plan',
-    step: { status: plan?.landedUnitIds.has(unit.id) ? 'landed' : 'planned' },
-  }));
+  const steps = (plan?.units ?? []).map((unit) => specStepOf(plan?.slug ?? '', unit, plan?.landedUnitIds.has(unit.id) ?? false));
   const orderWires = (plan?.dependsOn ?? []).filter((edge) => unitIds.has(edge.from) && unitIds.has(edge.to)).map((edge) => ({
     kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.steps, edge.from, `${plan?.slug}\n${edge.to}\n${edge.from}`), from: specStepIdOf(plan?.slug ?? '', edge.to), to: specStepIdOf(plan?.slug ?? '', edge.from),
   }));
