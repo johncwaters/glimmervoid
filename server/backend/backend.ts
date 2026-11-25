@@ -535,6 +535,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readTracePage: traceWiring.readTracePage,
     digestsPath: path.join(glimmervoidHomeDir(), 'director-digests.json'),
     announceDigest: (sessionId) => broadcastControlFromWebSockets({ type: 'director-digest-kept', id: sessionId }),
+    tellOrchestrator: (branchId, text) => {
+      if (agentApi?.tellParent(branchId, text)) return;
+      const orchestratorId = branchParentIdOf(getSessionAny(branchId)?.parent);
+      const queued = orchestratorId === null ? null : getSessionAny(orchestratorId)?.queueChatMessage(text, []) ?? null;
+      if (!queued?.ok) console.warn(`[director] the Orchestrator was not told about ${branchId}: ${queued?.error ?? 'it is gone'}`);
+    },
     boards: whiteboards,
   }) : null;
   if (director && traceWiring) traceWiring.on('trace-appended', (appended) => director.onTraceAppended(appended));

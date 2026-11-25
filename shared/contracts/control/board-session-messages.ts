@@ -65,7 +65,7 @@ export const boardSessionServerVariants = [
     id: sessionId,
     requestId,
     ok: z.boolean(),
-    verdictByKey: z.record(z.string(), z.object({ chatLine: z.string().nullable(), digest: z.string().nullable() })).default({}),
+    verdictByKey: z.record(z.string(), z.object({ chatLine: z.string().nullable(), digest: z.string().nullable(), fitsTask: z.boolean().nullable().default(null), misfit: z.string().nullable().default(null) })).default({}),
     progressAnswers: z.array(SessionProgressAnswer).default([]),
     error: optionalError,
   }),

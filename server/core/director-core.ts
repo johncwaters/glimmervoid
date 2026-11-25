@@ -2,9 +2,12 @@ import { Op } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import type { DirectorDigest, DirectorDigestState, ProgressAnswer, SessionProgressAnswer } from '../../shared/contracts/director-digests.ts';
+import { operatorPartOfPrompt } from '../../shared/board-branch-core.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedPayload } from '../../shared/contracts/untrusted-payload.ts';
 import { directorDigestKeyOf } from '../../shared/director-digest-key.ts';
+import { standingMisfitOf } from '../../shared/director-fit.ts';
+import type { FitVerdict } from '../../shared/director-fit.ts';
 import { withoutControlCharacters } from '../../shared/lane-report-core.ts';
 import { opensOperatorTurn } from '../../shared/trace-turn.ts';
 import { wordCountOf } from './whiteboard-store-core.ts';
@@ -31,18 +34,28 @@ const LEFTOVER_DIRECTOR_CARD_ID = /^dir-[0-9a-z]{7}-[0-9a-z]+$/;
 const LEFTOVER_DIRECTOR_CARD_TONE = 'violet';
 const LEFTOVER_DIRECTOR_WIRE_SUFFIX = '-to';
 
+const BRANCH_TASK_MAX_CHARS = 4000;
+const MISFIT_MAX_CHARS = 120;
+const UNJUDGED_FIT: FitVerdict = { fitsTask: null, misfit: null };
+
 export interface DirectorTurn {
   openedAt: number;
+  promptText: string;
   replyText: string;
 }
 
-interface DirectedTurn {
+interface BranchTask {
+  repoName: string;
+  boxTitle: string;
+}
+
+interface DirectedTurn extends FitVerdict {
   chatLine: string | null;
   digest: string | null;
   points: string[];
 }
 
-interface DirectorVerdict {
+interface DirectorVerdict extends FitVerdict {
   chatLine: string | null;
   digest: string | null;
 }
@@ -54,7 +67,7 @@ export function directorTurnOf(records: readonly TraceRecord[], endedAtMs: numbe
   const nextOpeningIndex = records.findIndex((record, index) => index > openingIndex && opensOperatorTurn(record));
   const turnRecords = records.slice(openingIndex + 1, nextOpeningIndex === -1 ? undefined : nextOpeningIndex);
   const replyTexts = turnRecords.flatMap((record) => record.agentId === undefined && record.kind === 'assistant' && record.text.trim().length > 0 ? [record.text.trim()] : []);
-  return { openedAt: opening.ts, replyText: replyTexts.join('\n\n') };
+  return { openedAt: opening.ts, promptText: opening.kind === 'prompt' ? opening.text : '', replyText: replyTexts.join('\n\n') };
 }
 
 export function withFinalReply(turn: DirectorTurn, finalReply: string | null): DirectorTurn {
@@ -67,18 +80,33 @@ export function hasReply(turn: DirectorTurn): boolean {
   return turn.replyText.trim().length > 0;
 }
 
-export function directorPayloadOf(turn: DirectorTurn, fetchedAt: string): UntrustedPayload {
-  return { trust: 'untrusted', source: DIRECTOR_UNTRUSTED_SOURCE, fetchedAt, items: [{ kind: 'agent-reply', ref: 'turn', text: turn.replyText.slice(-DIRECTOR_REPLY_MAX_CHARS) }] };
+export function directorPayloadOf(turn: DirectorTurn, fetchedAt: string, branchTask: BranchTask | null): UntrustedPayload {
+  const replyItem = { kind: 'agent-reply', ref: 'turn', text: turn.replyText.slice(-DIRECTOR_REPLY_MAX_CHARS) };
+  if (branchTask === null) return { trust: 'untrusted', source: DIRECTOR_UNTRUSTED_SOURCE, fetchedAt, items: [replyItem] };
+  const taskText = `Repo ${branchTask.repoName}, started on ${branchTask.boxTitle}. Asked: ${operatorPartOfPrompt(turn.promptText).slice(0, BRANCH_TASK_MAX_CHARS)}`;
+  return { trust: 'untrusted', source: DIRECTOR_UNTRUSTED_SOURCE, fetchedAt, items: [replyItem, { kind: 'branch-task', ref: 'task', text: taskText }] };
 }
 
-export function buildDirectorPrompt(resultPath: string): string {
+const FIT_RESULT_FIELDS = ', "fitsTask": true or false, "misfit": "..." or null';
+
+function fitRulesOf(): string[] {
+  return [
+    "- fitsTask: false only when the reply shows work that does not serve the task in the branch-task item, or work in a part of the repo that task has no need for; true otherwise, and true when the reply shows too little to tell. Changing files outside the box the branch started on is fine whenever the task needs them.",
+    `- misfit: when fitsTask is false, one sentence of at most ${MISFIT_MAX_CHARS} characters naming what does not fit; null when fitsTask is true.`,
+  ];
+}
+
+export function buildDirectorPrompt(resultPath: string, checksFit: boolean): string {
+  const payloadLine = checksFit
+    ? `${UNTRUSTED_PAYLOAD_FILENAME} holds two items: a coding agent's reply at the end of its turn (agent-reply), and the task that agent, a branch, was given and where it started (branch-task). The operator never reads that reply directly: you decide what, if anything, reaches them, and whether the turn fits the task.`
+    : `The one item in ${UNTRUSTED_PAYLOAD_FILENAME} is a coding agent's reply at the end of its turn. The operator never reads that reply directly: you decide what, if anything, reaches them.`;
   return [
     UNTRUSTED_PREAMBLE,
     '',
-    `The one item in ${UNTRUSTED_PAYLOAD_FILENAME} is a coding agent's reply at the end of its turn. The operator never reads that reply directly: you decide what, if anything, reaches them.`,
+    payloadLine,
     '',
     `Write ${resultPath} with the Write tool, holding only this JSON object:`,
-    '{"chatLine": "..." or null, "digest": "..." or null, "points": ["..."]}',
+    `{"chatLine": "..." or null, "digest": "..." or null, "points": ["..."]${checksFit ? FIT_RESULT_FIELDS : ''}}`,
     '',
     'Rules:',
     `- chatLine: one short sentence of at most ${CHAT_LINE_MAX_CHARS} characters for the operator's chat, only when they must act (a question, a decision, a blocker), a piece of work is finished, or the reply answers or explains something to them; otherwise null. Most turns get null.`,
@@ -87,6 +115,7 @@ export function buildDirectorPrompt(resultPath: string): string {
     `- points: 0 to ${MAX_POINTS} short facts behind the digest (a result, a failure, a follow-up), each at most ${POINT_MAX_CHARS} characters; digest and points together stay within ${CARD_WORD_LIMIT} words.`,
     '- When the reply asks the operator a question or waits on a decision, chatLine states that question.',
     "- chatLine is null when the reply only relays that another agent (a branch) finished, its state or what it said: that agent's own line already reached the operator.",
+    ...(checksFit ? fitRulesOf() : []),
     '- Report only what the reply says. Never answer its questions, never add advice, never invent results.',
   ].join('\n');
 }
@@ -113,19 +142,30 @@ function cardDigestOf(value: unknown): string | null {
   return digest === null || wordCountOf(digest) > CARD_WORD_LIMIT ? null : digest;
 }
 
-export function parseDirectorVerdict(laneOutput: Record<string, unknown> | null): DirectedTurn | null {
+export function misfitMessageOf(branchName: string, repoName: string, misfit: string): string {
+  return `The Studio Director read the last turn of your branch ${branchName} in ${repoName} and judges that it does not fit its task: ${misfit.replace(/[.!?]+$/, '')}. Read its work, then redirect it with session send, or leave it when the work is right.`;
+}
+
+function fitVerdictOf(laneOutput: Record<string, unknown>): FitVerdict {
+  if (laneOutput.fitsTask === true) return { fitsTask: true, misfit: null };
+  const misfit = laneOutput.fitsTask === false ? cleanLine(laneOutput.misfit, MISFIT_MAX_CHARS) : null;
+  return misfit === null ? UNJUDGED_FIT : { fitsTask: false, misfit };
+}
+
+export function parseDirectorVerdict(laneOutput: Record<string, unknown> | null, checksFit: boolean): DirectedTurn | null {
   if (laneOutput === null) return null;
+  const fit = checksFit ? fitVerdictOf(laneOutput) : UNJUDGED_FIT;
   const chatLine = cleanLine(laneOutput.chatLine, CHAT_LINE_MAX_CHARS);
   const digest = cardDigestOf(laneOutput.digest);
   const rawPoints = Array.isArray(laneOutput.points) ? laneOutput.points : [];
   const points = digest === null ? [] : pointsWithinWordLimit(digest, rawPoints.flatMap((point) => cleanLine(point, POINT_MAX_CHARS) ?? []).slice(0, MAX_POINTS));
-  return { chatLine, digest, points };
+  return { chatLine, digest, points, ...fit };
 }
 
 export function fallbackVerdictOf(turn: DirectorTurn): DirectedTurn {
   const reply = turn.replyText.trim();
   const firstSentence = /^[\s\S]*?[.!?](?=\s|$)/.exec(reply)?.[0] ?? reply;
-  return { chatLine: cleanLine(firstSentence, CHAT_LINE_MAX_CHARS), digest: null, points: [] };
+  return { chatLine: cleanLine(firstSentence, CHAT_LINE_MAX_CHARS), digest: null, points: [], ...UNJUDGED_FIT };
 }
 
 function newestOpenedAtOf(digests: readonly DirectorDigest[]): number {
@@ -147,9 +187,13 @@ export function withDirectorDigest(state: DirectorDigestState, sessionId: string
 export function directorVerdictsOf(state: DirectorDigestState, sessionIds: readonly string[]): Record<string, DirectorVerdict> {
   const verdictByKey: Record<string, DirectorVerdict> = {};
   for (const sessionId of sessionIds) {
-    for (const entry of state.digestsBySessionId[sessionId] ?? []) verdictByKey[directorDigestKeyOf(sessionId, entry.openedAt)] = { chatLine: entry.chatLine, digest: entry.digest };
+    for (const entry of state.digestsBySessionId[sessionId] ?? []) verdictByKey[directorDigestKeyOf(sessionId, entry.openedAt)] = { chatLine: entry.chatLine, digest: entry.digest, fitsTask: entry.fitsTask, misfit: entry.misfit };
   }
   return verdictByKey;
+}
+
+export function isSessionFlagged(state: DirectorDigestState, sessionId: string): boolean {
+  return standingMisfitOf((state.digestsBySessionId[sessionId] ?? []).toReversed()) !== null;
 }
 
 export function leftoverDirectorCardOps(board: Board): Op[] {

@@ -53,6 +53,7 @@ import { openStudioRepoDialog } from '../session-actions.ts';
 import { CODEMAP_BOXES_MAX_PATHS, CODE_MAP_BOARD_TITLE, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
 import type { OpenBoardAsk, SessionMapBoxes, StudioMapArea } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
+import { standingMisfitOf } from '#shared/director-fit.ts';
 import { createLineIcon } from '../svg-dom.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
@@ -127,7 +128,7 @@ type MissingMap = { boardId: string | null; boardVersion: number | null; knownBo
 let missingMap: MissingMap | null = null;
 let digestsRequestSerial = 0;
 let progressAnswers: readonly SessionProgressAnswer[] = [];
-let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null }>> = {};
+let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null; fitsTask: boolean | null; misfit: string | null }>> = {};
 let watchBySessionId = new Map<string, SessionWatch>();
 let moduleChoices: readonly BoxChoice[] = [];
 const openedBranchIds = new Set<string>();
@@ -452,6 +453,10 @@ function boxIdOfPresencePath(sessionId: string, presencePath: string | null): st
   return boxIdOfSessionPath(sessionId, presencePath);
 }
 
+function latestMisfitOf(sessionId: string, watch: SessionWatch): string | null {
+  return standingMisfitOf([...watch.turnOpenedAts].reverse().map((openedAt) => verdictByKey[directorDigestKeyOf(sessionId, openedAt)]));
+}
+
 function latestDigestOf(sessionId: string, watch: SessionWatch): string | null {
   for (const openedAt of [...watch.turnOpenedAts].reverse()) {
     const digest = directorDigestOf(sessionId, openedAt);
@@ -477,6 +482,7 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
     phase,
     beat: phase === 'working' ? watch.lastBeat : null,
     digest: sessionId === shownSessionId ? null : latestDigestOf(sessionId, watch),
+    misfit: latestMisfitOf(sessionId, watch),
     approvals: watch.waits.element,
     isAsking: watch.waits.isAsking(),
     isOpened: openedBranchIds.has(sessionId),

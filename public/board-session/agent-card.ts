@@ -20,6 +20,7 @@ const RESTART_TEXT = 'Restart';
 const ACCOUNT_TEXT = 'Model and account';
 const CLOSE_TEXT = 'Close';
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
+const FLAG_ICON_PATH = 'M4 14V2.5h8l-2 3 2 3H4';
 const BUSY_PHASES: ReadonlySet<ChatPhase> = new Set(['starting', 'working', 'monitoring']);
 
 export interface AgentCardModel {
@@ -33,6 +34,7 @@ export interface AgentCardModel {
   phase: ChatPhase;
   beat: ActivityBeat | null;
   digest: string | null;
+  misfit: string | null;
   approvals: HTMLElement;
   isAsking: boolean;
   isOpened: boolean;
@@ -156,8 +158,12 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   head.append(faceSlot, name, repoButton, moreButton);
   const activity = createChatActivity('plain');
   const digest = el('p', 'bs-card-digest');
+  const misfitText = el('span', 'bs-card-misfit-text');
+  const misfit = el('p', 'bs-card-digest bs-card-misfit');
+  misfit.setAttribute('role', 'status');
+  misfit.append(createLineIcon(FLAG_ICON_PATH, '1.5'), misfitText);
   const approvals = el('div', 'bs-card-approvals-slot');
-  card.append(head, activity.element, digest, refusal, approvals, menu);
+  card.append(head, activity.element, misfit, digest, refusal, approvals, menu);
   card.addEventListener('chat-card', (event) => {
     const cardId = stringDetailOf(event, 'cardId');
     const action = stringDetailOf(event, 'action');
@@ -221,6 +227,10 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       shownBeat = model.beat;
       digest.textContent = model.digest ?? '';
       digest.hidden = model.digest === null;
+      misfitText.textContent = model.misfit ?? '';
+      misfit.hidden = model.misfit === null;
+      card.toggleAttribute('data-flagged', model.misfit !== null);
+      shrunkFace.toggleAttribute('data-flagged', model.misfit !== null);
       card.toggleAttribute('data-asking', model.isAsking);
       if (approvals.firstElementChild !== model.approvals) approvals.replaceChildren(model.approvals);
     },

@@ -11,7 +11,7 @@ import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import {
   DIRECTOR_PROMPT_FILE, DIRECTOR_REPLY_MAX_CHARS, DIRECTOR_RESULT_FILE, buildDirectorPrompt, directorPayloadOf, directorTurnOf,
-  buildProgressPrompt, directorVerdictsOf, fallbackVerdictOf, hasReply, isProgressShaped, latestNotesOf, leftoverDirectorCardOps, parseDirectorVerdict,
+  buildProgressPrompt, directorVerdictsOf, fallbackVerdictOf, hasReply, isProgressShaped, isSessionFlagged, latestNotesOf, leftoverDirectorCardOps, misfitMessageOf, parseDirectorVerdict,
   parseProgressAnswer, planStepsOf, progressAnswersOf, progressPayloadOf, withDirectorDigest, withFinalReply, withProgressAnswer,
 } from '../core/director-core.ts';
 import type { DirectorTurn } from '../core/director-core.ts';
@@ -40,6 +40,7 @@ interface DirectorDeps {
   readTracePage: (sessionId: string, request: TracePageRequest) => Promise<TracePage>;
   digestsPath: string | null;
   announceDigest: (sessionId: string) => void;
+  tellOrchestrator: (branchId: string, text: string) => void;
   boards: Pick<WhiteboardPort, 'loaded' | 'boardOf' | 'putWithoutReadCheck' | 'snapshotMessage'>;
   settleMs?: number;
   logger?: Pick<Console, 'warn'>;
@@ -57,7 +58,7 @@ function isStudioSession(session: DirectedSession): boolean {
   return !session.ephemeral && (session.isStudioMain || branchParentIdOf(session.parent) !== null);
 }
 
-function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, announceDigest, boards, settleMs = DIRECTOR_SETTLE_MS, logger = console }: DirectorDeps) {
+function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, announceDigest, tellOrchestrator, boards, settleMs = DIRECTOR_SETTLE_MS, logger = console }: DirectorDeps) {
   const queuedBySessionId = new Map<string, QueuedTurn>();
   const settlingBySessionId = new Map<string, { session: DirectedSession; endedAtMs: number; settleDeadlineMs: number; timer: ReturnType<typeof setTimeout> }>();
   const directedOpenedAtBySessionId = new Map<string, number>();
@@ -122,7 +123,7 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     announceDigest(sessionId);
   }
 
-  function keepVerdict(sessionId: string, openedAt: number, verdict: { chatLine: string | null; digest: string | null; points: string[] }): Promise<void> {
+  function keepVerdict(sessionId: string, openedAt: number, verdict: { chatLine: string | null; digest: string | null; points: string[]; fitsTask: boolean | null; misfit: string | null }): Promise<void> {
     const digest: DirectorDigest = { openedAt, ...verdict };
     return keepChange(sessionId, (state) => withDirectorDigest(state, sessionId, digest));
   }
@@ -161,16 +162,23 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     if (turn === null || !hasReply(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
     directedOpenedAtBySessionId.set(session.id, turn.openedAt);
     const signal = AbortSignal.any([shutdownController.signal, AbortSignal.timeout(DIRECTOR_TIMEOUT_MS)]);
-    const laneOutput = await runLane(directorPayloadOf(turn, clock.now().toISOString()), buildDirectorPrompt, signal).catch((error: unknown) => {
+    const branchBox = branchParentIdOf(session.parent) === null ? null : session.parent?.box ?? null;
+    const branchTask = branchBox === null ? null : { repoName: branchBox.repoName, boxTitle: branchBox.title };
+    const checksFit = branchTask !== null;
+    const laneOutput = await runLane(directorPayloadOf(turn, clock.now().toISOString(), branchTask), (resultPath) => buildDirectorPrompt(resultPath, checksFit), signal).catch((error: unknown) => {
       logger.warn(`[director] ${session.name}: ${errorMessage(error)}`);
       return null;
     });
     if (shutdownController.signal.aborted) return;
-    const parsedVerdict = parseDirectorVerdict(laneOutput);
+    const parsedVerdict = parseDirectorVerdict(laneOutput, checksFit);
     if (parsedVerdict === null) logger.warn(`[director] ${session.name}: the lane returned no usable verdict, keeping the reply's first sentence`);
     const verdict = parsedVerdict ?? fallbackVerdictOf(turn);
-    if (verdict.chatLine === null && verdict.digest === null) return;
+    await store.load();
+    const hasNothingToShow = verdict.chatLine === null && verdict.digest === null && verdict.misfit === null;
+    const clearsFlag = verdict.fitsTask === true && isSessionFlagged(digestState, session.id);
+    if (hasNothingToShow && !clearsFlag) return;
     await keepVerdict(session.id, turn.openedAt, verdict);
+    if (verdict.misfit !== null && branchTask !== null && !session._destroyed) tellOrchestrator(session.id, misfitMessageOf(session.name, branchTask.repoName, verdict.misfit));
   }
 
   function startNext(): void {

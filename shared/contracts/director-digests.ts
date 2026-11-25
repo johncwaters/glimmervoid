@@ -5,6 +5,8 @@ export const DirectorDigest = z.object({
   chatLine: z.string().min(1).nullable().default(null),
   digest: z.string().min(1).nullable(),
   points: z.array(z.string().min(1)).default([]),
+  fitsTask: z.boolean().nullable().default(null),
+  misfit: z.string().min(1).nullable().default(null),
 });
 export type DirectorDigest = z.infer<typeof DirectorDigest>;
 
