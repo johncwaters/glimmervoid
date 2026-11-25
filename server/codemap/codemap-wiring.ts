@@ -438,28 +438,28 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return new Map(listedRepos.map((listed) => [listed.repoDir, { repoKey: listed.repoKey, title: listed.repoName, origin: originByRepoKey.get(listed.repoKey) ?? { x: 0, y: 0 }, width: shownWidthOf(listed), isFolded: isAreaFolded(listed.repoDir) }]));
   }
 
-  function noteBranchesChanged(): Promise<boolean> {
-    return relayoutRow();
+  async function noteBranchesChanged(): Promise<boolean> {
+    return (await relayoutRow())?.size === 0;
   }
 
   async function setAreaOpen(repoDir: string, isOpen: boolean): Promise<{ ok: true; isOpen: boolean } | { ok: false; error: string }> {
-    const isDrawn = await relayoutRow(() => {
+    const unplacedRepoDirs = await relayoutRow(() => {
       if (isOpen) operatorOpenedRepoDirs.add(repoDir);
       if (!isOpen) operatorOpenedRepoDirs.delete(repoDir);
     });
-    if (!isDrawn) return { ok: false, error: `the map area of ${path.basename(repoDir)} was not redrawn` };
+    if (unplacedRepoDirs === null || unplacedRepoDirs.has(repoDir)) return { ok: false, error: `the map area of ${path.basename(repoDir)} was not redrawn` };
     return { ok: true, isOpen: !isAreaFolded(repoDir) };
   }
 
-  async function relayoutRow(applyRowChange: () => void = () => {}): Promise<boolean> {
+  async function relayoutRow(applyRowChange: () => void = () => {}): Promise<ReadonlySet<string> | null> {
     const unmappedRepoDirs = (await areas.repos()).map((listed) => listed.repoDir).filter((listedRepoDir) => stateOf(listedRepoDir).latestStatus === null);
     await Promise.allSettled(unmappedRepoDirs.map((unmappedRepoDir) => currentMap({ repoDir: unmappedRepoDir })));
     if (!whiteboards) {
       applyRowChange();
-      return true;
+      return new Set();
     }
     const boards = whiteboards;
-    const relayout = boardDrawing.then(async () => {
+    const relayout = boardDrawing.then(async (): Promise<ReadonlySet<string> | null> => {
       applyRowChange();
       const wantedRow = await wantedRowOf();
       const spanOf = (place: ShownPlace) => ({ left: place.origin.x, right: place.origin.x + place.width });
@@ -467,6 +467,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
       const wantedSpanByRepoKey = new Map([...wantedRow.values()].map((place) => [place.repoKey, spanOf(place)]));
       const repoDirByRepoKey = new Map([...wantedRow].map(([repoDir, place]) => [place.repoKey, repoDir]));
       const unmovedSpans: { left: number; right: number }[] = [];
+      const unplacedRepoDirs = new Set<string>();
       for (const repoKey of rowRedrawOrderOf(shownSpanByRepoKey, wantedSpanByRepoKey)) {
         const movedRepoDir = repoDirByRepoKey.get(repoKey);
         const wantedPlace = movedRepoDir === undefined ? undefined : wantedRow.get(movedRepoDir);
@@ -474,18 +475,20 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
         const wantedSpan = spanOf(wantedPlace);
         const shownSpan = shownSpanByRepoKey.get(repoKey);
         const isBlocked = unmovedSpans.some((unmoved) => wantedSpan.left < unmoved.right && unmoved.left < wantedSpan.right);
-        const isDrawn = !isBlocked && await drawAreaAt(boards, movedRepoDir, wantedPlace).then(() => true, (error: unknown) => {
+        const isDrawn = !isBlocked && await drawAreaAt(boards, movedRepoDir, wantedPlace).catch((error: unknown) => {
           logger.warn(`[codemap] the map area of ${movedRepoDir} was not laid out: ${errorMessage(error)}`);
           return false;
         });
-        if (!isDrawn && shownSpan) unmovedSpans.push(shownSpan);
+        if (isDrawn) continue;
+        unplacedRepoDirs.add(movedRepoDir);
+        if (shownSpan) unmovedSpans.push(shownSpan);
       }
-      return unmovedSpans.length === 0;
+      return unplacedRepoDirs;
     }).catch((error: unknown) => {
       logger.warn(`[codemap] the map areas were not laid out: ${errorMessage(error)}`);
-      return false;
+      return null;
     });
-    boardDrawing = relayout;
+    boardDrawing = relayout.then(() => true);
     return relayout;
   }
 
@@ -494,19 +497,20 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const wantedPlace = (await wantedRowOf()).get(repoDir);
     if (shownPlace && JSON.stringify(shownPlace) === JSON.stringify(wantedPlace)) return true;
     if (clock.nowMs() < state.drawRetryAtMs) return false;
-    if (await relayoutRow()) return true;
+    if ((await relayoutRow())?.has(repoDir) === false) return true;
     state.drawRetryAtMs = clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs;
     return false;
   }
 
-  async function drawAreaAt(boards: MapBoards, repoDir: string, place: ShownPlace): Promise<void> {
+  async function drawAreaAt(boards: MapBoards, repoDir: string, place: ShownPlace): Promise<boolean> {
     const state = stateOf(repoDir);
     const status = state.latestStatus;
-    if (!status) return;
+    if (!status) return false;
     const overlay = overlayDrawingOf(state, repoDir);
     await drawMapBoard(boards, repoDir, state.model, status, overlay, place);
     shownPlaceByRepoDir.set(repoDir, place);
     markAreaDrawn(state, status, overlay);
+    return true;
   }
 
   function markAreaDrawn(state: RepoMapState, status: CodemapStatus, overlay: OverlayDrawing): void {

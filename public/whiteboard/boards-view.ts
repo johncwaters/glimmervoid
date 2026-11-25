@@ -553,8 +553,8 @@ function paintHead(): void {
   if (!parts) return;
   const summary = selectedSummary();
   const hasBoards = boardSummariesOf().length > 0;
-  parts.canvas.hidden = !summary;
-  parts.empty.hidden = Boolean(summary);
+  parts.canvas.hidden = !summary && !guest;
+  parts.empty.hidden = Boolean(summary) || Boolean(guest);
   parts.emptyText.textContent = hasBoards ? PICK_TEXT : EMPTY_TEXT;
   if (!summary) return;
   parts.boardTitle.textContent = summary.title;
@@ -1877,6 +1877,7 @@ function seatGuest(nextGuest: BoardHostGuest | null): void {
   gatherClickOpenedStacksOfSelectedBoard();
   for (const layer of guest ? [guest.chrome, guest.worldLayer, ...guest.overlays] : []) layer.remove();
   guest = nextGuest;
+  paintHead();
   if (!parts || !guest) return;
   parts.chrome.prepend(guest.chrome);
   parts.world.append(guest.worldLayer);

@@ -197,3 +197,32 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
   assert.deepEqual(await restartedCodemap.setFolderOpen(firstRepoDir, foldedFirst.id, true), { ok: true, isOpen: true });
   assert.ok(((await areaFrameOf('second')).left ?? 0) - (foldedFirst.left ?? 0) >= 1000, 'after a restart, opening an area still moves the areas after it before the open is answered');
 });
+
+test('an area the board keeps refusing stays where it is while the others still move, and an operator fold elsewhere still succeeds', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-refused-'));
+  const repoDirs = await Promise.all(['first', 'second', 'third'].map((repoName) => createRepo(tmpDir, repoName, ['.'])));
+  const [firstRepoDir, , thirdRepoDir] = repoDirs;
+  const wiring = openWhiteboardWiring({ boardsRoot: path.join(tmpDir, 'boards') });
+  let isThirdRefused = false;
+  const refusingWiring: typeof wiring = { ...wiring, putWithoutReadCheck: async (caller, boardId, ops) => (isThirdRefused && caller.project === thirdRepoDir ? { status: 503, body: { ok: false, error: 'refused' } } : wiring.putWithoutReadCheck(caller, boardId, ops)) };
+  const codemap = createCodemapService({ whiteboards: refusingWiring, areas: createStudioReposStore({ filePath: path.join(tmpDir, 'studio-repos.json'), logger: console }), specsRoot: path.join(tmpDir, 'specs'), isAreaIdle: () => true });
+  for (const repoDir of repoDirs) assert.ok(await codemap.openArea(repoDir));
+  for (const repoDir of repoDirs) assert.equal((await codemap.handle({ repoDir }, { sub: 'map' })).ok, true);
+  const readBoard = async () => {
+    const read = await wiring.readPlanBoard({ id: 'refused-reader', name: 'reader', project: firstRepoDir }, await codemap.mapBoardIdOfRepo(firstRepoDir) ?? 'Code map');
+    assert.ok(read.ok);
+    return read.board;
+  };
+  const firstFrame = [...(await readBoard()).elements.values()].find((element) => element.kind === 'frame' && element.title === 'first');
+  assert.ok(firstFrame);
+  assert.deepEqual(await codemap.setFolderOpen(firstRepoDir, firstFrame.id, true), { ok: true, isOpen: true });
+  const thirdWhileOpen = areaSpanOf(await readBoard(), 'third');
+
+  isThirdRefused = true;
+  assert.deepEqual(await codemap.setFolderOpen(firstRepoDir, firstFrame.id, false), { ok: true, isOpen: false }, 'the fold succeeds although an area after it is refused');
+  const board = await readBoard();
+  const [first, second, third] = [areaSpanOf(board, 'first'), areaSpanOf(board, 'second'), areaSpanOf(board, 'third')];
+  assert.ok(first.right <= second.left && second.right <= third.left, 'no area covers another');
+  assert.ok(second.left < thirdWhileOpen.left - 1000, 'the area between them moved left');
+  assert.equal(third.left, thirdWhileOpen.left, 'the refused area stays where it was');
+});
