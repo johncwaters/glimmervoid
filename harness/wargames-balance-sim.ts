@@ -15,8 +15,9 @@ import type { MatchState } from '../shared/wargames/engine.ts';
 
 type VillageState = NonNullable<MatchState['villages'][number]>;
 
-type StrategyName = 'rusher' | 'builder' | 'turtle' | 'mixed';
-const STRATEGIES: readonly StrategyName[] = ['rusher', 'builder', 'turtle', 'mixed'];
+type StrategyName = 'rusher' | 'builder' | 'turtle' | 'mixed' | 'village';
+const STRATEGIES: readonly StrategyName[] = ['rusher', 'builder', 'turtle', 'mixed', 'village'];
+const ALL_VILLAGE_SEATS = process.argv.includes('--all-village');
 const SEEDS = Array.from({ length: 24 }, (_, index) => 101 * (index + 1));
 const SEAT_COUNTS: readonly WargamesSeatCount[] = [4, 6];
 const ATTACK_MARGIN = 2;
@@ -189,14 +190,14 @@ function ordersFor(state: MatchState, seatId: SeatId, strategy: StrategyName): O
     const target = barbarian && hexDistance(state.hexes[village.hexIndex], state.hexes[barbarian.hexIndex]) <= 3 ? barbarian : anyone;
     if (target) planAttack(state, orders, village, purse, target, targeted);
   }
-  if (state.balance.territory !== null) {
+  if (state.balance.territory !== null && strategy !== 'village') {
     claimOrdersFor(state, seatId, strategy, owned, orders);
     improvementOrdersFor(state, seatId, strategy, orders);
   }
   return orders.slice(0, 64);
 }
 
-const CLAIMS_PER_VILLAGE: Readonly<Record<StrategyName, number>> = Object.freeze({ rusher: 1, builder: 2, turtle: 1, mixed: 3 });
+const CLAIMS_PER_VILLAGE: Readonly<Record<StrategyName, number>> = Object.freeze({ rusher: 1, builder: 2, turtle: 1, mixed: 3, village: 0 });
 
 function isOpenTile(state: MatchState, hexIndex: number): boolean {
   return state.villages[hexIndex] === null && state.terrain[hexIndex] !== 'mountain' && state.terrain[hexIndex] !== 'lake';
@@ -284,6 +285,7 @@ function improvementOrdersFor(state: MatchState, seatId: SeatId, strategy: Strat
 }
 
 function strategyOfSeat(seatIndex: number, seed: number): StrategyName {
+  if (ALL_VILLAGE_SEATS) return 'village';
   return STRATEGIES[(seatIndex + seed) % STRATEGIES.length];
 }
 
@@ -532,6 +534,18 @@ function v9Grid(): Candidate[] {
   })));
 }
 
+const V9_TARGET_SCALES = [0.6, 0.7, 0.8, 0.9, 1];
+
+function v9TargetCandidates(): Candidate[] {
+  const v9 = wargamesBalanceFor('v9');
+  const { victory } = v9;
+  if (victory.kind !== 'points') return [];
+  return V9_TARGET_SCALES.map((targetScale) => {
+    const targetByRadius = Object.fromEntries(Object.entries(victory.targetByRadius).map(([radius, bySeats]) => [radius, { ...bySeats, 4: Math.round(bySeats[4] * targetScale) }]));
+    return { name: `v9 4-seat target x${targetScale} (Large ${targetByRadius[6][4]})`, rulesVersion: 'v9' as const, balance: { ...v9, victory: { ...victory, targetByRadius } } };
+  });
+}
+
 function runSearch(seedCount: number): void {
   const seeds = SEEDS.slice(0, seedCount);
   console.log('candidate | worst top-strategy win | worst rusher win | min goal-win share | goal turn share by size | min leader-lost | worst churn | min payback');
@@ -688,7 +702,7 @@ function main(): void {
     return;
   }
   const onlyCandidate = process.argv.find((argument) => argument.startsWith('--only='))?.slice('--only='.length);
-  const versionCandidates = process.argv.includes('--v9-grid') ? v9Grid() : process.argv.includes('--v9') ? v9Candidates() : process.argv.includes('--v8') ? v8Candidates() : candidatesToRun();
+  const versionCandidates = process.argv.includes('--v9-targets') ? v9TargetCandidates() : process.argv.includes('--v9-grid') ? v9Grid() : process.argv.includes('--v9') ? v9Candidates() : process.argv.includes('--v8') ? v8Candidates() : candidatesToRun();
   const candidates = versionCandidates.filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
   const onlySeats = process.argv.find((argument) => argument.startsWith('--seats='))?.slice('--seats='.length);
   const seedCount = Number(process.argv.find((argument) => argument.startsWith('--seeds='))?.slice('--seeds='.length) ?? SEEDS.length);

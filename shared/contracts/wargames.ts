@@ -326,9 +326,9 @@ const V9_BALANCE: WargamesBalance = Object.freeze({
     beaconPoints: 4,
     economyIncomePerPoint: 200,
     targetByRadius: Object.freeze({
-      4: Object.freeze({ 4: 218, 6: 189 }),
-      6: Object.freeze({ 4: 668, 6: 516 }),
-      8: Object.freeze({ 4: 1503, 6: 1184 }),
+      4: Object.freeze({ 4: 174, 6: 189 }),
+      6: Object.freeze({ 4: 534, 6: 516 }),
+      8: Object.freeze({ 4: 1202, 6: 1184 }),
     }),
   }),
   territory: Object.freeze({
