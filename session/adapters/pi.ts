@@ -174,6 +174,7 @@ const pi = {
     skipPermissionsFlag: true,
     headless: false,
     subagentTurnStops: false,
+    permissionHoldOnPromptOnly: true,
   },
 } satisfies AgentAdapterShape;
 

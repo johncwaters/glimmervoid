@@ -43,6 +43,7 @@ interface AgentCapabilities {
   toolHookContext?: boolean;
   resumeNoteByHook?: boolean;
   drawsOwnAlternateScreen?: boolean;
+  permissionHoldOnPromptOnly?: boolean;
 }
 
 

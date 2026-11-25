@@ -11,7 +11,7 @@ import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
 import type { PrepareSandbox, SessionOptions } from '../../session/sessions.ts';
-import { DEFAULT_AGENT_ID, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
+import { DEFAULT_AGENT_ID, getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { resolveSessionAccountHome } from '../../session/core/agent-account-core.ts';
 import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
@@ -121,7 +121,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     config: GlimmervoidConfig,
     overrides: SessionSpawnOverrides = {},
   ): Session {
-    const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
+    const skipPermissions = overrides.dangerouslySkipPermissions ?? projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const hookToolConfig = (currentConfig: GlimmervoidConfig): GlimmervoidConfig => project.saneYolo === true ? { ...currentConfig, saneYolo: true } : currentConfig;
     const originalHookTools = dependencies.resolveHookTools(hookToolConfig(config));
     const resolveAccountHome = (): SessionAccountHome => {
@@ -134,6 +134,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const sessionTempFolder = ensureSessionTempFolder(project.id);
     const isolation = dependencies.isolationForProject?.(project, sessionTempFolder) ?? null;
     const prepareSandbox = isolation?.prepareSandbox ?? null;
+    const isPermissionHoldPromptOnly = getAdapter(overrides.agent ?? project.agent)?.capabilities.permissionHoldOnPromptOnly === true;
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -145,7 +146,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       workspaceRepos: project.repos,
       dangerouslySkipPermissions: skipPermissions,
       chatUploadsDirectory: sessionUploadsDirectory(dependencies.configStore.configPath, project.id),
-      readChatApprovals: () => chatApprovalModeFor((dependencies.getConfig?.() ?? config).sessionChat?.enabled === true, skipPermissions),
+      readChatApprovals: () => chatApprovalModeFor((dependencies.getConfig?.() ?? config).sessionChat?.enabled === true, skipPermissions, isPermissionHoldPromptOnly),
       agent: project.agent,
       agentSetup: project.agentSetup ?? null,
       isCleanHome: project.agentHome === 'clean',

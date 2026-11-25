@@ -83,9 +83,13 @@ export function claudeApprovalFor(request: ClaudePermissionRequest, requestId: s
   return { requestId, kind: 'question', summary: questions.data[0].question, isSummaryTruncated: false, questions: questions.data };
 }
 
-export function chatApprovalModeFor(isChatOn: boolean, skipsPermissions: boolean): ChatApprovalMode {
+export function chatApprovalModeFor(
+  isChatOn: boolean,
+  skipsPermissions: boolean,
+  isPermissionHoldPromptOnly = false,
+): ChatApprovalMode {
   if (!isChatOn) return 'off';
-  return skipsPermissions ? 'questions' : 'questions-and-permissions';
+  return skipsPermissions && !isPermissionHoldPromptOnly ? 'questions' : 'questions-and-permissions';
 }
 
 export function claudePermissionApprovalFor(request: ClaudePermissionRequest, requestId: string): ConversationApproval {

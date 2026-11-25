@@ -209,6 +209,7 @@ const claudeCode = {
     toolHookContext: true,
     resumeNoteByHook: true,
     drawsOwnAlternateScreen: true,
+    permissionHoldOnPromptOnly: true,
   },
   inputReady: "startup-hook",
   promptContextReply: "additional-context",

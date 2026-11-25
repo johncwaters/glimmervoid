@@ -20,7 +20,10 @@ import type { SessionState } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
 import { getAdapter, hookProfileOf } from '../session/adapters/index.ts';
 import { Session } from '../session/sessions.ts';
-import { permissionReplyFor } from '../session/core/claude-approval-core.ts';
+import { chatApprovalModeFor, permissionReplyFor } from '../session/core/claude-approval-core.ts';
+import { buildHookSettings } from '../detection/settings-injector.ts';
+import { createSessionFactory } from '../server/session/session-factory.ts';
+import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { openCodePluginFiles } from '../session/core/opencode-plugin-core.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT } from '../shared/contracts/session.ts';
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../shared/contracts/question-manager.ts';
@@ -669,6 +672,83 @@ for (const agent of FIRST_CLASS_AGENTS) {
     }
   });
 }
+
+test('skip-permissions Chat sessions hold permission prompts on prompt-driven agents and keep PreToolUse agents in questions mode', async () => {
+  const expectedModeByAgent: Record<FirstClassAgent, string> = {
+    'claude-code': 'questions-and-permissions',
+    codex: 'questions-and-permissions',
+    opencode: 'questions-and-permissions',
+    pi: 'questions-and-permissions',
+    antigravity: 'questions',
+    kimi: 'questions',
+  };
+  for (const agent of FIRST_CLASS_AGENTS) {
+    const adapter = getAdapter(agent);
+    assert.ok(adapter, `${agent} has no adapter`);
+    const isPromptOnly = adapter.capabilities.permissionHoldOnPromptOnly === true;
+    assert.equal(chatApprovalModeFor(true, true, isPromptOnly), expectedModeByAgent[agent], `${agent} skip-permissions mode`);
+    assert.equal(chatApprovalModeFor(false, true, isPromptOnly), 'off', `${agent} chat-off mode`);
+  }
+  const claudeMode = chatApprovalModeFor(true, true, getAdapter('claude-code')?.capabilities.permissionHoldOnPromptOnly === true);
+  const claudeSettings = buildHookSettings({ port: 3000, glimmervoidId: 'skip-perm-claude', token: 'tok', chatApprovals: claudeMode });
+  const holdEntry = claudeSettings.hooks.PermissionRequest?.find((entry) => entry.hooks.some((hook) => hook.url?.includes(CONVERSATION_PERMISSION_HOOK_EVENT)));
+  assert.ok(holdEntry, 'Claude Code settings include permissionrequest-conversation');
+  assert.equal(holdEntry.matcher, undefined, 'Claude Code permissionrequest-conversation matches all tools, not only AskUserQuestion');
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-skip-perm-'));
+  const config = { ...DEFAULT_CONFIG, sessionChat: { enabled: true }, projects: [] };
+  const makeSession = createSessionFactory({
+    configStore: { configPath: path.join(projectPath, 'config.json') },
+    getConfig: () => config,
+    hookRouter: null,
+    getHookPort: () => null,
+    getGitWorkspace: () => null,
+    resolveHookTools: () => [],
+    getUserHooks: () => [],
+  });
+  const claudeSession = makeSession(
+    { id: 'chat-skip-perm-claude', name: 'claude-code', path: projectPath, agent: 'claude-code', dangerouslySkipPermissions: true },
+    config,
+  );
+  const kimiSkipSession = makeSession(
+    { id: 'chat-skip-perm-kimi', name: 'kimi', path: projectPath, agent: 'kimi', dangerouslySkipPermissions: true },
+    config,
+  );
+  const kimiOverrideAskSession = makeSession(
+    { id: 'chat-override-kimi', name: 'kimi', path: projectPath, agent: 'kimi', dangerouslySkipPermissions: true },
+    config,
+    { dangerouslySkipPermissions: false },
+  );
+  try {
+    const held = claudeSession.holdConversationPermission({
+      hook_event_name: 'PermissionRequest',
+      permission_mode: 'bypassPermissions',
+      tool_name: 'mcp__example__exec',
+      tool_input: { command: 'call example-action {"id":"1"}', context: 'run a gated tool call' },
+    }, new AbortController().signal);
+    assert.ok(held, 'bypassPermissions PermissionRequest was not held for Chat');
+    const approval = claudeSession.toSnapshot().conversationApproval;
+    assert.equal(approval?.kind, 'permission');
+    assert.equal(approval?.toolName, 'mcp__example__exec');
+    assert.ok(claudeSession.decideConversationApproval(approval.requestId, 'allow'));
+    assert.equal(valueAt(await held, PERMISSION_REQUEST_BEHAVIOR), 'allow');
+    assert.equal(
+      kimiSkipSession.holdConversationPermission(CHAT_PERMISSION_BY_AGENT.kimi.heldRequest(), new AbortController().signal),
+      null,
+      'PreToolUse-driven agent does not hold tool calls when skipping permissions',
+    );
+    const heldOverride = kimiOverrideAskSession.holdConversationPermission(CHAT_PERMISSION_BY_AGENT.kimi.heldRequest(), new AbortController().signal);
+    assert.ok(heldOverride, 'dangerouslySkipPermissions=false override enables permission holds on PreToolUse-driven agent');
+    const overrideApproval = kimiOverrideAskSession.toSnapshot().conversationApproval;
+    assert.ok(overrideApproval);
+    assert.ok(kimiOverrideAskSession.decideConversationApproval(overrideApproval.requestId, 'deny'));
+    assert.equal(valueAt(await heldOverride, CHAT_PERMISSION_BY_AGENT.kimi.decisionAt), 'deny');
+  } finally {
+    claudeSession.destroy();
+    kimiSkipSession.destroy();
+    kimiOverrideAskSession.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
 
 function antigravityQuestionRequest(): HookPayload {
   const adapter = getAdapter('antigravity');
