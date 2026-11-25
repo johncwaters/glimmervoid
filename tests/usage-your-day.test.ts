@@ -58,6 +58,7 @@ test('yourDay hint calls the day before a 23 hour day yesterday just after midni
     insights: [],
     usual: { peakWaiting: 0, stretchMs: 0 },
     currentStretchStartedAt: null,
+    currentStretchEndsAt: null,
     activeDayCount: 3,
   };
 

@@ -4,7 +4,7 @@ import { twoUnitDurationText } from '#shared/display-text.ts';
 import { isHintCardShown, showHintCard } from './feature-hint.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { attentionTally } from './session-card/card-registry.ts';
-import { requestUsageReport, subscribeUsage, usageSnapshot } from './usage/usage-store.ts';
+import { subscribeUsage, usageSnapshot } from './usage/usage-store.ts';
 import { yourDayRecapLabel, yourDaySessionWord } from '#shared/your-day-text.ts';
 
 const MINUTE_MS = 60_000;
@@ -12,11 +12,9 @@ const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 const LIVE_TIP_GAP_MS = 3 * HOUR_MS;
 const MORNING_START_HOUR = 4;
-const CHECK_INTERVAL_MS = MINUTE_MS;
-const REPORT_REFRESH_MS = 30 * MINUTE_MS;
 
 let openUsageView: () => void = () => {};
-let lastReportRequestAt = 0;
+let nextCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
 function minutesText(ms: number) {
   return twoUnitDurationText(Math.round(ms / MINUTE_MS) * 60, { smallestUnit: 'm', dropsZeroRemainder: true });
@@ -73,8 +71,13 @@ function tryDailyTip(yourDay: YourDay, now: number) {
   return true;
 }
 
+function ongoingStretchStartOf(yourDay: YourDay, now: number): number | null {
+  if (yourDay.currentStretchEndsAt === null || now >= yourDay.currentStretchEndsAt) return null;
+  return yourDay.currentStretchStartedAt;
+}
+
 function tryLiveTip(yourDay: YourDay, now: number) {
-  const stretchStartedAt = yourDay.currentStretchStartedAt;
+  const stretchStartedAt = ongoingStretchStartOf(yourDay, now);
   if (stretchStartedAt === null) return;
   const waitingCount = attentionTally.counts.waitingCount;
   const stretchMs = now - stretchStartedAt;
@@ -93,26 +96,29 @@ function tryLiveTip(yourDay: YourDay, now: number) {
   });
 }
 
-function isReportFresh(now: number) {
-  const reportTs = Number(usageSnapshot().report?.ts);
-  return Number.isFinite(reportTs) && now - reportTs < REPORT_REFRESH_MS;
+function nextMorningStartAt(now: number) {
+  const morningToday = clock.startOfDay(now) + MORNING_START_HOUR * HOUR_MS;
+  return now < morningToday ? morningToday : clock.startOfDay(now, -1) + MORNING_START_HOUR * HOUR_MS;
 }
 
-function requestReportOnce(now: number) {
-  if (now - lastReportRequestAt < REPORT_REFRESH_MS) return;
-  lastReportRequestAt = now;
-  requestUsageReport();
+function nextTipDeadlineOf(yourDay: YourDay, now: number) {
+  const stretchStartedAt = ongoingStretchStartOf(yourDay, now);
+  const stretchDeadlines = stretchStartedAt === null || yourDay.currentStretchEndsAt === null ? [] : [stretchStartedAt + yourDay.usual.stretchMs + 1, yourDay.currentStretchEndsAt];
+  return Math.min(nextMorningStartAt(now), ...stretchDeadlines.filter((deadline) => deadline > now));
+}
+
+function scheduleNextTipCheck(yourDay: YourDay | null, now: number) {
+  if (nextCheckTimer !== null) clearTimeout(nextCheckTimer);
+  nextCheckTimer = null;
+  if (!yourDay) return;
+  nextCheckTimer = setTimeout(checkYourDayTips, nextTipDeadlineOf(yourDay, now) - now);
 }
 
 function checkYourDayTips() {
-  if (document.visibilityState !== 'visible') return;
   const now = clock.nowMs();
-  if (!isReportFresh(now)) {
-    requestReportOnce(now);
-    return;
-  }
-  const yourDay = usageSnapshot().report?.yourDay;
-  if (!yourDay || isHintCardShown()) return;
+  const yourDay = usageSnapshot().sessions?.yourDay ?? null;
+  scheduleNextTipCheck(yourDay, now);
+  if (document.visibilityState !== 'visible' || !yourDay || isHintCardShown()) return;
   if (tryDailyTip(yourDay, now)) return;
   tryLiveTip(yourDay, now);
 }
@@ -120,8 +126,8 @@ function checkYourDayTips() {
 export function startYourDayTips({ openUsage }: { openUsage: () => void }) {
   openUsageView = openUsage;
   subscribeUsage((change) => {
-    if (change === 'report') checkYourDayTips();
+    if (change === 'sessions') checkYourDayTips();
   });
   document.addEventListener('visibilitychange', checkYourDayTips);
-  setInterval(checkYourDayTips, CHECK_INTERVAL_MS);
+  checkYourDayTips();
 }

@@ -31,6 +31,7 @@ function fakeScanner(
   { outcome = 'complete', outcomeOf = () => outcome, spend, generationRollup = [] }: { outcome?: PassOutcome; outcomeOf?: () => PassOutcome; spend: () => BudgetSpend; generationRollup?: GenerationRollup },
 ): Scanner {
   return {
+    yourDay: () => null,
     runPass: async (args?: { force?: boolean }) => ({
       files: 1,
       entries: 1,

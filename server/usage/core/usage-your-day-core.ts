@@ -331,6 +331,7 @@ function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null 
     insights,
     usual: { peakWaiting: median(baselineDays.map((day) => day.peakWaiting)), stretchMs: usualStretchMs },
     currentStretchStartedAt: isStretchOngoing ? latestStretch.start : null,
+    currentStretchEndsAt: isStretchOngoing ? latestStretch.end + BREAK_MS : null,
     activeDayCount,
   };
 }

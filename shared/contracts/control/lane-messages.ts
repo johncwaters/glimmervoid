@@ -29,6 +29,7 @@ export const laneServerVariants = [
   loose('usage-sessions', {
     ts: timestamp,
     pricingSource: nullableString,
+    yourDay: YourDay.nullable().default(null),
     sessions: z.array(openObject({
       id: sessionId,
       name: z.string().optional(),

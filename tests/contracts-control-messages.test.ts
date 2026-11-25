@@ -225,7 +225,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   }] },
   { type: 'my-prs-status', ts: NOW, configured: true, viewer: 'alice', prs: [], error: null },
   { type: 'github-prs', ts: NOW, prs: {}, freshness: { lastRefreshedAt: null, error: null } },
-  { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
+  { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', yourDay: null, sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
   { type: 'session-meter', id: 'session-1', ts: NOW, model: 'Opus 5.5', effort: 'medium', contextTokens: 38710, contextWindow: 1000000, callCostUSD: 0.0193, outputStyle: 'default' },
   {
     type: 'usage-report',
@@ -449,6 +449,7 @@ test('nested open objects retain declared field types and passthrough fields', (
     type: 'usage-sessions',
     ts: 1,
     pricingSource: null,
+    yourDay: null,
     sessions: [{ id: 'session', tokens: 12, costUSD: 0.5, extra: 'preserved' }],
     extra: 'preserved',
   } satisfies ServerMessageOf<'usage-sessions'>;

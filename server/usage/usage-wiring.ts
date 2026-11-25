@@ -1,4 +1,5 @@
 import nodeFsPromises from 'node:fs/promises';
+import type { YourDay } from '../../shared/contracts/your-day.ts';
 import path from 'node:path';
 
 import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
@@ -100,6 +101,7 @@ type SessionsMessage = {
   type: string;
   ts: number;
   pricingSource: string | null;
+  yourDay: YourDay | null;
   sessions: {
     id: string;
     name?: string;
@@ -518,7 +520,7 @@ function createUsageWiring({
   function getSessionsMessage(): SessionsMessage | null {
     const rows = sessionUsageRows();
     if (!rows) return null;
-    return { type: 'usage-sessions', ts: nowFn(), pricingSource: pricing?.source || null, sessions: rows };
+    return { type: 'usage-sessions', ts: nowFn(), pricingSource: pricing?.source || null, yourDay: scanner?.yourDay() ?? null, sessions: rows };
   }
 
   function sessionUsageLookup(): (sessionId: string) => { tokens: number; costUSD: number } | null {
@@ -529,7 +531,7 @@ function createUsageWiring({
   function pushSessions(): void {
     const message = getSessionsMessage();
     if (!message) return;
-    const signature = JSON.stringify(message.sessions);
+    const signature = JSON.stringify([message.sessions, message.yourDay]);
     if (signature === lastSessionsSignature) return;
     lastSessionsSignature = signature;
     broadcast(message);

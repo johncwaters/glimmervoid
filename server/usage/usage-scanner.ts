@@ -1454,6 +1454,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   const api = {
     runPass,
     buildReport,
+    yourDay: () => yourDayAt(nowFn()),
     sessionTotals,
     liveSessionStats,
     stats,

@@ -17,6 +17,7 @@ export const YourDay = z.object({
   insights: z.array(YourDayInsight).max(3),
   usual: z.object({ peakWaiting: z.number().nonnegative(), stretchMs: nonNegativeInt }).strict(),
   currentStretchStartedAt: nonNegativeInt.nullable(),
+  currentStretchEndsAt: nonNegativeInt.nullable(),
   activeDayCount: nonNegativeInt,
 }).strict();
 export type YourDay = z.infer<typeof YourDay>;
