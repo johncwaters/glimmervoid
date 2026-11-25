@@ -18,6 +18,7 @@ interface SessionRoleFacts {
   hasOwnWorktree: boolean;
   isRaceContestant: boolean;
   isDoneMeansOff: boolean;
+  isStudioSession: boolean;
 }
 
 type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
@@ -163,6 +164,11 @@ function claimRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot claim files, because a lane works in a throwaway folder no other session edits' };
 }
 
+function codemapRoute({ isStudioSession }: SessionKindFacts): RouteVerdict {
+  if (isStudioSession) return ANSWERS;
+  return { answers: false, reason: 'the code map belongs to Studio, and this session is not a Studio session' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -195,7 +201,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   memory: memoryRoute,
   claim: claimRoute,
   preview: previewRoute,
-  codemap: () => ANSWERS,
+  codemap: codemapRoute,
 });
 
 type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';

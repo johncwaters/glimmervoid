@@ -42,6 +42,7 @@ import { git } from './helpers/git-fixture.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
 const DONE_MEANS_OFF_SESSION_ID = 'mcp-done-means-off-contestant';
+const STUDIO_BRANCH_SESSION_ID = 'mcp-studio-branch';
 
 interface BootedBackend {
   tmpDir: string;
@@ -49,6 +50,7 @@ interface BootedBackend {
   backend: Backend;
   mcpUrl: string;
   credential: string;
+  studioBranchCredential: string;
   projectDir: string;
 }
 
@@ -64,7 +66,7 @@ async function boot(): Promise<BootedBackend> {
   const projectDir = path.join(tmpDir, 'project');
   fs.mkdirSync(projectDir);
   const configPath = path.join(tmpDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: SESSION_ID, name: 'mcp endpoint', path: projectDir }, { id: DONE_MEANS_OFF_SESSION_ID, name: 'done means off contestant', path: projectDir, raceId: 'race-ab', isDoneMeansOff: true }], repoRoots: [], autoResume: false, agentRules: { rules: ['Run the targeted tests before claiming done.'] } }), 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: SESSION_ID, name: 'mcp endpoint', path: projectDir }, { id: DONE_MEANS_OFF_SESSION_ID, name: 'done means off contestant', path: projectDir, raceId: 'race-ab', isDoneMeansOff: true }, { id: STUDIO_BRANCH_SESSION_ID, name: 'studio branch', path: projectDir, parent: { sessionId: SESSION_ID, box: { id: 'cm-project-root', title: 'project' } } }], repoRoots: [], autoResume: false, agentRules: { rules: ['Run the targeted tests before claiming done.'] } }), 'utf8');
   process.env.GLIMMERVOID_CONFIG = configPath;
   const server = http.createServer();
   const backend = createBackend(server, { staticDir: null });
@@ -74,7 +76,11 @@ async function boot(): Promise<BootedBackend> {
   assert.ok(session, 'the boot loop created the configured session');
   session._hooks.inject();
   assert.ok(session.agentToken, 'the session was minted an agent token');
-  return { tmpDir, server, backend, projectDir, mcpUrl: `${await agentIngressBase(backend)}/mcp`, credential: mcpCredentialFor(SESSION_ID, session.agentToken) };
+  const studioBranch = backend.getSession(STUDIO_BRANCH_SESSION_ID);
+  assert.ok(studioBranch, 'the boot loop created the Studio branch session');
+  studioBranch._hooks.inject();
+  assert.ok(studioBranch.agentToken, 'the Studio branch was minted an agent token');
+  return { tmpDir, server, backend, projectDir, mcpUrl: `${await agentIngressBase(backend)}/mcp`, credential: mcpCredentialFor(SESSION_ID, session.agentToken), studioBranchCredential: mcpCredentialFor(STUDIO_BRANCH_SESSION_ID, studioBranch.agentToken) };
 }
 
 function firstTextOf(content: unknown): string {
@@ -125,12 +131,17 @@ test.after(async () => {
 });
 
 test('a session without its own worktree lists every grouped tool but push and reads its board through them', async () => {
-  const { credential } = bootedBackend();
+  const { credential, studioBranchCredential } = bootedBackend();
   const listed = await resultOf(await callMcp('tools/list', {}, credential));
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['arena', 'attention', 'claim', 'codemap', 'memory', 'packs', 'preview', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'wargames', 'whiteboard', 'why']);
+  assert.deepEqual(toolNames, ['arena', 'attention', 'claim', 'memory', 'packs', 'preview', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'wargames', 'whiteboard', 'why'], 'a session outside Studio is offered no codemap tool');
+  const studioBranchTools = (await resultOf(await callMcp('tools/list', {}, studioBranchCredential))).tools;
+  assert.ok(Array.isArray(studioBranchTools) && studioBranchTools.some((tool: { name: string }) => tool.name === 'codemap'), 'a Studio branch keeps the codemap tool');
+  const askedOutsideStudio = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'ask', about: 'lib', question: 'Which store?' } }, credential));
+  assert.equal(askedOutsideStudio.isError, true);
+  assert.match(JSON.stringify(askedOutsideStudio.content), /belongs to Studio[^"]*ask the operator in chat/);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
@@ -507,7 +518,7 @@ test('every board just past the picture width still pictures instead of being re
 });
 
 test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, gates only value imports from non-test files while refusing unresolved ones and new module cycles, exports a lint config and CODEMAP.md the setup enables and refuses a stale CODEMAP.md, and refuses an agent allowing a module import', async () => {
-  const { credential, projectDir } = bootedBackend();
+  const { studioBranchCredential: credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), "// import { main } from '../main.ts';\n/* export * from '../main.ts'; */\nconst quotesPattern = /['\"]/;\nexport const hint = 'import data from \"../main.ts\" first';\nexport function readStore() { return quotesPattern.test(hint) ? 1 : 0; }\n");
   fs.writeFileSync(path.join(projectDir, 'main.ts'), "import { readStore } from './lib/store.ts';\nreadStore();\n");
@@ -550,7 +561,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   assert.deepEqual(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).allow.at(-1), { from: 'lib', to: '.', origin: 'allowed', reason: 'store reads config', date: clock.dayKeyOf(clock.nowMs()), landed: false, fileImportCeiling: null });
   const allowBeforeAgentSetup = CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).allow;
   const previousAgentUrl = process.env[AGENT_URL_ENV];
-  process.env[AGENT_URL_ENV] = `${await agentIngressBase(bootedBackend().backend)}/agent/${SESSION_ID}?t=${bootedBackend().backend.getSession(SESSION_ID)?.agentToken}`;
+  process.env[AGENT_URL_ENV] = `${await agentIngressBase(bootedBackend().backend)}/agent/${STUDIO_BRANCH_SESSION_ID}?t=${bootedBackend().backend.getSession(STUDIO_BRANCH_SESSION_ID)?.agentToken}`;
   const operatorSetupFromSession = await runAgentApiCli(['codemap', 'setup', projectDir, '--gate', 'off']).finally(() => {
     if (previousAgentUrl === undefined) delete process.env[AGENT_URL_ENV];
     if (previousAgentUrl !== undefined) process.env[AGENT_URL_ENV] = previousAgentUrl;
@@ -664,13 +675,13 @@ test('codemap answers map, where, impact and check from the project mainline com
   assert.match(olderFormatCheck.text, /CODEMAP\.md was written in export format 0 .*so it is not judged/);
 
   const overlaid = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'session' } }, credential))).structuredContent);
-  assert.match(overlaid.text, /^codemap overlay on the map of project: session mcp endpoint changes \d+ files/);
+  assert.match(overlaid.text, /^codemap overlay on the map of project: session studio branch changes \d+ files/);
   const cleared = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'none' } }, credential))).structuredContent);
   assert.match(cleared.text, /shows no overlay/);
 });
 
 test('codemap check ignores pre-existing unallowed mainline imports on touched files and settles newly supported scanner languages once without re-seeding tracked languages', async () => {
-  const { credential, projectDir } = bootedBackend();
+  const { studioBranchCredential: credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.mkdirSync(path.join(projectDir, 'tools'), { recursive: true });
   fs.mkdirSync(path.join(projectDir, 'site'), { recursive: true });

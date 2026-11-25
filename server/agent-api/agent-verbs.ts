@@ -108,6 +108,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
       hasOwnWorktree: session.hasOwnWorktree,
       isRaceContestant: raceProject !== undefined,
       isDoneMeansOff: raceProject?.isDoneMeansOff === true,
+      isStudioSession: session.isStudioMain || branchParentIdOf(session.parent) !== null,
     };
   }
 
@@ -277,9 +278,15 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     };
   }
 
+  function askReply(session: Session, request: Extract<WhiteboardAgentRequest, { sub: 'ask' }>): Promise<AgentReplyOf<'whiteboard'>> | AgentReplyOf<'whiteboard'> {
+    if (!roleFactsOf(session).isStudioSession) return refusal(403, 'whiteboard ask puts a question on the code map, which belongs to Studio, and this session is not a Studio session: ask the operator in chat, or raise it with attention');
+    if (!boardAsks) return refusal(503, 'board asks are not available in this Glimmervoid');
+    return boardAsks.ask(session, request);
+  }
+
   function whiteboard(session: Session, request: WhiteboardAgentRequest): Promise<AgentReplyOf<'whiteboard'>> | AgentReplyOf<'whiteboard'> {
     if (!whiteboards) return refusal(503, 'whiteboards are not available in this Glimmervoid');
-    if (request.sub === 'ask') return boardAsks ? boardAsks.ask(session, request) : refusal(503, 'board asks are not available in this Glimmervoid');
+    if (request.sub === 'ask') return askReply(session, request);
     if (request.sub !== 'run') return whiteboards.handleAgent(whiteboardCallerOf(session), request);
     const spawnVerdict = COMMAND_ROUTES.spawn(roleFactsOf(session));
     if (!spawnVerdict.answers) return refusal(403, `whiteboard run spawns a session per ready step, and ${spawnVerdict.reason}`);

@@ -364,6 +364,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     return null;
   };
+  const isInStudio = (sessionId: string): boolean => studioRepoPathOf(sessionId) !== null;
   const studioMapBoardIdOf = async (sessionId: string): Promise<string | null> => {
     const studioRepoPath = studioRepoPathOf(sessionId);
     return studioRepoPath === null ? null : codemap.mapBoardIdOfRepo(studioRepoPath);
@@ -381,6 +382,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
     codemapNoticeOf: (project) => codemap.noticeOf(project),
     studioBoardIdOf: studioMapBoardIdOf,
+    reachesCodeMap: isInStudio,
   });
   const studioRepos = createStudioReposStore({ filePath: path.join(glimmervoidHomeDir(), 'studio-repos.json'), logger: console });
   const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), perRepoMapBoardsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), areas: studioRepos, isMappedDir: (repoDir) => repoDir !== studioHomeDir(), isAreaIdle: (repoDir) => !allLiveSessions().some((session) => branchParentIdOf(session.parent) !== null && session.path === repoDir && !session._destroyed), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
@@ -413,7 +415,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), scanFiles: createCodemapClient().scanFiles, claimsByOthersOf: fileClaims.claimsByOthersOf });
   const verification = createVerificationWiring({
     getVerificationConfig: () => configStore.config.verification,
-    builtInChecks: { outcomesOf: async (session, commitSha) => [...await codemap.builtInChecksOf(session, commitSha), ...await whiteboards.layoutChecksOf(session.id)], requiredIdsOf: (session) => codemap.requiredCheckIdsOf(session), freshnessOf: (session) => whiteboards.layoutFreshnessOf(session.id) },
+    builtInChecks: { outcomesOf: async (session, commitSha) => [...(isInStudio(session.id) ? await codemap.builtInChecksOf(session, commitSha) : []), ...await whiteboards.layoutChecksOf(session.id)], requiredIdsOf: async (session) => (isInStudio(session.id) ? codemap.requiredCheckIdsOf(session) : []), freshnessOf: (session) => whiteboards.layoutFreshnessOf(session.id) },
     isSessionSandboxOn: () => configStore.config.sessionSandbox === true,
     broadcastControl: broadcastControlFromWebSockets,
     heavyCommandGate,

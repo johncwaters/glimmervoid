@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The Code map belongs to Studio.** The Code map board no longer appears in the Focus roster, and it shows only the repos you open in Studio: a Focus session no longer adds its repo as an area on it, which had filled it with every repo any session ran in. Focus sessions still read the map with `codemap` and are still held to the import gate; a `whiteboard ask` from a repo not open in Studio is refused with that reason. Areas Focus sessions added before this release stay until you remove them.
+- **The Code map belongs to Studio.** Only Studio sessions (the Orchestrator and its branches) have the code map now. In any other session the agent is no longer offered the `codemap` tool, `glimmervoid codemap` is refused with the reason, the import check no longer runs at turn end or holds a landing, the Code map board is left out of `whiteboard list` and refused to `whiteboard get`, `put` and `connect`, and `whiteboard ask` is refused with a pointer to ask in chat or raise attention instead. The Code map board no longer appears in the Focus roster, and it shows only the repos you open in Studio: a Focus session no longer adds its repo as an area on it. Areas Focus sessions added before this release stay until you remove them.
 
 ### Fixed
 

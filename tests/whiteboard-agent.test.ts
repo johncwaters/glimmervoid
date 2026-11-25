@@ -2659,7 +2659,7 @@ test('the code map board puts a moved box back at its generated place and keeps 
   for (let index = 0; index < 20; index++) writeSource(`app/screen${index}.ts`, `import { part${index} } from '../lib/part${index}.ts';\nexport const screen${index} = part${index};`);
   await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: repoDir });
   await commitAll();
-  const wiring = openWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot, reachesCodeMap: (sessionId) => sessionId !== 'outside-studio' });
   let overlaidPaths = ['app/screen1.ts'];
   const specsRoot = path.join(boardsRoot, 'specs');
   const longStepTitle = 'Add a heavy-command semaphore in spawn-gate and gate verification-wiring with test-concurrency';
@@ -2683,6 +2683,15 @@ test('the code map board puts a moved box back at its generated place and keeps 
   const boardId = firstRead.board.id;
   const libBoxId = [...firstRead.board.elements.values()].find((element) => element.kind === 'box' && element.title === 'lib')?.id ?? '';
   assert.match(libBoxId, /^cm-[0-9a-f]{6}-lib-[0-9a-f]{8}$/);
+  const outsideStudio = { id: 'outside-studio', name: 'focus', project: repoDir };
+  const listedOutsideStudio = await wiring.handleAgent(outsideStudio, { sub: 'list', all: true });
+  assert.deepEqual('boards' in listedOutsideStudio.body ? listedOutsideStudio.body.boards.map((board) => board.id) : null, [], 'a session outside Studio is not shown the Code map board');
+  for (const withheld of [{ sub: 'get', board: boardId }, { sub: 'connect', board: boardId }, { sub: 'get', board: 'Code map' }] as const) {
+    const refused = await wiring.handleAgent(outsideStudio, withheld);
+    assert.equal(refused.status, 403, `${withheld.sub} ${withheld.board} is refused outside Studio`);
+  }
+  const listedInStudio = await wiring.handleAgent(reader, { sub: 'list', all: true });
+  assert.deepEqual('boards' in listedInStudio.body ? listedInStudio.body.boards.map((board) => board.id) : null, [boardId]);
 
   assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'set', id: libBoxId, fields: { place: { at: { x: 900, y: 900 } } } }]))).ok, true);
   const noted = await wiring.handleAgent(reader, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'lib-note', title: 'Shared parts', shape: 'note', place: { near: { of: libBoxId, side: 'right' } } } }, { op: 'add', element: { kind: 'wire', id: 'lib-note-wire', from: 'lib-note', to: libBoxId, dashed: true } }]) });

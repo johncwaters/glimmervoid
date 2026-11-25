@@ -5,13 +5,14 @@ import path from 'node:path';
 import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, BoxInput, NOTE_TONES, TEXT_SIZES, WHITEBOARD_LIMITS, boxIdOfEnd } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import type { Board, BoardChange, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, MediaLink, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import { isCodeMapBoardTitle } from '../../shared/contracts/control/board-session-messages.ts';
 import type { OpenBoardAsk } from '../../shared/contracts/control/board-session-messages.ts';
 import type { TelemetryEventProperties } from '../../shared/contracts/telemetry.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { DiffBefore, SlideChain, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { OPERATOR_AUTHOR, createBoard, stageOps, unplacedNearTargetIdsOf } from '../../shared/contracts/whiteboard-ops-core.ts';
+import { CODEMAP_AUTHOR, OPERATOR_AUTHOR, createBoard, stageOps, unplacedNearTargetIdsOf } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Author, PinPositions } from '../../shared/contracts/whiteboard-ops-core.ts';
@@ -176,6 +177,7 @@ interface WhiteboardWiringOptions {
   onBoardNamedProvisionally?: (naming: ProvisionalBoardNaming) => void;
   codemapNoticeOf?: (project: string) => string | null;
   studioBoardIdOf?: (sessionId: string) => Promise<string | null>;
+  reachesCodeMap?: (sessionId: string) => boolean;
   reportBoardOpened?: (report: TelemetryEventProperties<'board_opened'>) => void;
 }
 
@@ -334,7 +336,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, parentIdOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null, studioBoardIdOf = () => Promise.resolve(null), reportBoardOpened = () => {},
+  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, parentIdOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null, studioBoardIdOf = () => Promise.resolve(null), reachesCodeMap = () => true, reportBoardOpened = () => {},
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const linkedFolderKeeperIdByKey = new Map<string, string>();
@@ -1822,6 +1824,12 @@ function createWhiteboardWiring({
     return { ok: true, board, summary: summaryOf(record, now()) };
   }
 
+  function isCodeMapWithheldFrom(caller: WhiteboardCaller, boardId: string): boolean {
+    const record = recordsByBoardId.get(boardId);
+    if (!record || !isCodeMapBoardTitle(record.board.title)) return false;
+    return caller.id !== CODEMAP_AUTHOR.id && !reachesCodeMap(caller.id);
+  }
+
   async function handleAgent(caller: WhiteboardCaller, request: BoardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
     if (request.sub === 'new') return createUnlessOnBoard(caller, request.title);
@@ -1830,11 +1838,12 @@ function createWhiteboardWiring({
     if (request.sub === 'import') return importBoardForAgent(caller, request.path);
     if (request.sub === 'list') {
       const nowMs = now();
-      const listed = [...recordsByBoardId.values()].filter((record) => request.all === true || isListedFor(record, caller.project, nowMs));
+      const listed = [...recordsByBoardId.values()].filter((record) => !isCodeMapWithheldFrom(caller, record.board.id) && (request.all === true || isListedFor(record, caller.project, nowMs)));
       return { status: 200, body: { ok: true, boards: listed.map((record) => summaryOf(record, nowMs)) } };
     }
     const found = findBoardId(request.board, caller.project);
     if (!found.ok) return found.reply;
+    if (request.sub !== 'disconnect' && isCodeMapWithheldFrom(caller, found.boardId)) return refusal(403, 'the Code map board belongs to Studio, and this session is not a Studio session');
     if (request.sub !== 'delete') await adoptIfUnfiled(found.boardId, caller.project);
     const author: Author = { id: caller.id, name: caller.name };
     switch (request.sub) {
