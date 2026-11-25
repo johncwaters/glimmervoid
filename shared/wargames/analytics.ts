@@ -20,7 +20,6 @@ function summarizeOrder(order: OrderItem): string {
   }
   if (order.kind === 'build') return `build(${order.building}@${order.hexIndex})`;
   if (order.kind === 'train') return `train(${order.count} ${order.troop}@${order.hexIndex})`;
-  if (order.kind === 'scout') return `scout(${order.fromHexIndex}->${order.toHexIndex})`;
   return `found(${order.hexIndex})`;
 }
 

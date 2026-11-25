@@ -96,7 +96,7 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
     const s2Home = hexIndexAt(1, -2);
     const submitReplies = await Promise.all(
       WARGAMES_SEAT_IDS.map((seatId) => runner.callTool(matchId, seatId, 'submit_orders', {
-        orders: seatId === 's1' ? [{ kind: 'scout', fromHexIndex: s1Home, toHexIndex: s2Home }] : [],
+        orders: seatId === 's1' ? [{ kind: 'march', fromHexIndex: s1Home, toHexIndex: s2Home, troops: { raider: 1, guard: 0, envoy: 0 } }] : [],
       })),
     );
     for (const reply of submitReplies) assert.equal(reply.ok, true);
@@ -105,7 +105,7 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
     assert.equal(reportsReply.ok, true);
     if (reportsReply.ok) {
       const reports = reportsReply.payload.reports as { kind: string }[];
-      assert.deepEqual(reports.map((report) => report.kind), ['scout']);
+      assert.deepEqual(reports.map((report) => report.kind), ['battle']);
     }
 
     const watched = await runner.watchMatch(matchId, 'watcher-1');

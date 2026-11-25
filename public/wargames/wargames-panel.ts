@@ -18,7 +18,7 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { improvementYieldPerLevelOn, matchSeatIds, projectSeatState, seatStandingOf, victoryPointTargetOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
+import { improvementYieldPerLevelOn, matchSeatIds, seatStandingOf, victoryPointTargetOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { betrayalsOf } from '#shared/wargames/analytics.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
@@ -57,7 +57,6 @@ import {
   controlToneColor,
   createWargamesMap,
   isMatchOver,
-  SCOUT_EYE_PATH,
   SEAT_COLORS,
   seatLabelOf,
   TERRAIN_GLYPHS,
@@ -674,13 +673,6 @@ function buildOrderElement(order: OrderItem): HTMLElement {
       }
       return item;
     }
-    case 'scout':
-      item.append(
-        createWargamesGlyph(SCOUT_EYE_PATH, 13, 'var(--text-dim)', 'Scout'),
-        el('span', '', 'Scout'),
-        ...hexRouteElements(order.fromHexIndex, order.toHexIndex),
-      );
-      return item;
   }
 }
 
@@ -981,7 +973,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   return card;
 }
 
-function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnapshot>['pov']): HTMLElement {
+function buildHexIntelBar(state: MatchState): HTMLElement {
   const bar = el('div', 'wg-hex-intel');
   if (selectedHexIndex === null) {
     bar.append(el('span', 'wg-card-meta', 'Click a hex to inspect it'));
@@ -993,22 +985,13 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
     bar.append(el('span', 'wg-card-meta', 'Click a hex to inspect it'));
     return bar;
   }
-  const seatView = pov === 'god' ? null : projectSeatState(state, pov);
-  const village = seatView
-    ? seatView.visibleVillages.find((entry) => entry.hexIndex === selectedHexIndex) ?? null
-    : state.villages[selectedHexIndex];
-  const isFogged = seatView !== null && state.villages[selectedHexIndex] !== null && village === null;
-
-  if (isFogged) {
-    bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', 'Hidden by fog of war'));
-    return bar;
-  }
+  const village = state.villages[selectedHexIndex];
 
   const land = village ? undefined : state.territory.get(tile.index);
-  if (land) return buildLandIntel(bar, state, tile.index, land, armiesOnTile(state, pov, tile.index));
+  if (land) return buildLandIntel(bar, state, tile.index, land, armiesOnTile(state, tile.index));
   if (!village) {
     bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', 'Open land, unclaimed'));
-    const armies = armiesOnTile(state, pov, tile.index);
+    const armies = armiesOnTile(state, tile.index);
     if (armies.length > 0) bar.append(buildTileArmyGroup(state, armies));
     return bar;
   }
@@ -1051,14 +1034,13 @@ function improvementEffectOf(state: MatchState, hexIndex: number, land: LandTile
   if (land.improvement === null) return '';
   if (land.improvement === 'field') return `+${land.level * improvementYieldPerLevelOn(state, hexIndex, 'field')} grain to the village beside it`;
   if (land.improvement === 'quarry') return `+${land.level * improvementYieldPerLevelOn(state, hexIndex, 'quarry')} ore to the nearest village`;
-  if (land.improvement === 'watchtower') return `Sees armies within ${rule.watchtowerRange} hexes`;
   return `Armies holding it defend at +${Math.round(rule.outpostDefenseBonus * 100)}%`;
 }
 
 type TileArmy = Pick<NonNullable<ReturnType<MatchState['armies']['get']>>, 'owner' | 'status' | 'troops' | 'currentHexIndex' | 'targetHexIndex' | 'originHexIndex'>;
 
-function armiesOnTile(state: MatchState, pov: ReturnType<typeof wargamesSnapshot>['pov'], hexIndex: number): TileArmy[] {
-  const armies: TileArmy[] = pov === 'god' ? [...state.armies.values()] : projectSeatState(state, pov).visibleArmies;
+function armiesOnTile(state: MatchState, hexIndex: number): TileArmy[] {
+  const armies: TileArmy[] = [...state.armies.values()];
   return armies.filter((army) => army.currentHexIndex === hexIndex && (army.status === 'standing' || army.status === 'marching' || army.status === 'returning'));
 }
 
@@ -1206,7 +1188,6 @@ function buildMapLegend(): HTMLElement {
     legendGroup('Moves', [
       legendItem(arrowSwatchIcon('4 2'), 'Army marching'),
       legendItem(arrowSwatchIcon('2 3'), 'Planned order (seat view or selected hex)'),
-      legendItem(createWargamesGlyph(SCOUT_EYE_PATH, 14, 'var(--text-head)'), 'Scout'),
     ]),
     legendGroup('Diplomacy', [
       legendItem(createWargamesGlyph(CHAT_ICON_PATH, 14, 'var(--text-head)'), 'Message'),
@@ -1370,7 +1351,7 @@ function updateLiveShell(state: MatchState): HTMLElement {
   shell.mapKeyPopover.replaceChildren(...buildMapLegend().children);
   diplomacyLog?.update(state, snap.pov);
   economyView?.update(state, snap.events);
-  economyLens?.update(state, snap.pov, selectedHexIndex);
+  economyLens?.update(state, selectedHexIndex);
   const isEndgameShown = isMatchOver(state) && (mapView?.isBoardSettled() ?? true);
   shell.endgameSlot.hidden = !isEndgameShown;
   if (isEndgameShown) {
@@ -1387,14 +1368,14 @@ function updateLiveShell(state: MatchState): HTMLElement {
   }
 
   const selectedSeat = spotlightSeatId ? state.seats.find((seat) => seat.config.seatId === spotlightSeatId) : null;
-  const modeHint = selectedSeat ? `Fog of war · ${selectedSeat.config.label} view` : 'Full map';
+  const modeHint = selectedSeat ? `${selectedSeat.config.label} view` : 'Full map';
   const followStatus = followStatusOf(state, snap.headState ?? state);
   shell.boardBarSlot.replaceChildren(
     el('span', 'wg-board-hint', modeHint),
     el('span', 'wg-board-hint', goalText(state)),
     el('span', 'wg-board-hint', followStatus),
   );
-  shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state, snap.pov));
+  shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state));
   return shell.wrap;
 }
 

@@ -155,6 +155,15 @@ test('4-seat matches seat s1 to s4 on an even map, refuse other seat sets, and r
   assert.deepEqual(analytics.highlights.map((highlight) => [highlight.kind, highlight.actor, highlight.target, highlight.relatedDmText]), [['betrayal', 's1', 's2', 'We are friends']]);
   assert.deepEqual(analytics.seats.map((seat) => seat.betrayals), [1, 0, 0, 0]);
 
+  const s2Home = present(state.villages.find((village) => village?.owner === 's2'));
+  const s1FromS2 = present(projectSeatState(state, 's2').otherSeats.find((other) => other.seatId === 's1'));
+  assert.deepEqual([s1FromS2.lastMessageFromTick, s1FromS2.lastMessageToTick], [1, null]);
+  assert.equal(s1FromS2.villages.length, state.villages.filter((village) => village?.owner === 's1').length);
+  assert.deepEqual(s1FromS2.armiesNearYou.filter((army) => army.target === s2Home.hexIndex).map((army) => army.troops), [1]);
+  const s1FromS3 = present(projectSeatState(state, 's3').otherSeats.find((other) => other.seatId === 's1'));
+  assert.deepEqual([s1FromS3.lastMessageFromTick, s1FromS3.lastMessageToTick], [null, null]);
+  assert.deepEqual(s1FromS3.villages.map((village) => village.troops), s1FromS2.villages.map((village) => village.troops));
+
   assert.deepEqual(replayMatch(log), state);
   const economyFromFullLog = extendEconomyTimeline(EMPTY_ECONOMY_TIMELINE, log);
   const turnEndEventCountByTick: number[] = [];
@@ -213,7 +222,7 @@ test('a lone raid bounces off a guarded wall, but one seat can clear it and anot
   target.buildings.wall = 3;
   const marchOn = (current: typeof state, owner: 's1' | 's2', armyId: string, troops: Troops) => current.armies.set(armyId, {
     id: armyId, owner, status: 'marching', originHexIndex: target.hexIndex, currentHexIndex: target.hexIndex, targetHexIndex: target.hexIndex,
-    troops, departedTick: current.tick, scoutedBy: [],
+    troops, departedTick: current.tick,
   });
   const nextTurn = (current: typeof state) => {
     let next = current;
@@ -315,7 +324,7 @@ test('v9 starts villages with their land ring, claims land as a front with land 
   present(state.territory.get(fieldHex)).level = 3;
   state.armies.set('army-s2', {
     id: 'army-s2', owner: 's2', status: 'marching', originHexIndex: s2Home.hexIndex, currentHexIndex: fieldHex, targetHexIndex: fieldHex,
-    troops: { raider: 2, guard: 0, envoy: 0 }, departedTick: state.tick, scoutedBy: [],
+    troops: { raider: 2, guard: 0, envoy: 0 }, departedTick: state.tick,
   });
   playTurn({});
   assert.deepEqual(standingAt(fieldHex).map((army) => army.owner), ['s2']);
@@ -365,7 +374,7 @@ test('v9 starts villages with their land ring, claims land as a front with land 
   barbarian.loyalty = 1;
   state.armies.set('army-capture', {
     id: 'army-capture', owner: 's1', status: 'marching', originHexIndex: home.hexIndex, currentHexIndex: barbarian.hexIndex, targetHexIndex: barbarian.hexIndex,
-    troops: { raider: 6, guard: 0, envoy: 2 }, departedTick: state.tick, scoutedBy: [],
+    troops: { raider: 6, guard: 0, envoy: 2 }, departedTick: state.tick,
   });
   playTurn({});
   assert.equal(state.villages[barbarian.hexIndex]?.owner, 's1');
@@ -375,5 +384,5 @@ test('v9 starts villages with their land ring, claims land as a front with land 
 
 test('the rules id names one balance and one event schema, so a saved log replays on the rules that made it', () => {
   const rulesFingerprint = createHash('sha256').update(JSON.stringify([WARGAMES_BALANCE, z.toJSONSchema(WargamesEventSchema, { io: 'input' })])).digest('hex').slice(0, 16);
-  assert.deepEqual({ rules: WARGAMES_RULES_ID, rulesFingerprint }, { rules: 'r2', rulesFingerprint: '5828715e97312616' });
+  assert.deepEqual({ rules: WARGAMES_RULES_ID, rulesFingerprint }, { rules: 'r3', rulesFingerprint: 'a98c940250c83d76' });
 });

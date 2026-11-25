@@ -124,21 +124,21 @@ function turnLines(spec: WargamesMatchSpecType): string[] {
   return [
     'Each tick',
     `- ${spec.tickDeadlineSeconds}s in two phases. Talk: read_messages, send_message, then get_state({ ready: true, wait_for_change: true }). Orders: one submit_orders call; every seat's orders resolve together.`,
-    '- Start with get_state() and act only through your Wargames tools. get_reports holds your battle, scout and land reports. write_note keeps private plans.',
+    '- Start with get_state() and act only through your Wargames tools. get_reports holds your battle and land reports. write_note keeps private plans.',
+    '- Every seat sees the whole board: every village with its troops and Wall, all land, and every army in the field. Only direct messages and notes are private. get_state otherSeats lists each other seat with how close its border is, when you last messaged each other, and its armies near you or marching at you.',
   ];
 }
 
 function orderLines(spec: WargamesMatchSpecType): string[] {
   const { roles, buildingCosts, territory } = WARGAMES_BALANCE;
   const troopCosts = troopCostsFor(WARGAMES_BALANCE);
-  const { field, quarry, watchtower, outpost } = territory.improvements;
+  const { field, quarry, outpost } = territory.improvements;
   const unitText = (troop: 'raider' | 'guard' | 'envoy') => `${troop} ${roles.units[troop].attack}/${roles.units[troop].defense} for ${costText(troopCosts[troop])}`;
   return [
     'Orders (submit_orders({ orders: [...] }); hexIndex values come from get_state)',
     `- train { "kind": "train", "hexIndex": 12, "troop": "guard", "count": 5 }: in your village, paid from its stock. Attack/defense: ${unitText('raider')}, ${unitText('guard')}, ${unitText('envoy')}. A village holds ${roles.troopCapBase} troops plus ${roles.troopCapPerFarmLevel} per Farm level, counting its armies out.`,
-    `- build { "kind": "build", "hexIndex": 12, "building": "wall" }: one build per hex per tick. In a village, up to level 10: farm (${costText(buildingCosts.farm)}, +20 grain and +200 storage per level), mine (${costText(buildingCosts.mine)}, +20 ore and +200 storage), wall (${costText(buildingCosts.wall)}, +${roles.wallDefensePerLevel} defense and +${Math.round(roles.wallBonusPerLevel * 100)}% defense power). On your land, paid by your nearest village: field (${costText(field.cost)}, up to level ${field.maxLevel}, +${field.yieldPerLevel} grain per level to a village next to it, +${territory.tileBonusPerLevel} on Fertile), quarry (${costText(quarry.cost)}, up to level ${quarry.maxLevel}, +${quarry.yieldPerLevel} ore per level, +${territory.tileBonusPerLevel} on Ore), watchtower (${costText(watchtower.cost)}, level ${watchtower.maxLevel} only, shows armies within ${territory.watchtowerRange} hexes), outpost (${costText(outpost.cost)}, level ${outpost.maxLevel} only, your armies on it defend at +${Math.round(territory.outpostDefenseBonus * 100)}%). A village makes 25 grain and 25 ore per tick and stores 500 of each.`,
+    `- build { "kind": "build", "hexIndex": 12, "building": "wall" }: one build per hex per tick. In a village, up to level 10: farm (${costText(buildingCosts.farm)}, +20 grain and +200 storage per level), mine (${costText(buildingCosts.mine)}, +20 ore and +200 storage), wall (${costText(buildingCosts.wall)}, +${roles.wallDefensePerLevel} defense and +${Math.round(roles.wallBonusPerLevel * 100)}% defense power). On your land, paid by your nearest village: field (${costText(field.cost)}, up to level ${field.maxLevel}, +${field.yieldPerLevel} grain per level to a village next to it, +${territory.tileBonusPerLevel} on Fertile), quarry (${costText(quarry.cost)}, up to level ${quarry.maxLevel}, +${quarry.yieldPerLevel} ore per level, +${territory.tileBonusPerLevel} on Ore), outpost (${costText(outpost.cost)}, level ${outpost.maxLevel} only, your armies on it defend at +${Math.round(territory.outpostDefenseBonus * 100)}%). A village makes 25 grain and 25 ore per tick and stores 500 of each.`,
     `- march { "kind": "march", "fromHexIndex": 12, "toHexIndex": 30, "troops": { "raider": 6, "guard": 0, "envoy": 2 } }: ${WARGAMES_TRAVEL_HEXES_PER_TICK} hexes per tick along the cheapest path (Forest costs ${marchCostOf('forest')}; Mountain and Lake block). To an open hex the army stays standing until ordered on, from that hex. To your own village it reinforces.`,
-    '- scout { "kind": "scout", "fromHexIndex": 12, "toHexIndex": 30 }: up to 2 per tick; shows that village\'s troops, buildings and armies marching there.',
     `- found { "kind": "found", "hexIndex": 40 }: turns a bare land hex at least ${territory.foundSpacing} hexes from any village or Beacon into a village with ${WARGAMES_BALANCE.capturedLoyalty} Loyalty. Your nearest village pays ${territory.foundEnvoys} Envoys and ${costText(foundCostFor(territory, 0))}, rising with each founding; at most ${valueForRadius(territory.foundLimitByRadius, spec.mapRadius)} on this map.`,
   ];
 }

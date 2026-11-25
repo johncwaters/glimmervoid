@@ -1,5 +1,5 @@
 import type { SeatId } from '#shared/contracts/wargames.ts';
-import { projectSeatState, villageYieldOf, warehouseCapOf } from '#shared/wargames/engine.ts';
+import { villageYieldOf, warehouseCapOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { el } from '../dom-helpers.ts';
 import { createSvgShape } from '../svg-dom.ts';
@@ -7,7 +7,6 @@ import { switchInput } from '../ui/switch.ts';
 import { ECON_GLYPHS, econGlyph, GRAIN_COLOR, ORE_COLOR } from './wargames-econ-glyphs.ts';
 import type { EconGlyphKey } from './wargames-econ-glyphs.ts';
 import { hexCenter, SEAT_COLORS, seatLabelOf } from './wargames-map.ts';
-import type { WargamesPov } from './wargames-store.ts';
 import './wargames-economy-lens.css';
 
 type VillageState = NonNullable<MatchState['villages'][number]>;
@@ -23,13 +22,12 @@ const CHIP_PADDING = 2;
 interface EconomyLens {
   readonly controls: HTMLElement;
   attach(svg: SVGSVGElement): void;
-  update(state: MatchState, pov: WargamesPov, selectedHexIndex: number | null): void;
+  update(state: MatchState, selectedHexIndex: number | null): void;
   showSettledBoard(): void;
 }
 
 interface LensInput {
   readonly state: MatchState;
-  readonly pov: WargamesPov;
   readonly selectedHexIndex: number | null;
 }
 
@@ -42,9 +40,8 @@ function hitPolygonPoints(centerX: number, centerY: number): string {
   return corners.join(' ');
 }
 
-function visibleVillagesOf(state: MatchState, pov: WargamesPov): VillageState[] {
-  if (pov === 'god') return state.villages.filter((village): village is VillageState => village !== null);
-  return projectSeatState(state, pov).visibleVillages;
+function boardVillagesOf(state: MatchState): VillageState[] {
+  return state.villages.filter((village): village is VillageState => village !== null);
 }
 
 function incomeOf(village: VillageState): { grain: number; ore: number } {
@@ -164,7 +161,6 @@ function legendKey(key: 'grain' | 'ore', color: string): HTMLElement {
 export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoardSettled: () => boolean): EconomyLens {
   let isOn = false;
   let latestState: MatchState | null = null;
-  let latestPov: WargamesPov = 'god';
   let hoveredHexIndex: number | null = null;
   const layer = createSvgShape('g', { class: 'wg-lens-layer' });
   const markLayer = createSvgShape('g', { class: 'wg-lens-marks' });
@@ -178,7 +174,6 @@ export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoa
   function applyHeldInput(): void {
     if (!heldInput) return;
     latestState = heldInput.state;
-    latestPov = heldInput.pov;
     selectedHexIndex = heldInput.selectedHexIndex;
     heldInput = null;
     render();
@@ -243,7 +238,7 @@ export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoa
     controls.dataset.lens = isOn ? 'on' : 'off';
     if (!isOn || !latestState) return;
     const state = latestState;
-    const villages = visibleVillagesOf(state, latestPov);
+    const villages = boardVillagesOf(state);
     const maxVisibleIncome = Math.max(0, ...villages.map((village) => {
       const income = incomeOf(village);
       return income.grain + income.ore;
@@ -283,8 +278,8 @@ export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoa
       }
       svg.append(layer);
     },
-    update(state, pov, selectedHex) {
-      heldInput = { state, pov, selectedHexIndex: selectedHex };
+    update(state, selectedHex) {
+      heldInput = { state, selectedHexIndex: selectedHex };
       if (!isBoardSettled()) return;
       applyHeldInput();
     },

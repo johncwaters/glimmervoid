@@ -67,7 +67,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('get_state', {
     title: 'Get Match State',
-    description: 'Read your fog-of-war view of the current tick, phase, visible villages and armies. yourLand lists your land count, land VP per tick, hexes you can claim next, and ready-made claim and build orders. Pass ready: true during talk when finished so the phase can advance early, and wait_for_change: true to block until the tick, phase, or match status changes.',
+    description: 'Read the board: your villages and armies in full, each other seat summarized (VP, land, villages, border distance, last messages, armies near you), unowned sites, land and terrain. yourLand lists your land count, land VP per tick, hexes you can claim next, and ready-made claim and build orders. Pass ready: true during talk when finished so the phase can advance early, and wait_for_change: true to block until the tick, phase, or match status changes.',
     inputSchema: z.strictObject({
       ready: z.boolean().optional(),
       wait_for_change: z.boolean().optional(),
@@ -76,7 +76,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('get_reports', {
     title: 'Get Reports',
-    description: 'Read the battle, scout, and land (a hex you claimed or lost) reports received since a given tick.',
+    description: 'Read the battle and land (a hex you claimed or lost) reports received since a given tick.',
     inputSchema: z.strictObject({ since_tick: z.number().int().min(0).default(0) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'get_reports', args)));
 
@@ -104,7 +104,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('submit_orders', {
     title: 'Submit Sealed Orders',
-    description: `Seal your orders (build, found, train, march, scout) for simultaneous resolution during the orders phase. A march to an open hex leaves the army standing there (holding it next to your land claims it), a march may start from a hex where your army stands, build takes ${ImprovementKind.options.join(', ')} on your land hex, and found turns your land hex into a village.`,
+    description: `Seal your orders (build, found, train, march) for simultaneous resolution during the orders phase. A march to an open hex leaves the army standing there (holding it next to your land claims it), a march may start from a hex where your army stands, build takes ${ImprovementKind.options.join(', ')} on your land hex, and found turns your land hex into a village.`,
     inputSchema: z.strictObject({ orders: z.array(OrderItem).max(64) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'submit_orders', args)));
 

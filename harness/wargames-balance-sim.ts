@@ -232,7 +232,6 @@ function improvementOrdersFor(state: MatchState, seatId: SeatId, strategy: Strat
   const rule = state.balance.territory;
   if (rule === null || strategy === 'rusher') return;
   const tiles = [...state.territory.entries()].filter(([, tile]) => tile.owner === seatId);
-  const hasWatchtower = tiles.some(([, tile]) => tile.improvement === 'watchtower');
   const outposts = tiles.filter(([, tile]) => tile.improvement === 'outpost').length;
   let buildsLeft = strategy === 'builder' ? 4 : 2;
   for (const [hexIndex, tile] of tiles) {
@@ -242,9 +241,8 @@ function improvementOrdersFor(state: MatchState, seatId: SeatId, strategy: Strat
     const isBesideVillage = hexDistance(state.hexes[hexIndex], state.hexes[payer.hexIndex]) === 1;
     const wanted = tile.improvement
       ?? (strategy === 'turtle' && outposts === 0 && !isBesideVillage ? 'outpost'
-        : strategy === 'turtle' && !hasWatchtower ? 'watchtower'
-          : isBesideVillage ? 'field'
-            : state.terrain[hexIndex] === 'ore' || strategy === 'builder' ? 'quarry' : null);
+        : isBesideVillage ? 'field'
+          : state.terrain[hexIndex] === 'ore' || strategy === 'builder' ? 'quarry' : null);
     if (wanted === null || tile.level >= rule.improvements[wanted].maxLevel) continue;
     orders.push({ kind: 'build', hexIndex, building: wanted });
     buildsLeft -= 1;
@@ -482,7 +480,7 @@ function unitsWithin(budget: number, cost: { grain: number; ore: number }): numb
 function marchingArmyAt(id: string, owner: SeatId, hexIndex: number, troops: TroopCounts): Parameters<MatchState['armies']['set']>[1] {
   return {
     id, owner, status: 'marching', originHexIndex: hexIndex, currentHexIndex: hexIndex, targetHexIndex: hexIndex,
-    troops, departedTick: 0, scoutedBy: [],
+    troops, departedTick: 0,
   };
 }
 

@@ -1643,7 +1643,7 @@
     },
     {
       "name": "improvement",
-      "definition": "In Wargames, the one field, quarry, watchtower or outpost a land hex holds, built with a build order and paid by the seat's nearest village"
+      "definition": "In Wargames, the one field, quarry or outpost a land hex holds, built with a build order and paid by the seat's nearest village"
     },
     {
       "name": "outpost",
@@ -1667,7 +1667,7 @@
     },
     {
       "name": "orders",
-      "definition": "The Wargames seat's sealed list for one tick (train, build, march, scout, found), submitted in the orders phase and resolved together with every other seat's"
+      "definition": "The Wargames seat's sealed list for one tick (train, build, march, found), submitted in the orders phase and resolved together with every other seat's"
     }
   ],
   "retired": [

@@ -1,6 +1,6 @@
 import { ImprovementKind, WARGAMES_MAX_HEX_RADIUS, WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, TroopCounts, WargamesReport } from '#shared/contracts/wargames.ts';
-import { ALL_HEXES, hexIndexAt, marchRouteOf, projectSeatState } from '#shared/wargames/engine.ts';
+import { ALL_HEXES, hexIndexAt, marchRouteOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { TERRAIN_MIN_RADIUS, isPassable } from '#shared/wargames/terrain.ts';
 import type { TerrainKind } from '#shared/wargames/terrain.ts';
@@ -88,7 +88,6 @@ export const BUILDING_GLYPH_PATHS: readonly { key: BuildingKey; label: string; c
 const IMPROVEMENT_GLYPHS: Readonly<Record<ImprovementKind, { label: string; color: string; path: string }>> = Object.freeze({
   field: { label: 'Field', color: '#bef264', path: 'M 2 12.5 Q 8 9.5 14 12.5 M 2 8.5 Q 8 5.5 14 8.5 M 2 4.5 Q 8 1.5 14 4.5' },
   quarry: { label: 'Quarry', color: 'var(--state-monitoring)', path: 'M 2.5 13 L 3.5 7 L 8 4.5 L 13 6.5 L 13.5 12 L 8 13.5 Z M 3.5 7 L 8.5 9 L 13 6.5 M 8.5 9 L 8 13.5' },
-  watchtower: { label: 'Watchtower', color: '#67e8f9', path: 'M 5.5 14 L 6.5 6.5 H 9.5 L 10.5 14 M 4.5 6.5 H 11.5 V 2.5 H 4.5 Z' },
   outpost: { label: 'Outpost', color: '#f0abfc', path: 'M 3 14 V 6 L 4.5 4 L 6 6 V 14 M 6.5 14 V 6 L 8 4 L 9.5 6 V 14 M 10 14 V 6 L 11.5 4 L 13 6 V 14' },
 });
 
@@ -96,23 +95,10 @@ export const IMPROVEMENT_GLYPH_PATHS: readonly { key: ImprovementKind; label: st
 
 const WALL_GLYPH = BUILDING_GLYPH_PATHS.find((building) => building.key === 'wall') ?? BUILDING_GLYPH_PATHS[0];
 
-export const SCOUT_EYE_PATH = 'M 2 8 C 4.2 4.5 11.8 4.5 14 8 C 11.8 11.5 4.2 11.5 2 8 Z M 8 6.5 A 1.5 1.5 0 1 0 8 9.5 A 1.5 1.5 0 1 0 8 6.5';
 export const CONTROL_FLAG_PATH = 'M 4 14 V 2.5 M 4 3 H 12.5 L 10.5 5.75 L 12.5 8.5 H 4';
 export const PACT_SCROLL_PATH = 'M 4 3 H 12 V 13 H 4 Z M 6 6 H 10 M 6 9 H 9';
-const PREVIEW_MID_ICONS: Readonly<Record<'march' | 'scout', string | undefined>> = Object.freeze({
-  march: undefined,
-  scout: SCOUT_EYE_PATH,
-});
-
-const PREVIEW_STROKE_WIDTHS: Readonly<Record<'march' | 'scout', string>> = Object.freeze({
-  march: '1.8',
-  scout: '1.4',
-});
-
-function previewDashOf(kind: 'march' | 'scout', isFriendlyReinforce: boolean): string {
-  if (kind === 'scout') return '1 3';
-  if (isFriendlyReinforce) return '2 4';
-  return '5 4';
+function previewDashOf(isFriendlyReinforce: boolean): string {
+  return isFriendlyReinforce ? '2 4' : '5 4';
 }
 export const BREACH_WARNING_PATH = 'M 8 2 L 14 13 H 2 Z M 8 6 V 9 M 8 11 V 11.5';
 export const THOUGHT_CLOUD_PATH = 'M 5 10.5 A 2.5 2.5 0 0 1 4.2 5.6 A 3 3 0 0 1 9.8 4.2 A 2.6 2.6 0 0 1 12.2 10 Z M 4.5 13 L 4.6 13 M 2.6 14.8 L 2.7 14.8';
@@ -144,10 +130,6 @@ function barrierFillFor(kind: TerrainKind): string | undefined {
   return BARRIER_FILLS[kind] ?? MOUNTAIN_BARRIER_FILL;
 }
 const BARRIER_SCALE = HEX_SIZE / HEX_INNER_RADIUS;
-
-function emptyHexFill(isFogged: boolean): string {
-  return isFogged ? 'var(--bg)' : 'var(--bg-surface)';
-}
 
 type TerritoryTile = NonNullable<ReturnType<MatchState['territory']['get']>>;
 
@@ -1335,8 +1317,8 @@ export function createWargamesMap(
     clearCaption();
   }
 
-  function seatAnchorSlot(state: MatchState, pov: WargamesPov, seatId: SeatId): HexNodeSlot | null {
-    const owned = visibleVillagesArray(state, pov).find((village) => village?.owner === seatId);
+  function seatAnchorSlot(state: MatchState, seatId: SeatId): HexNodeSlot | null {
+    const owned = boardVillagesOf(state).find((village) => village?.owner === seatId);
     if (!owned) return null;
     return slots[owned.hexIndex] ?? null;
   }
@@ -1374,9 +1356,9 @@ export function createWargamesMap(
         || message.to === pov
         || message.channel === 'public';
       if (!isVisible) continue;
-      const speakerSlot = seatAnchorSlot(state, pov, message.from);
+      const speakerSlot = seatAnchorSlot(state, message.from);
       if (!speakerSlot) continue;
-      const recipientSlot = message.channel === 'dm' && message.to !== null ? seatAnchorSlot(state, pov, message.to) : null;
+      const recipientSlot = message.channel === 'dm' && message.to !== null ? seatAnchorSlot(state, message.to) : null;
       const speakerColor = SEAT_COLORS[message.from];
       const captionLine: BoardCaptionLine = {
         color: speakerColor,
@@ -1410,7 +1392,7 @@ export function createWargamesMap(
     }
     for (const entry of updatedNotes) {
       if (pov !== 'god' && entry.seatId !== pov) continue;
-      const thinkerSlot = seatAnchorSlot(state, pov, entry.seatId);
+      const thinkerSlot = seatAnchorSlot(state, entry.seatId);
       if (!thinkerSlot) continue;
       beats.push({
         id: `note-${entry.seatId}-${state.tick}`,
@@ -1456,7 +1438,6 @@ export function createWargamesMap(
     const slot = slots[index];
     if (!slot) return;
     const isSelected = selectedHexIndex === index;
-    const isFogged = pov !== 'god' && state.villages[index] !== null && village === null;
     const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
     const isDenseMap = state.spec.mapRadius >= TERRAIN_MIN_RADIUS;
     const terrainKind = state.terrain[index] ?? 'plain';
@@ -1491,11 +1472,11 @@ export function createWargamesMap(
 
     const barrierFill = barrierFillFor(terrainKind);
     slot.polygon.setAttribute('points', hexPolygonPoints(slot.centerX, slot.centerY, barrierFill === undefined ? 1 : BARRIER_SCALE));
-    slot.polygon.setAttribute('fill', barrierFill ?? (territoryTile ? territoryFill(territoryTile.owner) : emptyHexFill(isFogged)));
+    slot.polygon.setAttribute('fill', barrierFill ?? (territoryTile ? territoryFill(territoryTile.owner) : 'var(--bg-surface)'));
     slot.polygon.setAttribute('stroke', isSelected ? 'var(--text-head)' : barrierFill ?? 'var(--border)');
     slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
     slot.polygon.removeAttribute('stroke-dasharray');
-    slot.detailLabel.textContent = isFogged ? '?' : '';
+    slot.detailLabel.textContent = '';
     slot.detailLabel.setAttribute('class', 'wg-hex-owner');
     slot.detailLabel.setAttribute('font-size', '12');
     slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
@@ -1527,18 +1508,12 @@ export function createWargamesMap(
     }
   }
 
-  function visibleVillagesArray(state: MatchState, pov: WargamesPov): (VillageState | null)[] {
-    if (pov === 'god') return state.villages.map(cloneVillage);
-    const seatView = projectSeatState(state, pov);
-    const byHex = new Map(seatView.visibleVillages.map((village) => [village.hexIndex, village]));
-    return state.hexes.map((_, index) => cloneVillage(byHex.get(index) ?? null));
+  function boardVillagesOf(state: MatchState): (VillageState | null)[] {
+    return state.villages.map(cloneVillage);
   }
 
-  function visibleActiveArmies(state: MatchState, pov: WargamesPov) {
-    if (pov === 'god') {
-      return [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning' || army.status === 'standing');
-    }
-    return projectSeatState(state, pov).visibleArmies;
+  function fieldArmiesOf(state: MatchState) {
+    return [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning' || army.status === 'standing');
   }
 
   function armyLegOf(army: { status: string; currentHexIndex: number; originHexIndex: number; targetHexIndex: number }): { fromHexIndex: number; toHexIndex: number } {
@@ -1674,7 +1649,7 @@ export function createWargamesMap(
   function restingArmiesOf(state: MatchState, pov: WargamesPov, spotlightSeatId: SeatId | null) {
     if (isMatchOver(state)) return [];
     const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
-    return visibleActiveArmies(state, pov).filter((army) => (
+    return fieldArmiesOf(state).filter((army) => (
       army.status !== 'returning' && (!isSpotlightActive || army.owner === spotlightSeatId)
     ));
   }
@@ -1738,7 +1713,7 @@ export function createWargamesMap(
     onDrain: () => {
       advanceOverlay('recap_drained');
       if (latestState) {
-        displayedVillages = visibleVillagesArray(latestState, latestPov);
+        displayedVillages = boardVillagesOf(latestState);
         paintAllDisplayedSlots(latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
         renderActiveArmies(latestState, latestPov, latestSpotlightSeatId);
       }
@@ -1826,7 +1801,6 @@ export function createWargamesMap(
       fromHexIndex: number;
       toHexIndex: number;
       troops: TroopCounts;
-      kind: 'march' | 'scout';
     }[] = [];
     const hexBadges = new Map<number, { seatId: SeatId; tokens: PreviewGlyphToken[] }>();
 
@@ -1844,17 +1818,7 @@ export function createWargamesMap(
       if (latestPov !== 'god' && seatId !== latestPov) continue;
       for (const order of seat.sealedOrders) {
         if (order.kind === 'march') {
-          previewVectors.push({ seatId, fromHexIndex: order.fromHexIndex, toHexIndex: order.toHexIndex, troops: order.troops, kind: 'march' });
-          continue;
-        }
-        if (order.kind === 'scout') {
-          previewVectors.push({
-            seatId,
-            fromHexIndex: order.fromHexIndex,
-            toHexIndex: order.toHexIndex,
-            troops: { raider: 0, guard: 0, envoy: 0 },
-            kind: 'scout',
-          });
+          previewVectors.push({ seatId, fromHexIndex: order.fromHexIndex, toHexIndex: order.toHexIndex, troops: order.troops });
           continue;
         }
         if (order.kind === 'build') {
@@ -1883,16 +1847,15 @@ export function createWargamesMap(
       const fromSlot = slots[entry.fromHexIndex];
       const toSlot = slots[entry.toHexIndex];
       if (!fromSlot || !toSlot) continue;
-      const isFriendlyReinforce = entry.kind === 'march' && latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
-      previewStrokes.push({ owner: entry.seatId, troopTotal: troopTotalOf(entry.troops), hexIndices: marchRouteOf(latestState, entry.fromHexIndex, entry.toHexIndex).hexIndices, dash: previewDashOf(entry.kind, isFriendlyReinforce), lineClass: 'wg-preview-line' });
+      const isFriendlyReinforce = latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
+      previewStrokes.push({ owner: entry.seatId, troopTotal: troopTotalOf(entry.troops), hexIndices: marchRouteOf(latestState, entry.fromHexIndex, entry.toHexIndex).hexIndices, dash: previewDashOf(isFriendlyReinforce), lineClass: 'wg-preview-line' });
       renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
         drawsPath: false,
-        strokeDasharray: previewDashOf(entry.kind, isFriendlyReinforce),
-        strokeWidth: PREVIEW_STROKE_WIDTHS[entry.kind],
+        strokeDasharray: previewDashOf(isFriendlyReinforce),
+        strokeWidth: '1.8',
         groupClass: 'wg-preview-arrow',
         lineClass: 'wg-preview-line',
         showPill: false,
-        midIconPath: PREVIEW_MID_ICONS[entry.kind],
         placeMarker: placeMarkerClear,
         route: routePointsFor(latestState, entry.fromHexIndex, entry.toHexIndex, labeledPreviewTargets),
       });
@@ -1968,8 +1931,8 @@ export function createWargamesMap(
       return;
     }
 
-    const targetVillages = visibleVillagesArray(state, pov);
-    const armies = visibleActiveArmies(state, pov);
+    const targetVillages = boardVillagesOf(state);
+    const armies = fieldArmiesOf(state);
     const nextArmySnapshots = new Map(armies.map((army) => [army.id, {
       hexIndex: army.currentHexIndex,
       targetHexIndex: army.targetHexIndex,
@@ -2064,7 +2027,6 @@ export function createWargamesMap(
     const tickOrders = state.ordersByTick[resolvedTick];
     for (const army of state.armies.values()) {
       if (seenArmyIds.has(army.id) || army.departedTick !== resolvedTick) continue;
-      if (pov !== 'god' && army.owner !== pov && !army.scoutedBy.includes(pov)) continue;
       if (army.targetHexIndex === army.originHexIndex) continue;
       const fromSlot = slots[army.originHexIndex];
       const toSlot = slots[army.targetHexIndex];

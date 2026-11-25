@@ -73,7 +73,6 @@ interface ArmyState {
   targetHexIndex: number;
   troops: TroopCounts;
   departedTick: number;
-  scoutedBy: SeatId[];
 }
 
 interface TerritoryTile {
@@ -81,8 +80,6 @@ interface TerritoryTile {
   improvement: ImprovementKind | null;
   level: number;
 }
-
-interface ProjectedArmyView extends Omit<ArmyState, 'scoutedBy'> {}
 
 interface SeatRuntimeState {
   config: SeatConfig;
@@ -109,7 +106,6 @@ export interface MatchState {
   messages: MessageRecord[];
   reportsBySeat: Record<SeatId, WargamesReport[]>;
   reportsById: Map<string, WargamesReport>;
-  scoutedHexesBySeat: Record<SeatId, number[]>;
   ordersByTick: Record<number, Record<SeatId, OrderItem[]>>;
   nextArmyNumber: number;
   nextReportNumber: number;
@@ -131,9 +127,32 @@ type TransitionOutcome =
   | { ok: true; state: MatchState; effects: EngineEffect[] }
   | { ok: false; rejection: WargamesRejection };
 
-interface NearbyHexOwner {
-  hexIndex: number;
-  owner: SeatId | null;
+interface OwnArmyView {
+  id: string;
+  status: ArmyStatus;
+  at: number;
+  target: number;
+  troops: TroopCounts;
+}
+
+interface ArmyNearYouView {
+  id: string;
+  at: number;
+  target: number;
+  troops: number;
+  turnsToArrive: number | null;
+}
+
+interface OtherSeatView {
+  seatId: SeatId;
+  status: SeatStatus;
+  victoryPoints: number;
+  landHexes: number;
+  borderDistance: number | null;
+  lastMessageToTick: number | null;
+  lastMessageFromTick: number | null;
+  villages: { hexIndex: number; isBeacon: boolean; troops: number; wall: number; loyalty: number }[];
+  armiesNearYou: ArmyNearYouView[];
 }
 
 interface SeatStateView {
@@ -144,18 +163,17 @@ interface SeatStateView {
   phase: TickPhase;
   yourSeatId: SeatId;
   yourStatus: SeatStatus;
-  seatStatuses: Record<SeatId, SeatStatus>;
-  visibleVillages: VillageState[];
-  nearbyHexOwners: NearbyHexOwner[];
-  visibleArmies: ProjectedArmyView[];
-  winnerSeatId: SeatId | null;
-  terrain: { hexIndex: number; kind: TerrainKind }[];
-  sites: { hexIndex: number; isBeacon: boolean }[];
-  victoryPointsBySeat: Record<SeatId, number>;
-  victoryPointTarget: number | null;
-  territory: TerritoryTileView[];
-  yourVillagesFounded: number;
+  yourVictoryPoints: number;
   yourLand: LandSummaryView;
+  yourVillages: VillageState[];
+  yourArmies: OwnArmyView[];
+  otherSeats: OtherSeatView[];
+  unownedSites: { hexIndex: number; isBeacon: boolean; troops: number; wall: number }[];
+  land: { bySeat: Partial<Record<SeatId, number[]>>; improvements: { hexIndex: number; kind: ImprovementKind; level: number }[] };
+  terrain: { hexIndex: number; kind: TerrainKind }[];
+  victoryPointTarget: number | null;
+  winnerSeatId: SeatId | null;
+  yourVillagesFounded: number;
 }
 
 interface ClaimableHexView {
@@ -175,13 +193,6 @@ interface LandSummaryView {
   };
 }
 
-interface TerritoryTileView {
-  hexIndex: number;
-  owner: SeatId;
-  improvement: ImprovementKind | null;
-  level: number;
-}
-
 const STARTING_GRAIN = 200;
 const STARTING_ORE = 200;
 const BARBARIAN_GRAIN = 80;
@@ -192,7 +203,6 @@ const BASE_PRODUCTION_PER_TICK = 25;
 const PRODUCTION_PER_LEVEL = 20;
 const INITIAL_LOYALTY = 100;
 const BEACON_GUARDS = 6;
-const MAX_SCOUTS_PER_TICK = 2;
 
 const SEAT_INDEX_BY_ID: Readonly<Record<SeatId, number>> = Object.freeze({
   s1: 0, s2: 1, s3: 2, s4: 3, s5: 4, s6: 5,
@@ -405,14 +415,12 @@ function cloneVillage(village: VillageState | null): VillageState | null {
 
 function cloneState(state: MatchState): MatchState {
   const reportsBySeat = {} as Record<SeatId, WargamesReport[]>;
-  const scoutedHexesBySeat = {} as Record<SeatId, number[]>;
   for (const seatId of matchSeatIds(state)) {
     reportsBySeat[seatId] = [...state.reportsBySeat[seatId]];
-    scoutedHexesBySeat[seatId] = [...state.scoutedHexesBySeat[seatId]];
   }
   const armies = new Map<string, ArmyState>();
   for (const [armyId, army] of state.armies) {
-    armies.set(armyId, { ...army, troops: { ...army.troops }, scoutedBy: [...army.scoutedBy] });
+    armies.set(armyId, { ...army, troops: { ...army.troops } });
   }
   const territory = new Map<number, TerritoryTile>();
   for (const [hexIndex, tile] of state.territory) territory.set(hexIndex, { ...tile });
@@ -431,7 +439,6 @@ function cloneState(state: MatchState): MatchState {
     messages: [...state.messages],
     reportsBySeat,
     reportsById: new Map(state.reportsById),
-    scoutedHexesBySeat,
     ordersByTick,
     victoryPointsBySeat: { ...state.victoryPointsBySeat },
     territory,
@@ -662,10 +669,8 @@ export function createInitialMatchState(
     };
   });
   const reportsBySeat = {} as Record<SeatId, WargamesReport[]>;
-  const scoutedHexesBySeat = {} as Record<SeatId, number[]>;
   for (const seatId of seatIds) {
     reportsBySeat[seatId] = [];
-    scoutedHexesBySeat[seatId] = [];
   }
   const state: MatchState = {
     matchId,
@@ -685,7 +690,6 @@ export function createInitialMatchState(
     messages: [],
     reportsBySeat,
     reportsById: new Map(),
-    scoutedHexesBySeat,
     ordersByTick: {},
     nextArmyNumber: 1,
     nextReportNumber: 1,
@@ -1306,7 +1310,7 @@ function redeployStandingTroops(state: MatchState, seatId: SeatId, order: Extrac
     if (totalTroops(taken) === 0) continue;
     remaining = subtractTroops(remaining, taken);
     const leftover = subtractTroops(army.troops, taken);
-    const moving: ArmyState = totalTroops(leftover) === 0 ? army : { ...army, id: `army-${state.nextArmyNumber}`, troops: taken, scoutedBy: [] };
+    const moving: ArmyState = totalTroops(leftover) === 0 ? army : { ...army, id: `army-${state.nextArmyNumber}`, troops: taken };
     if (moving !== army) {
       state.nextArmyNumber += 1;
       army.troops = leftover;
@@ -1458,9 +1462,6 @@ function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, ar
 }
 
 function resolveTick(state: MatchState, effects: EngineEffect[]): void {
-  for (const seatId of matchSeatIds(state)) {
-    state.scoutedHexesBySeat[seatId] = [];
-  }
 
 
   for (const village of state.villages) {
@@ -1557,47 +1558,7 @@ function resolveTick(state: MatchState, effects: EngineEffect[]): void {
         targetHexIndex: order.toHexIndex,
         troops: { ...order.troops },
         departedTick: state.tick,
-        scoutedBy: [],
       });
-    }
-  }
-
-  for (const seat of state.seats) {
-    let scoutsUsed = 0;
-    for (const order of seat.sealedOrders) {
-      if (order.kind !== 'scout') continue;
-      if (scoutsUsed >= MAX_SCOUTS_PER_TICK) break;
-      const origin = state.villages[order.fromHexIndex];
-      const target = state.villages[order.toHexIndex];
-      if (!origin || origin.owner !== seat.config.seatId || !target) continue;
-      scoutsUsed += 1;
-      const scoutedSet = new Set(state.scoutedHexesBySeat[seat.config.seatId]);
-      scoutedSet.add(order.toHexIndex);
-      state.scoutedHexesBySeat[seat.config.seatId] = [...scoutedSet];
-      const spottedArmyIds: string[] = [];
-      for (const army of state.armies.values()) {
-        if (army.status !== 'marching' && army.status !== 'returning') continue;
-        if (army.currentHexIndex !== order.toHexIndex && army.targetHexIndex !== order.toHexIndex) continue;
-        if (!army.scoutedBy.includes(seat.config.seatId)) army.scoutedBy.push(seat.config.seatId);
-        spottedArmyIds.push(army.id);
-      }
-      const reportId = `rep-${state.nextReportNumber}`;
-      state.nextReportNumber += 1;
-      const report = recordReport(state, {
-        kind: 'scout',
-        reportId,
-        tick: state.tick,
-        scoutSeat: seat.config.seatId,
-        targetHexIndex: order.toHexIndex,
-        owner: target.owner,
-        productionState: target.productionState,
-        loyalty: target.loyalty,
-        resources: { ...target.resources },
-        troops: defendingTroopsOf(target),
-        buildings: { ...target.buildings },
-        spottedArmyIds,
-      });
-      state.reportsBySeat[seat.config.seatId].push(report);
     }
   }
 
@@ -1941,52 +1902,80 @@ export function replayMatchAtTick(events: readonly WargamesEvent[], targetTick: 
   return state;
 }
 
-export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateView {
-  const seat = state.seats[seatIndexOf(seatId)];
-  const ownedHexIndices = state.villages
-    .filter((village): village is VillageState => village !== null && village.owner === seatId)
-    .map((village) => village.hexIndex);
-  const scoutedSet = new Set(state.scoutedHexesBySeat[seatId]);
-  const fullIntelHexes = new Set<number>([...ownedHexIndices, ...scoutedSet]);
-  const nearbyHexIndices = new Set<number>();
-  for (const ownedIdx of ownedHexIndices) {
-    const ownedTile = state.hexes[ownedIdx];
-    if (!ownedTile) continue;
-    for (const tile of state.hexes) {
-      if (fullIntelHexes.has(tile.index)) continue;
-      if (state.villages[tile.index] === null) continue;
-      if (hexDistance(ownedTile, tile) <= 2) nearbyHexIndices.add(tile.index);
+const NEAR_YOU_HEXES = 3;
+
+function heldHexesOf(state: MatchState, seatId: SeatId): number[] {
+  const villageHexes = state.villages.flatMap((village) => (village?.owner === seatId ? [village.hexIndex] : []));
+  const landHexes = [...state.territory.entries()].flatMap(([hexIndex, tile]) => (tile.owner === seatId ? [hexIndex] : []));
+  return [...villageHexes, ...landHexes];
+}
+
+function nearestDistance(state: MatchState, fromHexes: readonly number[], toHexes: readonly number[]): number | null {
+  let nearest: number | null = null;
+  for (const from of fromHexes) {
+    for (const to of toHexes) {
+      const distance = hexDistance(state.hexes[from], state.hexes[to]);
+      if (nearest === null || distance < nearest) nearest = distance;
     }
   }
-  const visibleVillages = state.villages
-    .filter((village): village is VillageState => village !== null && fullIntelHexes.has(village.hexIndex))
-    .map((village) => cloneVillage(village) as VillageState);
-  const nearbyHexOwners: NearbyHexOwner[] = [...nearbyHexIndices]
-    .sort((left, right) => left - right)
-    .map((hexIndex) => ({
-      hexIndex,
-      owner: state.villages[hexIndex]?.owner ?? null,
-    }));
-  const visibleArmies: ProjectedArmyView[] = [];
-  const watchedHexIndices = watchtowerSightOf(state, seatId);
-  for (const army of state.armies.values()) {
-    const isStanding = army.status === 'standing';
-    if (army.status !== 'marching' && army.status !== 'returning' && !isStanding) continue;
-    const isOnOwnLand = territoryOwnerAt(state, army.currentHexIndex) === seatId;
-    if (army.owner !== seatId && !army.scoutedBy.includes(seatId) && !watchedHexIndices.has(army.currentHexIndex) && !isOnOwnLand) continue;
-    visibleArmies.push({
-      id: army.id,
-      owner: army.owner,
-      status: army.status,
-      originHexIndex: army.originHexIndex,
-      currentHexIndex: army.currentHexIndex,
-      targetHexIndex: army.targetHexIndex,
-      troops: { ...army.troops },
-      departedTick: army.departedTick,
-    });
+  return nearest;
+}
+
+function lastDirectMessageTick(state: MatchState, from: SeatId, to: SeatId): number | null {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message.channel === 'dm' && message.from === from && message.to === to) return message.tick;
   }
-  const seatStatuses = {} as Record<SeatId, SeatStatus>;
-  for (const entry of state.seats) seatStatuses[entry.config.seatId] = entry.status;
+  return null;
+}
+
+function isFieldArmy(army: ArmyState): boolean {
+  return army.status === 'marching' || army.status === 'standing' || army.status === 'returning';
+}
+
+function armiesNearOf(state: MatchState, owner: SeatId, yourHexes: ReadonlySet<number>): ArmyNearYouView[] {
+  return [...state.armies.values()]
+    .filter((army) => army.owner === owner && isFieldArmy(army))
+    .filter((army) => (army.status === 'marching' && yourHexes.has(army.targetHexIndex))
+      || (nearestDistance(state, [army.currentHexIndex], [...yourHexes]) ?? Number.POSITIVE_INFINITY) <= NEAR_YOU_HEXES)
+    .map((army) => {
+      const route = army.status === 'marching' ? marchRouteOf(state, army.currentHexIndex, army.targetHexIndex) : null;
+      return {
+        id: army.id,
+        at: army.currentHexIndex,
+        target: army.targetHexIndex,
+        troops: totalTroops(army.troops),
+        turnsToArrive: route?.reachesTarget ? route.turnEndHexIndices.length : null,
+      };
+    });
+}
+
+export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateView {
+  const seat = state.seats[seatIndexOf(seatId)];
+  const yourHexes = heldHexesOf(state, seatId);
+  const yourHexSet = new Set(yourHexes);
+  const otherSeats: OtherSeatView[] = state.seats
+    .filter((other) => other.config.seatId !== seatId)
+    .map((other) => {
+      const otherId = other.config.seatId;
+      return {
+        seatId: otherId,
+        status: other.status,
+        victoryPoints: state.victoryPointsBySeat[otherId] ?? 0,
+        landHexes: territoryCountOf(state, otherId),
+        borderDistance: nearestDistance(state, yourHexes, heldHexesOf(state, otherId)),
+        lastMessageToTick: lastDirectMessageTick(state, seatId, otherId),
+        lastMessageFromTick: lastDirectMessageTick(state, otherId, seatId),
+        villages: state.villages.flatMap((village) => (village?.owner === otherId
+          ? [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon, troops: totalTroops(village.troops), wall: village.buildings.wall, loyalty: village.loyalty }]
+          : [])),
+        armiesNearYou: armiesNearOf(state, otherId, yourHexSet),
+      };
+    });
+  const bySeat: Partial<Record<SeatId, number[]>> = {};
+  for (const [hexIndex, tile] of [...state.territory.entries()].sort(([left], [right]) => left - right)) {
+    bySeat[tile.owner] = [...(bySeat[tile.owner] ?? []), hexIndex];
+  }
   return {
     matchId: state.matchId,
     status: state.status,
@@ -1995,42 +1984,25 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     phase: state.phase,
     yourSeatId: seatId,
     yourStatus: seat.status,
+    yourVictoryPoints: state.victoryPointsBySeat[seatId] ?? 0,
     yourLand: landSummaryOf(state, state.balance.territory, seatId),
-    seatStatuses,
-    visibleVillages,
-    nearbyHexOwners,
-    visibleArmies,
-    winnerSeatId: state.winnerSeatId,
+    yourVillages: state.villages.filter((village): village is VillageState => village?.owner === seatId).map((village) => cloneVillage(village) as VillageState),
+    yourArmies: [...state.armies.values()]
+      .filter((army) => army.owner === seatId && isFieldArmy(army))
+      .map((army) => ({ id: army.id, status: army.status, at: army.currentHexIndex, target: army.targetHexIndex, troops: { ...army.troops } })),
+    otherSeats,
+    unownedSites: state.villages.flatMap((village) => (village !== null && village.owner === null
+      ? [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon, troops: totalTroops(village.troops), wall: village.buildings.wall }]
+      : [])),
+    land: {
+      bySeat,
+      improvements: [...state.territory.entries()].flatMap(([hexIndex, tile]) => (tile.improvement === null ? [] : [{ hexIndex, kind: tile.improvement, level: tile.level }])),
+    },
     terrain: state.terrain.flatMap((kind, hexIndex) => (kind === 'plain' ? [] : [{ hexIndex, kind }])),
-    sites: state.villages.flatMap((village) => (village === null ? [] : [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon }])),
-    victoryPointsBySeat: { ...state.victoryPointsBySeat },
     victoryPointTarget: victoryPointTargetOf(state),
-    territory: territoryViewOf(state),
+    winnerSeatId: state.winnerSeatId,
     yourVillagesFounded: state.villagesFoundedBySeat[seatId] ?? 0,
   };
-}
-
-function watchtowerSightOf(state: MatchState, seatId: SeatId): Set<number> {
-  const rule = state.balance.territory;
-  const sight = new Set<number>();
-  for (const [hexIndex, tile] of state.territory) {
-    if (tile.owner !== seatId || tile.improvement !== 'watchtower' || tile.level === 0) continue;
-    for (const candidate of state.hexes) {
-      if (hexDistance(state.hexes[hexIndex], candidate) <= rule.watchtowerRange) sight.add(candidate.index);
-    }
-  }
-  return sight;
-}
-
-function territoryViewOf(state: MatchState): TerritoryTileView[] {
-  return [...state.territory.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([hexIndex, tile]) => ({
-      hexIndex,
-      owner: tile.owner,
-      improvement: tile.improvement,
-      level: tile.level,
-    }));
 }
 
 const MAX_CLAIMABLE_HEXES_SHOWN = 8;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_ID = 'r2' as const;
+export const WARGAMES_RULES_ID = 'r3' as const;
 const WargamesRulesId = z.literal(WARGAMES_RULES_ID);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -58,7 +58,7 @@ export type ArmyStatus = z.infer<typeof ArmyStatus>;
 export const BuildingKind = z.enum(['farm', 'mine', 'wall']);
 export type BuildingKind = z.infer<typeof BuildingKind>;
 
-export const ImprovementKind = z.enum(['field', 'quarry', 'watchtower', 'outpost']);
+export const ImprovementKind = z.enum(['field', 'quarry', 'outpost']);
 export type ImprovementKind = z.infer<typeof ImprovementKind>;
 
 const TroopKind = z.enum(['raider', 'guard', 'envoy']);
@@ -154,7 +154,6 @@ export interface WargamesTerritoryRule {
   readonly claimsPerVillagePerTurn: number;
   readonly improvements: Readonly<Record<ImprovementKind, WargamesImprovementRule>>;
   readonly tileBonusPerLevel: number;
-  readonly watchtowerRange: number;
   readonly outpostDefenseBonus: number;
   readonly captureLevelLoss: number;
   readonly foundCost: ResourceBundle;
@@ -262,11 +261,9 @@ export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
     improvements: Object.freeze({
       field: Object.freeze({ cost: Object.freeze({ grain: 30, ore: 30 }), maxLevel: 5, yieldPerLevel: 15 }),
       quarry: Object.freeze({ cost: Object.freeze({ grain: 30, ore: 30 }), maxLevel: 5, yieldPerLevel: 15 }),
-      watchtower: Object.freeze({ cost: Object.freeze({ grain: 20, ore: 40 }), maxLevel: 1, yieldPerLevel: 0 }),
       outpost: Object.freeze({ cost: Object.freeze({ grain: 40, ore: 60 }), maxLevel: 1, yieldPerLevel: 0 }),
     }),
     tileBonusPerLevel: 10,
-    watchtowerRange: 2,
     outpostDefenseBonus: 0.5,
     captureLevelLoss: 0.5,
     foundCost: Object.freeze({ grain: 150, ore: 150 }),
@@ -321,18 +318,11 @@ const MarchOrder = z.strictObject({
   troops: TroopCounts,
 });
 
-const ScoutOrder = z.strictObject({
-  kind: z.literal('scout'),
-  fromHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
-  toHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
-});
-
 export const OrderItem = z.discriminatedUnion('kind', [
   BuildOrder,
   FoundOrder,
   TrainOrder,
   MarchOrder,
-  ScoutOrder,
 ]);
 export type OrderItem = z.infer<typeof OrderItem>;
 
@@ -354,20 +344,6 @@ export const WargamesReport = z.discriminatedUnion('kind', [
     wallBefore: z.number().int().min(0).max(10).optional(),
     wallAfter: z.number().int().min(0).max(10).optional(),
     morale: z.number().min(0).max(1).optional(),
-  }),
-  z.strictObject({
-    kind: z.literal('scout'),
-    reportId: z.string().min(1).max(64),
-    tick: z.number().int().min(1),
-    scoutSeat: SeatId,
-    targetHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
-    owner: SeatId.nullable(),
-    productionState: VillageProductionState,
-    loyalty: z.number().int().min(0).max(100),
-    resources: ResourceBundle,
-    troops: TroopCounts,
-    buildings: BuildingLevels,
-    spottedArmyIds: z.array(z.string().min(1).max(64)).max(128),
   }),
   z.strictObject({
     kind: z.literal('land'),
