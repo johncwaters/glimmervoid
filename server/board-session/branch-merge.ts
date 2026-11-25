@@ -12,11 +12,16 @@ const BUSY_MERGE_STATUSES: readonly string[] = ['merging', 'parked'];
 const OUTSIDE_PATHS_NAMED = 5;
 const LANDED_BRANCH_IDLE_MS = 30000;
 
+const SYMBOLIC_REF_DETACHED_EXIT_CODE = 1;
+
 interface GitResult {
   ok: boolean;
   out: string;
   err: string;
+  exitCode: number | null;
 }
+
+type CheckedOutBranch = { ok: true; name: string | null } | { ok: false; err: string };
 
 interface BranchMergeDeps {
   findSession: (sessionId: string) => Session | null;
@@ -29,15 +34,32 @@ interface BranchMergeDeps {
 async function runGit(args: string[], cwd: string): Promise<GitResult> {
   try {
     const { stdout } = await runHardenedGit(args, { cwd, timeout: GIT_TIMEOUT_MS, env: { ...process.env, GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0' } });
-    return { ok: true, out: stdout.trim(), err: '' };
+    return { ok: true, out: stdout.trim(), err: '', exitCode: 0 };
   } catch (error) {
-    return { ok: false, out: '', err: gitFailureTextOf(error) };
+    return { ok: false, out: '', err: gitFailureTextOf(error), exitCode: exitCodeOf(error) };
   }
 }
 
 function gitFailureTextOf(error: unknown): string {
   const stderr = typeof error === 'object' && error !== null && 'stderr' in error ? String(error.stderr).trim() : '';
   return stderr || errorMessage(error);
+}
+
+function exitCodeOf(error: unknown): number | null {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
+  return typeof code === 'number' ? code : null;
+}
+
+async function checkedOutBranchOf(worktreeDir: string): Promise<CheckedOutBranch> {
+  const read = await runGit(['symbolic-ref', '-q', '--short', 'HEAD'], worktreeDir);
+  if (read.ok && read.out !== '') return { ok: true, name: read.out };
+  if (read.ok || read.exitCode === SYMBOLIC_REF_DETACHED_EXIT_CODE) return { ok: true, name: null };
+  return { ok: false, err: read.err };
+}
+
+function noCheckedOutBranchProblem(isOrchestratorWithoutBranch: boolean, branch: Session): string {
+  if (isOrchestratorWithoutBranch) return 'your worktree has no branch checked out, which a rebase, a bisect or checking out a commit leaves behind. Finish or abort that, or check out your branch, and Glimmervoid brings the commits in the next time you settle.';
+  return `the worktree of ${branch.name} has no branch checked out, so there is no branch to bring in. Tell ${branch.name} to check out its branch with glimmervoid send ${branch.id} <text>.`;
 }
 
 function isSettled(session: Session): boolean {
@@ -51,11 +73,11 @@ function isWorktreeBusy(session: Session): boolean {
 async function isBranchWorkElsewhere(branch: Session, parent: Session | null): Promise<boolean> {
   if (!parent?.isWorktree || !branch.isWorktree) return !(await branch.hasUnmergedWork());
   const branchDir = branch.effectiveCwd();
-  const parentBranch = await runGit(['symbolic-ref', '-q', '--short', 'HEAD'], parent.effectiveCwd());
-  if (!parentBranch.ok || parentBranch.out === '') return false;
+  const parentBranch = await checkedOutBranchOf(parent.effectiveCwd());
+  if (!parentBranch.ok || parentBranch.name === null) return false;
   const uncommitted = await runGit(['--no-optional-locks', 'status', '--porcelain'], branchDir);
   if (!uncommitted.ok || uncommitted.out !== '') return false;
-  const ahead = await runGit(['rev-list', '--count', `${parentBranch.out}..HEAD`], branchDir);
+  const ahead = await runGit(['rev-list', '--count', `${parentBranch.name}..HEAD`], branchDir);
   return ahead.ok && Number(ahead.out) === 0;
 }
 
@@ -64,11 +86,12 @@ function createBranchMerge({ findSession, liveSessions, tellMain, closeBranch, l
   const workedBranchIds = new Set<string>();
   const closeTimerByBranchId = new Map<string, ReturnType<typeof setTimeout>>();
   const mergeQueueByParentId = new Map<string, Promise<void>>();
-  const reportedHeadByBranchId = new Map<string, string>();
+  const reportedProblemByBranchId = new Map<string, string>();
 
   function tellParent(parent: Session, branch: Session, branchHead: string, problem: string): void {
-    if (reportedHeadByBranchId.get(branch.id) === branchHead) return;
-    reportedHeadByBranchId.set(branch.id, branchHead);
+    const report = `${branchHead}\0${problem}`;
+    if (reportedProblemByBranchId.get(branch.id) === report) return;
+    reportedProblemByBranchId.set(branch.id, report);
     const text = `Glimmervoid could not bring the commits of your branch session ${branch.name} into your branch: ${problem}`;
     if (tellMain(branch.id, text)) return;
     const queued = parent.queueChatMessage(text, []);
@@ -90,31 +113,40 @@ function createBranchMerge({ findSession, liveSessions, tellMain, closeBranch, l
   async function bringIn(branch: Session, parent: Session): Promise<void> {
     const branchDir = branch.effectiveCwd();
     const parentDir = parent.effectiveCwd();
-    const parentBranch = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], parentDir);
-    const branchName = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], branchDir);
-    if (!parentBranch.ok || !branchName.ok) return logger.warn(`[branch-merge] could not read the branches of ${branch.name}: ${parentBranch.err || branchName.err}`);
-    const ahead = await runGit(['rev-list', '--count', `${parentBranch.out}..${branchName.out}`], branchDir);
+    const parentRead = await checkedOutBranchOf(parentDir);
+    const branchRead = await checkedOutBranchOf(branchDir);
+    if (!parentRead.ok) return logger.warn(`[branch-merge] could not read the branch of ${parent.name}: ${parentRead.err}`);
+    if (!branchRead.ok) return logger.warn(`[branch-merge] could not read the branch of ${branch.name}: ${branchRead.err}`);
+    const parentTip = parentRead.name ?? (await runGit(['rev-parse', 'HEAD'], parentDir)).out;
+    const branchTip = branchRead.name ?? (await runGit(['rev-parse', 'HEAD'], branchDir)).out;
+    const ahead = await runGit(['rev-list', '--count', `${parentTip}..${branchTip}`], branchDir);
     if (!ahead.ok || Number(ahead.out) === 0) return;
-    const heldBack = await outsideFolderProblem(branch, parentBranch.out, branchName.out, branchDir);
+    const parentBranch = parentRead.name;
+    const branchName = branchRead.name;
+    if (parentBranch === null || branchName === null) {
+      const head = await runGit(['rev-parse', 'HEAD'], branchDir);
+      return tellParent(parent, branch, head.out, noCheckedOutBranchProblem(parentBranch === null, branch));
+    }
+    const heldBack = await outsideFolderProblem(branch, parentBranch, branchName, branchDir);
     if (heldBack !== null) {
       const head = await runGit(['rev-parse', 'HEAD'], branchDir);
       return tellParent(parent, branch, head.out, heldBack);
     }
-    const isParentAncestor = await runGit(['merge-base', '--is-ancestor', parentBranch.out, branchName.out], branchDir);
+    const isParentAncestor = await runGit(['merge-base', '--is-ancestor', parentBranch, branchName], branchDir);
     if (!isParentAncestor.ok) {
-      const rebased = await runGit(['rebase', '--autostash', parentBranch.out], branchDir);
+      const rebased = await runGit(['rebase', '--autostash', parentBranch], branchDir);
       if (!rebased.ok) {
         const conflicts = await runGit(['diff', '--name-only', '--diff-filter=U'], branchDir);
         await runGit(['rebase', '--abort'], branchDir);
         const head = await runGit(['rev-parse', 'HEAD'], branchDir);
         const conflictList = conflicts.out.split('\n').filter(Boolean).join(', ');
-        return tellParent(parent, branch, head.out, `rebasing ${branchName.out} onto ${parentBranch.out} stopped${conflictList ? ` on conflicts in ${conflictList}` : `: ${rebased.err}`}. Merge it yourself with git merge ${branchName.out}, or tell ${branch.name} what to change.`);
+        return tellParent(parent, branch, head.out, `rebasing ${branchName} onto ${parentBranch} stopped${conflictList ? ` on conflicts in ${conflictList}` : `: ${rebased.err}`}. Merge it yourself with git merge ${branchName}, or tell ${branch.name} what to change.`);
       }
     }
-    const merged = await runGit(['merge', '--ff-only', branchName.out], parentDir);
-    if (merged.ok) return void reportedHeadByBranchId.delete(branch.id);
+    const merged = await runGit(['merge', '--ff-only', branchName], parentDir);
+    if (merged.ok) return void reportedProblemByBranchId.delete(branch.id);
     const head = await runGit(['rev-parse', 'HEAD'], branchDir);
-    tellParent(parent, branch, head.out, `fast-forwarding ${parentBranch.out} to ${branchName.out} failed: ${merged.err}`);
+    tellParent(parent, branch, head.out, `fast-forwarding ${parentBranch} to ${branchName} failed: ${merged.err}`);
   }
 
   async function mergeWhenReady(branch: Session): Promise<void> {
