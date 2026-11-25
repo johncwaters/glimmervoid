@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Background dev servers no longer hold sessions in "Waiting on background work".** When an agent starts a long-lived service in a background shell (such as `npm run dev`, `pnpm start`, `python3 -m http.server`, or a local harness server), Glimmervoid now lets finished turns complete instead of holding the session in Monitoring / "Waiting on background work" for up to an hour. Finite background jobs (builds, test suites, `vite build`, harnesses) still hold completion until they finish.
+
 ## [0.65.0] - 2026-11-25
 
 ### Added

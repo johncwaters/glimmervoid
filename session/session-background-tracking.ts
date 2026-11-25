@@ -87,11 +87,17 @@ interface SessionBackgroundTracking {
   isBackgroundAgentDetectionEnabled(): boolean;
 }
 
-function launchedBackgroundTaskId(payload: HookPayload): string | null {
+function launchedBackgroundTask(payload: HookPayload): { taskId: string; isService: boolean } | null {
   const toolResponse = payload.tool_response;
   if (!isRecord(toolResponse)) return null;
   const backgroundTaskId = toolResponse.backgroundTaskId;
-  return typeof backgroundTaskId === "string" && backgroundTaskId ? backgroundTaskId : null;
+  if (typeof backgroundTaskId !== "string" || !backgroundTaskId) return null;
+  const toolInput = isRecord(payload.tool_input) ? payload.tool_input : null;
+  const isService = agentTracker.isServiceShellLaunch({
+    command: toolInput?.command,
+    description: toolInput?.description,
+  });
+  return { taskId: backgroundTaskId, isService };
 }
 
 function createSessionBackgroundTracking({
@@ -319,8 +325,8 @@ function createSessionBackgroundTracking({
     const taskId = typeof payload.task_id === "string" && payload.task_id ? payload.task_id : null;
     const name = typeof payload.teammate_name === "string" ? payload.teammate_name : "";
     if (raw.signal === "background-task-launched") {
-      const backgroundTaskId = launchedBackgroundTaskId(payload);
-      if (backgroundTaskId) tasks.noteBackgroundTaskLaunched(backgroundTaskId);
+      const launchedTask = launchedBackgroundTask(payload);
+      if (launchedTask) tasks.noteBackgroundTaskLaunched(launchedTask.taskId, launchedTask.isService);
       return;
     }
     if (raw.signal === "task-created") {

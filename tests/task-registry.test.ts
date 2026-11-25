@@ -3,7 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  createTaskRegistry, 
+  createTaskRegistry,
+  extractBackgroundTasks,
+  isServiceShellLaunch,
 } from '../session/core/agent-tracker.ts';
 import type { TaskRegistryOptions } from '../session/core/agent-tracker.ts';
 
@@ -84,4 +86,51 @@ test('only live shell declarations qualify as background-only after teammate idl
   assert.equal(registry.isOnlyBackgroundTasks(), true);
   advance(200);
   assert.equal(registry.isOnlyBackgroundTasks(), false);
+});
+
+test('a service shell does not gate completion while finite shells keep gating', () => {
+  assert.equal(isServiceShellLaunch({ command: 'npm run dev', description: 'Serve skills' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'cd /repo\nnpm run dev' }), true);
+  assert.equal(isServiceShellLaunch({ command: '  npm --prefix site run dev' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'npm run site:dev' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'tsx watch server/index.ts' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'GATSBY_MINIMAL=true PORT=8011 pnpm start > /tmp/log' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'cd /repo && python3 -m http.server 8765' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'cd /repo && node .serve.mjs' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'node harness/browser/chat-view.ts', description: 'Serve chat view on port 5199' }), true);
+  assert.equal(isServiceShellLaunch({ command: 'cd /repo && npx vite build > /tmp/build.log' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'npx vite -c vite.server.config.ts build' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'npm run storybook:build' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'jest -w 4' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'node scripts/build-server.mjs' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'node tests/server.test.ts' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'npm test', description: 'Run server tests' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'npm run build', description: 'Run server build' }), false);
+  assert.equal(isServiceShellLaunch({ command: 'npm test', description: 'Wait for dev server ready' }), false);
+
+  const { registry, advance, at } = makeRegistry({ shellTaskTtlMs: 200 });
+  registry.noteBackgroundTaskLaunched('svc-1', true);
+  registry.reconcileDeclared([{ id: 'svc-1', type: 'shell' }], false);
+  assert.equal(registry.activeCount(), 0);
+  assert.equal(registry.isOnlyBackgroundTasks(), false);
+  assert.equal(registry.hasLiveMonitor(), true);
+  assert.equal(registry.msUntilNextDrain(at()), null);
+
+  registry.reconcileDeclared([], true);
+  assert.equal(registry.activeCount(), 0);
+
+  const extracted = extractBackgroundTasks({
+    background_tasks: [
+      { id: 'svc-2', type: 'shell', status: 'running', description: 'Start the dev server on port 8011' },
+      { id: 'svc-3', type: 'shell', status: 'running', description: 'npm run dev' },
+    ],
+  });
+  assert.ok(extracted);
+  registry.reconcileDeclared(extracted, false);
+  assert.equal(registry.activeCount(), 0);
+  assert.equal(registry.isOnlyBackgroundTasks(), false);
+  assert.equal(registry.hasLiveMonitor(), true);
+  advance(200);
+  assert.equal(registry.hasLiveMonitor(), false);
+  assert.equal(registry.shellWorkExpiryCount(), 0);
 });
