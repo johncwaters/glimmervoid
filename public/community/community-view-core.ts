@@ -55,7 +55,7 @@ export function communityEmptyText(status: CommunityStatus | null, hiddenByFilte
 
 export function communitySetupState(status: CommunityStatus | null): { title: string; text: string; packName: string | null } | null {
   if (status === null || status.configured === false || status.entries.length > 0) return null;
-  if (status.sources.length === 0) return { title: 'No community source yet', text: 'Community reads questions from source packs. Enable posthog-community in Packs, or add a pack for your own forum.', packName: null };
+  if (status.sources.length === 0) return { title: 'No community source yet', text: 'Community reads questions from source packs. Add a pack for your forum, Discord or other community in Packs.', packName: null };
   const waiting = status.sources.find((source) => source.waitingFor.length > 0);
   if (waiting === undefined) return null;
   const packName = waiting.id.split(':')[0] ?? null;
