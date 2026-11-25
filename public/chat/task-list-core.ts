@@ -1,6 +1,6 @@
 import { parseJsonOrNull } from '#shared/coerce.ts';
 
-export type TaskState = 'pending' | 'running' | 'done';
+type TaskState = 'pending' | 'running' | 'done';
 export type TaskItem = { text: string; state: TaskState };
 
 const MAX_TASK_ITEMS = 50;
