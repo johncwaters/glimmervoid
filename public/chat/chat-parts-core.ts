@@ -5,7 +5,7 @@ import { answersInReason } from '#shared/question-answer-text.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
 import type { AgentEventPart, BackgroundTaskPart, ChatCard, ChatPart, CommandPart, TurnPart } from './chat-part.ts';
-import { agentErrorReasonOf, agentErrorText, compactionText, hookLabelOf, settledRetryText } from '#shared/trace-event-text.ts';
+import { agentErrorReasonOf, agentErrorText, compactionText, hookLabelOf, restartText, settledRetryText } from '#shared/trace-event-text.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import { glimmervoidLineLabelOf, isRelayNewsLine, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
@@ -409,7 +409,7 @@ function systemLinePartOf(state: ChatPartsState, record: TraceRecord): ChatPart 
   return { kind: 'system-line', id: nextPartId(state, 'system-line'), label, at: record.ts, isRelayNews };
 }
 
-const RETRY_ABANDONING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['prompt', 'notice', 'usage_limit', 'session', 'compaction']);
+const RETRY_ABANDONING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['prompt', 'notice', 'usage_limit', 'session', 'restart', 'compaction']);
 const RETRY_SETTLING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['assistant', 'tool_call', 'thinking']);
 const COMMAND_ENDING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['prompt', 'assistant', 'tool_call']);
 const COMMAND_NAME_PATTERN = /^\s*(?:<command-message>[\s\S]*?)?<command-name>([^<\r\n]+)<\/command-name>/;
@@ -465,6 +465,7 @@ function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart |
   const commandPart = typedCommandPartOf(state, record);
   if (commandPart !== null) return commandPart;
   if (record.kind === 'command-output') return commandWithOutputOf(state, record);
+  if (record.kind === 'restart') return { kind: 'system-line', id: nextPartId(state, 'system-line'), label: restartText(record), at: record.ts, isRelayNews: false };
   if (record.kind === 'model-change') return { kind: 'system-line', id: nextPartId(state, 'system-line'), label: `Model set to ${record.model}`, at: record.ts, isRelayNews: false };
   const systemLinePart = systemLinePartOf(state, record);
   if (systemLinePart !== null) return systemLinePart;
@@ -572,7 +573,7 @@ function noteSubagentSignal(state: ChatPartsState, record: Extract<TraceRecord, 
 
 function noteSubagentRecord(state: ChatPartsState, record: TraceRecord): void {
   if (record.agentId !== undefined) return;
-  if (record.kind === 'session') {
+  if (record.kind === 'session' || record.kind === 'restart') {
     state.runningSubagents.clear();
     return;
   }
@@ -666,7 +667,7 @@ function stopEveryBackgroundTask(state: ChatPartsState, stoppedAt: number): Back
 function changedBackgroundTasksOf(state: ChatPartsState, record: TraceRecord): BackgroundTaskPart[] {
   const relabeled = noteBackgroundLaunch(state, record);
   if (relabeled !== null) return [relabeled];
-  if (record.kind === 'session') return stopEveryBackgroundTask(state, record.ts);
+  if (record.kind === 'session' || record.kind === 'restart') return stopEveryBackgroundTask(state, record.ts);
   if (record.kind !== 'background-task') return [];
   if (record.phase === 'stop') return [stopBackgroundTask(state, record.taskId, record.ts)].filter((stopped) => stopped !== null);
   return [startBackgroundTask(state, record)].filter((started) => started !== null);

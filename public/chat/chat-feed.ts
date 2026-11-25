@@ -39,6 +39,12 @@ function payloadOf(request: TraceRequest): TracePagePayload {
   return { id: request.id, endingAt: request.endingAt };
 }
 
+function recordsSinceNewConversation(records: readonly TraceRecord[]): TraceRecord[] | null {
+  const newConversationIndex = records.findLastIndex((record) => record.kind === 'restart' && record.startsNewConversation);
+  if (newConversationIndex < 0) return null;
+  return records.slice(newConversationIndex + 1);
+}
+
 function failureTextOf(reason: unknown): string {
   if (reason instanceof Error && reason.message) return reason.message;
   return UNREADABLE_TRACE_TEXT;
@@ -52,6 +58,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   let firstOffset = 0;
   let residentRecords: TraceRecord[] = [];
   let hasDroppedEarliestRecords = false;
+  let hasReachedConversationStart = false;
   let pendingRequest: TraceRequest | null = null;
   const queuedDirections = new Set<TraceRequest['direction']>();
   let callbacksAwaitingRequest: (() => void)[] = [];
@@ -75,20 +82,24 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     firstOffset = 0;
     residentRecords = [];
     hasDroppedEarliestRecords = false;
+    hasReachedConversationStart = false;
     queuedDirections.clear();
     options.onReset();
   };
 
   const showRecords = (reply: ServerMessage & { type: 'session-trace-response' }, isLive: boolean) => {
     nextOffset = reply.next;
-    residentRecords.push(...reply.records);
+    const conversationRecords = recordsSinceNewConversation(reply.records);
+    if (conversationRecords !== null) hasReachedConversationStart = true;
+    const shownRecords = conversationRecords ?? reply.records;
+    residentRecords.push(...shownRecords);
     const overflowingRecordCount = residentRecords.length - TRACE_MAX_RESIDENT_ROWS;
     if (overflowingRecordCount > 0) {
       residentRecords.splice(0, overflowingRecordCount);
       hasDroppedEarliestRecords = true;
     }
-    const appended = appendChatRecords(partsState, reply.records);
-    options.onRecords?.(reply.records);
+    const appended = appendChatRecords(partsState, shownRecords);
+    options.onRecords?.(shownRecords);
     const endedTurnParts = options.isTurnOver() ? endChatTurn(partsState) : [];
     const changedParts = appended.parts.map((part) => endedTurnParts.find((ended) => ended.id === part.id) ?? part);
     const endedTurnPartsNotChanged = endedTurnParts.filter((ended) => !appended.parts.some((part) => part.id === ended.id));
@@ -100,10 +111,13 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
 
   const showEarlierRecords = (reply: ServerMessage & { type: 'session-trace-response' }) => {
     firstOffset = reply.start;
-    residentRecords = [...reply.records, ...residentRecords];
+    const conversationRecords = recordsSinceNewConversation(reply.records);
+    if (conversationRecords !== null) hasReachedConversationStart = true;
+    const shownRecords = conversationRecords ?? reply.records;
+    residentRecords = [...shownRecords, ...residentRecords];
     const replacedPartIds = partsState.residentPartIds;
     partsState = createChatPartsState(options.workingDirectory);
-    options.onEarlierRecords?.(reply.records);
+    options.onEarlierRecords?.(shownRecords);
     const rebuilt = appendChatRecords(partsState, residentRecords);
     const rebuiltPartById = new Map(rebuilt.parts.map((part) => [part.id, part]));
     const endedTurnParts = options.isTurnOver() ? endChatTurn(partsState) : [];
@@ -128,7 +142,8 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
       resident: { sessionId, firstOffset, nextOffset, hasLoadedOnce: phase === 'following' },
       reply: { id: reply.id, start: reply.start, next: reply.next, reset: reply.reset },
     });
-    if (outcome === 'reset') {
+    const startsNewConversationLive = outcome === 'append' && recordsSinceNewConversation(reply.records) !== null;
+    if (outcome === 'reset' || startsNewConversationLive) {
       deferCallbacksOfPendingRequest();
       restart();
       refresh();
@@ -190,7 +205,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   }
 
   function loadEarlier(): void {
-    if (phase !== 'following') return;
+    if (phase !== 'following' || hasReachedConversationStart) return;
     if (pendingRequest) {
       queuedDirections.add('earlier');
       return;
