@@ -179,8 +179,6 @@
   overflow-wrap: anywhere;
 }
 
-.chat-skill .chat-subagent-row { cursor: default; }
-
 .chat-agent-event[data-tone="warn"] .chat-system-label { color: var(--state-waiting); }
 
 .chat-agent-event[data-tone="error"] .chat-system-label { color: var(--state-failed); }

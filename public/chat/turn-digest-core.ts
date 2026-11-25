@@ -10,6 +10,7 @@ export type ToolCallState = 'running' | 'stopped' | 'done' | 'failed';
 export interface ToolCallEntry {
   toolUseId: string;
   label: string;
+  skillName: string | null;
   state: ToolCallState;
   startedAt: number;
   durationMs: number | null;

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Loaded skills stay inside the turn instead of trailing below it.** Skills loaded during a turn now appear in chronological order inside the turn's expandable work and are counted on the turn summary line (for example, `3 skills`) rather than rendering as standalone rows after the collapsed tool summary.
 - **Antigravity sessions no longer show the effort level twice in Chat.** When Antigravity reports a model whose display name already ends with its effort in parentheses (such as `Gemini 4 Neon (Medium)`), the status rail under the message box no longer appends the effort a second time.
 - **A message you send in Chat or Studio no longer vanishes and comes back.** When the agent's prompt hooks ran for more than a few seconds, the sent message disappeared from the chat until the agent recorded it, then reappeared. It now stays in place until the recorded prompt replaces it, however long the hooks take.
 - **Clicking X to close an active or dirty session no longer flashes and cancels confirmation.** When Focus was already open with Chat shown, arming the inline Remove/Keep confirmation row re-activated Focus and mounted Chat, which stole focus to the Chat message box and immediately dismissed the confirmation. Focus no longer re-activates when already open, and Chat no longer takes focus while a row's removal confirmation is open.

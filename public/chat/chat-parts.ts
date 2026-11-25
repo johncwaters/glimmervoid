@@ -238,6 +238,12 @@ function renderShownSegment(segment: Extract<TurnSegment, { kind: 'answers' | 'p
   return segment.kind === 'plan' ? renderPlanSegment(segment.planText) : renderAnsweredQuestions(segment.answeredQuestions);
 }
 
+function skillCallLabelOf(skillName: string): HTMLElement {
+  const label = el('span', 'chat-turn-call-label');
+  label.append(el('span', 'chat-subagent-type', 'Skill'), ' ', skillName);
+  return label;
+}
+
 function renderCallRow(call: ToolCallEntry, uploadUrlOf: UploadUrlOf): HTMLDetailsElement {
   const row = el('details', 'chat-turn-call');
   row.dataset.state = call.state;
@@ -247,7 +253,8 @@ function renderCallRow(call: ToolCallEntry, uploadUrlOf: UploadUrlOf): HTMLDetai
   const summary = el('summary', 'chat-turn-call-row');
   const icon = el('span', 'chat-turn-call-icon');
   paintStatusIcon(icon, STATUS_ICON_BY_CALL_STATE[call.state]);
-  summary.append(icon, el('span', 'chat-turn-call-label', call.label), el('span', 'chat-turn-call-time', call.durationMs === null ? '' : callDurationText(call.durationMs)));
+  const label = call.skillName === null ? el('span', 'chat-turn-call-label', call.label) : skillCallLabelOf(call.skillName);
+  summary.append(icon, label, el('span', 'chat-turn-call-time', call.durationMs === null ? '' : callDurationText(call.durationMs)));
   row.append(summary);
   if (hasImages) row.append(renderCallImages(call.imageFileNames, uploadUrlOf));
   if (call.outputHead !== null) row.append(el('pre', 'chat-turn-call-output', call.outputHead));
@@ -364,6 +371,7 @@ function editFactOf(part: TurnPart): HTMLElement {
 function metaFieldsOf(part: TurnPart, diffToggle: HTMLButtonElement): HTMLElement[] {
   const fields: HTMLElement[] = [];
   if (part.toolCount > 0) fields.push(el('span', 'chat-turn-fact', countText(part.toolCount, 'tool', 'tools')));
+  if (part.skillCount > 0) fields.push(el('span', 'chat-turn-fact', countText(part.skillCount, 'skill', 'skills')));
   if (part.failedCount > 0) fields.push(el('span', 'chat-turn-fact chat-turn-failed', `${part.failedCount} failed`));
   if (part.thoughtText !== null) fields.push(el('span', 'chat-turn-fact', part.thoughtText));
   if (part.fileEdits.fileCount > 0) fields.push(editFactOf(part));
@@ -571,14 +579,6 @@ function renderHookMessage(part: Extract<ChatPart, { kind: 'hook-message' }>): H
   return row;
 }
 
-function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
-  const skillRow = el('div', 'chat-subagent chat-skill');
-  const row = el('div', 'chat-subagent-row');
-  row.append(el('span', 'chat-subagent-dot'), el('span', 'chat-subagent-type', 'Skill'), el('span', 'chat-subagent-task', part.skillName));
-  skillRow.append(row);
-  return skillRow;
-}
-
 function renderRunRow(isRunning: boolean, typeText: string, taskText: string, timeText: string, workElements: readonly HTMLElement[]): HTMLElement {
   const details = el('details', 'chat-subagent');
   details.toggleAttribute('data-running', isRunning);
@@ -608,7 +608,6 @@ function startedAtOfRunning(part: FlatPart): number | null {
 
 const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
-  skill: renderSkill,
   'system-line': renderSystemLine,
   command: renderCommand,
   'agent-event': renderAgentEvent,

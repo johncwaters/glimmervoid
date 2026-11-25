@@ -252,15 +252,15 @@ if (harnessMode.has('narrating')) {
   chatView.setPhase('working', true);
   const narration = { kind: 'text', text: "Checking bisect step it's on:" } as const;
   const narrationTurnStates: TurnPart['segments'][] = [
-    [narration, { kind: 'tools', calls: [{ toolUseId: 'narration-0', label: 'git bisect log', state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }], callCount: 1, settledCount: 0 }],
-    [narration, { kind: 'tools', calls: [{ toolUseId: 'narration-0', label: 'git bisect log', state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }, { toolUseId: 'narration-1', label: 'Read the bisect script and its trail of skipped commits', state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }], callCount: 2, settledCount: 0 }],
-    [narration, { kind: 'tools', calls: [{ toolUseId: 'narration-0', label: 'git bisect log', state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }, { toolUseId: 'narration-1', label: 'Read the bisect script and its trail of skipped commits', state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }, { toolUseId: 'narration-2', label: 'git status', state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }], callCount: 3, settledCount: 0 }],
+    [narration, { kind: 'tools', calls: [{ toolUseId: 'narration-0', label: 'git bisect log', skillName: null, state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }], callCount: 1, settledCount: 0 }],
+    [narration, { kind: 'tools', calls: [{ toolUseId: 'narration-0', label: 'git bisect log', skillName: null, state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }, { toolUseId: 'narration-1', label: 'Read the bisect script and its trail of skipped commits', skillName: null, state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }], callCount: 2, settledCount: 0 }],
+    [narration, { kind: 'tools', calls: [{ toolUseId: 'narration-0', label: 'git bisect log', skillName: null, state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }, { toolUseId: 'narration-1', label: 'Read the bisect script and its trail of skipped commits', skillName: null, state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }, { toolUseId: 'narration-2', label: 'git status', skillName: null, state: 'running' as const, startedAt: 0, durationMs: null, outputHead: null, imageFileNames: [] }], callCount: 3, settledCount: 0 }],
   ];
   let narrationStep = 0;
   const showNextNarrationState = () => {
     const segments = narrationTurnStates[narrationStep % narrationTurnStates.length] ?? [];
     narrationStep += 1;
-    chatView.upsert([{ kind: 'turn', id: 'narrating-turn', openedAt: null, segments, droppedSegmentCount: 0, toolCount: 0, failedCount: 0, fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: false }, filePatches: [], unshownPatchCount: 0, thoughtText: null, thinkingText: null, durationText: null, taskList: null, outputTokens: null, isOver: false }], NO_ARRIVING_PARTS);
+    chatView.upsert([{ kind: 'turn', id: 'narrating-turn', openedAt: null, segments, droppedSegmentCount: 0, toolCount: 0, skillCount: 0, failedCount: 0, fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: false }, filePatches: [], unshownPatchCount: 0, thoughtText: null, thinkingText: null, durationText: null, taskList: null, outputTokens: null, isOver: false }], NO_ARRIVING_PARTS);
   };
   showNextNarrationState();
   setInterval(showNextNarrationState, 700);

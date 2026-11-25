@@ -21,6 +21,7 @@ interface ChatTurn {
   segments: TurnSegment[];
   droppedSegmentCount: number;
   toolCount: number;
+  skillCount: number;
   failedCount: number;
   callByToolUseId: Map<string, ToolCallEntry>;
   editedPaths: Set<string>;
@@ -95,7 +96,7 @@ export function createChatPartsState(workingDirectory: string | null = null): Ch
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
-  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingTexts: [], thinkingChars: 0, thinkingFrom: null, previousRecordAt: null, lastAt: 0, taskList: null, outputTokensByMessageId: new Map(), isOver: false };
+  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, skillCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingTexts: [], thinkingChars: 0, thinkingFrom: null, previousRecordAt: null, lastAt: 0, taskList: null, outputTokensByMessageId: new Map(), isOver: false };
 }
 
 function durationTextOf(turn: ChatTurn): string | null {
@@ -121,6 +122,7 @@ function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
     segments: turn.segments,
     droppedSegmentCount: turn.droppedSegmentCount,
     toolCount: turn.toolCount,
+    skillCount: turn.skillCount,
     failedCount: turn.failedCount,
     fileEdits: { ...turn.fileEdits },
     filePatches: [...turn.filePatches],
@@ -217,7 +219,9 @@ function answeredQuestionsFromResultText(asked: readonly AskedQuestion[], result
 function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): void {
   const { turn } = state;
   turn.toolCount += 1;
-  const call: ToolCallEntry = { toolUseId: record.toolUseId, label: toolLabelOf(record.name, record.input, state.workingDirectory), state: 'running', startedAt: record.ts, durationMs: null, outputHead: null, imageFileNames: [] };
+  const skillName = loadedSkillOf(record);
+  if (skillName !== null) turn.skillCount += 1;
+  const call: ToolCallEntry = { toolUseId: record.toolUseId, label: toolLabelOf(record.name, record.input, state.workingDirectory), skillName, state: 'running', startedAt: record.ts, durationMs: null, outputHead: null, imageFileNames: [] };
   turn.callByToolUseId.set(call.toolUseId, call);
   const askedQuestions = askedQuestionsOf(record);
   if (askedQuestions.length > 0) askedQuestionsByCall.set(call, askedQuestions);
@@ -471,8 +475,6 @@ function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart |
   if (systemLinePart !== null) return systemLinePart;
   if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
   if (record.kind === 'usage_limit') return usageLimitCardPartOf(state, record);
-  const skillName = loadedSkillOf(record);
-  if (skillName !== null) return { kind: 'skill', id: nextPartId(state, 'skill'), skillName };
   return null;
 }
 

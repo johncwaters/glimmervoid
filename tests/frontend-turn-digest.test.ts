@@ -202,3 +202,22 @@ test('a todo call with an empty list clears the turn task list, and a read-only 
   assert.deepEqual(lastTurn([todoCall(3, 'TodoList', {})]), [{ text: 'a', state: 'running' }]);
   assert.equal(lastTurn([todoCall(4, 'TodoList', { todos: [] })]), null);
 });
+
+test('loaded skills fold into the turn tool list with skillName and skillCount instead of trailing as standalone parts', () => {
+  const state = createChatPartsState(WORKING_DIRECTORY);
+  const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  const appended = appendChatRecords(state, [
+    { kind: 'prompt', text: 'Ship it', ts: 1_000, ...recordBase },
+    toolCall('read_file', { Path: '/Users/me/.gemini/config/skills/gating-reviews/SKILL.md' }, 2_000),
+    toolCall('Read', { file_path: `${WORKING_DIRECTORY}/a.ts` }, 2_100),
+    toolCall('Skill', { skill: 'landing' }, 2_200),
+    { kind: 'assistant', text: 'Landed.', ts: 3_000, ...recordBase },
+  ]);
+  assert.deepEqual(appended.parts.map((part) => part.kind), ['prompt', 'turn']);
+  const [endedTurn] = endChatTurn(state);
+  assert.equal(endedTurn?.kind, 'turn');
+  if (endedTurn?.kind !== 'turn') return;
+  const toolSegment = endedTurn.segments.find((segment) => segment.kind === 'tools');
+  assert.equal(endedTurn.skillCount, 2);
+  assert.deepEqual(toolSegment?.kind === 'tools' ? toolSegment.calls.map((call) => call.skillName) : null, ['gating-reviews', null, 'landing']);
+});

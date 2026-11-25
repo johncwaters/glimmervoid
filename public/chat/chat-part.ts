@@ -22,7 +22,6 @@ export type ChatCardType = ChatCard['cardType'];
 export type ChatPart =
   | { kind: 'prompt'; id: string; text: string; at: number; attachments: string[]; isBoardAnswer: boolean }
   | TurnPart
-  | { kind: 'skill'; id: string; skillName: string }
   | { kind: 'system-line'; id: string; label: string; at: number; isRelayNews: boolean }
   | CommandPart
   | AgentEventPart
@@ -30,7 +29,7 @@ export type ChatPart =
   | BackgroundTaskPart
   | { kind: 'card'; id: string; card: ChatCard };
 
-export type TurnPart = { kind: 'turn'; id: string; openedAt: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; failedCount: number; fileEdits: FileEditTally; filePatches: readonly FilePatch[]; unshownPatchCount: number; thoughtText: string | null; thinkingText: string | null; durationText: string | null; taskList: readonly TaskItem[] | null; outputTokens: number | null; isOver: boolean };
+export type TurnPart = { kind: 'turn'; id: string; openedAt: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; skillCount: number; failedCount: number; fileEdits: FileEditTally; filePatches: readonly FilePatch[]; unshownPatchCount: number; thoughtText: string | null; thinkingText: string | null; durationText: string | null; taskList: readonly TaskItem[] | null; outputTokens: number | null; isOver: boolean };
 
 export type CommandPart = { kind: 'command'; id: string; name: string; args: string; output: string | null; isOutputError: boolean; at: number };
 
