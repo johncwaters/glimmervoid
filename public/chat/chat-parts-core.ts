@@ -1,5 +1,6 @@
 import { type AnsweredQuestion, MAX_ANSWERED_QUESTIONS, MAX_ANSWERED_QUESTION_OPTIONS, type TraceRecord } from '#shared/contracts/trace.ts';
 import { parseJsonOrNull } from '#shared/coerce.ts';
+import { type TaskItem, taskListOf } from './task-list-core.ts';
 import { answersInReason } from '#shared/question-answer-text.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
@@ -30,6 +31,7 @@ interface ChatTurn {
   thinkingFrom: number | null;
   previousRecordAt: number | null;
   lastAt: number;
+  taskList: TaskItem[] | null;
   isOver: boolean;
 }
 
@@ -90,7 +92,7 @@ export function createChatPartsState(workingDirectory: string | null = null): Ch
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
-  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingFrom: null, previousRecordAt: null, lastAt: 0, isOver: false };
+  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingFrom: null, previousRecordAt: null, lastAt: 0, taskList: null, isOver: false };
 }
 
 function durationTextOf(turn: ChatTurn): string | null {
@@ -121,6 +123,7 @@ function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
     filePatches: [...turn.filePatches],
     unshownPatchCount: turn.unshownPatchCount,
     thoughtText: turn.isOver ? thoughtTextOf(turn) : null,
+    taskList: turn.taskList,
     durationText: turn.isOver ? durationTextOf(turn) : null,
     isOver: turn.isOver,
   };
@@ -220,6 +223,8 @@ function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind
     lastSegment.callCount += 1;
   }
   if (lastSegment?.kind !== 'tools') pushSegment(turn, { kind: 'tools', calls: [call], callCount: 1, settledCount: 0 });
+  const taskList = taskListOf(record.name, record.input);
+  if (taskList !== null) turn.taskList = taskList.length > 0 ? taskList : null;
   const planText = planTextOf(record);
   if (planText !== null) pushSegment(turn, { kind: 'plan', planText });
   if (!isEditingTool(record.name)) return;

@@ -189,3 +189,16 @@ test('a retry abandoned by a new prompt settles as retried and never shares its 
   assert.notEqual(nextTurnEvents[0]?.id, firstRetry?.id);
   assert.equal(nextTurnEvents[0]?.label, '529 Overloaded. Recovered after 1 retry');
 });
+
+test('a todo call with an empty list clears the turn task list, and a read-only call keeps it', () => {
+  const base = { uuid: null, parentUuid: null, vendorSessionId: 'todo-session' };
+  const todoCall = (ts: number, name: string, input: unknown): TraceRecord => ({ ...base, ts, kind: 'tool_call', toolUseId: `todo-${ts}`, name, input });
+  const state = createChatPartsState();
+  const lastTurn = (records: TraceRecord[]) => {
+    const turn = appendChatRecords(state, records).parts.findLast((part) => part.kind === 'turn');
+    return turn?.kind === 'turn' ? turn.taskList : undefined;
+  };
+  assert.deepEqual(lastTurn([{ ...base, ts: 1, kind: 'prompt', text: 'go' }, todoCall(2, 'TodoList', { todos: [{ title: 'a', status: 'in_progress' }] })]), [{ text: 'a', state: 'running' }]);
+  assert.deepEqual(lastTurn([todoCall(3, 'TodoList', {})]), [{ text: 'a', state: 'running' }]);
+  assert.equal(lastTurn([todoCall(4, 'TodoList', { todos: [] })]), null);
+});

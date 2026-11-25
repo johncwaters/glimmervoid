@@ -44,6 +44,8 @@ interface SegmentList<Entry> {
 }
 
 interface TurnView {
+  tasks: HTMLUListElement;
+  taskSignature: string;
   uploadUrlOf: UploadUrlOf;
   element: HTMLElement;
   brief: HTMLElement;
@@ -417,8 +419,10 @@ function createTurnView(uploadUrlOf: UploadUrlOf): TurnView {
   diffToggle.setAttribute('aria-expanded', 'false');
   const diff = el('div', 'chat-turn-diff');
   diff.hidden = true;
-  element.append(body, brief, meta, work, diff);
-  return { uploadUrlOf, element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
+  const tasks = el('ul', 'chat-turn-tasks');
+  tasks.hidden = true;
+  element.append(body, tasks, brief, meta, work, diff);
+  return { uploadUrlOf, element, tasks, taskSignature: '', brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
 }
 
 function syncBodySegments(view: TurnView, segments: readonly TurnSegment[], isArriving: boolean): void {
@@ -481,7 +485,20 @@ function showWork(view: TurnView): void {
   syncWork(view, view.part);
 }
 
+function syncTaskList(view: TurnView, taskList: TurnPart['taskList']): void {
+  const signature = JSON.stringify(taskList);
+  if (signature === view.taskSignature) return;
+  view.taskSignature = signature;
+  view.tasks.hidden = taskList === null;
+  view.tasks.replaceChildren(...(taskList ?? []).map((task) => {
+    const item = el('li', 'chat-turn-task', task.text);
+    item.dataset.state = task.state;
+    return item;
+  }));
+}
+
 function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: boolean, turnEnd: TurnEnd | null): void {
+  syncTaskList(view, part.taskList);
   dropLeadingSegments(view.bodySegments, part.droppedSegmentCount, (element) => element);
   syncBodySegments(view, part.segments, areNewSegmentsArriving);
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');

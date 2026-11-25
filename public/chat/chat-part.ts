@@ -1,5 +1,6 @@
 import type { ElicitationRequest, UsageLimit } from '#shared/contracts/session.ts';
 import type { FileEditTally, FilePatch, TurnSegment } from './turn-digest-core.ts';
+import type { TaskItem } from './task-list-core.ts';
 
 export type ChatCard =
   | { cardType: 'permission'; cardId: string; data: { title: string; detail: string }; resolution: { decision: 'allow' | 'deny'; message?: string } | null }
@@ -29,7 +30,7 @@ export type ChatPart =
   | BackgroundTaskPart
   | { kind: 'card'; id: string; card: ChatCard };
 
-export type TurnPart = { kind: 'turn'; id: string; openedAt: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; failedCount: number; fileEdits: FileEditTally; filePatches: readonly FilePatch[]; unshownPatchCount: number; thoughtText: string | null; durationText: string | null; isOver: boolean };
+export type TurnPart = { kind: 'turn'; id: string; openedAt: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; failedCount: number; fileEdits: FileEditTally; filePatches: readonly FilePatch[]; unshownPatchCount: number; thoughtText: string | null; durationText: string | null; taskList: readonly TaskItem[] | null; isOver: boolean };
 
 export type CommandPart = { kind: 'command'; id: string; name: string; args: string; output: string | null; isOutputError: boolean; at: number };
 

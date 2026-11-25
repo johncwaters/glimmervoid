@@ -1090,6 +1090,20 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 
 .chat-card-recommended { color: var(--text-muted); font-size: var(--type-meta); font-weight: 400; }
 
+.chat-turn-tasks { display: grid; gap: 4px; margin: 4px 0 12px; padding: 0; list-style: none; font-size: var(--type-meta); }
+
+.chat-turn-task { display: flex; gap: 8px; align-items: baseline; color: var(--text-dim); }
+
+.chat-turn-task::before { content: ""; flex: none; width: 10px; height: 10px; border: 1px solid var(--border); border-radius: 2px; }
+
+.chat-turn-task[data-state="running"] { color: var(--text); }
+
+.chat-turn-task[data-state="running"]::before { border-color: var(--accent); background: var(--accent-dim); }
+
+.chat-turn-task[data-state="done"] { color: var(--text-muted); text-decoration: line-through; }
+
+.chat-turn-task[data-state="done"]::before { border-color: var(--state-complete); background: var(--state-complete); }
+
 .chat-turn-answers { display: grid; gap: 10px; margin: 4px 0 12px; }
 
 .chat-turn-answer { display: grid; gap: 6px; }

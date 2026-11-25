@@ -603,6 +603,30 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
+const TASK_LIST_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { unproducible: 'No Claude Code session on the capture host has used a todo tool, and a headless 2.1.331 run asked to keep a todo list answered in text without one' },
+  codex: { unproducible: 'Codex writes update_plan as a response_item function_call, which the Codex converter does not read (it reads item_completed lines), and none of the 847 Codex rollouts on the capture host holds one to capture' },
+  kimi: { unproducible: 'No Kimi Code session exists on the capture host to capture; Chat reads its TodoList tool (kimi-code 2.7.3: todos of title and status)' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed todowrite call exists to capture' },
+  pi: { unproducible: 'pi has no todo or plan-step tool, so no task list exists to show' },
+  antigravity: { file: 'antigravity-steps.jsonl', vendorSessionId: 'de753bd5-ff1d-4847-8729-e7bc4f04db63' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = TASK_LIST_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`task lists in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`task lists in Chat on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    const { parts } = appendChatRecords(createChatPartsState(), records);
+    const taskList = parts.findLast((part) => part.kind === 'turn' && part.taskList !== null);
+    assert.ok(taskList?.kind === 'turn' && taskList.taskList !== null, `${agent} showed no task list`);
+    assert.ok(taskList.taskList.some((task) => task.state === 'running'), `${agent} lost which task is running`);
+  });
+}
+
 function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
   const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
   const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);
