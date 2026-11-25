@@ -867,7 +867,7 @@ test('wargames agent verb starts, lists, inspects, aborts, and reads history wit
         }
         loadedMatches.push(WargamesMatchSummary.parse({
           matchId: 'wg-match-1',
-          rules: 'r4',
+          rules: 'r5',
           title: spec.title,
           seed: spec.seed,
           createdAtMs: 1_000,

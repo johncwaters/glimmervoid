@@ -369,8 +369,16 @@ export function createWargamesLauncher({
       if (!session) return { ok: false as const, error: `Seat session "${created.project.name}" did not load` };
       const reportLaunchError = (cause: unknown) => wargames.seatSessionEnded(session.id, errorMessage(cause));
       const reportExit = ({ exitCode, signal }: { exitCode: number | null; signal: unknown }) => wargames.seatSessionEnded(session.id, `its agent exited with code ${exitCode}, signal ${String(signal ?? 'none')}`);
+      const reportFailure = ({ to }: { to: string }) => {
+        if (to === STATES.FAILED) wargames.seatSessionEnded(session.id, session.failureReason ?? 'its agent failed');
+      };
+      const reportUsageLimit = ({ usageLimit }: { usageLimit: unknown }) => {
+        if (usageLimit !== null) wargames.seatSessionEnded(session.id, 'out of usage');
+      };
       session.once('error', reportLaunchError);
       session.once('exit', reportExit);
+      session.on('state-change', reportFailure);
+      session.on('usage-limit-change', reportUsageLimit);
       const delivered = session.deliver(buildSeatPrompt(matchId, seat, spec), {
         when: 'ready',
         submit: true,
@@ -379,6 +387,8 @@ export function createWargamesLauncher({
       if (!delivered.ok) {
         session.off('error', reportLaunchError);
         session.off('exit', reportExit);
+        session.off('state-change', reportFailure);
+        session.off('usage-limit-change', reportUsageLimit);
         await cleanupMatchSessions([created.project.id]);
         return { ok: false as const, error: `Could not prompt seat ${seat.seatId} (${delivered.reason})` };
       }

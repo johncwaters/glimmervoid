@@ -384,5 +384,5 @@ test('v9 starts villages with their land ring, claims land as a front with land 
 
 test('the rules id names one balance and one event schema, so a saved log replays on the rules that made it', () => {
   const rulesFingerprint = createHash('sha256').update(JSON.stringify([WARGAMES_BALANCE, z.toJSONSchema(WargamesEventSchema, { io: 'input' })])).digest('hex').slice(0, 16);
-  assert.deepEqual({ rules: WARGAMES_RULES_ID, rulesFingerprint }, { rules: 'r4', rulesFingerprint: '2de8a24fa43d1971' });
+  assert.deepEqual({ rules: WARGAMES_RULES_ID, rulesFingerprint }, { rules: 'r5', rulesFingerprint: 'eff690e09bfe086b' });
 });

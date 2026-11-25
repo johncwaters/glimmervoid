@@ -1668,6 +1668,10 @@
     {
       "name": "orders",
       "definition": "The Wargames seat's sealed list for one tick (train, build, march, found), submitted in the orders phase and resolved together with every other seat's"
+    },
+    {
+      "name": "diplomacy",
+      "definition": "In Wargames, the talk between seats: direct and public messages sent in the talk phase, which the dashboard's Diplomacy log lists with system lines about seats going offline"
     }
   ],
   "retired": [

@@ -229,8 +229,9 @@ function updateModelElo(
   const next = new Map<string, ModelEloRow>();
   for (const [model, row] of currentRows) next.set(model, { ...row });
   if (summary.status !== 'finished') return next;
+  const ratedSeats = summary.seats.filter((seat) => seat.status !== 'disconnected');
 
-  for (const seat of summary.seats) {
+  for (const seat of ratedSeats) {
     if (next.has(seat.modelDisplay)) continue;
     next.set(seat.modelDisplay, {
       modelDisplay: seat.modelDisplay,
@@ -242,22 +243,22 @@ function updateModelElo(
   }
 
   const deltas = new Map<string, number>();
-  for (let i = 0; i < summary.seats.length; i += 1) {
-    for (let j = i + 1; j < summary.seats.length; j += 1) {
-      const seatA = summary.seats[i];
-      const seatB = summary.seats[j];
+  for (let i = 0; i < ratedSeats.length; i += 1) {
+    for (let j = i + 1; j < ratedSeats.length; j += 1) {
+      const seatA = ratedSeats[i];
+      const seatB = ratedSeats[j];
       if (seatA.modelDisplay === seatB.modelDisplay) continue;
       const ratingA = next.get(seatA.modelDisplay)?.elo ?? ELO_DEFAULT;
       const ratingB = next.get(seatB.modelDisplay)?.elo ?? ELO_DEFAULT;
       const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
       const scoreA = pairwiseScore(seatA, seatB, summary.winnerSeatId);
-      const deltaA = (ELO_K_FACTOR / (summary.seats.length - 1)) * (scoreA - expectedA);
+      const deltaA = (ELO_K_FACTOR / (ratedSeats.length - 1)) * (scoreA - expectedA);
       deltas.set(seatA.modelDisplay, (deltas.get(seatA.modelDisplay) ?? 0) + deltaA);
       deltas.set(seatB.modelDisplay, (deltas.get(seatB.modelDisplay) ?? 0) - deltaA);
     }
   }
 
-  for (const seat of summary.seats) {
+  for (const seat of ratedSeats) {
     const row = next.get(seat.modelDisplay);
     if (!row) continue;
     const totalVillages = row.avgVillages * row.matchesPlayed + seat.villagesHeld;

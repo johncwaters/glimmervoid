@@ -266,6 +266,76 @@ test('a message during talk wakes its ready recipient with the text, back and fo
   }
 });
 
+test('a seat silent for 2 phases is disconnected, phases stop waiting for it, a lost session disconnects with its reason, and the match ends', async () => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-runner-silent-'));
+  try {
+    const store = createWargamesStore({ directory: tempDir, log: { warn: () => {} } });
+    await store.load();
+    const deadlines: (() => void)[] = [];
+    const runner = createWargamesRunner({
+      store,
+      broadcast: () => {},
+      log: { log: () => {}, warn: () => {} },
+      now: () => 1_700_000_000_000,
+      setTimeoutFn: (callback) => {
+        deadlines.push(() => callback());
+        return setTimeout(() => {}, 0);
+      },
+      clearTimeoutFn: (handle) => clearTimeout(handle),
+      readAgentModels: () => ({ agents: [], openrouter: { models: [], error: null, checkedAt: null } }),
+    });
+    const started = await runner.startMatch(buildSpec(5), async (_matchId, seat) => ({ ok: true, sessionId: `sess-${seat.seatId}` }));
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const { matchId } = started;
+    const talkingSeatIds = ['s1', 's2', 's3', 's4', 's5'] as const;
+    const phaseOf = async () => {
+      const reply = await runner.callTool(matchId, 's1', 'get_state', {});
+      return reply.ok ? (reply.payload.state as { tick: number; phase: string }) : null;
+    };
+    const runOutDeadline = async () => {
+      deadlines.pop()?.();
+      return phaseOf();
+    };
+    for (const seatId of WARGAMES_SEAT_IDS) await runner.callTool(matchId, seatId, 'get_state', {});
+
+    for (const seatId of talkingSeatIds) await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+    assert.equal((await phaseOf())?.phase, 'talk');
+    assert.equal((await runOutDeadline())?.phase, 'orders');
+    for (const seatId of talkingSeatIds) await runner.callTool(matchId, seatId, 'submit_orders', { orders: [] });
+    const secondTick = await runOutDeadline();
+    assert.deepEqual({ tick: secondTick?.tick, phase: secondTick?.phase }, { tick: 2, phase: 'talk' });
+
+    for (const seatId of talkingSeatIds) await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+    assert.equal((await runOutDeadline())?.phase, 'orders');
+    const afterSilence = replayMatch(await store.readEvents(matchId));
+    assert.equal(afterSilence.seats.find((seat) => seat.config.seatId === 's6')?.status, 'disconnected');
+    assert.deepEqual(afterSilence.seatNotices, [{ tick: 2, seatId: 's6', kind: 'offline', reason: 'no tool call for 2 phases' }]);
+    const noticesReply = await runner.callTool(matchId, 's1', 'read_messages', {});
+    assert.deepEqual(noticesReply.ok ? noticesReply.payload.seatNotices : null, afterSilence.seatNotices);
+
+    runner.seatSessionEnded('sess-s5', 'out of usage');
+    const connectedSeatIds = ['s1', 's2', 's3', 's4'] as const;
+    for (const seatId of connectedSeatIds) await runner.callTool(matchId, seatId, 'submit_orders', { orders: [] });
+    for (let tick = 3; tick <= 5; tick += 1) {
+      const current = await phaseOf();
+      assert.deepEqual({ tick: current?.tick, phase: current?.phase }, { tick, phase: 'talk' });
+      for (const seatId of connectedSeatIds) await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+      for (const seatId of connectedSeatIds) await runner.callTool(matchId, seatId, 'submit_orders', { orders: [] });
+    }
+    await store.idle();
+    const ended = replayMatch(await store.readEvents(matchId));
+    assert.equal(ended.status, 'finished');
+    assert.equal(ended.seats.find((seat) => seat.config.seatId === 's5')?.offlineReason, 'out of usage');
+    assert.ok(ended.winnerSeatId !== 's5' && ended.winnerSeatId !== 's6');
+    const ratedModels = runner.historyFrame().history.eloByModel.map((row) => row.modelDisplay).sort();
+    assert.deepEqual(ratedModels, ['claude-opus-4-6', 'gemini-2.5-pro', 'gpt-5.3-codex', 'kimi-k2.5']);
+    runner.dispose();
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('wargames launcher appends optional seat.setup.instructions after immutable rules', async () => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-launch-prompt-'));
   const fakeSessions = new Map<string, Session>();

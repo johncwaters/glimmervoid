@@ -1,7 +1,7 @@
 import type { MessageChannel, SeatId } from '#shared/contracts/wargames.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 
-export type DiplomacyEntryKind = 'message' | 'note';
+export type DiplomacyEntryKind = 'message' | 'note' | 'notice';
 
 export interface SeatNote {
   tick: number;
@@ -22,6 +22,7 @@ export interface DiplomacyEntry {
 const KIND_ORDER_WITHIN_TURN: Readonly<Record<DiplomacyEntryKind, number>> = Object.freeze({
   note: 0,
   message: 1,
+  notice: 2,
 });
 
 function isMessageVisible(pov: 'god' | SeatId, message: MatchState['messages'][number]): boolean {
@@ -49,7 +50,16 @@ export function diplomacyEntriesOf(state: MatchState, pov: 'god' | SeatId, notes
     channel: null,
     text: note.text,
   }));
-  const ordered = [...noteEntries, ...messageEntries].map((entry, arrivalIndex) => ({ entry, arrivalIndex }));
+  const noticeEntries = state.seatNotices.map((notice, noticeIndex): DiplomacyEntry => ({
+    key: `notice-${noticeIndex}`,
+    tick: notice.tick,
+    kind: 'notice',
+    from: notice.seatId,
+    to: null,
+    channel: null,
+    text: notice.kind === 'offline' ? `Offline: ${notice.reason ?? 'no reason given'}` : 'Back online',
+  }));
+  const ordered = [...noteEntries, ...messageEntries, ...noticeEntries].map((entry, arrivalIndex) => ({ entry, arrivalIndex }));
   ordered.sort((left, right) => right.entry.tick - left.entry.tick
     || KIND_ORDER_WITHIN_TURN[right.entry.kind] - KIND_ORDER_WITHIN_TURN[left.entry.kind]
     || right.arrivalIndex - left.arrivalIndex);

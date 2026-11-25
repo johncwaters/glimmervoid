@@ -20,6 +20,7 @@ import type {
   HexCoord,
   MatchStatus,
   MessageRecord,
+  SeatNotice,
   OrderItem,
   ResourceBundle,
   SeatConfig,
@@ -84,6 +85,7 @@ interface TerritoryTile {
 interface SeatRuntimeState {
   config: SeatConfig;
   status: SeatStatus;
+  offlineReason: string | null;
   note: string;
   sealedOrders: OrderItem[];
 }
@@ -105,6 +107,7 @@ export interface MatchState {
   talkWakesBySeat: Partial<Record<SeatId, number>>;
   armies: Map<string, ArmyState>;
   messages: MessageRecord[];
+  seatNotices: SeatNotice[];
   reportsBySeat: Record<SeatId, WargamesReport[]>;
   reportsById: Map<string, WargamesReport>;
   ordersByTick: Record<number, Record<SeatId, OrderItem[]>>;
@@ -439,6 +442,7 @@ function cloneState(state: MatchState): MatchState {
     talkWakesBySeat: { ...state.talkWakesBySeat },
     armies,
     messages: [...state.messages],
+    seatNotices: [...state.seatNotices],
     reportsBySeat,
     reportsById: new Map(state.reportsById),
     ordersByTick,
@@ -666,6 +670,7 @@ export function createInitialMatchState(
     return {
       config,
       status: 'disconnected' as SeatStatus,
+      offlineReason: null,
       note: '',
       sealedOrders: [] as OrderItem[],
     };
@@ -691,6 +696,7 @@ export function createInitialMatchState(
     talkWakesBySeat: {},
     armies: new Map(),
     messages: [],
+    seatNotices: [],
     reportsBySeat,
     reportsById: new Map(),
     ordersByTick: {},
@@ -1644,7 +1650,7 @@ function settleBeaconsAndVictoryPoints(state: MatchState): void {
     village.loyalty = INITIAL_LOYALTY;
   }
   for (const seat of state.seats) {
-    if (seat.status === 'eliminated') continue;
+    if (seat.status === 'eliminated' || seat.status === 'disconnected') continue;
     const seatId = seat.config.seatId;
     const territoryPoints = landPointsFor(state.balance.territory, territoryCountOf(state, seatId));
     state.victoryPointsBySeat[seatId] += villagesOwnedBy(state, seatId) + beaconsHeldBy(state, seatId) * victory.beaconPoints + territoryPoints;
@@ -1665,7 +1671,7 @@ export function seatStandingOf(state: MatchState, seatId: SeatId): SeatStanding 
 }
 
 function standingSeats(state: MatchState): SeatId[] {
-  return state.seats.filter((seat) => seat.status !== 'eliminated').map((seat) => seat.config.seatId);
+  return state.seats.filter((seat) => seat.status !== 'eliminated' && seat.status !== 'disconnected').map((seat) => seat.config.seatId);
 }
 
 function bestSeatByPoints(state: MatchState, seatIds: readonly SeatId[]): SeatId {
@@ -1744,6 +1750,8 @@ export function applyEvent(
     const nextSeat = transitionSeat(seat.status, 'seat_connect');
     if (!nextSeat.ok) return nextSeat;
     seat.status = nextSeat.state;
+    seat.offlineReason = null;
+    if (state.status === 'running') state.seatNotices.push({ tick: state.tick, seatId: event.seatId, kind: 'back', reason: null });
     if (state.status === 'seating' && state.seats.every((entry) => entry.status === 'connected')) {
       const started = transitionMatch(state.status, 'all_seats_connected');
       if (!started.ok) return started;
@@ -1768,6 +1776,8 @@ export function applyEvent(
     const nextSeat = transitionSeat(seat.status, 'seat_disconnect');
     if (!nextSeat.ok) return nextSeat;
     seat.status = nextSeat.state;
+    seat.offlineReason = event.reason;
+    if (state.status === 'running') state.seatNotices.push({ tick: state.tick, seatId: event.seatId, kind: 'offline', reason: event.reason });
     state.lastSeq = event.seq;
     return { ok: true, state, effects };
   }

@@ -82,7 +82,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('read_messages', {
     title: 'Read Messages',
-    description: 'Read DMs addressed to you or sent by you, and public channel messages every seat sees, since a given tick.',
+    description: 'Read DMs addressed to you or sent by you, and public channel messages every seat sees, since a given tick. seatNotices lists seats that went offline, with the reason, or came back; an offline seat gives no orders and scores no VP.',
     inputSchema: z.strictObject({ since_tick: z.number().int().min(0).default(0) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'read_messages', args)));
 

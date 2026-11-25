@@ -5,12 +5,14 @@ import { outlineIconButton } from '../ui/button.ts';
 import { sectionHeading } from '../ui/section-heading.ts';
 import { diplomacyEntriesOf, diplomacyItemsOf } from './diplomacy-log-core.ts';
 import type { DiplomacyEntry, DiplomacyEntryKind, DiplomacyItem, SeatNote } from './diplomacy-log-core.ts';
+import { WARGAMES_GLYPH_PATHS } from './wargames-glyphs.ts';
 import { SEAT_COLORS, seatLabelOf, THOUGHT_CLOUD_PATH } from './wargames-map.ts';
 import type { WargamesPov } from './wargames-store.ts';
 
 const ENTRY_GLYPHS: Readonly<Record<DiplomacyEntryKind, { path: string; color: string }>> = Object.freeze({
   message: { path: CHAT_ICON_PATH, color: 'var(--text-dim)' },
   note: { path: THOUGHT_CLOUD_PATH, color: 'var(--text-muted)' },
+  notice: { path: WARGAMES_GLYPH_PATHS.offline, color: 'var(--text-muted)' },
 });
 
 function speakerTextOf(state: MatchState, entry: DiplomacyEntry): string {

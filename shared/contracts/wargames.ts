@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_ID = 'r4' as const;
+export const WARGAMES_RULES_ID = 'r5' as const;
 const WargamesRulesId = z.literal(WARGAMES_RULES_ID);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -371,6 +371,14 @@ export const MessageRecord = z.strictObject({
 });
 export type MessageRecord = z.infer<typeof MessageRecord>;
 
+export const SeatNotice = z.strictObject({
+  tick: z.number().int().min(0),
+  seatId: SeatId,
+  kind: z.enum(['offline', 'back']),
+  reason: z.string().min(1).max(200).nullable(),
+});
+export type SeatNotice = z.infer<typeof SeatNotice>;
+
 export const RejectionCode = z.enum([
   'invalid_match_state',
   'invalid_phase',
@@ -413,6 +421,7 @@ export const WargamesEvent = z.discriminatedUnion('type', [
     seq: z.number().int().min(1),
     type: z.literal('seat_disconnected'),
     seatId: SeatId,
+    reason: z.string().min(1).max(200),
   }),
   z.strictObject({
     seq: z.number().int().min(1),

@@ -618,7 +618,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     head.append(nameWrap, headRight);
 
     const agentAndModel = formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay);
-    const modelLine = el('div', 'wg-faction-sub', agentAndModel);
+    const modelLine = el('div', 'wg-faction-sub', seat.status === 'disconnected' && seat.offlineReason ? `Offline: ${seat.offlineReason}` : agentAndModel);
 
     const track = el('div', 'wg-win-track');
     const fill = el('div', 'wg-win-fill');

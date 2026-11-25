@@ -60,6 +60,7 @@ interface WargamesMatchHooks {
 const MAX_NOTE_WRITES_PER_TICK = 8;
 const TIMED_PHASES_PER_TICK = 2;
 const MAX_WAIT_FOR_CHANGE_MS = 30_000;
+const SILENT_PHASES_BEFORE_DISCONNECT = 2;
 
 interface LiveMatch {
   state: MatchState;
@@ -72,6 +73,8 @@ interface LiveMatch {
   phaseWaiters: Map<() => void, SeatId>;
   wokenSeatIds: Set<SeatId>;
   seenMessageCountBySeat: Map<SeatId, number>;
+  phaseSerial: number;
+  lastCallPhaseBySeat: Map<SeatId, number>;
   hooks?: WargamesMatchHooks;
 }
 
@@ -181,7 +184,7 @@ export function createWargamesRunner({
   function everySeatDone(live: LiveMatch): boolean {
     return matchSeatIds(live.state).every((id) => {
       const seat = live.state.seats[seatIndexOf(id)];
-      return live.state.readySeatIds.includes(id) || seat.status === 'submitted' || seat.status === 'eliminated' || seat.status === 'timedOut';
+      return live.state.readySeatIds.includes(id) || seat.status === 'submitted' || seat.status === 'eliminated' || seat.status === 'timedOut' || seat.status === 'disconnected';
     });
   }
 
@@ -309,9 +312,37 @@ export function createWargamesRunner({
     for (const seatId of nudgedSeatIds) markMessagesSeen(live, seatId);
   }
 
+  function connectedSeatIdsOf(live: LiveMatch): SeatId[] {
+    return live.state.seats
+      .filter((seat) => seat.status !== 'eliminated' && seat.status !== 'disconnected')
+      .map((seat) => seat.config.seatId);
+  }
+
+  async function disconnectSeatSerialized(live: LiveMatch, seatId: SeatId, reason: string): Promise<'aborted' | 'running'> {
+    const committed = await commitEventSerialized(live, { seq: live.state.lastSeq + 1, type: 'seat_disconnected', seatId, reason: reason.slice(0, 200) });
+    if (!committed.ok || live.state.status !== 'running') return live.state.status === 'running' ? 'running' : 'aborted';
+    const connectedSeatIds = connectedSeatIdsOf(live);
+    if (connectedSeatIds.length > 1) return 'running';
+    const abortReason = connectedSeatIds.length === 1 ? `only seat ${connectedSeatIds[0]} is still connected` : 'no seat is still connected';
+    await commitEventSerialized(live, { seq: live.state.lastSeq + 1, type: 'match_aborted', reason: abortReason });
+    return 'aborted';
+  }
+
+  async function disconnectSilentSeatsSerialized(live: LiveMatch): Promise<'aborted' | 'running'> {
+    for (const seatId of connectedSeatIdsOf(live)) {
+      const lastCallPhase = live.lastCallPhaseBySeat.get(seatId) ?? 0;
+      if (live.phaseSerial - lastCallPhase < SILENT_PHASES_BEFORE_DISCONNECT) continue;
+      const outcome = await disconnectSeatSerialized(live, seatId, `no tool call for ${SILENT_PHASES_BEFORE_DISCONNECT} phases`);
+      if (outcome === 'aborted') return outcome;
+    }
+    return 'running';
+  }
+
   async function advancePhaseSerialized(live: LiveMatch, reason: 'all_submitted' | 'deadline'): Promise<void> {
     clearDeadline(live);
     if (live.state.status !== 'running') return;
+    if (await disconnectSilentSeatsSerialized(live) === 'aborted') return;
+    live.phaseSerial += 1;
     const stepped = await commitEventSerialized(live, {
       seq: live.state.lastSeq + 1,
       type: 'phase_advanced',
@@ -361,6 +392,8 @@ export function createWargamesRunner({
       phaseWaiters: new Map(),
       wokenSeatIds: new Set(),
       seenMessageCountBySeat: new Map(),
+      phaseSerial: 0,
+      lastCallPhaseBySeat: new Map(),
       hooks,
     };
     liveByMatchId.set(matchId, live);
@@ -422,6 +455,12 @@ export function createWargamesRunner({
     const live = binding ? liveByMatchId.get(binding.matchId) : undefined;
     if (!binding || !live) return;
     void enqueueMatch(live, async () => {
+      if (live.state.status === 'running') {
+        if (!connectedSeatIdsOf(live).includes(binding.seatId)) return;
+        const outcome = await disconnectSeatSerialized(live, binding.seatId, reason);
+        if (outcome === 'running' && everySeatDone(live)) await advancePhaseSerialized(live, 'all_submitted');
+        return;
+      }
       if (live.state.status !== 'seating') return;
       if (live.state.seats[seatIndexOf(binding.seatId)].status !== 'disconnected') return;
       await commitEventSerialized(live, {
@@ -506,6 +545,7 @@ export function createWargamesRunner({
   ): Promise<WargamesToolReply> {
     const live = liveByMatchId.get(matchId);
     if (!live) return rejectionReply('invalid_match_state', `match ${matchId} is not live`);
+    live.lastCallPhaseBySeat.set(seatId, live.phaseSerial);
     if (toolName === 'get_state') {
       const readyFlag = args.ready === true;
       const waitFlag = args.wait_for_change === true;
@@ -554,8 +594,9 @@ export function createWargamesRunner({
           if (message.channel === 'public') return true;
           return message.from === seatId || message.to === seatId;
         });
+        const seatNotices = live.state.seatNotices.filter((notice) => notice.tick >= sinceTick);
         markMessagesSeen(live, seatId);
-        return { ok: true, payload: { messages } };
+        return { ok: true, payload: { messages, seatNotices } };
       }
       if (toolName === 'read_notes') {
         return { ok: true, payload: { text: live.state.seats[seatIndexOf(seatId)].note } };
