@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Change the Orchestrator's model from Studio.** Click the model name under the Studio message bar to pick another model and effort, the same picker Chat has; the Orchestrator restarts on it and resumes its conversation. The name is clickable while the Orchestrator is idle.
 
+### Changed
+
+- **The Code map board shows only the repos you open in Studio.** A Focus session no longer adds its repo as an area on the Code map board, which had filled it with every repo any session ran in. Focus sessions still read the map with `codemap` and are still held to the import gate; a `whiteboard ask` from a repo not open in Studio is refused with that reason. Areas Focus sessions added before this release stay until you remove them.
+
 ### Fixed
 
 - **Studio no longer reloads every time you open it.** Coming back to Studio keeps each agent card's glow, activity and digest and reads only what happened while it was hidden, and the map asks only for tiles it is missing instead of downloading all of them again. The same applies when the board view comes back in Focus or Boards.

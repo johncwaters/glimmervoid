@@ -2676,6 +2676,7 @@ test('the code map board puts a moved box back at its generated place and keeps 
   fs.writeFileSync(path.join(specsRoot, 'mapped', 'foreign.json'), JSON.stringify({ repoRoot: otherRepoDir, nodes: [], edges: [] }));
   const codemap = createCodemapService({ whiteboards: wiring, specsRoot, changesOfSession: async (sessionId) => (sessionId === 'worker' ? { name: 'worker', repos: [{ root: repoDir, paths: overlaidPaths }] } : null) });
   const reader = { id: 'codemap-reader', name: 'reader', project: repoDir };
+  assert.ok(await codemap.openArea(repoDir));
   await codemap.handle({ repoDir }, { sub: 'map' });
   const firstRead = await wiring.readPlanBoard(reader, 'Code map');
   assert.ok(firstRead.ok);

@@ -93,6 +93,8 @@ test('the Orchestrator runs in the Studio home, lists every Studio repo from its
   assert.deepEqual(ensureOrchestrator(sessions.values(), createProjectSession, {}), { ok: true, orchestratorId: orchestrator.id, isCreated: false }, 'a second ensure reuses the one Orchestrator');
 
   assert.equal((await agentApi.handle(orchestrator, 'codemap', { sub: 'map' })).status, 404, 'with no Studio repo the Orchestrator has no index');
+  assert.ok(await codemap.openArea(firstRepoDir));
+  assert.ok(await codemap.openArea(secondRepoDir));
   assert.equal((await codemap.handle({ repoDir: firstRepoDir }, { sub: 'map' })).ok, true);
   assert.equal((await codemap.handle({ repoDir: secondRepoDir }, { sub: 'map' })).ok, true);
   const [firstRepo, secondRepo] = await codemap.listedRepos();

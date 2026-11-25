@@ -59,6 +59,12 @@ test('repos and folders of one repo with the same folder names draw their own bo
   const libBoxIdsOf = (board: Board) => [...board.elements.values()].filter((element) => element.kind === 'box' && element.title === 'lib').map((element) => element.id);
 
   assert.equal((await codemap.handle({ repoDir: firstRepoDir }, { sub: 'map' })).ok, true);
+  assert.deepEqual(await areas.repos(), [], 'mapping a repo no one opened in Studio lists no area');
+  assert.equal((await codemap.boxesOfSession(firstRepoDir, 'focus-session', ['lib/part0.ts'])).ok, false, 'a board ask from a repo not open in Studio is refused');
+  assert.deepEqual(await areas.repos(), [], 'a refused board ask lists no area either');
+  assert.ok(await codemap.openArea(firstRepoDir));
+  assert.ok(await codemap.openArea(secondRepoDir));
+  assert.equal((await codemap.handle({ repoDir: firstRepoDir }, { sub: 'map' })).ok, true);
   assert.equal((await codemap.handle({ repoDir: secondRepoDir }, { sub: 'map' })).ok, true);
   assert.equal(await codemap.mapBoardIdOfRepo(firstRepoDir), await codemap.mapBoardIdOfRepo(secondRepoDir), 'both repos draw on the one map board');
 
@@ -89,6 +95,8 @@ test('repos and folders of one repo with the same folder names draw their own bo
   assert.equal(areaSpanOf(afterRemoval, 'second').left, firstSpan.left, 'the remaining area closes up to the start of the row');
 
   const packagesRepoDir = await createRepo(tmpDir, 'packages', ['web', 'api']);
+  assert.ok(await codemap.openArea(path.join(packagesRepoDir, 'web')));
+  assert.ok(await codemap.openArea(path.join(packagesRepoDir, 'api')));
   assert.equal((await codemap.handle({ repoDir: path.join(packagesRepoDir, 'web') }, { sub: 'map' })).ok, true);
   assert.equal((await codemap.handle({ repoDir: path.join(packagesRepoDir, 'api') }, { sub: 'map' })).ok, true);
   const withPackages = await readBoard();
@@ -96,6 +104,7 @@ test('repos and folders of one repo with the same folder names draw their own bo
   assert.ok(areaSpanOf(withPackages, 'web').right < areaSpanOf(withPackages, 'api').left);
 
   const otherWebDir = await createRepo(path.join(tmpDir, 'other'), 'web', ['.']);
+  assert.ok(await codemap.openArea(otherWebDir));
   assert.equal((await codemap.handle({ repoDir: otherWebDir }, { sub: 'map' })).ok, true);
   assert.equal((await areas.repos()).find((listed) => listed.repoDir === otherWebDir)?.repoName, 'web-2', 'a second repo with a taken folder name gets a name of its own');
   const namedBoxes = (await codemap.boxesOfStudioPaths('areas-reader', ['web-2/lib/part0.ts', path.join(otherWebDir, 'lib', 'part0.ts'), 'web/lib/part0.ts'])).boxIdByPath;
@@ -111,6 +120,7 @@ test('repos and folders of one repo with the same folder names draw their own bo
   assert.equal(emptyArea?.isMapFailed, true);
 
   fs.renameSync(secondRepoDir, path.join(tmpDir, 'second-moved'));
+  assert.ok(await codemap.openArea(path.join(tmpDir, 'second-moved')));
   assert.equal((await codemap.handle({ repoDir: path.join(tmpDir, 'second-moved') }, { sub: 'map' })).ok, true);
   const hasSecondArea = async () => [...(await readBoard()).elements.values()].some((element) => element.kind === 'frame' && element.title === 'second');
   await waitFor(async () => !(await areas.repos()).some((listed) => listed.repoDir === secondRepoDir), 'a folder that is gone leaves the Studio repo list when the next repo joins', MAP_REDRAW_DEADLINE_MS);
@@ -134,11 +144,19 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
     const collapsedFolderCount = [...read.board.elements.values()].filter((element) => element.kind === 'frame' && element.collapsed && element.id !== areaFrame.id && element.contains.some((boxId) => areaFrame.contains.includes(boxId))).length;
     return { id: areaFrame.id, isFolded: areaFrame.collapsed, cardTitle: firstBox?.kind === 'box' ? firstBox.title : null, left: firstBox?.kind === 'box' && typeof firstBox.place === 'object' && 'at' in firstBox.place ? firstBox.place.at.x : null, collapsedFolderCount };
   };
+  const isAreaFolded = async (areaTitle: string): Promise<boolean | null> => {
+    const read = await wiring.readPlanBoard(reader, 'Code map');
+    if (!read.ok) return null;
+    const areaFrame = [...read.board.elements.values()].find((element) => element.kind === 'frame' && element.title === areaTitle);
+    return areaFrame?.kind === 'frame' ? areaFrame.collapsed : null;
+  };
   const untilFolded = async (areaTitle: string, isFolded: boolean) => {
-    await waitFor(async () => (await areaFrameOf(areaTitle)).isFolded === isFolded, `the area of ${areaTitle} ${isFolded ? 'folds' : 'opens'}`, MAP_REDRAW_DEADLINE_MS);
+    await waitFor(async () => (await isAreaFolded(areaTitle)) === isFolded, `the area of ${areaTitle} ${isFolded ? 'folds' : 'opens'}`, MAP_REDRAW_DEADLINE_MS);
     return areaFrameOf(areaTitle);
   };
 
+  assert.ok(await codemap.openArea(firstRepoDir));
+  assert.ok(await codemap.openArea(secondRepoDir));
   assert.equal((await codemap.handle({ repoDir: firstRepoDir }, { sub: 'map' })).ok, true);
   assert.equal((await codemap.handle({ repoDir: secondRepoDir }, { sub: 'map' })).ok, true);
   const foldedFirst = await untilFolded('first', true);

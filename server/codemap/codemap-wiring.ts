@@ -366,9 +366,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return added;
   }
 
-  async function isAreaOwed(repoDir: string): Promise<boolean> {
-    if ((await areas.repos()).some((listed) => listed.repoDir === repoDir)) return true;
-    return (await repoKeyOf(repoDir)) !== null;
+  async function isStudioListed(repoDir: string): Promise<boolean> {
+    return (await areas.repos()).some((listed) => listed.repoDir === repoDir);
   }
 
   async function repoOfBox(boxId: string): Promise<MapAreaRepo | null> {
@@ -529,7 +528,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const statusKey = JSON.stringify(status);
     const overlay = overlayDrawingOf(state, repoDir);
     const isOverlayChanged = state.drawnOverlayKey !== overlay.key;
-    if (!state.model && !(await isAreaOwed(repoDir))) return true;
+    if (!(await isStudioListed(repoDir))) return true;
+    if (state.model) await keepAreaWidth(repoDir, state.model);
     const shownPlace = await areaPlaceOf(repoDir);
     const originKey = JSON.stringify([shownPlace.origin, shownPlace.isFolded]);
     const isAreaMoved = state.drawnOriginKey !== originKey;
@@ -627,7 +627,6 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
       state.extractBase = extractBaseOf(extract);
       state.failure = null;
       state.drawRetryAtMs = 0;
-      await keepAreaWidth(repoDir, state.model);
       await settleSetup(repoDir, state.model).catch((error: unknown) => {
         logger.warn(`[codemap] the code map setup of ${repoDir} was not seeded or ratcheted: ${errorMessage(error)}`);
       });
@@ -816,6 +815,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if ('error' in map) return { ok: false, error: map.error, isMapFailed: true, boardId: mapBoardId };
     const model = map.model;
     if (!model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet`, isMapFailed: map.status.state === 'failed', boardId: mapBoardId };
+    if (!(await isStudioListed(repoDir))) return { ok: false, error: `${path.basename(repoDir)} is not open in Studio, and only a repo open in Studio has an area on the code map`, isMapFailed: false, boardId: mapBoardId };
     const { repoKey } = await areaRepoOf(repoDir);
     const boxIdOfPath = (repoPath: string) => drawnBoxIdOfPath(repoKey, model, repoPath);
     const repoRelativePaths = paths.filter((repoPath) => !path.isAbsolute(repoPath) && !repoPath.startsWith('..'));
