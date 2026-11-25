@@ -43,6 +43,7 @@ interface SegmentList<Entry> {
 }
 
 interface TurnView {
+  uploadUrlOf: UploadUrlOf;
   element: HTMLElement;
   brief: HTMLElement;
   body: HTMLElement;
@@ -66,7 +67,7 @@ interface TurnView {
 
 type ToolsSegment = Extract<TurnSegment, { kind: 'tools' }>;
 interface CallRow { element: HTMLDetailsElement; state: ToolCallState }
-interface CallsBlock { element: HTMLElement; earlier: HTMLElement; rowByToolUseId: Map<string, CallRow> }
+interface CallsBlock { element: HTMLElement; earlier: HTMLElement; rowByToolUseId: Map<string, CallRow>; uploadUrlOf: UploadUrlOf }
 type WorkEntry = { kind: 'calls'; block: CallsBlock } | { kind: 'text'; element: HTMLElement | null };
 export type TurnEnd = { pill: HTMLButtonElement; list: HTMLElement };
 
@@ -184,25 +185,41 @@ function callDurationText(durationMs: number): string {
   return twoUnitDurationText(Math.floor(durationMs / 1000), { smallestUnit: 's', dropsZeroRemainder: false });
 }
 
-function renderCallRow(call: ToolCallEntry): HTMLDetailsElement {
+function renderCallImages(imageFileNames: readonly string[], uploadUrlOf: UploadUrlOf): HTMLElement {
+  const images = el('div', 'chat-turn-call-images');
+  for (const fileName of imageFileNames) {
+    const fullSizeLink = el('a', 'chat-turn-call-image-link');
+    fullSizeLink.href = uploadUrlOf(fileName);
+    fullSizeLink.target = '_blank';
+    fullSizeLink.rel = 'noopener';
+    fullSizeLink.append(renderAttachmentThumbnail(fileName, uploadUrlOf));
+    images.append(fullSizeLink);
+  }
+  return images;
+}
+
+function renderCallRow(call: ToolCallEntry, uploadUrlOf: UploadUrlOf): HTMLDetailsElement {
   const row = el('details', 'chat-turn-call');
   row.dataset.state = call.state;
-  row.toggleAttribute('data-has-output', call.outputHead !== null);
+  const hasImages = call.imageFileNames.length > 0;
+  row.toggleAttribute('data-has-output', call.outputHead !== null || hasImages);
+  row.open = hasImages;
   const summary = el('summary', 'chat-turn-call-row');
   const icon = el('span', 'chat-turn-call-icon');
   paintStatusIcon(icon, STATUS_ICON_BY_CALL_STATE[call.state]);
   summary.append(icon, el('span', 'chat-turn-call-label', call.label), el('span', 'chat-turn-call-time', call.durationMs === null ? '' : callDurationText(call.durationMs)));
   row.append(summary);
+  if (hasImages) row.append(renderCallImages(call.imageFileNames, uploadUrlOf));
   if (call.outputHead !== null) row.append(el('pre', 'chat-turn-call-output', call.outputHead));
   return row;
 }
 
-function createCallsBlock(): CallsBlock {
+function createCallsBlock(uploadUrlOf: UploadUrlOf): CallsBlock {
   const element = el('div', 'chat-turn-calls');
   const earlier = el('div', 'chat-turn-call-note');
   earlier.hidden = true;
   element.append(earlier);
-  return { element, earlier, rowByToolUseId: new Map() };
+  return { element, earlier, rowByToolUseId: new Map(), uploadUrlOf };
 }
 
 function syncCallsBlock(block: CallsBlock, segment: ToolsSegment): void {
@@ -215,7 +232,7 @@ function syncCallsBlock(block: CallsBlock, segment: ToolsSegment): void {
   for (const call of segment.calls) {
     const shownRow = block.rowByToolUseId.get(call.toolUseId);
     if (shownRow?.state === call.state) continue;
-    const freshRow = renderCallRow(call);
+    const freshRow = renderCallRow(call, block.uploadUrlOf);
     if (shownRow === undefined) block.element.append(freshRow);
     if (shownRow !== undefined) {
       freshRow.open = shownRow.element.open;
@@ -264,8 +281,8 @@ function workElementOf(entry: WorkEntry): HTMLElement | null {
   return entry.kind === 'calls' ? entry.block.element : entry.element;
 }
 
-function workEntryOf(segment: TurnSegment, index: number, part: TurnPart, replyIndex: number): WorkEntry {
-  if (segment.kind === 'tools') return { kind: 'calls', block: createCallsBlock() };
+function workEntryOf(segment: TurnSegment, index: number, part: TurnPart, replyIndex: number, uploadUrlOf: UploadUrlOf): WorkEntry {
+  if (segment.kind === 'tools') return { kind: 'calls', block: createCallsBlock(uploadUrlOf) };
   const isShownText = part.isOver && index !== replyIndex;
   return { kind: 'text', element: isShownText ? renderTextSegment(segment.text) : null };
 }
@@ -279,7 +296,7 @@ function syncWork(view: TurnView, part: TurnPart): void {
     const signature = workSignatureOf(segment);
     const existing = view.workSegments.items[index];
     if (existing?.signature === signature) continue;
-    const entry = existing?.entry ?? workEntryOf(segment, index, part, replyIndex);
+    const entry = existing?.entry ?? workEntryOf(segment, index, part, replyIndex, view.uploadUrlOf);
     if (existing === undefined) {
       view.workSegments.items[index] = { entry, signature };
       const entryElement = workElementOf(entry);
@@ -347,7 +364,7 @@ function showDiff(view: TurnView): void {
   if (view.part.unshownPatchCount > 0) view.diff.append(el('div', 'chat-turn-call-note', `+ ${view.part.unshownPatchCount} not shown`));
 }
 
-function createTurnView(): TurnView {
+function createTurnView(uploadUrlOf: UploadUrlOf): TurnView {
   const element = el('div', 'chat-turn');
   element.tabIndex = -1;
   const brief = el('div', 'chat-turn-brief');
@@ -365,7 +382,7 @@ function createTurnView(): TurnView {
   const diff = el('div', 'chat-turn-diff');
   diff.hidden = true;
   element.append(body, brief, meta, work, diff);
-  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
+  return { uploadUrlOf, element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
 }
 
 function syncBodySegments(view: TurnView, segments: readonly TurnSegment[], isArriving: boolean): void {
@@ -573,7 +590,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
 
   const upsertTurn = (part: TurnPart, isArriving: boolean, container: ParentNode) => {
     const existingView = turnViewByPartId.get(part.id);
-    const view = existingView ?? createTurnView();
+    const view = existingView ?? createTurnView(uploadUrlOf);
     if (!existingView) lastTurnView = view;
     updateTurnView(view, part, isArriving, turnEndOf(view));
     if (existingView) return;

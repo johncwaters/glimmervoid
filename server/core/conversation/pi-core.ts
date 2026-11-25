@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { pastedImagesRecordOf, traceImagesField, traceImagesIn } from '../../trace/core/trace-image-core.ts';
 
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import { boundedToolCallInput, parseTimestamp } from '../trace-core.ts';
@@ -38,6 +39,14 @@ function contentText(content: z.infer<typeof MessageContent>): string {
   }).join('');
 }
 
+function userMessageRecords(base: RecordBase, content: z.infer<typeof MessageContent>): TraceRecord[] {
+  const pastedImages = traceImagesIn(content, base.ts);
+  const promptText = contentText(content);
+  if (pastedImages.length === 0) return textRecords(base, 'prompt', promptText);
+  const promptRecords: TraceRecord[] = promptText.length === 0 ? [{ ...base, kind: 'prompt', text: '' }] : textRecords(base, 'prompt', promptText);
+  return [...promptRecords, pastedImagesRecordOf(base, pastedImages)];
+}
+
 function toolResultRecord(base: RecordBase, toolUseId: string, output: string, isError: boolean): TraceRecord {
   return { ...base, kind: 'tool_result', toolUseId, isError, ...boundedToolOutput('pi', output) };
 }
@@ -54,11 +63,11 @@ function assistantBlockRecords(base: RecordBase, block: z.infer<typeof ContentBl
 
 function messageRecords(base: RecordBase, message: unknown): TraceRecord[] {
   const user = UserMessage.safeParse(message);
-  if (user.success) return textRecords(base, 'prompt', contentText(user.data.content));
+  if (user.success) return userMessageRecords(base, user.data.content);
   const assistant = AssistantMessage.safeParse(message);
   if (assistant.success) return assistant.data.content.flatMap((block) => assistantBlockRecords(base, block));
   const toolResult = ToolResultMessage.safeParse(message);
-  if (toolResult.success) return [toolResultRecord(base, toolResult.data.toolCallId, contentText(toolResult.data.content), toolResult.data.isError === true)];
+  if (toolResult.success) return [{ ...toolResultRecord(base, toolResult.data.toolCallId, contentText(toolResult.data.content), toolResult.data.isError === true), ...traceImagesField(toolResult.data.content, base.ts) }];
   const bashExecution = BashExecutionMessage.safeParse(message);
   if (bashExecution.success) {
     const toolUseId = base.uuid ?? 'bash-execution';
