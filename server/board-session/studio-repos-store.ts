@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 
 import { clock } from '../../shared/clock.ts';
 import { createJsonStateStore } from '../json-file.ts';
@@ -46,6 +47,15 @@ function createStudioReposStore({ filePath, logger, nowMs = clock.nowMs, newRepo
     return changing;
   }
 
+  function unusedRepoName(current: readonly StudioRepo[], repoDir: string): string {
+    const folderName = path.basename(repoDir) || 'repo';
+    const takenNames = new Set(current.map((listed) => listed.repoName.toLowerCase()));
+    const nameOf = (copyNumber: number) => (copyNumber === 1 ? folderName : `${folderName}-${copyNumber}`);
+    let copyNumber = 1;
+    while (takenNames.has(nameOf(copyNumber).toLowerCase())) copyNumber += 1;
+    return nameOf(copyNumber);
+  }
+
   function unusedRepoKey(current: readonly StudioRepo[]): string {
     const candidateKey = newRepoKey();
     return current.some((listed) => listed.repoKey === candidateKey) ? unusedRepoKey(current) : candidateKey;
@@ -60,7 +70,7 @@ function createStudioReposStore({ filePath, logger, nowMs = clock.nowMs, newRepo
     return change((current) => {
       const listed = current.find((candidate) => candidate.repoDir === repoDir);
       if (listed) return { nextRepos: current, changed: listed };
-      const added: StudioRepo = { repoKey: unusedRepoKey(current), repoDir, branchAgent: null, addedAtMs: nowMs() };
+      const added: StudioRepo = { repoKey: unusedRepoKey(current), repoName: unusedRepoName(current, repoDir), repoDir, branchAgent: null, addedAtMs: nowMs() };
       return { nextRepos: [...current, added], changed: added };
     });
   }

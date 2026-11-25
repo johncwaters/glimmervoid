@@ -379,6 +379,7 @@ interface MapArea {
   repoKey: RepoKey;
   title: string;
   origin: { x: number; y: number };
+  isFolded: boolean;
   hasRedWiresElsewhere: boolean;
 }
 
@@ -404,6 +405,10 @@ function matrixBoxIdOf(repoKey: RepoKey): string {
 
 function areaFrameIdOf(repoKey: RepoKey): string {
   return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, 'area', `area${String.fromCharCode(0)}`);
+}
+
+function areaCardIdOf(repoKey: RepoKey): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, repoKey, 'area card', `area card${String.fromCharCode(0)}`);
 }
 
 function moduleBoxIdOf(repoKey: RepoKey, moduleId: string): string {
@@ -650,6 +655,7 @@ function placedFoldersOf(layers: ModuleLayers, openFolders: ReadonlySet<string>,
 }
 
 const AREA_GAP = 2 * MAP_BOX_SPACING.x;
+const FOLDED_AREA_WIDTH = MAP_BOX_SPACING.x;
 
 function areaWidthOf(model: CodemapModel): number {
   const layers = moduleLayersOf(model);
@@ -692,7 +698,7 @@ function mapLegendOf(storedLegend: Board['legend'], hasRedWires: boolean): Board
   return [...othersLegend.slice(0, WHITEBOARD_LIMITS.legendEntries - 1), RED_WIRE_LEGEND_ENTRY];
 }
 
-function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, storedLegend: Board['legend'], { churnByModule, overlaidModules, folderChoices, matrixMedia }: MapDecorations, { repoKey, title: areaTitle, origin, hasRedWiresElsewhere }: MapArea): Record<string, unknown>[] {
+function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, storedLegend: Board['legend'], { churnByModule, overlaidModules, folderChoices, matrixMedia }: MapDecorations, { repoKey, title: areaTitle, origin, isFolded, hasRedWiresElsewhere }: MapArea): Record<string, unknown>[] {
   const layers = moduleLayersOf(model);
   const focusModules = focusModulesOf(layers, overlaidModules);
   const focusFolders = openFoldersOf(focusModules, folderChoices);
@@ -707,7 +713,8 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     if (folder !== folderOf(edge.to)) return layers.folders.feedbackKeys.has(edgeKeyOf(folder, folderOf(edge.to)));
     return layers.innerByFolder.get(folder)?.feedbackKeys.has(edgeKeyOf(edge.from, edge.to)) ?? false;
   };
-  const placeOf = (id: string) => ({ at: placeById.get(id) ?? { x: origin.x, y: origin.y + MAP_TOP } });
+  const foldedPlace = { x: origin.x, y: origin.y + BOARD_MARGIN };
+  const placeOf = (id: string) => ({ at: isFolded ? foldedPlace : placeById.get(id) ?? { x: origin.x, y: origin.y + MAP_TOP } });
   const matrixLeft = Math.max(origin.x, ...[...placeById.values()].map((place) => place.x)) + 2 * MAP_BOX_SPACING.x;
   const moduleBoxes = model.modules.map((summary) => ({
     kind: 'box',
@@ -729,9 +736,9 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     tone: summaries.some((summary) => overlaidModules.has(summary.id)) ? OVERLAY_TONE : null,
     place: placeOf(folderCardIdOfArea(folder)),
   }));
-  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: matrixBoxId, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: matrixLeft, y: origin.y + MAP_TOP } } }] : [];
+  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: matrixBoxId, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: isFolded ? foldedPlace : { x: matrixLeft, y: origin.y + MAP_TOP } } }] : [];
   const folderFrames = [...layers.modulesByFolder].map(([folder, summaries]) => ({
-    kind: 'frame', id: folderFrameIdOf(repoKey, folder), title: boardTitleOf(folderTitleOf(folder)), contains: [folderCardIdOfArea(folder), ...summaries.map((summary) => moduleBoxIdOfArea(summary.id))], collapsed: !focusFolders.has(folder),
+    kind: 'frame', id: folderFrameIdOf(repoKey, folder), title: boardTitleOf(folderTitleOf(folder)), contains: [folderCardIdOfArea(folder), ...summaries.map((summary) => moduleBoxIdOfArea(summary.id))], collapsed: !isFolded && !focusFolders.has(folder),
   }));
   const folderWires = layers.folderEdges.map((edge) => ({
     kind: 'wire', id: mapIdOfArea(`${edge.to} folder`, `folder\n${edge.from}\n${edge.to}`), from: folderCardIdOfArea(edge.from), to: folderCardIdOfArea(edge.to),
@@ -741,11 +748,16 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     kind: 'wire', id: mapIdOfArea(edge.to, `${edge.from}\n${edge.to}`), from: moduleBoxIdOfArea(edge.from), to: moduleBoxIdOfArea(edge.to),
     ...(isFeedback(edge) ? { ...RED_WIRE, label: wireLabelOf(edge) } : { tone: 'plain', width: 'thin', label: null }),
   }));
-  const boxes = [...folderCards, ...moduleBoxes, ...matrixBoxes];
+  const areaCards = [{
+    kind: 'box', id: areaCardIdOf(repoKey), title: boardTitleOf(areaTitle),
+    lines: [{ text: `${model.modules.length} modules, ${model.modules.reduce((total, summary) => total + summary.fileCount, 0)} files`, muted: true }],
+    place: { at: foldedPlace },
+  }];
+  const boxes = [...areaCards, ...folderCards, ...moduleBoxes, ...matrixBoxes];
   const keptMatrixBoxIds = matrixMedia === null && existingKindById.has(matrixBoxId) ? [matrixBoxId] : [];
-  const areaFrame = { kind: 'frame', id: areaFrameIdOf(repoKey), title: boardTitleOf(areaTitle), contains: [stampBoxId, ...keptMatrixBoxIds, ...boxes.map((box) => box.id)], collapsed: false };
-  const frames = [...folderFrames, areaFrame];
-  const wires = [...folderWires, ...moduleWires];
+  const areaFrame = { kind: 'frame', id: areaFrameIdOf(repoKey), title: boardTitleOf(areaTitle), contains: [...boxes.map((box) => box.id), stampBoxId, ...keptMatrixBoxIds], collapsed: isFolded };
+  const frames = isFolded ? [...folderFrames, areaFrame] : [areaFrame, ...folderFrames];
+  const wires = isFolded ? [] : [...folderWires, ...moduleWires];
   const producedIds = new Set([stampBoxId, matrixBoxId, ...[...boxes, ...frames, ...wires].map((element) => element.id)]);
   const areaIdPrefix = repoIdPrefixOf(CODEMAP_ID_PREFIXES.map, repoKey);
   const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(areaIdPrefix) && !producedIds.has(id));
@@ -790,7 +802,7 @@ function mapStampOpsOf(status: CodemapStatus, existingKindById: ReadonlyMap<stri
   const stampBoxId = stampBoxIdOf(repoKey);
   const stamp = {
     kind: 'box', id: stampBoxId, title: `Map at ${shortSha(status.sha)}: ${status.state}`, lines: stampLinesOf(status), tone: STAMP_TONE_BY_STATE[status.state],
-    place: { at: { x: origin.x, y: origin.y + BOARD_MARGIN } },
+    place: { at: { x: origin.x + MAP_BOX_SPACING.x, y: origin.y + BOARD_MARGIN } },
   };
   return [existingKindById.has(stampBoxId) ? { op: 'set', id: stampBoxId, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
 }
@@ -808,7 +820,7 @@ function overlayOpsOf(overlay: MapOverlay | null, existingKindById: ReadonlyMap<
   if (!overlay) return staleRemovals;
   const stamp = {
     kind: 'box', id: overlayStampId, title: boardTitleOf(overlay.title), lines: overlay.lines.slice(0, WHITEBOARD_LIMITS.linesPerBox).map((text) => ({ text: text.slice(0, WHITEBOARD_LIMITS.line) })), tone: OVERLAY_TONE,
-    place: { at: { x: origin.x + MAP_BOX_SPACING.x, y: origin.y + BOARD_MARGIN } },
+    place: { at: { x: origin.x + 2 * MAP_BOX_SPACING.x, y: origin.y + BOARD_MARGIN } },
   };
   return [...staleRemovals, existingKindById.has(overlayStampId) ? { op: 'set', id: overlayStampId, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
 }
@@ -1141,5 +1153,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...tangleLines, ...shallowLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapArea, MapDecorations, MapOverlay, SpecPlan };

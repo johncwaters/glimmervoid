@@ -21,7 +21,7 @@ import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { Rect } from '../../shared/whiteboard-layout-core.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapArea, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -219,6 +219,7 @@ const MAP_BOARD_QUEUE_KEY = 'map board';
 
 interface MapAreaRepo {
   repoKey: string;
+  repoName: string;
   repoDir: string;
 }
 
@@ -233,7 +234,9 @@ function createMemoryAreaList(): MapAreaList {
   return {
     repos: () => Promise.resolve(listedRepos),
     addRepo: (repoDir) => {
-      const listed = listedRepos.find((candidate) => candidate.repoDir === repoDir) ?? { repoKey: crypto.randomUUID(), repoDir };
+      const sameNamedCount = listedRepos.filter((candidate) => path.basename(candidate.repoDir) === path.basename(repoDir)).length;
+      const repoName = sameNamedCount === 0 ? path.basename(repoDir) : `${path.basename(repoDir)}-${sameNamedCount + 1}`;
+      const listed = listedRepos.find((candidate) => candidate.repoDir === repoDir) ?? { repoKey: crypto.randomUUID(), repoName, repoDir };
       if (!listedRepos.includes(listed)) listedRepos = [...listedRepos, listed];
       return Promise.resolve(listed);
     },
@@ -275,6 +278,7 @@ interface CodemapServiceOptions {
   mapBoardFilePath?: string | null;
   areas?: MapAreaList;
   isMappedDir?: (repoDir: string) => boolean;
+  isAreaIdle?: (repoDir: string) => boolean;
   configuredMainlineBranch?: () => string | null;
   homeDir?: string | null;
   structureRunner?: StructureRunner | null;
@@ -304,9 +308,10 @@ function chunkedBySize(ops: readonly Op[]): Op[][] {
 
 const OpList = z.array(Op);
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardFilePath = null, areas = createMemoryAreaList(), isMappedDir = () => true, configuredMainlineBranch = () => null, homeDir = null, structureRunner = homeDir ? createStructureRunner({ homeDir, client }) : null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardFilePath = null, areas = createMemoryAreaList(), isMappedDir = () => true, isAreaIdle = () => false, configuredMainlineBranch = () => null, homeDir = null, structureRunner = homeDir ? createStructureRunner({ homeDir, client }) : null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
   const overlayByRepoDir = new Map<string, SessionOverlay>();
   const folderChoicesByRepoDir = new Map<string, Map<string, boolean>>();
+  const operatorOpenedRepoDirs = new Set<string>();
   const specPlanByRepoDir = new Map<string, SpecPlan>();
   let startedOverlayRefreshCount = 0;
   let boardDrawing: Promise<boolean> = Promise.resolve(true);
@@ -369,10 +374,30 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return (await areas.repos()).find((listed) => areaPrefixesOf(listed.repoKey).some((areaPrefix) => boxId.startsWith(areaPrefix))) ?? null;
   }
 
+  async function studioAreas(): Promise<{ boardId: string | null; areas: { repoKey: string; repoName: string; repoDir: string; isFolded: boolean; anchorBoxId: string; boxChoices: { boxId: string; title: string }[]; mapError: string | null; isMapFailed: boolean }[] }> {
+    const listedRepos = await areas.repos();
+    const drawnAreas = await Promise.all(listedRepos.map(async (listed) => {
+      const map = await currentMap({ repoDir: listed.repoDir });
+      const model = 'error' in map ? null : map.model;
+      const isFolded = isAreaFolded(listed.repoDir);
+      const boxChoices = model ? branchBoxChoicesOf(listed.repoKey, model, (repoPath) => drawnBoxIdOfPath(listed.repoKey, model, repoPath)).slice(0, CODEMAP_BOX_CHOICES_MAX) : [];
+      const unbuiltError = model ? null : `the code map of ${listed.repoName} is not built yet`;
+      const mapError = 'error' in map ? map.error : unbuiltError;
+      const isMapFailed = 'error' in map || (!model && map.status.state === 'failed');
+      return { repoKey: listed.repoKey, repoName: listed.repoName, repoDir: listed.repoDir, isFolded, anchorBoxId: areaCardIdOf(listed.repoKey), boxChoices, mapError, isMapFailed };
+    }));
+    const boardId = whiteboards && listedRepos.length > 0 ? await mapBoardIdOf(whiteboards, listedRepos[0]?.repoDir ?? '') : mapBoardId;
+    return { boardId, areas: drawnAreas };
+  }
+
   function openArea(repoDir: string): void {
-    currentMap({ repoDir }).then((map) => {
-      if ('error' in map) logger.warn(`[codemap] the map area of ${repoDir} was not opened: ${map.error}`);
-    }, (error: unknown) => logger.warn(`[codemap] the map area of ${repoDir} was not opened: ${errorMessage(error)}`));
+    const opening = async () => {
+      if (!isMappedDir(repoDir) || (await repoKeyOf(repoDir)) === null) return logger.warn(`[codemap] ${repoDir} is not a git repository, so it has no map area`);
+      await areaRepoOf(repoDir);
+      const map = await currentMap({ repoDir });
+      if ('error' in map) logger.warn(`[codemap] the map area of ${repoDir} was not drawn: ${map.error}`);
+    };
+    opening().catch((error: unknown) => logger.warn(`[codemap] the map area of ${repoDir} was not opened: ${errorMessage(error)}`));
   }
 
   function removeAreasOfMissingFolders(keptRepoDir: string): void {
@@ -387,12 +412,30 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     }).catch((error: unknown) => logger.warn(`[codemap] the map areas of missing folders were not removed: ${errorMessage(error)}`));
   }
 
-  async function areaPlaceOf(repoDir: string): Promise<Pick<MapArea, 'repoKey' | 'title' | 'origin'>> {
+  function isAreaFolded(repoDir: string): boolean {
+    return !operatorOpenedRepoDirs.has(repoDir) && isAreaIdle(repoDir);
+  }
+
+  async function areaPlaceOf(repoDir: string): Promise<Pick<MapArea, 'repoKey' | 'title' | 'origin' | 'isFolded'>> {
     await mapBoardStore.load();
     const areaRepo = await areaRepoOf(repoDir);
     const listedRepos = await areas.repos();
-    const origin = areaOriginsOf(listedRepos.map((listed) => ({ repoKey: listed.repoKey, width: widthByRepoKey.get(listed.repoKey) ?? 0 }))).get(areaRepo.repoKey) ?? { x: 0, y: 0 };
-    return { repoKey: areaRepo.repoKey, title: path.basename(repoDir), origin };
+    const shownWidthOf = (listed: MapAreaRepo) => (isAreaFolded(listed.repoDir) ? FOLDED_AREA_WIDTH : widthByRepoKey.get(listed.repoKey) ?? 0);
+    const origin = areaOriginsOf(listedRepos.map((listed) => ({ repoKey: listed.repoKey, width: shownWidthOf(listed) }))).get(areaRepo.repoKey) ?? { x: 0, y: 0 };
+    return { repoKey: areaRepo.repoKey, title: areaRepo.repoName, origin, isFolded: isAreaFolded(repoDir) };
+  }
+
+  function noteBranchesChanged(): void {
+    redrawListedAreas(() => true);
+  }
+
+  async function setAreaOpen(repoDir: string, isOpen: boolean): Promise<{ ok: true; isOpen: boolean } | { ok: false; error: string }> {
+    if (isOpen) operatorOpenedRepoDirs.add(repoDir);
+    if (!isOpen) operatorOpenedRepoDirs.delete(repoDir);
+    const redrawn = await currentMap({ repoDir });
+    redrawListedAreas((listedRepos, listedIndex) => listedRepos[listedIndex]?.repoDir !== repoDir);
+    if (!('error' in redrawn) && redrawn.isBoardDrawn) return { ok: true, isOpen: !isAreaFolded(repoDir) };
+    return { ok: false, error: 'error' in redrawn ? redrawn.error : `the map area of ${path.basename(repoDir)} was not redrawn` };
   }
 
   function redrawListedAreas(isRedrawn: (listedRepos: readonly MapAreaRepo[], listedIndex: number) => boolean): void {
@@ -474,7 +517,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const overlay = overlayDrawingOf(state, repoDir);
     const isOverlayChanged = state.drawnOverlayKey !== overlay.key;
     if (!state.model && !(await isAreaOwed(repoDir))) return true;
-    const originKey = JSON.stringify((await areaPlaceOf(repoDir)).origin);
+    const shownPlace = await areaPlaceOf(repoDir);
+    const originKey = JSON.stringify([shownPlace.origin, shownPlace.isFolded]);
     const isAreaMoved = state.drawnOriginKey !== originKey;
     const changedModel = state.model && (state.drawnModel !== state.model || isOverlayChanged || isAreaMoved) ? state.model : null;
     if (!changedModel && state.drawnStatusKey === statusKey && !isOverlayChanged && !isAreaMoved) return true;
@@ -739,7 +783,9 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const map = await currentMap({ repoDir });
     if ('error' in map) return { ok: false, error: map.error };
     if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
-    const folder = folderOfMapBoxId((await areaRepoOf(repoDir)).repoKey, map.model, boxId);
+    const { repoKey } = await areaRepoOf(repoDir);
+    if (boxId === areaFrameIdOf(repoKey) || boxId === areaCardIdOf(repoKey)) return setAreaOpen(repoDir, isOpen);
+    const folder = folderOfMapBoxId(repoKey, map.model, boxId);
     if (folder === null) return { ok: false, error: 'that box is not a folder on the code map' };
     const folderChoices = folderChoicesByRepoDir.get(repoDir) ?? new Map<string, boolean>();
     const previousChoice = folderChoices.get(folder);
@@ -772,6 +818,32 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     };
   }
 
+  async function boxesOfStudioPaths(sessionId: string, studioPaths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string> }> {
+    const listedRepos = await areas.repos();
+    const repoPathIn = (listed: MapAreaRepo, studioPath: string): string | null => {
+      if (path.isAbsolute(studioPath)) {
+        const pathFromRepo = path.relative(listed.repoDir, studioPath);
+        const isInsideRepo = pathFromRepo !== '' && !pathFromRepo.startsWith('..') && !path.isAbsolute(pathFromRepo);
+        return isInsideRepo ? pathFromRepo.split(path.sep).join('/') : null;
+      }
+      const [repoName, ...repoPathParts] = studioPath.split('/');
+      return repoName?.toLowerCase() === listed.repoName.toLowerCase() && repoPathParts.length > 0 ? repoPathParts.join('/') : null;
+    };
+    const placedPaths = await Promise.all(studioPaths.map(async (studioPath) => {
+      const placed = listedRepos.flatMap((listed) => {
+        const repoPath = repoPathIn(listed, studioPath);
+        return repoPath === null ? [] : [{ listed, repoPath }];
+      })[0];
+      if (!placed) return [];
+      const boxes = await boxesOfSession(placed.listed.repoDir, sessionId, [placed.repoPath]);
+      const boxId = boxes.ok ? boxes.boxIdByPath[placed.repoPath] : undefined;
+      return boxId === undefined ? [] : [[studioPath, boxId] as const];
+    }));
+    const firstRepoDir = listedRepos[0]?.repoDir;
+    const boardId = whiteboards && firstRepoDir ? await mapBoardIdOf(whiteboards, firstRepoDir) : mapBoardId;
+    return { ok: true, boardId, boxIdByPath: Object.fromEntries(placedPaths.flat()) };
+  }
+
   function boxRectsOf(boardId: string, boxIds: readonly string[]): Promise<Record<string, Rect>> {
     return whiteboards ? whiteboards.boxRectsOf(boardId, boxIds) : Promise.resolve({});
   }
@@ -791,8 +863,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if ('error' in map) return { ok: false, error: map.error };
     if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
     const model = map.model;
-    const { repoKey } = await areaRepoOf(repoDir);
-    if ('repoPath' in about) return branchTargetOfPath(repoKey, model, path.basename(repoDir), about.repoPath);
+    const { repoKey, repoName } = await areaRepoOf(repoDir);
+    if ('repoPath' in about) return branchTargetOfPath(repoKey, model, repoName, about.repoPath);
     const folder = folderOfMapBoxId(repoKey, model, about.boxId);
     if (folder !== null) return branchTargetAt(about.boxId, folder);
     const moduleId = model.modules.map((summary) => summary.id).find((candidate) => candidate !== '.' && moduleBoxIdOf(repoKey, candidate) === about.boxId) ?? (about.boxId === fallbackBoxIdOf(repoKey, model) ? '.' : null);
@@ -950,7 +1022,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, boxRectsOf, branchTargetOf, setFolderOpen, mapBoardIdOfRepo, removeArea, openArea, repoOfBox, listedRepos: () => areas.repos() };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, boxRectsOf, branchTargetOf, setFolderOpen, mapBoardIdOfRepo, removeArea, openArea, repoOfBox, noteBranchesChanged, studioAreas, boxesOfStudioPaths, listedRepos: () => areas.repos() };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

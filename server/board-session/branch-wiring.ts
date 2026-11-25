@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import type { ProjectEntry } from '../config-store.ts';
 import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { ParentLink } from '../../shared/contracts/session.ts';
@@ -21,6 +19,7 @@ type CreateProjectSession = (args: {
 
 interface BranchRepo {
   repoKey: string;
+  repoName: string;
   repoDir: string;
 }
 
@@ -47,20 +46,12 @@ type PlacedRepo = { ok: true; repo: BranchRepo; about: BranchAbout } | { ok: fal
 
 const NO_REPOS_TEXT = 'Studio has no repo yet; the operator adds one by opening it in Studio.';
 
-function repoNameOf(repo: BranchRepo): string {
-  return path.basename(repo.repoDir);
-}
-
 function namedRepoOf(repos: readonly BranchRepo[], named: string): { ok: true; repo: BranchRepo } | { ok: false; error: string } {
   const wanted = named.trim().toLowerCase();
-  const listedText = repos.map((repo) => `${repoNameOf(repo)} (${repo.repoKey})`).join(', ');
+  const listedText = repos.map((repo) => `${repo.repoName} (${repo.repoKey})`).join(', ');
   if (repos.length === 0) return { ok: false, error: NO_REPOS_TEXT };
-  const keyed = repos.find((repo) => repo.repoKey.toLowerCase() === wanted || repo.repoDir.toLowerCase() === wanted);
-  if (keyed) return { ok: true, repo: keyed };
-  const sameNamed = repos.filter((repo) => repoNameOf(repo).toLowerCase() === wanted);
-  const onlyNamed = sameNamed.length === 1 ? sameNamed[0] : undefined;
-  if (onlyNamed) return { ok: true, repo: onlyNamed };
-  if (sameNamed.length > 1) return { ok: false, error: `${sameNamed.length} Studio repos are named ${named}; name one by its key: ${listedText}` };
+  const namedRepo = repos.find((repo) => repo.repoKey.toLowerCase() === wanted || repo.repoName.toLowerCase() === wanted || repo.repoDir.toLowerCase() === wanted);
+  if (namedRepo) return { ok: true, repo: namedRepo };
   return { ok: false, error: `${named} is not a Studio repo; the Studio repos are ${listedText}` };
 }
 
@@ -88,7 +79,7 @@ function createBranchWiring({ findSession, listSessions, listRepos, repoOfBox, r
     if (!orchestrator.isStudioMain) return { ok: false, error: `${orchestrator.name} is not the Studio Orchestrator, so it starts no branches.` };
     const target = await resolveTarget(repo.repoDir, about);
     if (!target.ok) return target;
-    const repoName = repoNameOf(repo);
+    const { repoName } = repo;
     const liveRepoBranches = [...listSessions()].filter((session) => branchParentIdOf(session.parent) === orchestrator.id && session.path === repo.repoDir && !session._destroyed);
     const heldTitle = overlappingBranchTitle(target.title, liveRepoBranches.map((branch) => branch.parent?.box?.title ?? ''));
     const holder = liveRepoBranches.find((branch) => branch.parent?.box?.title === heldTitle);

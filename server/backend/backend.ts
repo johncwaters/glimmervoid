@@ -97,6 +97,7 @@ import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createBranchMerge } from '../board-session/branch-merge.ts';
 import type { BranchWiring } from '../board-session/branch-wiring.ts';
 import { studioHomeDir } from '../board-session/studio-main.ts';
+import { branchParentIdOf } from '../../shared/parent-link.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
 import { createDirector, isStudioSession } from '../board-session/director.ts';
 import { createStudioPrCards } from '../board-session/studio-pr-cards.ts';
@@ -381,7 +382,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     studioBoardIdOf: studioMapBoardIdOf,
   });
   const studioRepos = createStudioReposStore({ filePath: path.join(glimmervoidHomeDir(), 'studio-repos.json'), logger: console });
-  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), areas: studioRepos, isMappedDir: (repoDir) => repoDir !== studioHomeDir(), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
+  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), areas: studioRepos, isMappedDir: (repoDir) => repoDir !== studioHomeDir(), isAreaIdle: (repoDir) => !allLiveSessions().some((session) => branchParentIdOf(session.parent) !== null && session.path === repoDir && !session._destroyed), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
     changesOfSession: async (sessionId) => {
       const session = getSessionAny(sessionId);
       if (!session) return null;
@@ -391,7 +392,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   const boardAsks = createBoardAsks({
     boards: whiteboards,
-    mapOf: (repoDir, sessionId, paths) => codemap.boxesOfSession(repoDir, sessionId, paths),
+    mapOf: (repoDir, sessionId, paths) => (repoDir === studioHomeDir() ? codemap.boxesOfStudioPaths(sessionId, paths) : codemap.boxesOfSession(repoDir, sessionId, paths)),
     sendToSession: (sessionId, text) => {
       const session = getSessionAny(sessionId);
       if (!session) return { ok: false, error: 'The session that asked is gone.' };
@@ -682,6 +683,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   function wireSessionEvents(session: Session): void {
     wireSessionStatusEvents(session);
     codemap.attachSession(session);
+    if (branchParentIdOf(session.parent) !== null) {
+      codemap.noteBranchesChanged();
+      session.on('teardown', () => codemap.noteBranchesChanged());
+    }
     branchMerge.attachSession(session);
     laneAssembly.races.attachSession(session);
     const noteIfBusy = (): void => {

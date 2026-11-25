@@ -323,7 +323,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (listedRepos.length === 0) return refusal(404, 'Studio has no repo yet; the operator adds one by opening it in Studio');
     const answers = await Promise.all(listedRepos.map(async (listed) => {
       const outcome = await studioCodemap.handle({ repoDir: listed.repoDir }, request);
-      return { heading: `Repo ${path.basename(listed.repoDir)} (key ${listed.repoKey}) at ${listed.repoDir}`, outcome };
+      return { heading: `Repo ${listed.repoName} (key ${listed.repoKey}) at ${listed.repoDir}`, outcome };
     }));
     const answered = answers.flatMap(({ heading, outcome }) => (outcome.ok ? [{ heading, reply: outcome.reply }] : []));
     const firstAnswered = answered[0];

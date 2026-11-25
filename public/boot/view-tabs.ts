@@ -18,7 +18,7 @@ import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, vie
 import type { ViewRefreshReason } from '../view-registry-core.ts';
 import { confirmServerRestart } from '../server-power.ts';
 import { activatePacksHash } from './hash-routes.ts';
-import { isStudioSession, openStudioOnRepo, setStudioOpener } from '../board-session/studio-target.ts';
+import { isStudioSession, openStudioTab, setStudioOpener } from '../board-session/studio-target.ts';
 import { findSessionUi } from '../session-card/card-registry.ts';
 
 function openSettings(section?: string) {
@@ -115,7 +115,7 @@ interface ActivateViewOptions {
 function centerSessionInFocus(id: string) {
   const ui = findSessionUi(id);
   if (ui && isStudioSession(ui)) {
-    openStudioOnRepo(ui.path);
+    openStudioTab();
     return;
   }
   activateView('focus');

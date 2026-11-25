@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
 import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_REPLY, SHOWN_PAGE_TICKED_TEXT, SHOW_CARD_BELOW_COMMAND, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import fs from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import { readableFloorScale } from '../../public/board-session/board-session-core.ts';
 import { boardElementsOf, boxBoardRectsOf, boxScreenRectsOf, clickBoardBoxWhere, controlReplyOf, createBoardOverControl, hoverBoardBoxWhere, showBoardInFocus } from './boards.ts';
@@ -19,7 +19,6 @@ const MERGE_POLL_MS = 250;
 const DIRECTOR_TIMEOUT_MS = 60000;
 const RAIL_REPAINT_WAIT_MS = 35000;
 const DIRECTOR_AWAY_MS = 15000;
-const REFUNDS_COMMIT_SUBJECT = 'Add refunds beside the card module';
 
 interface Box {
   x: number;
@@ -48,24 +47,9 @@ function assertSameBox(before: Box, after: Box, what: string): void {
   }
 }
 
-function branchesHoldingRefunds(projectDirectory: string): number {
-  const sha = execFileSync('git', ['-C', projectDirectory, 'log', '--all', '--format=%H', `--grep=${REFUNDS_COMMIT_SUBJECT}`], { encoding: 'utf8' }).trim().split('\n')[0] ?? '';
-  if (sha.length === 0) return 0;
-  return execFileSync('git', ['-C', projectDirectory, 'branch', '--contains', sha], { encoding: 'utf8' }).split('\n').filter((line) => line.trim().length > 0).length;
-}
-
-async function waitForRefundsInParent(projectDirectory: string): Promise<void> {
-  const deadline = Date.now() + BOARD_SESSION_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (branchesHoldingRefunds(projectDirectory) >= 2) return;
-    await delay(MERGE_POLL_MS);
-  }
-  assert.fail(`the branch commit reached ${branchesHoldingRefunds(projectDirectory)} branch, not the branch and its parent`);
-}
-
 const StudioMapBoxes = z.object({
   boardId: z.string().nullable().default(null),
-  changedBoxIds: z.array(z.string()).default([]),
+  areas: z.array(z.object({ anchorBoxId: z.string() })).default([]),
   boxRectById: z.record(z.string(), z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() })).default({}),
 });
 
@@ -76,13 +60,14 @@ async function studioMapBoardIdOf(page: Page, root: Locator): Promise<string | n
 async function studioMapBoxesOf(page: Page, root: Locator): Promise<z.infer<typeof StudioMapBoxes>> {
   const mapSessionId = await root.locator('.bs-card[data-main]').first().getAttribute('data-session-id');
   assert.ok(mapSessionId, 'the main card names its session');
-  return StudioMapBoxes.parse(await page.evaluate(async (sessionId) => {
+  const cardSessionIds = await root.locator('.bs-card[data-session-id]').evaluateAll((cards) => cards.flatMap((card) => card.getAttribute('data-session-id') ?? []));
+  return StudioMapBoxes.parse(await page.evaluate(async ({ sessionId, watchedIds }) => {
     const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
     const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
     const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/control?token=${encodeURIComponent(token)}`);
     const requestId = `harness-boxes-${Date.now()}`;
     return new Promise<unknown>((resolve) => {
-      socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'codemap-boxes-of', requestId, id: sessionId, paths: [] })));
+      socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'codemap-boxes-of', requestId, id: sessionId, pathsBySessionId: Object.fromEntries(watchedIds.map((watchedId) => [watchedId, []])) })));
       socket.addEventListener('message', (event) => {
         const reply: unknown = JSON.parse(String(event.data));
         if (typeof reply !== 'object' || reply === null || Reflect.get(reply, 'requestId') !== requestId) return;
@@ -90,7 +75,7 @@ async function studioMapBoxesOf(page: Page, root: Locator): Promise<z.infer<type
         resolve(reply);
       });
     });
-  }, mapSessionId));
+  }, { sessionId: mapSessionId, watchedIds: cardSessionIds }));
 }
 
 async function shownPageBoundsOf(page: Page): Promise<Box> {
@@ -339,6 +324,7 @@ async function verifyPrCardOnMap(page: Page): Promise<void> {
   const boardId = await studioMapBoardIdOf(page, root);
   assert.ok(boardId, 'the Studio map board is known');
   const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
+  await addressBranch(page);
   await pillInput.fill('open-pr');
   await pillInput.press('Enter');
   const draftCard = await prCardWith(page, root, boardId, { State: 'Draft', Checks: 'Running', Review: 'Needs review' });
@@ -379,7 +365,8 @@ async function verifyPrCardOnMap(page: Page): Promise<void> {
   await page.mouse.click(clearPoint.x, clearPoint.y);
   await page.waitForFunction((url) => (Reflect.get(window, '__openedPrUrls') as string[]).includes(url), FAKE_PR_URL, { timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.unroute('**/open-external');
-  assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'clicking the pull request card does not address the message bar');
+  assert.match(String(await root.locator('.bs-pill-address-text').textContent()), /^To /, 'clicking the pull request card leaves the message bar addressed as it was');
+  await clearAddress(page);
 }
 
 async function addressCardBox(page: Page, pillBefore: Box): Promise<void> {
@@ -395,26 +382,29 @@ async function addressCardBox(page: Page, pillBefore: Box): Promise<void> {
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill with a branch address');
 }
 
-async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Box): Promise<void> {
+async function addressBranch(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  await root.locator(MESSAGE_BAR_SELECTOR).click();
+  await root.locator('.bs-row-agent.bs-row-branch .bs-face').last().click();
+  await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith('To '), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+}
+
+async function clearAddress(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  await root.locator('.bs-pill-address-clear').click();
+  await root.locator('.bs-pill-address-text').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
+}
+
+async function verifyBranch(page: Page, pillBefore: Box): Promise<void> {
   const root = page.locator('.board-session-view');
   const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
-  const addressText = root.locator('.bs-pill-address-text');
   await addressCardBox(page, pillBefore);
   await pillInput.fill('Add refunds');
   await pillInput.press('Enter');
   const branchReply = root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Committed refunds' }).first();
-  await branchReply.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await branchReply.waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
   await root.locator('.bs-row-you.bs-row-branch', { hasText: 'Add refunds' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-you.bs-row-branch', { hasText: 'You are a branch' }).count(), 0, 'the branch bubble shows only what the operator typed');
-  await waitForRefundsInParent(projectDirectory);
-  await page.waitForFunction(() => document.querySelectorAll('.board-session-view .bs-card[data-branch]').length === 0, undefined, { timeout: DIRECTOR_TIMEOUT_MS });
-  assert.equal(await branchReply.isVisible(), true, 'a merged branch leaves the board and its reply stays in the log');
-
-  await addressCardBox(page, pillBefore);
-  await pillInput.fill('Draft refunds');
-  await pillInput.press('Enter');
-  const draftReply = root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Drafted refunds' }).first();
-  await draftReply.waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
   const branchFace = root.locator('.bs-card-shrunk:not([hidden]) .bs-card-shrunk-face').first();
   await branchFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-card[data-branch]:not([hidden])').count(), 0, 'an idle branch shows only its face');
@@ -425,18 +415,17 @@ async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Bo
   await branchCard.locator('[data-action="board-session-agent-close"]').click();
   const closeRefusal = branchCard.locator('.bs-card-refusal:not([hidden])');
   await closeRefusal.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.match(await closeRefusal.textContent() ?? '', /uncommitted changes/, 'Close refuses a branch holding unlanded work and says why on its card');
+  assert.match(await closeRefusal.textContent() ?? '', /uncommitted changes or commits/, 'Close refuses a branch holding unlanded work and says why on its card');
 
-  await root.locator('.bs-pill-address-clear').click();
-  await addressText.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
-  await draftReply.locator('.bs-face').click();
-  await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith('To '), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await clearAddress(page);
+  await addressBranch(page);
   await pillInput.fill('branch-follow-up');
   await pillInput.press('Enter');
   await root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Refunds reuse' }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
-  await root.locator('.bs-pill-address-clear').click();
-  await addressText.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
-  assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the branch');
+  await pillInput.fill('edit-shop');
+  await pillInput.press('Enter');
+  await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the branch agent edits');
 }
 
 async function typeIntoAgent(page: Page, sessionId: string, command: string): Promise<void> {
@@ -479,6 +468,7 @@ async function holdStudioMapBoxesReplies(page: Page): Promise<() => Promise<void
     serverSide.onClose(() => pageSide.close());
   });
   return async () => {
+    await pollFor('Studio to be sent its map boxes while the harness holds the replies', BOARD_SESSION_TIMEOUT_MS, async () => heldReplies.length > 0 ? true : null).catch(() => undefined);
     isHolding = false;
     await page.unrouteAll({ behavior: 'ignoreErrors' });
     for (const sendHeldReply of heldReplies) sendHeldReply();
@@ -487,10 +477,13 @@ async function holdStudioMapBoxesReplies(page: Page): Promise<() => Promise<void
 }
 
 async function verifyFirstViewFramesSessionBoxes(page: Page, root: Locator): Promise<void> {
-  const { changedBoxIds, boxRectById } = await studioMapBoxesOf(page, root);
+  await root.locator('.bs-card[data-branch]').first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  const { areas, boxRectById } = await studioMapBoxesOf(page, root);
+  const areaAnchorBoxIds = new Set(areas.map((area) => area.anchorBoxId));
+  const sessionBoxIds = Object.keys(boxRectById).filter((boxId) => !areaAnchorBoxIds.has(boxId));
   const floorScale = readableFloorScale(await root.evaluate((element) => Number.parseFloat(getComputedStyle(element).getPropertyValue('--type-title'))));
   const viewport = await boxOf(page, '.board-session-view .wb-viewport');
-  const sessionRects = changedBoxIds.flatMap((boxId) => boxRectById[boxId] ?? []);
+  const sessionRects = sessionBoxIds.flatMap((boxId) => boxRectById[boxId] ?? []);
   const sessionLeft = Math.min(...sessionRects.map((rect) => rect.x));
   const sessionRight = Math.max(...sessionRects.map((rect) => rect.x + rect.width));
   const isFirstViewRight = (camera: { x: number; y: number; scale: number }) => {
@@ -607,11 +600,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await picker.locator('#add-session-path').fill(projectDirectory);
   await picker.getByRole('button', { name: 'Start session', exact: true }).click();
   const repoButton = root.locator('.bs-card[data-main] .bs-card-repo');
-  await page.waitForFunction(() => {
-    const name = document.querySelector('.board-session-view .bs-card[data-main] .bs-card-repo-name')?.textContent ?? '';
-    return name.length > 0 && name !== 'No repo';
-  }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await chip.isHidden(), true, 'the Orchestrator card names the repo, so the repo pill hides');
+  await page.waitForFunction(() => document.querySelector('.board-session-view .bs-card[data-main] .bs-card-repo-name')?.textContent === 'Orchestrator', undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await chip.isHidden(), true, 'the Orchestrator card holds the menu, so the repo pill hides');
   await root.locator('.bs-guide:not([hidden])').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.waitForFunction(() => {
     const notice = document.querySelector<HTMLElement>('.board-session-view .bs-notice');
@@ -622,7 +612,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await verifyFirstViewClearOfBar(page);
   await verifyStudioCameraKeptAcrossFocusBoard(page);
   assert.equal(await root.locator('.bs-top-left > :not(.bs-chip, .bs-menu)').count(), 0, 'the top left holds only the repo chip');
-  await page.locator('.session-name', { hasText: / main$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.locator('.session-name', { hasText: /^Orchestrator$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
 
   await root.locator(MESSAGE_BAR_SELECTOR).click();
   await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -630,7 +620,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-log').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   const menu = root.getByRole('menu');
   await menu.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.ok((await menu.getByRole('menuitemradio', { checked: true }).count()) === 1, 'the repo menu marks the shown repo');
+  assert.equal(await menu.getByRole('menuitemradio').count(), 0, 'Studio shows every repo, so the menu has none to pick');
   assert.equal(await menu.locator('[data-action="board-session-agent-restart"]').textContent(), 'Restart Orchestrator', 'the one menu holds the Orchestrator actions');
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -641,71 +631,38 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   await page.waitForFunction(() => document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.hidden === true, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-guide-step[data-done]').count(), 0, 'a new carbon unit starts with no guide step done');
+  const repoName = path.basename(projectDirectory);
+  const foldedBoardId = await studioMapBoardIdOf(page, root);
+  assert.ok(foldedBoardId, 'the Studio map has a board');
+  const isRepoAreaFolded = async () => {
+    const areaFrame = (await boardElementsOf(page, root, foldedBoardId)).find((element) => element.kind === 'frame' && element.title === repoName);
+    return areaFrame?.kind === 'frame' ? areaFrame.collapsed : null;
+  };
+  await pollFor('the repo with no working agent to show folded to one card', BOARD_SESSION_TIMEOUT_MS, async () => await isRepoAreaFolded() === true ? true : null);
+  await clickBoardBoxWhere(page, root, foldedBoardId, (element) => element.kind === 'box' && element.title === repoName);
+  await pollFor('the folded repo to open when its card is clicked', BOARD_SESSION_TIMEOUT_MS, async () => await isRepoAreaFolded() === false ? true : null);
+  await root.getByRole('button', { name: 'Fit', exact: true }).click();
+  await delay(MAP_GLIDE_SETTLE_MS);
+
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
   await root.locator('.bs-guide-step[data-done]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-row-agent:not([hidden]) .bs-last-reply', { hasText: 'The charge goes through' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  const faceOnBox = root.locator('.bs-card[data-main] .bs-face-main').first();
-  await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-presence-glow').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const orchestratorFace = root.locator('.bs-card[data-main] .bs-face-main').first();
+  await orchestratorFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.locator('#tab-focus').click();
   await page.locator('#tab-board-session').click();
-  await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the agent edits');
+  await orchestratorFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the Orchestrator replies');
 
   const mapViewport = root.locator('.wb-viewport');
   const panAwayFrom = await mapViewport.boundingBox();
   assert.ok(panAwayFrom, 'the Studio map is on screen');
-  const steadyBoardId = await studioMapBoardIdOf(page, root);
-  assert.ok(steadyBoardId, 'the Studio map has a board');
-  const mainCardOffsetFromMap = async () => {
-    const [firstBoxRect] = (await boxScreenRectsOf(page, root, steadyBoardId)).values();
-    const mainCardRect = await root.locator('.bs-card[data-main]').first().boundingBox();
-    assert.ok(firstBoxRect && mainCardRect, 'the main card and a map box are laid out');
-    return { x: Math.round(mainCardRect.x - firstBoxRect.x), y: Math.round(mainCardRect.y - firstBoxRect.y) };
-  };
-  const offsetBeforePan = await mainCardOffsetFromMap();
-  await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
-  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) {
-    await page.mouse.wheel(STEADY_PAN_STEP_PX, 0);
-    await pollFor(`the main card to move with the map while it pans (step ${step + 1})`, STEADY_PAN_SETTLE_MS, async () => {
-      const offset = await mainCardOffsetFromMap();
-      return offset.x === offsetBeforePan.x && offset.y === offsetBeforePan.y ? offset : null;
-    });
-  }
-  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(-STEADY_PAN_STEP_PX, 0);
+  const steadyBoardId = foldedBoardId;
   const panMap = async (deltaY: number) => {
     await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
     for (let step = 0; step < MAP_PAN_STEPS; step += 1) await page.mouse.wheel(0, deltaY);
   };
-  await panMap(-MAP_PAN_STEP_PX);
-  await pillInput.fill('ask-shop');
-  await pillInput.press('Enter');
-  const reuseOption = page.getByRole('button', { name: /^Yes, reuse it/ });
-  const askCard = root.locator('.bs-ask', { has: reuseOption });
-  await askCard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await askCard.locator('.chat-card[data-card-type="question"] .chat-card-option').count(), 2, 'the board ask shows as Chat\'s question card with its options');
-  assert.equal(await askCard.locator('.chat-card-heading').textContent(), BOARD_ASK_QUESTION, 'the card shows the whole question');
-  assert.equal(await askCard.getByRole('button', { name: 'Send answer', exact: true }).isDisabled(), true, 'Send answer waits for typed text');
-  const askBoardId = await studioMapBoardIdOf(page, root);
-  assert.ok(askBoardId, 'the Studio map has a board for the ask');
-  const askBoxId = await askCard.getAttribute('data-ask-box-id');
-  const askCardRect = await askCard.boundingBox();
-  assert.ok(askBoxId && askCardRect, 'the ask card names its box and is on screen');
-  const boxRects = await boxScreenRectsOf(page, root, askBoardId);
-  const askBoxRect = boxRects.get(askBoxId);
-  const ringCoverPx = 8;
-  assert.ok(askBoxRect && Math.abs(askBoxRect.x - askCardRect.x) < ringCoverPx && Math.abs(askBoxRect.y - askCardRect.y) < ringCoverPx && Math.abs(askBoxRect.width - askCardRect.width) < ringCoverPx * 2 && Math.abs(askBoxRect.height - askCardRect.height) < ringCoverPx * 2, 'the ask card sits on its own box');
-  const coveredBoxIds = [...boxRects].filter(([boxId, rect]) => boxId !== askBoxId && rect.x < askCardRect.x + askCardRect.width && askCardRect.x < rect.x + rect.width && rect.y < askCardRect.y + askCardRect.height && askCardRect.y < rect.y + rect.height).map(([boxId]) => boxId);
-  assert.deepEqual(coveredBoxIds, [], 'the ask card covers no map box');
-  await askCard.locator('.chat-card-option').first().click();
-  await askCard.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-row-you[hidden]', { hasText: 'Yes, reuse it' }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await root.locator('.bs-row-you:not([hidden])', { hasText: 'Yes, reuse it' }).count(), 0, 'a board answer adds no message to the Studio chat');
-  assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the ask resolves');
-  await delay(MAP_GLIDE_SETTLE_MS);
-  await panMap(MAP_PAN_STEP_PX);
 
   await pillInput.fill('ask-question-resume');
   await pillInput.press('Enter');
@@ -747,7 +704,52 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pillInput.press('Enter');
   await root.locator('.bs-row-you[data-part-id]', { hasText: 'Where does tax get added?' }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
 
-  await verifyBranch(page, projectDirectory, pillBefore);
+  await verifyBranch(page, pillBefore);
+
+  const branchCardOffsetFromMap = async () => {
+    const [firstBoxRect] = (await boxScreenRectsOf(page, root, steadyBoardId)).values();
+    const branchCardRect = await root.locator('.bs-card[data-branch]:not([hidden]), .bs-card-shrunk:not([hidden])').first().boundingBox();
+    assert.ok(firstBoxRect && branchCardRect, 'the branch card and a map box are laid out');
+    return { x: Math.round(branchCardRect.x - firstBoxRect.x), y: Math.round(branchCardRect.y - firstBoxRect.y) };
+  };
+  const orchestratorCardBefore = await boxOf(page, '.board-session-view .bs-card[data-main]');
+  const offsetBeforePan = await branchCardOffsetFromMap();
+  await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
+  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) {
+    await page.mouse.wheel(STEADY_PAN_STEP_PX, 0);
+    await pollFor(`the branch card to move with the map while it pans (step ${step + 1})`, STEADY_PAN_SETTLE_MS, async () => {
+      const offset = await branchCardOffsetFromMap();
+      return offset.x === offsetBeforePan.x && offset.y === offsetBeforePan.y ? offset : null;
+    });
+  }
+  assertSameBox(orchestratorCardBefore, await boxOf(page, '.board-session-view .bs-card[data-main]'), 'the Orchestrator card, which belongs to no repo, while the map pans');
+  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(-STEADY_PAN_STEP_PX, 0);
+  await panMap(-MAP_PAN_STEP_PX);
+  await pillInput.fill('ask-shop');
+  await pillInput.press('Enter');
+  const reuseOption = page.getByRole('button', { name: /^Yes, reuse it/ });
+  const askCard = root.locator('.bs-ask', { has: reuseOption });
+  await askCard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await askCard.locator('.chat-card[data-card-type="question"] .chat-card-option').count(), 2, 'the board ask shows as Chat\'s question card with its options');
+  assert.equal(await askCard.locator('.chat-card-heading').textContent(), BOARD_ASK_QUESTION, 'the card shows the whole question');
+  assert.equal(await askCard.getByRole('button', { name: 'Send answer', exact: true }).isDisabled(), true, 'Send answer waits for typed text');
+  const askBoxId = await askCard.getAttribute('data-ask-box-id');
+  const askCardRect = await askCard.boundingBox();
+  assert.ok(askBoxId && askCardRect, 'the ask card names its box and is on screen');
+  const boxRects = await boxScreenRectsOf(page, root, steadyBoardId);
+  const askBoxRect = boxRects.get(askBoxId);
+  const ringCoverPx = 8;
+  assert.ok(askBoxRect && Math.abs(askBoxRect.x - askCardRect.x) < ringCoverPx && Math.abs(askBoxRect.y - askCardRect.y) < ringCoverPx && Math.abs(askBoxRect.width - askCardRect.width) < ringCoverPx * 2 && Math.abs(askBoxRect.height - askCardRect.height) < ringCoverPx * 2, 'the ask card sits on its own box');
+  const coveredBoxIds = [...boxRects].filter(([boxId, rect]) => boxId !== askBoxId && rect.x < askCardRect.x + askCardRect.width && askCardRect.x < rect.x + rect.width && rect.y < askCardRect.y + askCardRect.height && askCardRect.y < rect.y + rect.height).map(([boxId]) => boxId);
+  assert.deepEqual(coveredBoxIds, [], 'the ask card covers no map box');
+  await askCard.locator('.chat-card-option').first().click();
+  await askCard.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-row-you[hidden]', { hasText: 'Yes, reuse it' }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-row-you:not([hidden])', { hasText: 'Yes, reuse it' }).count(), 0, 'a board answer adds no message to the Studio chat');
+  assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the ask resolves');
+  await delay(MAP_GLIDE_SETTLE_MS);
+  await panMap(MAP_PAN_STEP_PX);
+  await clearAddress(page);
 
   await pillInput.fill('narrate');
   const sendButton = root.locator('.bs-pill .chat-composer-send');

@@ -38,7 +38,7 @@ import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
 import type { SessionPageHost } from '../page-registry.ts';
-import { isStudioSession, openStudioOnRepo } from '../board-session/studio-target.ts';
+import { isStudioSession, openStudioTab } from '../board-session/studio-target.ts';
 import { closeSessionPage, createSessionPageButtons, focusOpenSessionPageInput, openSessionPage, releaseSessionPageHost, setSessionPageHost } from '../page-registry.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
@@ -1115,7 +1115,7 @@ function focusSession(requestedId: string) {
   const ui = sessionUIs.get(id);
   if (!active || !ui) return;
   if (isStudioSession(ui)) {
-    openStudioOnRepo(ui.path);
+    openStudioTab();
     return;
   }
   markSessionSeen(id);

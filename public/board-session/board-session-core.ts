@@ -1,40 +1,12 @@
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 
-export interface RepoSession {
-  id: string;
-  path: string;
-}
-
-export interface RepoChoice {
-  path: string;
-  label: string;
-  sessionIds: string[];
-}
-
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
 const MAX_FIT_SCALE = 2;
 const NATURAL_SCALE = 1;
 const FIT_MARGIN_PX = 48;
 const READABLE_TITLE_PX = 9;
-
-function repoLabelOf(repoPath: string): string {
-  const trimmedPath = repoPath.replace(/[\\/]+$/, '');
-  return trimmedPath.slice(Math.max(trimmedPath.lastIndexOf('/'), trimmedPath.lastIndexOf('\\')) + 1) || trimmedPath;
-}
-
-export function repoChoicesOf(sessions: readonly RepoSession[]): RepoChoice[] {
-  const sessionIdsByPath = new Map<string, string[]>();
-  for (const session of sessions) sessionIdsByPath.set(session.path, [...(sessionIdsByPath.get(session.path) ?? []), session.id]);
-  return [...sessionIdsByPath].map(([path, sessionIds]) => ({ path, label: repoLabelOf(path), sessionIds })).sort((left, right) => left.label.localeCompare(right.label) || left.path.localeCompare(right.path));
-}
-
-export function pickedRepoPath(shownPath: string | null, rememberedPath: string | null, knownPaths: readonly string[]): string | null {
-  if (shownPath !== null && knownPaths.includes(shownPath)) return shownPath;
-  if (rememberedPath !== null && knownPaths.includes(rememberedPath)) return rememberedPath;
-  return knownPaths[0] ?? null;
-}
 
 function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));

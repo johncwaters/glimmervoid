@@ -25,7 +25,7 @@ const STUDIO_PLAYBOOK: readonly PlaybookBehavior[] = [
   {
     id: 'ask-on-board',
     roles: ['orchestrator', 'branch'],
-    text: 'Ask the operator a question with the whiteboard ask action, about the box or repo path the question is about, with your recommended option first, instead of asking in chat.',
+    text: 'Ask the operator a question with the whiteboard ask action, about the box or repo path the question is about (the Orchestrator names a path as <repo name>/<path>, with the repo name codemap map lists), with your recommended option first, instead of asking in chat.',
   },
   {
     id: 'show-on-board',

@@ -24,8 +24,14 @@ export const OpenBoardAsk = z.object({
 });
 export type OpenBoardAsk = z.infer<typeof OpenBoardAsk>;
 
+const SessionMapBoxes = z.object({ boxIdByPath: z.record(z.string(), z.string()).default({}), fallbackBoxId: z.string().nullable().default(null), changedBoxIds: z.array(z.string()).default([]) });
+export type SessionMapBoxes = z.infer<typeof SessionMapBoxes>;
+
+const StudioMapArea = z.object({ repoKey: z.string(), repoName: z.string(), isFolded: z.boolean(), anchorBoxId: z.string(), mapError: z.string().nullable().default(null) });
+export type StudioMapArea = z.infer<typeof StudioMapArea>;
+
 export const boardSessionClientVariants = [
-  loose('codemap-boxes-of', { id: sessionId, requestId, paths: z.array(RepoPath).max(CODEMAP_BOXES_MAX_PATHS).default([]) }),
+  loose('codemap-boxes-of', { id: sessionId, requestId, pathsBySessionId: z.record(z.string().min(1).max(200), z.array(RepoPath).max(CODEMAP_BOXES_MAX_PATHS)).default({}) }),
   loose('board-asks-of', { requestId, boardId: z.string().min(1).max(BOARD_ID_MAX_CHARS) }),
   loose('board-ask-answer', { requestId, boardId: z.string().min(1).max(200), askBoxId: z.string().min(1).max(40), answer: z.string().trim().min(1).max(ASK_ANSWER_MAX_CHARS) }),
   loose('branch-spawn', { id: sessionId, requestId, aboutBoxId: z.string().min(1).max(40), prompt: z.string().trim().min(1).max(BRANCH_PROMPT_MAX_CHARS) }),
@@ -42,11 +48,10 @@ export const boardSessionServerVariants = [
     requestId,
     ok: z.boolean(),
     boardId: z.string().nullable().default(null),
-    boxIdByPath: z.record(z.string(), z.string()).default({}),
-    fallbackBoxId: z.string().nullable().default(null),
-    changedBoxIds: z.array(z.string()).default([]),
+    boxesBySessionId: z.record(z.string(), SessionMapBoxes).default({}),
+    areas: z.array(StudioMapArea).default([]),
     boxRectById: z.record(z.string(), LayoutRect).default({}),
-    boxChoices: z.array(z.object({ boxId: z.string(), title: z.string() })).max(CODEMAP_BOX_CHOICES_MAX).default([]),
+    boxChoices: z.array(z.object({ boxId: z.string(), title: z.string(), repoName: z.string() })).default([]),
     isMapFailed: z.boolean().default(false),
     error: optionalError,
   }),

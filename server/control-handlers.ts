@@ -188,7 +188,7 @@ interface ControlHandlerDeps {
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   director?: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
   studioGuide?: StudioGuideStore | null;
-  codemap?: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo'> | null;
+  codemap?: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo' | 'studioAreas' | 'boxesOfStudioPaths'> | null;
   boardAsks?: Pick<BoardAsks, 'answer' | 'openAsksOf'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;

@@ -132,7 +132,7 @@ interface BackendControlDependencies {
   hostReady: HostReadyReader;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   director: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
-  codemap: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo'> | null;
+  codemap: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo' | 'studioAreas' | 'boxesOfStudioPaths'> | null;
   boardAsks: Pick<BoardAsks, 'answer' | 'openAsksOf'> | null;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;

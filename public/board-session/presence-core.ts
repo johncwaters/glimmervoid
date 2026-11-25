@@ -25,9 +25,13 @@ function namedPathsOf(replyText: string): string[] {
   return [...namedPaths];
 }
 
-function workedPathOf(record: Extract<TraceRecord, { kind: 'tool_call' }>, workingDirectory: string | null): string | null {
+function isOutsidePath(tracedPath: string): boolean {
+  return tracedPath.startsWith('/');
+}
+
+function workedPathOf(record: Extract<TraceRecord, { kind: 'tool_call' }>, workingDirectory: string | null, keepsOutsidePaths: boolean): string | null {
   const editedPath = fileEditsOf(record.input, workingDirectory).find((edit) => edit.path.length > 0)?.path ?? null;
-  if (editedPath === null || editedPath.startsWith('/')) return null;
+  if (editedPath === null || (isOutsidePath(editedPath) && !keepsOutsidePaths)) return null;
   return editedPath;
 }
 
@@ -35,9 +39,9 @@ function isPatchInput(input: unknown): boolean {
   return typeof input === 'object' && input !== null && typeof Reflect.get(input, 'changes') === 'object';
 }
 
-function addTrailPaths(record: Extract<TraceRecord, { kind: 'tool_call' }>, workingDirectory: string | null, readPaths: Set<string>, editedPaths: Set<string>): void {
+function addTrailPaths(record: Extract<TraceRecord, { kind: 'tool_call' }>, workingDirectory: string | null, keepsOutsidePaths: boolean, readPaths: Set<string>, editedPaths: Set<string>): void {
   for (const edit of fileEditsOf(record.input, workingDirectory)) {
-    if (edit.path.length === 0 || edit.path.startsWith('/')) continue;
+    if (edit.path.length === 0 || (isOutsidePath(edit.path) && !keepsOutsidePaths)) continue;
     if (edit.hasLineCounts || isPatchInput(record.input)) {
       editedPaths.add(edit.path);
       readPaths.delete(edit.path);
@@ -47,15 +51,15 @@ function addTrailPaths(record: Extract<TraceRecord, { kind: 'tool_call' }>, work
   }
 }
 
-export function foldPresence(presence: Presence, appendedRecords: readonly TraceRecord[], workingDirectory: string | null): Presence {
+export function foldPresence(presence: Presence, appendedRecords: readonly TraceRecord[], workingDirectory: string | null, keepsOutsidePaths = false): Presence {
   let { workedPath, namedPaths } = presence;
   let readPaths = new Set(presence.readPaths);
   let editedPaths = new Set(presence.editedPaths);
   for (const record of appendedRecords) {
     if (record.agentId !== undefined) continue;
     if (record.kind === 'tool_call') {
-      workedPath = workedPathOf(record, workingDirectory) ?? workedPath;
-      addTrailPaths(record, workingDirectory, readPaths, editedPaths);
+      workedPath = workedPathOf(record, workingDirectory, keepsOutsidePaths) ?? workedPath;
+      addTrailPaths(record, workingDirectory, keepsOutsidePaths, readPaths, editedPaths);
     }
     if (record.kind === 'assistant') namedPaths = namedPathsOf(record.text);
     if (record.kind === 'prompt') {

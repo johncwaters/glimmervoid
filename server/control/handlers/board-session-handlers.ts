@@ -1,4 +1,5 @@
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
+import type { SessionMapBoxes } from '../../../shared/contracts/control/board-session-messages.ts';
 import { branchParentIdOf } from '../../../shared/parent-link.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
@@ -12,6 +13,7 @@ import { ensureOrchestrator } from '../../board-session/studio-main.ts';
 
 const CODE_MAP_OFF_TEXT = 'The code map is not running';
 const BOARD_ASKS_OFF_TEXT = 'Board questions are not running';
+const NO_MAP_BOXES: SessionMapBoxes = { boxIdByPath: {}, fallbackBoxId: null, changedBoxIds: [] };
 
 const WORKSPACE_MAIN_TEXT = 'A workspace of several repos does not open in Studio; open one of its repos.';
 
@@ -29,6 +31,14 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
     return { ok: true, mainId: ensured.orchestratorId };
   }
 
+  async function sessionMapBoxesOf(watchedId: string, paths: readonly string[]): Promise<SessionMapBoxes> {
+    const watched = sessions.get(watchedId);
+    if (!codemap || !watched) return NO_MAP_BOXES;
+    if (watched.isStudioMain) return { ...NO_MAP_BOXES, boxIdByPath: (await codemap.boxesOfStudioPaths(watched.id, paths)).boxIdByPath };
+    const boxes = await codemap.boxesOfSession(watched.path, watched.id, paths);
+    return boxes.ok ? { boxIdByPath: boxes.boxIdByPath, fallbackBoxId: boxes.fallbackBoxId, changedBoxIds: boxes.changedBoxIds } : NO_MAP_BOXES;
+  }
+
   const handlers = {
     'codemap-boxes-of': async (message: ClientMessageOf<'codemap-boxes-of'>, ws: ControlSocket) => {
       const reply = { type: 'codemap-boxes-of-response', id: message.id, requestId: message.requestId ?? null };
@@ -36,9 +46,15 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       if (!session) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
       if (!codemap) return ws.send(JSON.stringify({ ...reply, ok: false, error: CODE_MAP_OFF_TEXT }));
       try {
-        const boxes = await codemap.boxesOfSession(session.path, session.id, message.paths);
-        const boxRectById = boxes.ok && boxes.boardId ? await codemap.boxRectsOf(boxes.boardId, [...Object.values(boxes.boxIdByPath), ...boxes.changedBoxIds, boxes.fallbackBoxId]) : {};
-        ws.send(JSON.stringify({ ...reply, ...boxes, boxRectById }));
+        const studio = await codemap.studioAreas();
+        const boxesBySessionId = Object.fromEntries(await Promise.all(Object.entries(message.pathsBySessionId).map(async ([watchedId, paths]) => [watchedId, await sessionMapBoxesOf(watchedId, paths)] as const)));
+        const boxChoices = studio.areas.flatMap((area) => area.boxChoices.map((choice) => ({ ...choice, repoName: area.repoName })));
+        const areas = studio.areas.map(({ repoKey, repoName, isFolded, anchorBoxId, mapError }) => ({ repoKey, repoName, isFolded, anchorBoxId, mapError }));
+        const firstUnmapped = studio.areas.find((area) => area.mapError !== null);
+        if (firstUnmapped && studio.areas.every((area) => area.mapError !== null)) return ws.send(JSON.stringify({ ...reply, ok: false, boardId: studio.boardId, error: firstUnmapped.mapError, isMapFailed: studio.areas.some((area) => area.isMapFailed) }));
+        const placedBoxIds = [...areas.map((area) => area.anchorBoxId), ...Object.keys(boxesBySessionId).flatMap((watchedId) => sessions.get(watchedId)?.parent?.box?.id ?? []), ...Object.values(boxesBySessionId).flatMap((boxes) => [...Object.values(boxes.boxIdByPath), ...boxes.changedBoxIds, ...(boxes.fallbackBoxId === null ? [] : [boxes.fallbackBoxId])])];
+        const boxRectById = studio.boardId ? await codemap.boxRectsOf(studio.boardId, [...new Set(placedBoxIds)]) : {};
+        ws.send(JSON.stringify({ ...reply, ok: true, boardId: studio.boardId, boxesBySessionId, areas, boxChoices, boxRectById }));
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Code map read failed: ${errorMessage(error)}` }));
       }
@@ -85,7 +101,9 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       if (!session) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
       if (!codemap) return ws.send(JSON.stringify({ ...reply, ok: false, error: CODE_MAP_OFF_TEXT }));
       try {
-        ws.send(JSON.stringify({ ...reply, ...await codemap.setFolderOpen(session.path, message.boxId, message.isOpen) }));
+        const boxRepo = await codemap.repoOfBox(message.boxId);
+        if (!boxRepo) return ws.send(JSON.stringify({ ...reply, ok: false, error: 'That box is not on the code map of a Studio repo any more.' }));
+        ws.send(JSON.stringify({ ...reply, ...await codemap.setFolderOpen(boxRepo.repoDir, message.boxId, message.isOpen) }));
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `The folder did not open: ${errorMessage(error)}` }));
       }

@@ -7,7 +7,6 @@ import type { ChatFeed } from '../chat/chat-feed.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { errorMessage } from '#shared/text.ts';
 import { el } from '../dom-helpers.ts';
-import { getJSON, setJSON } from '../local-store.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { loadResumeDialog } from '../session-card/deferred-loads.ts';
@@ -21,10 +20,9 @@ import { dismissAgentChange, markAgentChangeShown, onAgentChange, ringAgentChang
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { SHOWN_BOX_ID_RE } from '#shared/whiteboard-constants.ts';
 import { onBoardSessionStatusChanged, onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
-import { firstViewCamera, pickedRepoPath, readableFloorScale, repoChoicesOf, viewMovedToShow } from './board-session-core.ts';
+import { firstViewCamera, readableFloorScale, viewMovedToShow } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
-import type { RepoChoice, RepoSession } from './board-session-core.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
 import type { SessionProgressAnswer } from '#shared/contracts/director-digests.ts';
@@ -50,12 +48,11 @@ import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
-import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio-target.ts';
+import { isStudioSession } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
 import { CODEMAP_BOXES_MAX_PATHS, CODE_MAP_BOARD_TITLE, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
-import type { OpenBoardAsk } from '#shared/contracts/control/board-session-messages.ts';
+import type { OpenBoardAsk, SessionMapBoxes, StudioMapArea } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
-import { STATES } from '#shared/states.ts';
 import { createLineIcon } from '../svg-dom.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
@@ -64,10 +61,11 @@ const MAIN_ENSURE_TIMEOUT_MS = 15000;
 const BRANCH_CLOSE_TIMEOUT_MS = 60000;
 const TITLE_SIZE_FALLBACK_PX = 16;
 const PEEK_OVERLAP_PX = 4;
-const NO_SESSION_TEXT = 'Open a repo from the repo menu to see its code map.';
+const NO_SESSION_TEXT = 'Open a repo from the menu to see its code map.';
+const EVERY_REPO_TEXT = 'your repos';
 const OPEN_REPO_TEXT = 'Open a repo';
 const NO_MAP_TEXT = 'This session has no code map yet.';
-const NO_MAIN_TEXT = 'The Orchestrator for this repo did not start.';
+const NO_MAIN_TEXT = 'The Orchestrator did not start.';
 const ORCHESTRATOR_TEXT = 'Orchestrator';
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const RESTART_ORCHESTRATOR_TEXT = 'Restart Orchestrator';
@@ -102,15 +100,13 @@ interface ViewParts {
 
 let parts: ViewParts | null = null;
 let isActive = false;
-let shownRepoPath: string | null = null;
 let shownSessionId: string | null = null;
-let ensuredRepoPath: string | null = null;
-const mainSessionIdByRepoPath = new Map<string, string>();
-let fallbackBoxId: string | null = null;
-let answeredPaths = new Set<string>();
+let ensuredAnchorId: string | null = null;
+let answeredPathKeys = new Set<string>();
+let boxesBySessionId: Readonly<Record<string, SessionMapBoxes>> = {};
+let areas: readonly StudioMapArea[] = [];
 let pendingMainId: string | null = null;
 let boardId: string | null = null;
-const sessionIdByBoardId = new Map<string, string>();
 let changedBoxIds: ReadonlySet<string> = new Set();
 let peekedBoxId: string | null = null;
 let fetchedAsks: { boardId: string; asks: readonly OpenBoardAsk[] } | null = null;
@@ -129,18 +125,23 @@ let boxRectById: Readonly<Record<string, Rect>> = {};
 type MissingMap = { boardId: string | null; boardVersion: number | null; knownBoardIds: ReadonlySet<string> };
 
 let missingMap: MissingMap | null = null;
-const mapBoardIdBySessionId = new Map<string, string>();
 let digestsRequestSerial = 0;
 let progressAnswers: readonly SessionProgressAnswer[] = [];
 let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null }>> = {};
 let watchBySessionId = new Map<string, SessionWatch>();
-let boxIdByPath: Readonly<Record<string, string>> = {};
 let moduleChoices: readonly BoxChoice[] = [];
 const openedBranchIds = new Set<string>();
 
-function repoChoices(): RepoChoice[] {
-  const repoSessions: RepoSession[] = [...sessionUIs].flatMap(([id, ui]) => ui.isStudioMain ? [{ id, path: ui.path }] : []);
-  return repoChoicesOf(repoSessions);
+function orchestratorSessionId(): string | null {
+  return [...sessionUIs].find(([, ui]) => ui.isStudioMain)?.[0] ?? null;
+}
+
+function studioSessionIds(): string[] {
+  return [...sessionUIs].flatMap(([id, ui]) => isStudioSession(ui) ? [id] : []);
+}
+
+function pathKeyOf(sessionId: string, sessionPath: string): string {
+  return `${sessionId}\n${sessionPath}`;
 }
 
 function phaseOfSession(sessionId: string): ChatPhase {
@@ -148,17 +149,24 @@ function phaseOfSession(sessionId: string): ChatPhase {
   return shownChatPhaseOf(chatPhaseOf(ui?.currentState), false, ui?.awaitingBackgroundTasks === true);
 }
 
-function presenceOf(sessionId: string | null): Presence {
-  if (sessionId === null) return NO_PRESENCE;
-  return watchBySessionId.get(sessionId)?.presence ?? NO_PRESENCE;
+function changedFilesOf(sessionId: string) {
+  return reviewOf(sessionId)?.files ?? [];
 }
 
-function changedFilesOfShownSession() {
-  return shownSessionId === null ? [] : reviewOf(shownSessionId)?.files ?? [];
+function changedFilesAtBox(boxId: string) {
+  return [...watchBySessionId.keys()].flatMap((sessionId) => changedFilesOf(sessionId).filter((file) => boxIdOfSessionPath(sessionId, file.path) === boxId));
 }
 
-function watchedPaths(): string[] {
-  return [...new Set([...[...watchBySessionId.values()].flatMap((watch) => presencePathsOf(watch.presence)), ...changedFilesOfShownSession().map((file) => file.path)])];
+function watchedPathsOf(sessionId: string, watch: SessionWatch): string[] {
+  return [...new Set([...presencePathsOf(watch.presence), ...changedFilesOf(sessionId).map((file) => file.path)])];
+}
+
+function unaskedPathsBySessionId(): Record<string, string[]> {
+  return Object.fromEntries([...watchBySessionId].map(([sessionId, watch]) => [sessionId, watchedPathsOf(sessionId, watch).filter((sessionPath) => isUnaskedPath(sessionId, sessionPath)).slice(0, CODEMAP_BOXES_MAX_PATHS)]));
+}
+
+function hasUnaskedPaths(): boolean {
+  return Object.values(unaskedPathsBySessionId()).some((sessionPaths) => sessionPaths.length > 0);
 }
 
 function boxIdAtPointer(event: PointerEvent, overlayHost: HTMLElement): string | null {
@@ -182,7 +190,7 @@ function paintChangesPeek(): void {
     parts.changesPeek.hide();
     return;
   }
-  const files = changedFilesOfShownSession().filter((file) => boxIdByPath[file.path] === peekedBoxId);
+  const files = changedFilesAtBox(peekedBoxId ?? '');
   const { left, top } = peekSpotOf(bounds);
   parts.changesPeek.show(files, left, top);
 }
@@ -204,13 +212,9 @@ function peekChangedBox(event: PointerEvent): void {
   const boxId = overlayHost === null ? null : boxIdAtPointer(event, overlayHost);
   if (boxId === peekedBoxId) return;
   peekedBoxId = boxId;
-  if (boxId !== null) reloadReview(shownSessionId);
+  const changingSessionIds = boxId === null ? [] : Object.entries(boxesBySessionId).flatMap(([sessionId, boxes]) => boxes.changedBoxIds.includes(boxId) ? [sessionId] : []);
+  for (const changingSessionId of changingSessionIds) reloadReview(changingSessionId);
   paintChangesPeek();
-}
-
-function repoSessionIds(): string[] {
-  if (shownRepoPath === null) return [];
-  return [...sessionUIs].flatMap(([id, ui]) => ui.path === shownRepoPath && isStudioSession(ui) ? [id] : []);
 }
 
 function closeWatches(): void {
@@ -247,7 +251,7 @@ function openWatch(sessionId: string): SessionWatch {
 }
 
 function syncWatches(): void {
-  const wantedIds = new Set(repoSessionIds());
+  const wantedIds = new Set(studioSessionIds());
   for (const [sessionId, watch] of watchBySessionId) {
     if (wantedIds.has(sessionId)) continue;
     watch.feed.close();
@@ -260,13 +264,6 @@ function syncWatches(): void {
     watchBySessionId.set(sessionId, watch);
     watch.feed.refresh();
   }
-}
-
-function repoStateWordOf(sessionId: string | undefined): string {
-  if (sessionId === undefined) return '';
-  if (sessionUIs.get(sessionId)?.currentState === STATES.WAITING) return 'Waiting on you';
-  const wordByPhase: Record<ChatPhase, string> = { starting: 'Starting', working: 'Working', monitoring: 'Working', quiet: 'Idle', stopped: 'Stopped' };
-  return wordByPhase[phaseOfSession(sessionId)];
 }
 
 function addressAgent(model: AgentCardModel): void {
@@ -412,9 +409,9 @@ function clearViewArea(viewWidthPx: number, viewHeightPx: number, reservedBottom
 }
 
 function sessionBoxIds(): string[] {
-  const presence = presenceOf(shownSessionId);
-  const presenceBoxIds = [presence.workedPath, ...presence.namedPaths].flatMap((presencePath) => boxIdOfPresencePath(presencePath) ?? []);
-  return [...presenceBoxIds, ...changedBoxIds];
+  const presenceBoxIds = [...watchBySessionId].flatMap(([sessionId, watch]) => [watch.presence.workedPath, ...watch.presence.namedPaths].flatMap((presencePath) => boxIdOfPresencePath(sessionId, presencePath) ?? []));
+  const branchBoxIds = shownBranchIds().flatMap((branchId) => sessionUIs.get(branchId)?.parent?.box?.id ?? []);
+  return [...presenceBoxIds, ...branchBoxIds, ...changedBoxIds];
 }
 
 function reservedBelow(element: HTMLElement | null, overlay: HTMLElement): number {
@@ -446,9 +443,13 @@ function seatOnHost(): void {
   showBoardBeside(boardId, null, parts.guest);
 }
 
-function boxIdOfPresencePath(presencePath: string | null): string | null {
+function boxIdOfSessionPath(sessionId: string, sessionPath: string): string | null {
+  return boxesBySessionId[sessionId]?.boxIdByPath[sessionPath] ?? null;
+}
+
+function boxIdOfPresencePath(sessionId: string, presencePath: string | null): string | null {
   if (presencePath === null) return null;
-  return boxIdByPath[presencePath] ?? null;
+  return boxIdOfSessionPath(sessionId, presencePath);
 }
 
 function latestDigestOf(sessionId: string, watch: SessionWatch): string | null {
@@ -470,9 +471,9 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
     name: sessionId === shownSessionId ? ORCHESTRATOR_TEXT : ui.parent?.box?.title ?? (sessionName(ui) || sessionId.slice(0, 8)),
     agentId: ui.agent ?? null,
     isMain: sessionId === shownSessionId,
-    repoLabel: sessionId === shownSessionId ? shownRepoLabel() : null,
+    repoLabel: sessionId === shownSessionId ? ORCHESTRATOR_TEXT : null,
     isBranch: branchParentIdOf(ui.parent) !== null,
-    boxIds: [ui.parent?.box?.id ?? null, fallbackBoxId].flatMap((candidate) => candidate ?? []),
+    boxIds: [ui.parent?.box?.id ?? null, boxesBySessionId[sessionId]?.fallbackBoxId ?? null].flatMap((candidate) => candidate ?? []),
     phase,
     beat: phase === 'working' ? watch.lastBeat : null,
     digest: sessionId === shownSessionId ? null : latestDigestOf(sessionId, watch),
@@ -506,17 +507,17 @@ function observeFixedAreas(observed: readonly HTMLElement[]): void {
 function paintPresence(): void {
   if (!parts) return;
   const tierByBoxId = new Map<string, GlowTier>();
-  const markPaths = (paths: readonly string[], tier: GlowTier) => {
-    for (const boxId of paths.flatMap((presencePath) => boxIdOfPresencePath(presencePath) ?? [])) {
+  const markPaths = (sessionId: string, paths: readonly string[], tier: GlowTier) => {
+    for (const boxId of paths.flatMap((presencePath) => boxIdOfPresencePath(sessionId, presencePath) ?? [])) {
       const shownTier = tierByBoxId.get(boxId);
       if (shownTier === undefined || GLOW_TIER_RANK[tier] > GLOW_TIER_RANK[shownTier]) tierByBoxId.set(boxId, tier);
     }
   };
-  for (const watch of watchBySessionId.values()) {
-    markPaths(watch.presence.readPaths, 'read');
-    markPaths(watch.presence.editedPaths, 'edited');
+  for (const [sessionId, watch] of watchBySessionId) {
+    markPaths(sessionId, watch.presence.readPaths, 'read');
+    markPaths(sessionId, watch.presence.editedPaths, 'edited');
+    markPaths(sessionId, watch.presence.namedPaths, 'named');
   }
-  markPaths(presenceOf(shownSessionId).namedPaths, 'named');
   const glows = [...tierByBoxId].map(([boxId, tier]) => ({ boxId, tier }));
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
   parts.presenceLayer.paint({ glows }, board);
@@ -551,8 +552,8 @@ function requestDigests(): void {
 }
 
 async function setFolderOpen(folderBoardId: string, frameId: string, isOpen: boolean): Promise<boolean> {
-  const mapSessionId = sessionIdByBoardId.get(folderBoardId);
-  if (mapSessionId === undefined) return false;
+  const mapSessionId = shownSessionId;
+  if (mapSessionId === null || folderBoardId !== boardId) return false;
   const reply = await sendControlRequest('codemap-folder-set', { id: mapSessionId, boxId: frameId, isOpen }, { timeoutMs: BOXES_TIMEOUT_MS }).catch(() => null);
   if (reply?.type !== 'codemap-folder-set-result') {
     showNotice(NO_MAP_TEXT);
@@ -566,10 +567,10 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
   const watch = watchBySessionId.get(sessionId);
   if (!watch) return;
   const workingDirectory = sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null;
-  const nextPresence = foldPresence(watch.presence, appendedRecords, workingDirectory);
+  const nextPresence = foldPresence(watch.presence, appendedRecords, workingDirectory, sessionUIs.get(sessionId)?.isStudioMain === true);
   const openedAts = appendedRecords.filter(opensOperatorTurn).map((record) => record.ts);
   watch.turnOpenedAts = [...watch.turnOpenedAts, ...openedAts].slice(-TURN_OPENINGS_KEPT);
-  const hasNewPath = presencePathsOf(nextPresence).some(isUnaskedPath);
+  const hasNewPath = presencePathsOf(nextPresence).some((presencePath) => isUnaskedPath(sessionId, presencePath));
   watch.presence = nextPresence;
   if (hasNewPath) {
     requestBoxes();
@@ -578,21 +579,13 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
   paintPresence();
 }
 
-function shownRepoLabel(): string {
-  return repoChoices().find((choice) => choice.path === shownRepoPath)?.label ?? NO_REPO_TEXT;
-}
-
-function isUnaskedPath(presencePath: string): boolean {
-  return !(presencePath in boxIdByPath) && !answeredPaths.has(presencePath);
+function isUnaskedPath(sessionId: string, sessionPath: string): boolean {
+  return boxIdOfSessionPath(sessionId, sessionPath) === null && !answeredPathKeys.has(pathKeyOf(sessionId, sessionPath));
 }
 
 function titledMapBoardIdOf(): string | null {
   const titledBoards = boardSummariesOf().filter((summary) => summary.title.toLowerCase() === CODE_MAP_BOARD_TITLE.toLowerCase());
   return titledBoards.length === 1 ? titledBoards[0].id : null;
-}
-
-function knownMapBoardIdOf(sessionId: string): string | null {
-  return mapBoardIdBySessionId.get(sessionId) ?? titledMapBoardIdOf();
 }
 
 function missingMapOf(boardId: string | null): MissingMap {
@@ -613,7 +606,7 @@ function followMissingMap(): void {
 }
 
 function showMapState(mapState: StudioMapState): void {
-  parts?.guide.show(mapState, shownSessionId === null ? NO_REPO_TEXT : shownRepoLabel());
+  parts?.guide.show(mapState, areas.length === 1 ? areas[0].repoName : EVERY_REPO_TEXT);
 }
 
 function showMapMissing(text: string, isMapFailed: boolean, mapBoardId: string | null): void {
@@ -627,33 +620,35 @@ function requestBoxes(): void {
   const sessionId = shownSessionId;
   boxesRequestSerial += 1;
   const serial = boxesRequestSerial;
-  const askedPaths = watchedPaths().filter(isUnaskedPath).slice(0, CODEMAP_BOXES_MAX_PATHS);
+  const askedPathsBySessionId = unaskedPathsBySessionId();
   const showMissingAndFirstView = (text: string, isMapFailed: boolean) => {
-    showMapMissing(text, isMapFailed, knownMapBoardIdOf(sessionId));
+    showMapMissing(text, isMapFailed, boardId ?? titledMapBoardIdOf());
     paintBoard();
   };
-  sendControlRequest('codemap-boxes-of', { id: sessionId, paths: askedPaths }, { timeoutMs: BOXES_TIMEOUT_MS })
+  sendControlRequest('codemap-boxes-of', { id: sessionId, pathsBySessionId: askedPathsBySessionId }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== boxesRequestSerial) return;
       boxesAnsweredSessionId = sessionId;
       if (reply.type !== 'codemap-boxes-of-response') return paintBoard();
-      if (reply.boardId !== null) mapBoardIdBySessionId.set(sessionId, reply.boardId);
       if (!reply.ok) return showMissingAndFirstView(reply.error ?? NO_MAP_TEXT, reply.isMapFailed);
-      if (reply.boardId === null) return showMissingAndFirstView(NO_MAP_TEXT, false);
+      if (reply.boardId === null || reply.areas.length === 0) return showMissingAndFirstView(NO_MAP_TEXT, false);
       missingMap = null;
-      showNotice(null);
+      const unmappedArea = reply.areas.find((area) => area.mapError !== null);
+      showNotice(unmappedArea ? `${unmappedArea.repoName}: ${unmappedArea.mapError}` : null);
+      areas = reply.areas;
       showMapState('drawn');
-      changedBoxIds = new Set(reply.changedBoxIds);
-      fallbackBoxId = reply.fallbackBoxId;
-      boxIdByPath = { ...boxIdByPath, ...reply.boxIdByPath };
+      const answeredBoxesBySessionId = Object.fromEntries(Object.entries(reply.boxesBySessionId).map(([answeredId, boxes]) => [answeredId, { ...boxes, boxIdByPath: { ...boxesBySessionId[answeredId]?.boxIdByPath, ...boxes.boxIdByPath } }]));
+      boxesBySessionId = Object.fromEntries(Object.entries({ ...boxesBySessionId, ...answeredBoxesBySessionId }).filter(([watchedId]) => watchBySessionId.has(watchedId)));
+      changedBoxIds = new Set(Object.values(boxesBySessionId).flatMap((boxes) => boxes.changedBoxIds));
       boxRectById = { ...boxRectById, ...reply.boxRectById };
-      for (const askedPath of askedPaths) answeredPaths.add(askedPath);
+      for (const [askedId, askedPaths] of Object.entries(askedPathsBySessionId)) {
+        for (const askedPath of askedPaths) answeredPathKeys.add(pathKeyOf(askedId, askedPath));
+      }
       moduleChoices = reply.boxChoices;
       boardId = reply.boardId;
-      sessionIdByBoardId.set(reply.boardId, sessionId);
       seatOnHost();
       paintBoard();
-      if (watchedPaths().some(isUnaskedPath)) requestBoxes();
+      if (hasUnaskedPaths()) requestBoxes();
     })
     .catch(() => {
       if (serial !== boxesRequestSerial) return;
@@ -695,7 +690,6 @@ function mountDock(): void {
 function showSession(sessionId: string | null): void {
   const isSameSession = sessionId === shownSessionId;
   shownSessionId = sessionId;
-  if (!isSameSession) fallbackBoxId = null;
   if (parts) parts.noRepoChip.hidden = sessionId !== null;
   if (sessionId === null) {
     boardId = null;
@@ -709,16 +703,16 @@ function showSession(sessionId: string | null): void {
     verdictByKey = {};
     progressAnswers = [];
     changedBoxIds = new Set();
-    boxIdByPath = {};
+    boxesBySessionId = {};
+    areas = [];
     boxRectById = {};
-    answeredPaths = new Set();
+    answeredPathKeys = new Set();
     moduleChoices = [];
     peekedBoxId = null;
     parts?.changesPeek.hide();
     parts?.diffPanel.close();
     mountDock();
     requestDigests();
-    reloadReview(sessionId);
   }
   requestBoxes();
 }
@@ -730,43 +724,27 @@ function closeMenu(): void {
   parts.menuOpener = null;
 }
 
-function showRepo(repoPath: string | null): void {
-  if (repoPath !== shownRepoPath) closeWatches();
-  shownRepoPath = repoPath;
+function showStudio(): void {
   syncWatches();
-  const repoSessionIds = repoChoices().find((choice) => choice.path === repoPath)?.sessionIds ?? [];
-  const mainSessionId = repoPath === null ? undefined : mainSessionIdByRepoPath.get(repoPath);
-  const fallbackSessionId = shownSessionId !== null && repoSessionIds.includes(shownSessionId) ? shownSessionId : repoSessionIds.at(-1) ?? null;
-  const anchorSessionId = mainSessionId !== undefined && sessionUIs.has(mainSessionId) ? mainSessionId : fallbackSessionId;
-  showSession(anchorSessionId);
-  if (repoPath === null || anchorSessionId === null || repoPath === ensuredRepoPath) return;
-  ensuredRepoPath = repoPath;
-  ensureMainSession(repoPath, anchorSessionId);
+  const startedId = pendingMainId !== null && sessionUIs.has(pendingMainId) ? pendingMainId : null;
+  if (startedId !== null) pendingMainId = null;
+  const orchestratorId = startedId ?? orchestratorSessionId();
+  showSession(orchestratorId);
+  const anchorId = orchestratorId === null ? studioSessionIds()[0] ?? null : null;
+  if (anchorId === null || anchorId === ensuredAnchorId) return;
+  ensuredAnchorId = anchorId;
+  ensureOrchestrator(anchorId);
 }
 
-function ensureMainSession(repoPath: string, anchorSessionId: string): void {
+function ensureOrchestrator(anchorSessionId: string): void {
   sendControlRequest('studio-main-ensure', { id: anchorSessionId }, { timeoutMs: MAIN_ENSURE_TIMEOUT_MS })
     .then((reply) => {
       if (reply.type !== 'studio-main-ensure-result') return;
       if (!reply.ok || reply.mainId === null) return showNotice(reply.error ?? NO_MAIN_TEXT);
-      mainSessionIdByRepoPath.set(repoPath, reply.mainId);
-      if (shownRepoPath === repoPath) showSession(reply.mainId);
+      pendingMainId = reply.mainId;
+      refreshBoardSessionView();
     })
-    .catch(() => {
-      if (shownRepoPath === repoPath) showNotice(NO_MAIN_TEXT);
-    });
-}
-
-function showPickedRepo(): void {
-  const startedMain = pendingMainId === null ? undefined : sessionUIs.get(pendingMainId);
-  if (startedMain) {
-    pendingMainId = null;
-    setJSON(SHOWN_REPO_KEY, startedMain.path);
-    showRepo(startedMain.path);
-    return;
-  }
-  const knownPaths = repoChoices().map((choice) => choice.path);
-  showRepo(pickedRepoPath(shownRepoPath, getJSON<string | null>(SHOWN_REPO_KEY, null), knownPaths));
+    .catch(() => showNotice(NO_MAIN_TEXT));
 }
 
 function openStudioRepo(): void {
@@ -812,18 +790,6 @@ function toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void 
 
 function openMenu(opener: HTMLButtonElement): void {
   if (!parts) return;
-  const items = repoChoices().map((choice) => {
-    const item = createPressable('bs-menu-item');
-    item.setAttribute('role', 'menuitemradio');
-    item.setAttribute('aria-checked', String(choice.path === shownRepoPath));
-    item.append(el('span', 'bs-menu-name', choice.label), el('span', 'bs-menu-state', repoStateWordOf(choice.sessionIds.at(-1))));
-    item.addEventListener('click', () => {
-      closeMenu();
-      setJSON(SHOWN_REPO_KEY, choice.path);
-      showRepo(choice.path);
-    });
-    return item;
-  });
   const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', openStudioRepo);
   const orchestratorId = shownSessionId;
   const orchestratorItems = orchestratorId === null ? [] : [
@@ -831,16 +797,13 @@ function openMenu(opener: HTMLButtonElement): void {
     menuActionItem(RESTART_ORCHESTRATOR_TEXT, 'board-session-agent-restart', () => restartAgent(orchestratorId)),
     menuActionItem(ACCOUNT_TEXT, 'board-session-agent-account', () => openSwitchAccountDialog(orchestratorId)),
   ];
-  parts.menu.replaceChildren(...items, openRepoItem, ...orchestratorItems);
+  parts.menu.replaceChildren(openRepoItem, ...orchestratorItems);
   parts.menu.hidden = false;
   parts.menuOpener = opener;
   opener.setAttribute('aria-expanded', 'true');
 }
 
 function mountBoardSessionView(panel: HTMLElement): void {
-  onStudioRepoRequested((repoPath) => {
-    if (isActive) showRepo(repoPath);
-  });
   const root = el('div', 'bs-root');
   const menu = el('div', 'bs-menu bs-card-menu bs-repo-menu');
   menu.setAttribute('role', 'menu');
@@ -879,8 +842,8 @@ function mountBoardSessionView(panel: HTMLElement): void {
     changesPeek.hide();
   });
   onReviewChange((sessionId) => {
-    if (!isActive || sessionId !== shownSessionId) return;
-    if (watchedPaths().some(isUnaskedPath)) requestBoxes();
+    if (!isActive || !watchBySessionId.has(sessionId)) return;
+    if (hasUnaskedPaths()) requestBoxes();
     paintChangesPeek();
   });
   panel.replaceChildren(root);
@@ -939,7 +902,7 @@ function activateBoardSessionView(): void {
   if (host.parentElement !== parts.root) parts.root.replaceChildren(host);
   placeBoardTitle(null);
   seatOnHost();
-  showPickedRepo();
+  showStudio();
   requestDigests();
   reopenSelectedBoard();
 }
@@ -948,15 +911,14 @@ function deactivateBoardSessionView(): void {
   isActive = false;
   missingMap = null;
   closeWatches();
-  shownRepoPath = null;
-  ensuredRepoPath = null;
+  ensuredAnchorId = null;
   closeMenu();
   if (parts) leaveBoardHost(parts.guest);
 }
 
 function refreshBoardSessionView(): void {
   if (!isActive) return;
-  showPickedRepo();
+  showStudio();
   syncBranches();
   paintPresence();
   dock?.refresh();

@@ -333,7 +333,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'wargames-start-result', requestId: 'w1', ok: true, error: null, matchId: 'wg-1' },
   { type: 'wargames-abort-result', requestId: 'w2', ok: true, error: null },
   { type: 'wargames-watch-result', requestId: 'w3', ok: true, error: null, matchId: 'wg-1' },
-  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxRectById: { 'm-src-payments': { x: 0, y: 440, width: 220, height: 116 } }, boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], fallbackBoxId: 'm-root', isMapFailed: false, error: null },
+  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxesBySessionId: { s2: { boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, fallbackBoxId: 'm-root', changedBoxIds: ['m-src-payments'] } }, areas: [{ repoKey: '0a1b2c3d', repoName: 'shop', isFolded: false, anchorBoxId: 'm-area', mapError: null }], boxRectById: { 'm-src-payments': { x: 0, y: 440, width: 220, height: 116 } }, boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments', repoName: 'shop' }], isMapFailed: false, error: null },
   { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.' },
   { type: 'board-asks-of-result', requestId: 'b3', ok: true, asks: [{ askBoxId: 'ask-1a2b3c4d', ask: { sessionId: 's1', question: 'Reuse the card module?', options: ['Yes', 'No'] }, rect: { x: 900, y: 40, width: 360, height: 240 } }] },
   { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
