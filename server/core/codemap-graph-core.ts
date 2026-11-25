@@ -6,6 +6,7 @@ import { CODEMAP_SETUP_VERSION, moduleImportAllowsOf, structureAllowsOf } from '
 import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES, noteBoxTextOf } from '../../shared/contracts/whiteboard-ops-core.ts';
+import { MARGIN as BOARD_MARGIN } from '../../shared/whiteboard-layout-core.ts';
 import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 import { IMPORT_LANGUAGE_IDS, importLanguageOf } from './import-language-core.ts';
@@ -366,6 +367,7 @@ function impactOf(model: CodemapModel, targets: readonly string[]): { ok: true; 
 }
 
 const MAP_BOX_SPACING = Object.freeze({ x: 320, y: 200 });
+const MAP_TOP = BOARD_MARGIN + MAP_BOX_SPACING.y;
 const GENERATED_ID_MAX_LENGTH = 40;
 const GENERATED_HASH_LENGTH = 8;
 
@@ -596,7 +598,7 @@ function innerRowsOf(layers: ModuleLayers, folder: string): string[][] {
 
 function placedFoldersOf(layers: ModuleLayers, openFolders: ReadonlySet<string>): Map<string, { x: number; y: number }> {
   const placeById = new Map<string, { x: number; y: number }>();
-  let rowTop = 0;
+  let rowTop = MAP_TOP;
   for (const levelFolders of foldersByLevelOf(layers)) {
     let blockLeft = 0;
     let rowHeight: number = MAP_BOX_SPACING.y;
@@ -654,7 +656,7 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     if (folder !== folderOf(edge.to)) return layers.folders.feedbackKeys.has(edgeKeyOf(folder, folderOf(edge.to)));
     return layers.innerByFolder.get(folder)?.feedbackKeys.has(edgeKeyOf(edge.from, edge.to)) ?? false;
   };
-  const placeOf = (id: string) => ({ at: placeById.get(id) ?? { x: 0, y: 0 } });
+  const placeOf = (id: string) => ({ at: placeById.get(id) ?? { x: 0, y: MAP_TOP } });
   const matrixLeft = Math.max(0, ...[...placeById.values()].map((place) => place.x)) + 2 * MAP_BOX_SPACING.x;
   const moduleBoxes = model.modules.map((summary) => ({
     kind: 'box',
@@ -676,7 +678,7 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     tone: summaries.some((summary) => overlaidModules.has(summary.id)) ? OVERLAY_TONE : null,
     place: placeOf(folderCardIdOf(folder)),
   }));
-  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: MATRIX_BOX_ID, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: matrixLeft, y: 0 } } }] : [];
+  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: MATRIX_BOX_ID, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: matrixLeft, y: MAP_TOP } } }] : [];
   const frames = [...layers.modulesByFolder].map(([folder, summaries]) => ({
     kind: 'frame', id: folderFrameIdOf(folder), title: boardTitleOf(folderTitleOf(folder)), contains: [folderCardIdOf(folder), ...summaries.map((summary) => moduleBoxIdOf(summary.id))], collapsed: !focusFolders.has(folder),
   }));
@@ -733,9 +735,9 @@ function stampLinesOf(status: CodemapStatus): { text: string }[] {
 function mapStampOpsOf(status: CodemapStatus, existingKindById: ReadonlyMap<string, string>): Record<string, unknown>[] {
   const stamp = {
     kind: 'box', id: STAMP_BOX_ID, title: `Map at ${shortSha(status.sha)}: ${status.state}`, lines: stampLinesOf(status), tone: STAMP_TONE_BY_STATE[status.state],
-    place: { at: { x: 0, y: -MAP_BOX_SPACING.y } },
+    place: { at: { x: 0, y: BOARD_MARGIN } },
   };
-  return [existingKindById.has(STAMP_BOX_ID) ? { op: 'set', id: STAMP_BOX_ID, fields: fieldsToRefresh(stamp) } : { op: 'add', element: stamp }];
+  return [existingKindById.has(STAMP_BOX_ID) ? { op: 'set', id: STAMP_BOX_ID, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
 }
 
 const OVERLAY_STAMP_ID = generatedIdOf(CODEMAP_ID_PREFIXES.overlay, 'overlay stamp', String.fromCharCode(0));
@@ -750,9 +752,9 @@ function overlayOpsOf(overlay: MapOverlay | null, existingKindById: ReadonlyMap<
   if (!overlay) return staleRemovals;
   const stamp = {
     kind: 'box', id: OVERLAY_STAMP_ID, title: boardTitleOf(overlay.title), lines: overlay.lines.slice(0, WHITEBOARD_LIMITS.linesPerBox).map((text) => ({ text: text.slice(0, WHITEBOARD_LIMITS.line) })), tone: OVERLAY_TONE,
-    place: { at: { x: MAP_BOX_SPACING.x, y: -MAP_BOX_SPACING.y } },
+    place: { at: { x: MAP_BOX_SPACING.x, y: BOARD_MARGIN } },
   };
-  return [...staleRemovals, existingKindById.has(OVERLAY_STAMP_ID) ? { op: 'set', id: OVERLAY_STAMP_ID, fields: fieldsToRefresh(stamp) } : { op: 'add', element: stamp }];
+  return [...staleRemovals, existingKindById.has(OVERLAY_STAMP_ID) ? { op: 'set', id: OVERLAY_STAMP_ID, fields: generatedFieldsOf(stamp) } : { op: 'add', element: stamp }];
 }
 
 interface SpecPlan {

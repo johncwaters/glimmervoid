@@ -62,6 +62,7 @@ const STRAIGHT_ROUTE_MARGIN = 1;
 const CURVE_SAMPLES = 16;
 const CURVE_BEND_FRACTION = 0.2;
 const MIN_SEGMENT_HANDLE_LENGTH = 24;
+const PORT_HEADROOM = CLEARANCE * 2;
 
 interface AreaObstacles {
   hardRects: readonly Rect[];
@@ -776,19 +777,25 @@ function windowObstaclesOf(input: RouteInput, window: Rect): AreaObstacles | nul
   return obstacles && obstacles.hardRects.length <= MAX_AREA_WINDOW_SOLIDS ? obstacles : null;
 }
 
+function ceilingOfPorts(ports: readonly GraphPort[], contentTop: number): number {
+  return Math.min(contentTop, ...ports.map((port) => port.y - PORT_HEADROOM));
+}
+
 function windowGraphOf(ports: readonly GraphPort[], input: RouteInput, window: Rect, obstacles: AreaObstacles): VisibilityGraph | null {
   const walls = wallsAround(window);
+  const contentTop = ceilingOfPorts(ports, input.contentTop);
   const prepared = input.cornerShotsOf
-    ? preparedInWindow(obstacles.hardRects, walls, obstacles.softRects, input.contentTop, window, input.cornerShotsOf())
-    : prepareObstacles({ hardRects: [...obstacles.hardRects, ...walls], softRects: obstacles.softRects, contentTop: input.contentTop });
+    ? preparedInWindow(obstacles.hardRects, walls, obstacles.softRects, contentTop, window, input.cornerShotsOf())
+    : prepareObstacles({ hardRects: [...obstacles.hardRects, ...walls], softRects: obstacles.softRects, contentTop });
   return prepared ? buildGraphOn(prepared, ports) : null;
 }
 
 function graphThroughOtherBoxesOf(plan: WirePlan, input: RouteInput, window: Rect, obstacles: AreaObstacles): VisibilityGraph | null {
   const endBoxes = plan.from.id === plan.to.id ? [plan.from] : [plan.from, plan.to];
   const otherBoxes = obstacles.hardRects.filter((rect) => rect !== plan.from && rect !== plan.to);
-  const prepared = prepareObstacles({ hardRects: [...endBoxes, ...wallsAround(window)], softRects: [...obstacles.softRects, ...otherBoxes], contentTop: input.contentTop });
-  return prepared ? buildGraphOn(prepared, portsOf([plan])) : null;
+  const ports = portsOf([plan]);
+  const prepared = prepareObstacles({ hardRects: [...endBoxes, ...wallsAround(window)], softRects: [...obstacles.softRects, ...otherBoxes], contentTop: ceilingOfPorts(ports, input.contentTop) });
+  return prepared ? buildGraphOn(prepared, ports) : null;
 }
 
 function windowOf(plan: WirePlan, reuse: RouteReuse, margin = LOCAL_WINDOW_MARGIN): Rect {

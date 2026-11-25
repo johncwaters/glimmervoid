@@ -139,7 +139,7 @@ function dependency(fromId: string, toId: string) {
   return { kind: 'wire', id: `${fromId}-to-${toId}`, from: fromId, to: toId };
 }
 
-test('unplaced step boxes draw as a plan band above the free drawing, one level per column, and a dragged step leaves the band where it was dropped', () => {
+test('unplaced step boxes draw as a plan band above the free drawing, one level per column, route their wires to the free drawing clear of every box, and a dragged step leaves the band where it was dropped', () => {
   const plannedBoard = boardWithNearPinned({
     ...wiredBoard,
     elements: {
@@ -148,9 +148,12 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
       backfill: stepBox('backfill', 'Index backfill'), searchbox: stepBox('searchbox', 'Search box'),
       ...Object.fromEntries([dependency('diff', 'endpoint'), dependency('diff', 'backfill'), dependency('endpoint', 'searchbox'), dependency('diff', 'searchbox')].map((wire) => [wire.id, wire])),
       pinned: { ...box('pinned'), at: { x: 40, y: 900 } },
+      wall: { ...box('wall'), width: 2400, at: { x: -1000, y: 40 } },
+      landing: { kind: 'wire', id: 'landing', from: 'searchbox', to: 'pinned', dashed: true, arrows: 'none' },
     },
   });
   const layout = layoutBoard(plannedBoard);
+  assert.deepEqual(layout.warnings.filter((warning) => warning.startsWith('wire landing ') && !warning.includes(' crosses ')), []);
   const steps = layout.elements.flatMap((element) => (element.kind === 'box' && element.step ? [element] : []));
   const stepById = new Map(steps.map((laidOut) => [laidOut.id, laidOut]));
   assert.deepEqual(steps.map((laidOut) => laidOut.step?.label).sort(), ['1', '2a', '2b', '3']);
