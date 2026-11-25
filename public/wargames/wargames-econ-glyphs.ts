@@ -46,7 +46,7 @@ function unitGlyph(key: 'raider' | 'guard' | 'envoy'): EconGlyph {
   return { path: unit?.path ?? '', color: unit?.color ?? 'var(--text-dim)', label: unit?.label ?? key };
 }
 
-export const ECON_GLYPHS: Readonly<Record<EconGlyphKey, EconGlyph>> = Object.freeze({
+const ECON_GLYPHS: Readonly<Record<EconGlyphKey, EconGlyph>> = Object.freeze({
   village: { path: VILLAGE_GLYPH_PATH, color: 'var(--text-dim)', label: 'Villages' },
   land: { path: LAND_GLYPH_PATH, color: 'var(--text-dim)', label: 'Land tiles' },
   grain: { path: GRAIN_GLYPH_PATH, color: GRAIN_COLOR, label: 'Grain' },

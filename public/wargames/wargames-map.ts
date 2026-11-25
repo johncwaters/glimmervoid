@@ -4,13 +4,16 @@ import { ALL_HEXES, hexIndexAt, marchRouteOf } from '#shared/wargames/engine.ts'
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { TERRAIN_MIN_RADIUS, isPassable } from '#shared/wargames/terrain.ts';
 import type { TerrainKind } from '#shared/wargames/terrain.ts';
-import { CHAT_ICON_PATH, createSvgShape } from '../svg-dom.ts';
+import { CHAT_ICON_PATH, PLUS_ICON_PATH, createLineIcon, createSvgShape } from '../svg-dom.ts';
+import { button } from '../ui/button.ts';
 import {
   createBoardAnimationQueue,
   directTurnEvents,
   transitionBoardOverlay,
 } from './wargames-anim-queue.ts';
 import type { BoardAnimationBeat, BoardOverlayMode } from './wargames-anim-queue.ts';
+import { isZoomed, panViewBox, viewBoxAttributeOf, zoomViewBoxAt } from './wargames-map-viewport-core.ts';
+import type { MapViewBox } from './wargames-map-viewport-core.ts';
 import type { WargamesPov } from './wargames-store.ts';
 
 type VillageState = NonNullable<MatchState['villages'][number]>;
@@ -62,10 +65,13 @@ const HEX_SIZE = 40;
 const HEX_INNER_RADIUS = HEX_SIZE - 2;
 const SQRT_3 = Math.sqrt(3);
 const HEX_EDGE_INSET = (HEX_INNER_RADIUS * SQRT_3) / 2 - 4;
-const MARKER_ALONG_LINE_STEPS = [0.5, 0.38, 0.62, 0.26, 0.74];
-const MARKER_SIDE_STEPS = [0, -13, 13];
 const BATTLE_LABEL_MAX_CHARS = 24;
 const NEUTRAL_COLOR = 'var(--text-dim)';
+const ZOOM_BUTTON_STEP = 1.4;
+const WHEEL_ZOOM_RATE = 0.0015;
+const DRAG_THRESHOLD_PX = 4;
+const MINUS_ICON_PATH = 'M3 8h10';
+const FIT_ICON_PATH = 'M2.5 5.5v-3h3 M10.5 2.5h3v3 M13.5 10.5v3h-3 M5.5 13.5h-3v-3';
 const DIPLOMACY_MESSAGE_BEAT_MS = 2600;
 const DIPLOMACY_THOUGHT_BEAT_MS = 2400;
 const DIPLOMACY_MAX_PENDING_BEATS = 10;
@@ -172,51 +178,75 @@ function renderTerritoryBorder(container: SVGElement, state: MatchState, hexInde
 function renderImprovement(slot: Pick<HexNodeSlot, 'terrainGroup' | 'centerX' | 'centerY'>, tile: TerritoryTile): void {
   if (tile.improvement === null) return;
   const glyph = buildingGlyphOf(tile.improvement);
-  const glyphElement = createMapStrokeGlyph(glyph.path, slot.centerX, slot.centerY - 8, 18, glyph.color, '2');
+  const hasYield = tile.improvement !== 'outpost';
+  const glyphX = hasYield ? slot.centerX - 12 : slot.centerX;
+  const glyphElement = createMapStrokeGlyph(glyph.path, glyphX, slot.centerY + IMPROVEMENT_SLOT_Y, 16, glyph.color, '2');
   glyphElement.setAttribute('aria-label', `${tile.improvement} level ${tile.level}`);
+  glyphElement.setAttribute('class', 'wg-improvement');
   slot.terrainGroup.append(glyphElement);
-  if (tile.level > 1) appendBoardText(slot.terrainGroup, String(tile.level), { x: slot.centerX + 11, y: slot.centerY - 4, anchor: 'start', fontSize: '8.5', fill: glyph.color, className: 'wg-hex-detail' });
+  if (!hasYield && tile.level > 1) appendBoardText(slot.terrainGroup, String(tile.level), { x: slot.centerX + 10, y: slot.centerY + IMPROVEMENT_SLOT_Y + 3.5, anchor: 'start', fontSize: '10', fill: glyph.color, className: 'wg-hex-detail' });
 }
 
-const STANDING_TOKEN_GAP = 3;
-const STANDING_TOKEN_MAX_WIDTH = HEX_EDGE_INSET * 2;
-const SMALL_ARMY_MAX_TROOPS = 4;
-const STRONG_ARMIES_PER_SEAT = 3;
-const STRONG_ARMY_MIN_TROOPS = 10;
-const SMALL_ARMY_PIP_RADIUS = 3.2;
+const UNIT_GLYPH_SIZE = 12;
+const UNIT_COUNT_FONT_SIZE = '11';
+const UNIT_DIGIT_WIDTH = 6.4;
+const UNIT_TOKEN_GAP = 4;
+const ARMY_TOKEN_HEIGHT = 19;
+const ARMY_TOKEN_PADDING = 5;
+const ARMY_TOKEN_MAX_WIDTH = HEX_INNER_RADIUS * SQRT_3 - 4;
+const ARMY_TOKEN_TILE_OFFSET_Y = 12;
+export const VILLAGE_INCOME_SLOT_Y = -22;
+export const IMPROVEMENT_SLOT_Y = -14;
+export const VILLAGE_INCOME_MAX_WIDTH = (HEX_INNER_RADIUS + VILLAGE_INCOME_SLOT_Y) * SQRT_3 * 2 - 8;
+const CONTROL_BADGE_OFFSET_Y = 23;
+const VILLAGE_INCOME_HALF_WIDTH = VILLAGE_INCOME_MAX_WIDTH / 2;
+const VILLAGE_ARMY_SPOTS: readonly { x: number; y: number }[] = [
+  { x: 38, y: 22 }, { x: -38, y: 22 }, { x: 42, y: -6 }, { x: -42, y: -6 }, { x: 0, y: 48 }, { x: 0, y: -50 },
+];
+const ARRIVAL_LABEL_SPOTS: readonly { x: number; y: number }[] = [
+  { x: 0, y: -31 }, { x: 0, y: -45 }, { x: 20, y: -38 }, { x: -20, y: -38 }, { x: 34, y: -40 }, { x: -34, y: -40 }, { x: 44, y: 0 }, { x: -44, y: 0 },
+];
+const SHARED_TILE_ARMY_SPOTS: readonly { x: number; y: number }[] = [
+  { x: 0, y: 12 }, { x: 0, y: -9 }, { x: 0, y: 33 }, { x: 36, y: 24 }, { x: -36, y: 24 },
+];
 
-type ArmyTokenWeight = 'pip' | 'token' | 'strong';
-
-function renderSmallArmyPip(layer: SVGElement, centerX: number, centerY: number, owner: SeatId, stackIndex: number, troops: TroopCounts): void {
-  const corner = hexCornerAt(centerX, centerY, 0);
-  const pip = createSvgShape('circle', {
-    cx: (corner.x - 8 - stackIndex * 8).toFixed(1),
-    cy: (corner.y + 6).toFixed(1),
-    r: String(SMALL_ARMY_PIP_RADIUS),
-    fill: SEAT_COLORS[owner],
-    stroke: 'var(--bg)',
-    'stroke-width': '1',
-    class: 'wg-standing-army',
-  });
-  pip.setAttribute('aria-label', `${troopCountOf(troops)} troops`);
-  layer.append(pip);
+interface BoardBox {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
 }
 
-function renderStandingToken(layer: SVGElement, centerX: number, centerY: number, owner: SeatId, troops: TroopCounts, isCompact: boolean, isStrong: boolean): void {
-  const group = createSvgShape('g', { class: 'wg-standing-army' });
-  const color = SEAT_COLORS[owner];
+function boxAround(centerX: number, centerY: number, width: number, height: number): BoardBox {
+  return { left: centerX - width / 2, top: centerY - height / 2, right: centerX + width / 2, bottom: centerY + height / 2 };
+}
+
+function boxesOverlap(first: BoardBox, second: BoardBox): boolean {
+  return first.left < second.right && second.left < first.right && first.top < second.bottom && second.top < first.bottom;
+}
+
+function armyTokenFill(owner: SeatId): string {
+  return `color-mix(in srgb, ${SEAT_COLORS[owner]} 16%, var(--bg))`;
+}
+
+function armyTokenContentOf(troops: TroopCounts, isCompact: boolean): UnitCountToken[] {
   const tokens = unitCountTokensOf(troops);
-  const rowWidth = tokenRowWidth(tokens, STANDING_TOKEN_GAP);
-  if (isCompact || rowWidth + 8 > STANDING_TOKEN_MAX_WIDTH) {
-    if (isStrong) appendPillFrame(group, centerX, centerY, armyCounterWidth(troops) + 4, 19, color, { strokeWidth: '1.2' });
-    renderArmyCounter(group, centerX, centerY, troops, color);
-    layer.append(group);
-    return;
-  }
-  if (isStrong) appendPillFrame(group, centerX, centerY, rowWidth + 12, 19, color, { strokeWidth: '1.2' });
-  appendPillFrame(group, centerX, centerY, rowWidth + 8, 15, color, { strokeWidth: isStrong ? '2' : '1.2' });
-  appendUnitCountRow(group, centerX - rowWidth / 2, centerY + 3, tokens, STANDING_TOKEN_GAP, 'wg-army-pill-text');
+  const fitsFullRow = tokenRowWidth(tokens, UNIT_TOKEN_GAP) + ARMY_TOKEN_PADDING * 2 <= ARMY_TOKEN_MAX_WIDTH;
+  if (!isCompact && fitsFullRow && tokens.length > 0) return tokens;
+  const leadUnit = leadUnitOf(troops);
+  return [unitCountTokenOf(leadUnit.path, leadUnit.color, troopCountOf(troops))];
+}
+
+function renderArmyToken(layer: SVGElement, centerX: number, centerY: number, owner: SeatId, troops: TroopCounts, isCompact: boolean, isQuiet = false): SVGElement {
+  const group = createSvgShape('g', { class: 'wg-army-token' });
+  const tokens = armyTokenContentOf(troops, isCompact);
+  const rowWidth = tokenRowWidth(tokens, UNIT_TOKEN_GAP);
+  const frameColor = isQuiet ? `color-mix(in srgb, ${SEAT_COLORS[owner]} 55%, var(--bg))` : SEAT_COLORS[owner];
+  appendPillFrame(group, centerX, centerY, rowWidth + ARMY_TOKEN_PADDING * 2, ARMY_TOKEN_HEIGHT, frameColor, { strokeWidth: isQuiet ? '1' : '1.6', fill: armyTokenFill(owner) });
+  appendUnitCountRow(group, centerX - rowWidth / 2, centerY, tokens, UNIT_TOKEN_GAP, 'wg-army-pill-text');
+  group.setAttribute('aria-label', `${troopCountOf(troops)} troops`);
   layer.append(group);
+  return group;
 }
 
 const TERRAIN_TINT_OPACITY = '0.1';
@@ -326,15 +356,15 @@ function appendPillFrame(
   width: number,
   height: number,
   stroke: string,
-  options: { strokeWidth?: string; dasharray?: string } = {},
+  options: { strokeWidth?: string; dasharray?: string; fill?: string } = {},
 ): void {
   const frameAttributes: Record<string, string> = {
     x: (centerX - width / 2).toFixed(1),
     y: (centerY - height / 2).toFixed(1),
     width: width.toFixed(1),
     height: height.toFixed(1),
-    rx: '2',
-    fill: 'var(--bg)',
+    rx: '3',
+    fill: options.fill ?? 'var(--bg)',
     stroke,
     'stroke-width': options.strokeWidth ?? '1',
   };
@@ -349,13 +379,15 @@ interface UnitCountToken {
   readonly width: number;
 }
 
+function unitCountTokenOf(path: string, color: string, count: number): UnitCountToken {
+  const digits = String(count);
+  return { path, color, digits, width: UNIT_GLYPH_SIZE + 1.5 + digits.length * UNIT_DIGIT_WIDTH };
+}
+
 function unitCountTokensOf(troops: TroopCounts): UnitCountToken[] {
   return UNIT_GLYPH_PATHS
     .filter((unit) => troops[unit.key] > 0)
-    .map((unit) => {
-      const digits = String(troops[unit.key]);
-      return { path: unit.path, color: unit.color, digits, width: 10.5 + digits.length * 5.2 };
-    });
+    .map((unit) => unitCountTokenOf(unit.path, unit.color, troops[unit.key]));
 }
 
 function tokenRowWidth(tokens: readonly UnitCountToken[], gap: number): number {
@@ -365,97 +397,24 @@ function tokenRowWidth(tokens: readonly UnitCountToken[], gap: number): number {
 function appendUnitCountRow(
   container: SVGElement,
   startX: number,
-  baselineY: number,
+  centerY: number,
   tokens: readonly UnitCountToken[],
   gap: number,
   className: string,
 ): void {
   let cursorX = startX;
   for (const token of tokens) {
-    container.append(createMapStrokeGlyph(token.path, cursorX + 4.5, baselineY - 2.8, 9, token.color));
+    container.append(createMapStrokeGlyph(token.path, cursorX + UNIT_GLYPH_SIZE / 2, centerY, UNIT_GLYPH_SIZE, token.color, '2'));
     appendBoardText(container, token.digits, {
-      x: cursorX + 10.2,
-      y: baselineY,
+      x: cursorX + UNIT_GLYPH_SIZE + 1.5,
+      y: centerY + 3.9,
       anchor: 'start',
-      fontSize: '8.5',
+      fontSize: UNIT_COUNT_FONT_SIZE,
       fill: 'var(--text-head)',
       className,
     });
     cursorX += token.width + gap;
   }
-}
-
-interface BoardBox {
-  readonly left: number;
-  readonly top: number;
-  readonly right: number;
-  readonly bottom: number;
-}
-
-interface ArrowSegment {
-  readonly startX: number;
-  readonly startY: number;
-  readonly endX: number;
-  readonly endY: number;
-}
-
-type MarkerPlacer = (segment: ArrowSegment, markerWidth: number, markerHeight: number) => { x: number; y: number };
-
-function boxAround(centerX: number, centerY: number, width: number, height: number): BoardBox {
-  return { left: centerX - width / 2, top: centerY - height / 2, right: centerX + width / 2, bottom: centerY + height / 2 };
-}
-
-function boxesOverlap(first: BoardBox, second: BoardBox): boolean {
-  return first.left < second.right && second.left < first.right && first.top < second.bottom && second.top < first.bottom;
-}
-
-function armyCounterWidth(troops: TroopCounts): number {
-  return 10 + 2 + String(troopCountOf(troops)).length * 5.6 + 9;
-}
-
-function renderArmyCounter(
-  armyGroup: SVGElement,
-  midX: number,
-  midY: number,
-  troops: TroopCounts,
-  seatColor: string,
-): void {
-  const leadUnit = leadUnitOf(troops);
-  const totalLabel = String(troopCountOf(troops));
-  const contentWidth = armyCounterWidth(troops) - 9;
-  appendPillFrame(armyGroup, midX, midY, contentWidth + 9, 15, seatColor, {
-    strokeWidth: '1.4',
-  });
-  const startX = midX - contentWidth / 2;
-  armyGroup.append(createMapStrokeGlyph(leadUnit.path, startX + 5, midY, 10, leadUnit.color));
-  appendBoardText(armyGroup, totalLabel, {
-    x: startX + 12,
-    y: midY + 3,
-    anchor: 'start',
-    fontSize: '9',
-    fill: 'var(--text-head)',
-    className: 'wg-army-pill-text',
-  });
-}
-
-function armyTokenWeights(tokens: readonly { hexIndex: number; owner: SeatId; troops: TroopCounts }[]): Map<string, ArmyTokenWeight> {
-  const weights = new Map<string, ArmyTokenWeight>();
-  const largeBySeat = new Map<SeatId, { key: string; total: number }[]>();
-  for (const token of tokens) {
-    const key = `${token.hexIndex}:${token.owner}`;
-    const total = troopCountOf(token.troops);
-    if (total <= SMALL_ARMY_MAX_TROOPS) {
-      weights.set(key, 'pip');
-      continue;
-    }
-    weights.set(key, 'token');
-    largeBySeat.set(token.owner, [...(largeBySeat.get(token.owner) ?? []), { key, total }]);
-  }
-  for (const seatTokens of largeBySeat.values()) {
-    const strongest = seatTokens.filter((entry) => entry.total >= STRONG_ARMY_MIN_TROOPS).sort((left, right) => right.total - left.total).slice(0, STRONG_ARMIES_PER_SEAT);
-    for (const entry of strongest) weights.set(entry.key, 'strong');
-  }
-  return weights;
 }
 
 function addTroopCounts(into: TroopCounts, amount: TroopCounts): void {
@@ -464,21 +423,36 @@ function addTroopCounts(into: TroopCounts, amount: TroopCounts): void {
   into.envoy += amount.envoy;
 }
 
-function renderHexUnitRow(container: SVGElement, centerX: number, baselineY: number, tokens: readonly UnitCountToken[]): void {
-  const gap = 3.5;
-  appendUnitCountRow(container, centerX - tokenRowWidth(tokens, gap) / 2, baselineY, tokens, gap, 'wg-hex-detail');
+function renderHexUnitRow(container: SVGElement, centerX: number, centerY: number, tokens: readonly UnitCountToken[]): void {
+  const rowWidth = tokenRowWidth(tokens, UNIT_TOKEN_GAP);
+  container.append(createSvgShape('rect', { x: (centerX - rowWidth / 2 - 3).toFixed(1), y: (centerY - UNIT_GLYPH_SIZE / 2 - 2).toFixed(1), width: (rowWidth + 6).toFixed(1), height: String(UNIT_GLYPH_SIZE + 4), rx: '3', class: 'wg-garrison-plate' }));
+  appendUnitCountRow(container, centerX - tokenRowWidth(tokens, UNIT_TOKEN_GAP) / 2, centerY, tokens, UNIT_TOKEN_GAP, 'wg-army-pill-text');
 }
 
 function renderHexUnitTokens(container: SVGElement, centerX: number, centerY: number, troops: TroopCounts): void {
   container.replaceChildren();
   const tokens = unitCountTokensOf(troops);
   if (tokens.length === 0) return;
-  if (tokens.length <= 2) {
-    renderHexUnitRow(container, centerX, centerY + 5, tokens);
+  if (tokenRowWidth(tokens, UNIT_TOKEN_GAP) <= ARMY_TOKEN_MAX_WIDTH) {
+    renderHexUnitRow(container, centerX, centerY + 3, tokens);
     return;
   }
-  renderHexUnitRow(container, centerX, centerY - 1, tokens.slice(0, 2));
-  renderHexUnitRow(container, centerX, centerY + 11, tokens.slice(2));
+  renderHexUnitRow(container, centerX, centerY - 6, tokens.slice(0, 2));
+  renderHexUnitRow(container, centerX, centerY + 8, tokens.slice(2));
+}
+
+function controlBadgeContentWidth(label: string): number {
+  return 10 + 2 + label.length * 5.9;
+}
+
+function garrisonBoxesOf(troops: TroopCounts, centerX: number, centerY: number): BoardBox[] {
+  const tokens = unitCountTokensOf(troops);
+  if (tokens.length === 0) return [];
+  if (tokenRowWidth(tokens, UNIT_TOKEN_GAP) <= ARMY_TOKEN_MAX_WIDTH) return [boxAround(centerX, centerY + 3, tokenRowWidth(tokens, UNIT_TOKEN_GAP), UNIT_GLYPH_SIZE + 2)];
+  return [
+    boxAround(centerX, centerY - 6, tokenRowWidth(tokens.slice(0, 2), UNIT_TOKEN_GAP), UNIT_GLYPH_SIZE + 2),
+    boxAround(centerX, centerY + 8, tokenRowWidth(tokens.slice(2), UNIT_TOKEN_GAP), UNIT_GLYPH_SIZE + 2),
+  ];
 }
 
 function renderControlBadge(container: SVGElement, centerX: number, centerY: number, loyalty: number, owner: SeatId | null): void {
@@ -487,23 +461,23 @@ function renderControlBadge(container: SVGElement, centerX: number, centerY: num
   if (controlPercent >= 100) return;
   const tone = controlToneColor(controlPercent, owner);
   const label = `${controlPercent}%`;
-  const contentWidth = 9 + 1.5 + label.length * 4.9;
-  const badgeCenterY = centerY + 22;
-  appendPillFrame(container, centerX, badgeCenterY, contentWidth + 7, 11, tone);
+  const contentWidth = controlBadgeContentWidth(label);
+  const badgeCenterY = centerY + CONTROL_BADGE_OFFSET_Y;
+  appendPillFrame(container, centerX, badgeCenterY, contentWidth + 8, 13, tone);
   const startX = centerX - contentWidth / 2;
-  container.append(createMapStrokeGlyph(CONTROL_FLAG_PATH, startX + 4.5, badgeCenterY, 8.5, tone, '2'));
+  container.append(createMapStrokeGlyph(CONTROL_FLAG_PATH, startX + 5, badgeCenterY, 10, tone, '2'));
   appendBoardText(container, label, {
-    x: startX + 10.5,
-    y: badgeCenterY + 2.8,
+    x: startX + 12,
+    y: badgeCenterY + 3.5,
     anchor: 'start',
-    fontSize: '8',
+    fontSize: '10',
     fill: tone,
     className: 'wg-army-pill-text',
   });
 }
 
 function arrowEndpointTrims(distance: number): { startTrim: number; endTrim: number } {
-  return { startTrim: Math.min(HEX_EDGE_INSET, distance * 0.4), endTrim: Math.min(16, distance * 0.25) };
+  return { startTrim: Math.min(HEX_EDGE_INSET - 10, distance * 0.3), endTrim: Math.min(HEX_EDGE_INSET, distance * 0.45) };
 }
 
 export function hexCenter(axialQ: number, axialR: number): { x: number; y: number } {
@@ -544,6 +518,20 @@ interface HexNodeSlot {
   controlGroup: SVGElement;
   centerX: number;
   centerY: number;
+}
+
+interface ArmyPlacement {
+  readonly hexIndex: number;
+  readonly owner: SeatId;
+  readonly troops: TroopCounts;
+  readonly armyIds: string[];
+}
+
+interface ArmyGlide {
+  readonly army: ArmySnapshot;
+  readonly armyId: string;
+  readonly fromHexIndex: number;
+  readonly destHexIndex: number;
 }
 
 interface ArmySnapshot {
@@ -632,7 +620,7 @@ function appendDiplomacyArc(
   if (options.markerId) pathAttributes['marker-end'] = `url(#${options.markerId})`;
   group.append(createSvgShape('path', pathAttributes));
 
-  const labelWidth = options.label.length > 0 ? 2 + options.label.length * 5.4 : 0;
+  const labelWidth = options.label.length > 0 ? 2 + options.label.length * 6 : 0;
   const contentWidth = 10 + labelWidth;
   appendPillFrame(group, peakX, peakY, contentWidth + 8, 15, options.stroke);
   const contentStartX = peakX - contentWidth / 2;
@@ -642,7 +630,7 @@ function appendDiplomacyArc(
       x: contentStartX + 12,
       y: peakY + 3,
       anchor: 'start',
-      fontSize: '8.5',
+      fontSize: '10',
       fill: options.stroke,
       className: 'wg-delta-text',
     });
@@ -673,8 +661,8 @@ function appendDeltaCallout(
 ): SVGElement {
   const group = createSvgShape('g', { class: 'wg-delta-callout' });
   group.style.animationDuration = `${durationMs}ms`;
-  appendPillFrame(group, centerX, centerY - 3, Math.max(24, label.length * 6.5 + 8), 14, fill);
-  appendBoardText(group, label, { x: centerX, y: centerY + 0.5, anchor: 'middle', fontSize: '9.5', fill, className: 'wg-delta-text' });
+  appendPillFrame(group, centerX, centerY - 3, Math.max(26, label.length * 6.8 + 10), 16, fill);
+  appendBoardText(group, label, { x: centerX, y: centerY + 0.5, anchor: 'middle', fontSize: '11', fill, className: 'wg-delta-text' });
   fxLayer.append(group);
   return group;
 }
@@ -685,21 +673,21 @@ function appendGlyphCallout(
   centerY: number,
   options: { prefix: string; glyphPath: string; glyphColor: string; label: string; stroke: string; durationMs: number },
 ): SVGElement {
-  const prefixWidth = options.prefix.length * 5.8;
-  const contentWidth = prefixWidth + 11 + options.label.length * 5.6;
+  const prefixWidth = options.prefix.length * 6.6;
+  const contentWidth = prefixWidth + 13 + options.label.length * 6.6;
   const group = createSvgShape('g', { class: 'wg-delta-callout' });
   group.style.animationDuration = `${options.durationMs}ms`;
-  appendPillFrame(group, centerX, centerY - 3, Math.max(30, contentWidth + 8), 14, options.stroke);
+  appendPillFrame(group, centerX, centerY - 3, Math.max(32, contentWidth + 8), 16, options.stroke);
   const startX = centerX - contentWidth / 2;
   if (options.prefix.length > 0) {
-    appendBoardText(group, options.prefix, { x: startX, y: centerY + 0.5, anchor: 'start', fontSize: '9', fill: options.stroke, className: 'wg-delta-text' });
+    appendBoardText(group, options.prefix, { x: startX, y: centerY + 0.5, anchor: 'start', fontSize: '11', fill: options.stroke, className: 'wg-delta-text' });
   }
-  group.append(createMapStrokeGlyph(options.glyphPath, startX + prefixWidth + 4.5, centerY - 3, 9, options.glyphColor));
+  group.append(createMapStrokeGlyph(options.glyphPath, startX + prefixWidth + 5.5, centerY - 3, 11, options.glyphColor));
   appendBoardText(group, options.label, {
-    x: startX + prefixWidth + 10.5,
+    x: startX + prefixWidth + 12.5,
     y: centerY + 0.5,
     anchor: 'start',
-    fontSize: '9',
+    fontSize: '11',
     fill: options.stroke,
     className: 'wg-delta-text',
   });
@@ -742,64 +730,43 @@ function leadUnitOf(troops: TroopCounts): (typeof UNIT_GLYPH_PATHS)[number] {
   return best;
 }
 
-function renderDivisionToken(group: SVGElement, centerX: number, centerY: number, owner: SeatId, troops: TroopCounts): void {
-  const leadUnit = leadUnitOf(troops);
-  group.append(
-    createSvgShape('polygon', {
-      points: `${centerX.toFixed(1)},${(centerY - 9).toFixed(1)} ${(centerX + 9).toFixed(1)},${centerY.toFixed(1)} ${centerX.toFixed(1)},${(centerY + 9).toFixed(1)} ${(centerX - 9).toFixed(1)},${centerY.toFixed(1)}`,
-      fill: 'var(--bg)',
-      stroke: SEAT_COLORS[owner],
-      'stroke-width': '1.6',
-    }),
-  );
-  group.append(createMapStrokeGlyph(leadUnit.path, centerX, centerY, 9, leadUnit.color));
-}
-
 function appendGlidingArmy(
-  fxLayer: SVGElement,
-  fromSlot: HexNodeSlot,
-  toSlot: HexNodeSlot,
+  layer: SVGElement,
+  routePoints: readonly { x: number; y: number }[],
   army: ArmySnapshot,
   durationMs: number,
-  slotOffsetIndex = 0,
-  totalConverging = 1,
+  options: { isCompact: boolean; fadesOnArrival: boolean },
 ): SVGElement | null {
-  const vectorX = toSlot.centerX - fromSlot.centerX;
-  const vectorY = toSlot.centerY - fromSlot.centerY;
-  const distance = Math.hypot(vectorX, vectorY);
-  if (distance < 1) return null;
-
-  const unitX = vectorX / distance;
-  const unitY = vectorY / distance;
-  const pullback = totalConverging > 1 ? Math.min(20, distance * 0.3) : 0;
-  const lateralStep = totalConverging > 1 ? (slotOffsetIndex - (totalConverging - 1) / 2) * 10 : 0;
-  const landX = toSlot.centerX - unitX * pullback - unitY * lateralStep;
-  const landY = toSlot.centerY - unitY * pullback + unitX * lateralStep;
-  const deltaX = fromSlot.centerX - landX;
-  const deltaY = fromSlot.centerY - landY;
-
-  const wrapper = createSvgShape('g', {});
-  const { startTrim, endTrim } = arrowEndpointTrims(distance);
-  wrapper.append(
-    createSvgShape('line', {
-      x1: (fromSlot.centerX + unitX * startTrim).toFixed(1),
-      y1: (fromSlot.centerY + unitY * startTrim).toFixed(1),
-      x2: (toSlot.centerX - unitX * endTrim).toFixed(1),
-      y2: (toSlot.centerY - unitY * endTrim).toFixed(1),
-      stroke: SEAT_COLORS[army.owner],
-      'stroke-width': '2.2',
-      'stroke-dasharray': '6 3',
-      'marker-end': `url(#wg-arrow-${army.owner})`,
-    }),
-  );
-
-  const glideGroup = createSvgShape('g', { class: 'wg-army-glide' });
-  glideGroup.style.setProperty('--wg-dx', `${deltaX.toFixed(1)}px`);
-  glideGroup.style.setProperty('--wg-dy', `${deltaY.toFixed(1)}px`);
-  glideGroup.style.animationDuration = `${durationMs}ms`;
-  renderDivisionToken(glideGroup, landX, landY, army.owner, army.troops);
-  wrapper.append(glideGroup);
-  fxLayer.append(wrapper);
+  if (routePoints.length < 2) return null;
+  const start = routePoints[0];
+  const wrapper = createSvgShape('g', { class: 'wg-army-glide' });
+  wrapper.append(createSvgShape('path', {
+    d: routePoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '),
+    fill: 'none',
+    stroke: SEAT_COLORS[army.owner],
+    'stroke-width': '2.4',
+    'stroke-dasharray': '6 3',
+    'stroke-linejoin': 'round',
+    'stroke-opacity': '0.7',
+  }));
+  const mover = createSvgShape('g', {});
+  renderArmyToken(mover, start.x, start.y, army.owner, army.troops, options.isCompact);
+  wrapper.append(mover);
+  layer.append(wrapper);
+  const legLengths = routePoints.slice(1).map((point, index) => Math.hypot(point.x - routePoints[index].x, point.y - routePoints[index].y));
+  const totalLength = Math.max(1, legLengths.reduce((sum, length) => sum + length, 0));
+  let travelled = 0;
+  const travelShare = options.fadesOnArrival ? 0.8 : 1;
+  const keyframes: Keyframe[] = [{ transform: 'translate(0px, 0px)', opacity: 1, offset: 0 }];
+  routePoints.slice(1).forEach((point, index) => {
+    travelled += legLengths[index];
+    keyframes.push({ transform: `translate(${(point.x - start.x).toFixed(1)}px, ${(point.y - start.y).toFixed(1)}px)`, opacity: 1, offset: (travelled / totalLength) * travelShare });
+  });
+  if (options.fadesOnArrival) {
+    const end = routePoints[routePoints.length - 1];
+    keyframes.push({ transform: `translate(${(end.x - start.x).toFixed(1)}px, ${(end.y - start.y).toFixed(1)}px)`, opacity: 0, offset: 1 });
+  }
+  if (typeof mover.animate === 'function') mover.animate(keyframes, { duration: durationMs, easing: 'ease-in-out', fill: 'forwards' });
   return wrapper;
 }
 
@@ -900,10 +867,10 @@ function appendBattleBubble(
   const headline = battleHeadlineOf(reports, labelOf);
   const segments = battleLossSegmentsOf(reports);
   const segmentGap = 7;
-  const measuredSegments = segments.map((segment) => ({ ...segment, width: 9 + segment.label.length * 4.9 }));
+  const measuredSegments = segments.map((segment) => ({ ...segment, width: 11 + segment.label.length * 6 }));
   const segmentsWidth = measuredSegments.reduce((sum, segment) => sum + segment.width, 0) + Math.max(0, segments.length - 1) * segmentGap;
-  const cardWidth = Math.min(230, Math.max(96, Math.max(headline.text.length * 5.6, segmentsWidth) + 16));
-  const cardHeight = 30;
+  const cardWidth = Math.min(280, Math.max(110, Math.max(headline.text.length * 6.2, segmentsWidth) + 18));
+  const cardHeight = 36;
   const position = clampToViewBox(anchorX, anchorY, cardWidth, cardHeight, 30, bounds);
 
   const group = createSvgShape('g', { class: 'wg-battle-bubble' });
@@ -911,18 +878,18 @@ function appendBattleBubble(
   appendPillFrame(group, position.x, position.y, cardWidth, cardHeight, headline.color, { strokeWidth: '1.5' });
   appendBoardText(group, headline.text, {
     x: position.x,
-    y: position.y - 3,
+    y: position.y - 4,
     anchor: 'middle',
-    fontSize: '8.5',
+    fontSize: '10',
     fill: headline.color,
     className: 'wg-army-pill-text',
   });
 
-  const rowY = position.y + 8;
+  const rowY = position.y + 9;
   let cursorX = position.x - segmentsWidth / 2;
   for (const segment of measuredSegments) {
     if (segment.glyphPath) {
-      group.append(createMapStrokeGlyph(segment.glyphPath, cursorX + 3.5, rowY - 0.5, 8, segment.color, '2'));
+      group.append(createMapStrokeGlyph(segment.glyphPath, cursorX + 4.5, rowY - 0.5, 10, segment.color, '2'));
     }
     if (!segment.glyphPath) {
       group.append(createSvgShape('rect', {
@@ -934,10 +901,10 @@ function appendBattleBubble(
       }));
     }
     appendBoardText(group, segment.label, {
-      x: cursorX + 9,
-      y: rowY + 2.5,
+      x: cursorX + 11,
+      y: rowY + 3.5,
       anchor: 'start',
-      fontSize: '8',
+      fontSize: '10',
       fill: 'var(--text-head)',
       className: 'wg-hex-detail',
     });
@@ -947,97 +914,19 @@ function appendBattleBubble(
   return group;
 }
 
-function renderMarchVector(
-  layer: SVGElement,
-  fromSlot: HexNodeSlot,
-  toSlot: HexNodeSlot,
-  owner: SeatId,
-  troops: TroopCounts,
-  options: {
-    strokeDasharray: string;
-    strokeWidth: string;
-    groupClass: string;
-    lineClass: string;
-    showPill?: boolean;
-    lateralOffset?: number;
-    midIconPath?: string;
-    placeMarker?: MarkerPlacer;
-    route?: MarchRoutePoints;
-    drawsPath?: boolean;
-  },
-): void {
-  const deltaX = toSlot.centerX - fromSlot.centerX;
-  const deltaY = toSlot.centerY - fromSlot.centerY;
-  const distance = Math.hypot(deltaX, deltaY);
-  if (distance < 1) return;
-
-  const unitX = deltaX / distance;
-  const unitY = deltaY / distance;
-  const lateral = options.lateralOffset ?? 0;
-  const offsetX = -unitY * lateral;
-  const offsetY = unitX * lateral;
-  const routeCorners = (options.route?.corners ?? []).map((corner) => ({ x: corner.x + offsetX, y: corner.y + offsetY }));
-  const firstAim = routeCorners[0] ?? { x: toSlot.centerX + offsetX, y: toSlot.centerY + offsetY };
-  const lastFrom = routeCorners.at(-1) ?? { x: fromSlot.centerX + offsetX, y: fromSlot.centerY + offsetY };
-  const startLeg = unitVectorBetween(fromSlot.centerX + offsetX, fromSlot.centerY + offsetY, firstAim.x, firstAim.y);
-  const endLeg = unitVectorBetween(lastFrom.x, lastFrom.y, toSlot.centerX + offsetX, toSlot.centerY + offsetY);
-  const startTrim = arrowEndpointTrims(startLeg.length).startTrim;
-  const endTrim = arrowEndpointTrims(endLeg.length).endTrim;
-  const startX = fromSlot.centerX + startLeg.x * startTrim + offsetX;
-  const startY = fromSlot.centerY + startLeg.y * startTrim + offsetY;
-  const endX = toSlot.centerX - endLeg.x * endTrim + offsetX;
-  const endY = toSlot.centerY - endLeg.y * endTrim + offsetY;
-  const showsPill = options.showPill !== false;
-  const markerWidth = showsPill ? armyCounterWidth(troops) : 14;
-  const markerHeight = showsPill ? 15 : 14;
-  const hasMarker = showsPill || options.midIconPath !== undefined;
-  const firstLegEnd = routeCorners[0] ?? { x: endX, y: endY };
-  const markerCenter = hasMarker && options.placeMarker
-    ? options.placeMarker({ startX, startY, endX: firstLegEnd.x, endY: firstLegEnd.y }, markerWidth, markerHeight)
-    : { x: (startX + firstLegEnd.x) / 2, y: (startY + firstLegEnd.y) / 2 };
-  const midX = markerCenter.x;
-  const midY = markerCenter.y;
-
+function renderRouteMarks(layer: SVGElement, toSlot: HexNodeSlot, owner: SeatId, route: MarchRoutePoints, groupClass: string, placeLabel: (centerX: number, centerY: number, width: number, height: number, spots: readonly { x: number; y: number }[]) => { x: number; y: number }): void {
   const color = SEAT_COLORS[owner];
-  const vectorGroup = createSvgShape('g', { class: options.groupClass });
-  const pathPoints = [{ x: startX, y: startY }, ...routeCorners, { x: endX, y: endY }];
-  if (options.drawsPath !== false) vectorGroup.append(
-    createSvgShape('path', {
-      d: pathPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '),
-      fill: 'none',
-      stroke: color,
-      'stroke-width': options.strokeWidth,
-      'stroke-dasharray': options.strokeDasharray,
-      'stroke-linejoin': 'round',
-      'marker-end': `url(#wg-arrow-${owner})`,
-      class: options.lineClass,
-    }),
-  );
-  for (const mark of options.route?.turnMarks ?? []) {
-    vectorGroup.append(createSvgShape('circle', { cx: (mark.x + offsetX).toFixed(1), cy: (mark.y + offsetY).toFixed(1), r: '2.6', fill: color, stroke: 'var(--bg)', 'stroke-width': '0.8', class: 'wg-turn-mark' }));
+  const marksGroup = createSvgShape('g', { class: groupClass });
+  for (const mark of route.turnMarks) {
+    marksGroup.append(createSvgShape('circle', { cx: mark.x.toFixed(1), cy: mark.y.toFixed(1), r: '3.2', fill: color, stroke: 'var(--bg)', 'stroke-width': '1', class: 'wg-turn-mark' }));
   }
-  if (options.route?.arrivalLabel) {
-    const label = createSvgShape('text', { x: (toSlot.centerX + offsetX).toFixed(1), y: (toSlot.centerY + offsetY - 20).toFixed(1), fill: color, 'font-size': '9', 'font-weight': '700', 'text-anchor': 'middle', 'paint-order': 'stroke', stroke: 'var(--bg)', 'stroke-width': '2.5', class: 'wg-arrival-label' });
-    label.textContent = options.route.arrivalLabel;
-    vectorGroup.append(label);
+  if (route.arrivalLabel) {
+    const spot = placeLabel(toSlot.centerX, toSlot.centerY, route.arrivalLabel.length * 7 + 2, 12, ARRIVAL_LABEL_SPOTS);
+    const label = createSvgShape('text', { x: spot.x.toFixed(1), y: (spot.y + 4).toFixed(1), fill: color, 'font-size': '11', 'font-weight': '700', 'text-anchor': 'middle', 'paint-order': 'stroke', stroke: 'var(--bg)', 'stroke-width': '3', class: 'wg-arrival-label' });
+    label.textContent = route.arrivalLabel;
+    marksGroup.append(label);
   }
-  if (showsPill) {
-    renderArmyCounter(vectorGroup, midX, midY, troops, color);
-  }
-  if (options.midIconPath) {
-    vectorGroup.append(
-      createSvgShape('circle', {
-        cx: midX.toFixed(1),
-        cy: midY.toFixed(1),
-        r: '6.5',
-        fill: 'var(--bg)',
-        stroke: color,
-        'stroke-width': '1.1',
-      }),
-    );
-    vectorGroup.append(createMapStrokeGlyph(options.midIconPath, midX, midY, 9, color));
-  }
-  layer.append(vectorGroup);
+  layer.append(marksGroup);
 }
 
 function unitVectorBetween(fromX: number, fromY: number, toX: number, toY: number): { x: number; y: number; length: number } {
@@ -1150,32 +1039,32 @@ function renderPreviewBadge(
 ): void {
   const measured = tokens.map((token) => {
     const digits = token.count === null ? '' : String(token.count);
-    const prefixWidth = token.kind === 'build' ? 18.5 : 14.5;
-    return { ...token, digits, width: prefixWidth + digits.length * 4.7 };
+    const prefixWidth = token.kind === 'build' ? 22 : 18;
+    return { ...token, digits, width: prefixWidth + digits.length * 6 };
   });
   const gap = 3.5;
   const contentWidth = measured.reduce((sum, item) => sum + item.width, 0) + Math.max(0, measured.length - 1) * gap;
-  const badgeY = centerY - 17;
+  const badgeY = centerY - 19;
   const group = createSvgShape('g', {});
-  appendPillFrame(group, centerX, badgeY, Math.max(24, contentWidth + 8), 12, seatColor, { dasharray: '2 2' });
+  appendPillFrame(group, centerX, badgeY, Math.max(26, contentWidth + 8), 15, seatColor, { dasharray: '2 2' });
   let cursorX = centerX - contentWidth / 2;
   for (const item of measured) {
     if (item.kind === 'build') {
       group.append(
-        createMapStrokeGlyph(BUILD_HAMMER_PATH, cursorX + 4, badgeY, 8, NEUTRAL_COLOR),
-        createMapStrokeGlyph(item.path, cursorX + 13.5, badgeY, 8.5, item.color),
+        createMapStrokeGlyph(BUILD_HAMMER_PATH, cursorX + 5, badgeY, 10, NEUTRAL_COLOR),
+        createMapStrokeGlyph(item.path, cursorX + 16.5, badgeY, 10.5, item.color),
       );
       cursorX += item.width + gap;
       continue;
     }
-    appendBoardText(group, '+', { x: cursorX, y: badgeY + 2.6, anchor: 'start', fontSize: '7.5', fill: NEUTRAL_COLOR, className: 'wg-army-pill-text' });
-    group.append(createMapStrokeGlyph(item.path, cursorX + 9.2, badgeY, 8.5, item.color));
+    appendBoardText(group, '+', { x: cursorX, y: badgeY + 3.5, anchor: 'start', fontSize: '10', fill: NEUTRAL_COLOR, className: 'wg-army-pill-text' });
+    group.append(createMapStrokeGlyph(item.path, cursorX + 11, badgeY, 10.5, item.color));
     if (item.digits.length > 0) {
       appendBoardText(group, item.digits, {
-        x: cursorX + 14.2,
-        y: badgeY + 2.6,
+        x: cursorX + 17,
+        y: badgeY + 3.5,
         anchor: 'start',
-        fontSize: '7.5',
+        fontSize: '10',
         fill: 'var(--text-head)',
         className: 'wg-army-pill-text',
       });
@@ -1212,6 +1101,7 @@ export function isMatchOver(state: MatchState): boolean {
 
 interface WargamesMapView {
   readonly element: SVGSVGElement;
+  readonly viewport: HTMLDivElement;
   readonly caption: HTMLDivElement;
   isBoardSettled(): boolean;
   update(
@@ -1242,8 +1132,8 @@ export function createWargamesMap(
   onBoardSettled: () => void,
 ): WargamesMapView {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '-270 -240 540 480');
   svg.setAttribute('class', 'wg-hex-svg');
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', 'Wargames 37-hex tactical map');
 
@@ -1255,16 +1145,122 @@ export function createWargamesMap(
 
   const hexLayer = createSvgShape('g', { class: 'wg-hex-layer' });
   const previewLayer = createSvgShape('g', { class: 'wg-preview-layer' });
+  const routeLayer = createSvgShape('g', { class: 'wg-route-layer' });
+  const hexContentLayer = createSvgShape('g', { class: 'wg-hex-content-layer' });
   const armyLayer = createSvgShape('g', { class: 'wg-army-layer' });
+  const glideLayer = createSvgShape('g', { class: 'wg-army-layer' });
   const fxLayer = createSvgShape('g', { class: 'wg-fx-layer' });
   const commsLayer = createSvgShape('g', { class: 'wg-fx-layer' });
-  svg.append(defs, hexLayer, previewLayer, armyLayer, fxLayer, commsLayer);
+  svg.append(defs, hexLayer, previewLayer, routeLayer, hexContentLayer, armyLayer, glideLayer, fxLayer, commsLayer);
 
   const caption = document.createElement('div');
   caption.className = 'wg-board-caption';
   caption.setAttribute('aria-live', 'polite');
   caption.dataset.state = 'empty';
   let captionLineId = 0;
+
+  const viewport = document.createElement('div');
+  viewport.className = 'wg-map-viewport';
+  const zoomControls = document.createElement('div');
+  zoomControls.className = 'wg-map-zoom';
+  let fitView: MapViewBox = { x: 0, y: 0, width: 1, height: 1 };
+  let currentView: MapViewBox = fitView;
+
+  function applyView(nextView: MapViewBox): void {
+    currentView = nextView;
+    svg.setAttribute('viewBox', viewBoxAttributeOf(currentView));
+    viewport.dataset.zoom = isZoomed(currentView, fitView) ? 'zoomed' : 'fit';
+  }
+
+  function zoomAtCenter(factor: number): void {
+    applyView(zoomViewBoxAt(currentView, fitView, factor, currentView.x + currentView.width / 2, currentView.y + currentView.height / 2));
+  }
+
+  function boardPointAt(clientX: number, clientY: number): { x: number; y: number } {
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return { x: currentView.x + currentView.width / 2, y: currentView.y + currentView.height / 2 };
+    const point = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse());
+    return { x: point.x, y: point.y };
+  }
+
+  function boardUnitsPerPixel(): number {
+    const matrix = svg.getScreenCTM();
+    return matrix && matrix.a > 0 ? 1 / matrix.a : 1;
+  }
+
+  zoomControls.append(
+    button({ variant: 'floating-icon', size: 'small', label: 'Zoom in', icon: createLineIcon(PLUS_ICON_PATH, '1.5'), onClick: () => zoomAtCenter(ZOOM_BUTTON_STEP) }),
+    button({ variant: 'floating-icon', size: 'small', label: 'Zoom out', icon: createLineIcon(MINUS_ICON_PATH, '1.5'), onClick: () => zoomAtCenter(1 / ZOOM_BUTTON_STEP) }),
+    button({ variant: 'floating-icon', size: 'small', label: 'Fit map', icon: createLineIcon(FIT_ICON_PATH, '1.5'), onClick: () => applyView(fitView) }),
+  );
+  viewport.append(svg, zoomControls);
+
+  svg.addEventListener('wheel', (event) => {
+    const isZoomGesture = event.ctrlKey || event.metaKey || isZoomed(currentView, fitView);
+    if (!isZoomGesture) return;
+    event.preventDefault();
+    const focus = boardPointAt(event.clientX, event.clientY);
+    applyView(zoomViewBoxAt(currentView, fitView, Math.exp(-event.deltaY * WHEEL_ZOOM_RATE), focus.x, focus.y));
+  }, { passive: false });
+
+  const activePointers = new Map<number, { x: number; y: number }>();
+  let dragStart: { x: number; y: number } | null = null;
+  let hasDragged = false;
+  let pinchDistance = 0;
+
+  function releasePointer(event: PointerEvent): void {
+    activePointers.delete(event.pointerId);
+    if (activePointers.size === 0) dragStart = null;
+    pinchDistance = pointerSpread();
+  }
+
+  function pointerSpread(): number {
+    const [first, second] = [...activePointers.values()];
+    return first && second ? Math.hypot(first.x - second.x, first.y - second.y) : 0;
+  }
+
+  svg.addEventListener('pointerdown', (event) => {
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    hasDragged = false;
+    dragStart = { x: event.clientX, y: event.clientY };
+    pinchDistance = pointerSpread();
+  });
+
+  svg.addEventListener('pointermove', (event) => {
+    const previous = activePointers.get(event.pointerId);
+    if (!previous || !dragStart) return;
+    if (event.buttons === 0) {
+      releasePointer(event);
+      return;
+    }
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (activePointers.size >= 2) {
+      const spread = pointerSpread();
+      if (pinchDistance > 0 && spread > 0) {
+        const [first, second] = [...activePointers.values()];
+        const focus = boardPointAt((first.x + second.x) / 2, (first.y + second.y) / 2);
+        applyView(zoomViewBoxAt(currentView, fitView, spread / pinchDistance, focus.x, focus.y));
+      }
+      pinchDistance = spread;
+      hasDragged = true;
+      return;
+    }
+    if (!isZoomed(currentView, fitView)) return;
+    if (!hasDragged && Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y) < DRAG_THRESHOLD_PX) return;
+    if (!hasDragged) svg.setPointerCapture(event.pointerId);
+    hasDragged = true;
+    const unitsPerPixel = boardUnitsPerPixel();
+    applyView(panViewBox(currentView, fitView, (previous.x - event.clientX) * unitsPerPixel, (previous.y - event.clientY) * unitsPerPixel));
+  });
+
+  svg.addEventListener('pointerup', releasePointer);
+  svg.addEventListener('pointercancel', releasePointer);
+  svg.addEventListener('lostpointercapture', releasePointer);
+  svg.addEventListener('click', (event) => {
+    if (!hasDragged) return;
+    event.stopPropagation();
+    hasDragged = false;
+  }, true);
 
   function showCaption(line: BoardCaptionLine): () => void {
     captionLineId += 1;
@@ -1459,7 +1455,7 @@ export function createWargamesMap(
 
       slot.detailLabel.textContent = isBarren ? 'Barren' : '';
       slot.detailLabel.setAttribute('class', 'wg-hex-detail');
-      slot.detailLabel.setAttribute('font-size', '8.5');
+      slot.detailLabel.setAttribute('font-size', '10');
       slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
       if (isBarren) slot.unitGroup.replaceChildren();
       if (!isBarren) renderHexUnitTokens(slot.unitGroup, slot.centerX, slot.centerY, village.troops);
@@ -1603,109 +1599,95 @@ export function createWargamesMap(
     return (indexOnEdge - (totalOnEdge - 1) / 2) * spacing * directionSign;
   }
 
-  let occupiedBoardBoxes: BoardBox[] = [];
-
-  function resetOccupiedBoardBoxes(): void {
-    occupiedBoardBoxes = [];
-    for (let index = 0; index < slots.length; index += 1) {
-      const slot = slots[index];
-      occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY - 28.5, 18, 9));
-      const village = displayedVillages[index];
-      if (!village) continue;
-      if (village.productionState !== 'barren' && troopCountOf(village.troops) > 0) {
-        occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 3, 46, 28));
-      }
-      if (village.loyalty < 100) occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 22, 38, 12));
-    }
-  }
-
-  function placeMarkerClear(segment: ArrowSegment, markerWidth: number, markerHeight: number): { x: number; y: number } {
-    const lengthX = segment.endX - segment.startX;
-    const lengthY = segment.endY - segment.startY;
-    const length = Math.max(1, Math.hypot(lengthX, lengthY));
-    const normalX = -lengthY / length;
-    const normalY = lengthX / length;
-    let bestCenter = { x: segment.startX + lengthX / 2, y: segment.startY + lengthY / 2 };
-    let bestOverlapCount = Number.POSITIVE_INFINITY;
-    for (const sideStep of MARKER_SIDE_STEPS) {
-      for (const alongStep of MARKER_ALONG_LINE_STEPS) {
-        const candidate = {
-          x: segment.startX + lengthX * alongStep + normalX * sideStep,
-          y: segment.startY + lengthY * alongStep + normalY * sideStep,
-        };
-        const candidateBox = boxAround(candidate.x, candidate.y, markerWidth + 2, markerHeight + 2);
-        const overlapCount = occupiedBoardBoxes.filter((box) => boxesOverlap(box, candidateBox)).length;
-        if (overlapCount >= bestOverlapCount) continue;
-        bestCenter = candidate;
-        bestOverlapCount = overlapCount;
-        if (overlapCount === 0) break;
-      }
-      if (bestOverlapCount === 0) break;
-    }
-    occupiedBoardBoxes.push(boxAround(bestCenter.x, bestCenter.y, markerWidth, markerHeight));
-    return bestCenter;
-  }
-
   function restingArmiesOf(state: MatchState, pov: WargamesPov, spotlightSeatId: SeatId | null) {
     if (isMatchOver(state)) return [];
     const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
-    return fieldArmiesOf(state).filter((army) => (
-      army.status !== 'returning' && (!isSpotlightActive || army.owner === spotlightSeatId)
-    ));
+    return fieldArmiesOf(state).filter((army) => !isSpotlightActive || army.owner === spotlightSeatId);
+  }
+
+  function armyPlacementsOf(armies: readonly { id: string; hexIndex: number; owner: SeatId; troops: TroopCounts }[]): ArmyPlacement[] {
+    const placementByTileAndSeat = new Map<string, ArmyPlacement>();
+    for (const army of armies) {
+      const tileAndSeatKey = `${army.hexIndex}:${army.owner}`;
+      const placement = placementByTileAndSeat.get(tileAndSeatKey) ?? { hexIndex: army.hexIndex, owner: army.owner, troops: { raider: 0, guard: 0, envoy: 0 }, armyIds: [] };
+      addTroopCounts(placement.troops, army.troops);
+      placement.armyIds.push(army.id);
+      placementByTileAndSeat.set(tileAndSeatKey, placement);
+    }
+    return [...placementByTileAndSeat.values()];
+  }
+
+  let occupiedBoardBoxes: BoardBox[] = [];
+
+  function resetOccupiedBoardBoxes(state: MatchState, villages: readonly (VillageState | null)[]): void {
+    occupiedBoardBoxes = [];
+    const isDenseMap = state.spec.mapRadius >= TERRAIN_MIN_RADIUS;
+    slots.forEach((slot, hexIndex) => {
+      const village = villages[hexIndex];
+      if (village) {
+        if (village.productionState !== 'barren') occupiedBoardBoxes.push(...garrisonBoxesOf(village.troops, slot.centerX, slot.centerY));
+        if (village.loyalty < 100) occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + CONTROL_BADGE_OFFSET_Y, controlBadgeContentWidth(`${Math.round(village.loyalty)}%`) + 8, 13));
+        if (!village.isBeacon && !(isDenseMap && village.owner === null)) occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + VILLAGE_INCOME_SLOT_Y + 2, VILLAGE_INCOME_HALF_WIDTH * 2, 19));
+        return;
+      }
+      const tile = state.territory.get(hexIndex);
+      if (tile?.improvement) occupiedBoardBoxes.push(boxAround(slot.centerX + 2, slot.centerY + IMPROVEMENT_SLOT_Y, 44, 16));
+    });
+  }
+
+  function placeClear(centerX: number, centerY: number, width: number, height: number, spots: readonly { x: number; y: number }[]): { x: number; y: number } {
+    const overlapCountOf = (spot: { x: number; y: number }) => occupiedBoardBoxes.filter((box) => boxesOverlap(box, boxAround(centerX + spot.x, centerY + spot.y, width, height))).length;
+    const chosen = spots.reduce((best, spot) => (overlapCountOf(spot) < overlapCountOf(best) ? spot : best), spots[0]);
+    const placed = { x: centerX + chosen.x, y: centerY + chosen.y };
+    occupiedBoardBoxes.push(boxAround(placed.x, placed.y, width, height));
+    return placed;
+  }
+
+  function renderArmyPlacements(layer: SVGElement, placements: readonly ArmyPlacement[], villages: readonly (VillageState | null)[], state: MatchState): void {
+    const isHugeMap = isHugeMapOf(state);
+    resetOccupiedBoardBoxes(state, villages);
+    const placementsByHex = new Map<number, ArmyPlacement[]>();
+    for (const placement of placements) {
+      if (!slots[placement.hexIndex] || troopCountOf(placement.troops) === 0) continue;
+      placementsByHex.set(placement.hexIndex, [...(placementsByHex.get(placement.hexIndex) ?? []), placement]);
+    }
+    const tilesVillagesLast = [...placementsByHex].sort(([leftHex], [rightHex]) => Number(villages[leftHex] != null) - Number(villages[rightHex] != null));
+    for (const [hexIndex, tilePlacements] of tilesVillagesLast) {
+      const isVillageTile = villages[hexIndex] != null;
+      const isCompact = isHugeMap || isVillageTile || tilePlacements.length > 1;
+      tilePlacements.forEach((placement) => {
+        const slot = slots[hexIndex];
+        const tokenWidth = tokenRowWidth(armyTokenContentOf(placement.troops, isCompact), UNIT_TOKEN_GAP) + ARMY_TOKEN_PADDING * 2;
+        const center = placeClear(slot.centerX, slot.centerY, tokenWidth, ARMY_TOKEN_HEIGHT, isVillageTile ? VILLAGE_ARMY_SPOTS : SHARED_TILE_ARMY_SPOTS);
+        const isLoneHolderOnOwnLand = tilePlacements.length === 1 && troopCountOf(placement.troops) === 1 && state.territory.get(hexIndex)?.owner === placement.owner;
+        renderArmyToken(layer, center.x, center.y, placement.owner, placement.troops, isCompact, isLoneHolderOnOwnLand);
+      });
+    }
+  }
+
+  function isHugeMapOf(state: MatchState): boolean {
+    return state.spec.mapRadius >= WARGAMES_MAX_HEX_RADIUS;
   }
 
   function renderActiveArmies(state: MatchState, pov: WargamesPov, spotlightSeatId: SeatId | null): void {
     armyLayer.replaceChildren();
-    resetOccupiedBoardBoxes();
+    routeLayer.replaceChildren();
+    glideLayer.replaceChildren();
     const armies = restingArmiesOf(state, pov, spotlightSeatId);
-    const tokenTroopsByTile = new Map<string, { hexIndex: number; owner: SeatId; troops: TroopCounts }>();
-    for (const army of armies) {
-      if (state.villages[army.currentHexIndex] !== null) continue;
-      const tileKeyOfArmy = `${army.currentHexIndex}:${army.owner}`;
-      const entry = tokenTroopsByTile.get(tileKeyOfArmy) ?? { hexIndex: army.currentHexIndex, owner: army.owner, troops: { raider: 0, guard: 0, envoy: 0 } };
-      addTroopCounts(entry.troops, army.troops);
-      tokenTroopsByTile.set(tileKeyOfArmy, entry);
-    }
-    const weightOfToken = armyTokenWeights([...tokenTroopsByTile.values()]);
-    const tokensPerTile = new Map<number, number>();
-    const pipsPerTile = new Map<number, number>();
-    for (const [tileKeyOfToken, token] of tokenTroopsByTile) {
-      const slot = slots[token.hexIndex];
-      if (!slot) continue;
-      const weight = weightOfToken.get(tileKeyOfToken) ?? 'token';
-      if (weight === 'pip') {
-        const pipIndex = pipsPerTile.get(token.hexIndex) ?? 0;
-        pipsPerTile.set(token.hexIndex, pipIndex + 1);
-        renderSmallArmyPip(armyLayer, slot.centerX, slot.centerY, token.owner, pipIndex, token.troops);
-        continue;
-      }
-      const stackIndex = tokensPerTile.get(token.hexIndex) ?? 0;
-      tokensPerTile.set(token.hexIndex, stackIndex + 1);
-      renderStandingToken(armyLayer, slot.centerX, slot.centerY + 10 + stackIndex * 17, token.owner, token.troops, state.spec.mapRadius >= WARGAMES_MAX_HEX_RADIUS, weight === 'strong');
-      occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 10 + stackIndex * 17, STANDING_TOKEN_MAX_WIDTH, 15));
-    }
+    const placements = armyPlacementsOf(armies.map((army) => ({ id: army.id, hexIndex: army.currentHexIndex, owner: army.owner, troops: army.troops })));
+    renderArmyPlacements(armyLayer, placements, state.villages, state);
     const labeledArmyTargets = new Set<number>();
     const routeStrokes: RouteStroke[] = [];
     for (const army of [...armies].sort((left, right) => distanceInHexes(state, left.currentHexIndex, left.targetHexIndex) - distanceInHexes(state, right.currentHexIndex, right.targetHexIndex))) {
       if (army.status === 'standing') continue;
       const leg = armyLegOf(army);
-      const fromSlot = slots[leg.fromHexIndex];
       const toSlot = slots[leg.toHexIndex];
-      if (!fromSlot || !toSlot) continue;
-      routeStrokes.push({ owner: army.owner, troopTotal: troopTotalOf(army.troops), hexIndices: marchRouteOf(state, leg.fromHexIndex, leg.toHexIndex).hexIndices, dash: '6 3', lineClass: 'wg-army-line' });
-      const hasTileToken = tokenTroopsByTile.has(`${army.currentHexIndex}:${army.owner}`);
-      renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
-        drawsPath: false,
-        showPill: !hasTileToken,
-        strokeDasharray: '6 3',
-        strokeWidth: '2.4',
-        groupClass: 'wg-army-arrow',
-        lineClass: 'wg-army-line',
-        placeMarker: placeMarkerClear,
-        route: routePointsFor(state, leg.fromHexIndex, leg.toHexIndex, labeledArmyTargets),
-      });
+      if (!slots[leg.fromHexIndex] || !toSlot) continue;
+      const isReturning = army.status === 'returning';
+      routeStrokes.push({ owner: army.owner, troopTotal: troopTotalOf(army.troops), hexIndices: marchRouteOf(state, leg.fromHexIndex, leg.toHexIndex).hexIndices, dash: isReturning ? '2 4' : '6 3', lineClass: 'wg-army-line' });
+      renderRouteMarks(armyLayer, toSlot, army.owner, routePointsFor(state, leg.fromHexIndex, leg.toHexIndex, labeledArmyTargets), 'wg-army-arrow', placeClear);
     }
-    armyLayer.prepend(renderRouteNetwork(routeStrokes));
+    routeLayer.append(renderRouteNetwork(routeStrokes));
   }
 
   const animQueue = createBoardAnimationQueue({
@@ -1731,6 +1713,7 @@ export function createWargamesMap(
     animQueue.clear();
     resetDiplomacyFx();
     hexLayer.replaceChildren();
+    hexContentLayer.replaceChildren();
     let minX = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
@@ -1752,7 +1735,7 @@ export function createWargamesMap(
         x: x.toFixed(1),
         y: (y - 26).toFixed(1),
         'text-anchor': 'middle',
-        'font-size': '7',
+        'font-size': '9',
         class: 'wg-hex-index',
       });
       indexLabel.textContent = `#${tile.index}`;
@@ -1760,25 +1743,28 @@ export function createWargamesMap(
         x: x.toFixed(1),
         y: (y + 3.5).toFixed(1),
         'text-anchor': 'middle',
-        'font-size': '8.5',
+        'font-size': '10',
         class: 'wg-hex-detail',
       });
       const terrainGroup = createSvgShape('g', { class: 'wg-hex-terrain' });
       const unitGroup = createSvgShape('g', { class: 'wg-hex-units' });
       const controlGroup = createSvgShape('g', { class: 'wg-hex-control' });
 
-      group.append(polygon, terrainGroup, indexLabel, detailLabel, unitGroup, controlGroup);
+      group.append(polygon, terrainGroup, indexLabel, detailLabel);
+      hexContentLayer.append(unitGroup, controlGroup);
       group.addEventListener('click', () => onSelectHex(tile.index));
       hexLayer.append(group);
       return { group, polygon, indexLabel, detailLabel, terrainGroup, unitGroup, controlGroup, centerX: x, centerY: y };
     });
-    const padX = HEX_SIZE + 14;
-    const padY = HEX_SIZE + 14;
+    const padX = HEX_EDGE_INSET + 16;
+    const padY = HEX_SIZE + 10;
     const viewMinX = Math.floor(minX - padX);
     const viewMinY = Math.floor(minY - padY);
     const viewWidth = Math.ceil(maxX - minX + padX * 2);
     const viewHeight = Math.ceil(maxY - minY + padY * 2);
-    svg.setAttribute('viewBox', `${viewMinX} ${viewMinY} ${viewWidth} ${viewHeight}`);
+    fitView = { x: viewMinX, y: viewMinY, width: viewWidth, height: viewHeight };
+    viewport.style.setProperty('--wg-map-aspect', `${viewWidth} / ${viewHeight}`);
+    applyView(fitView);
     svg.setAttribute('aria-label', `Wargames ${hexes.length}-hex tactical map`);
     viewBoxBounds = {
       minX: viewMinX + 4,
@@ -1849,16 +1835,7 @@ export function createWargamesMap(
       if (!fromSlot || !toSlot) continue;
       const isFriendlyReinforce = latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
       previewStrokes.push({ owner: entry.seatId, troopTotal: troopTotalOf(entry.troops), hexIndices: marchRouteOf(latestState, entry.fromHexIndex, entry.toHexIndex).hexIndices, dash: previewDashOf(isFriendlyReinforce), lineClass: 'wg-preview-line' });
-      renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
-        drawsPath: false,
-        strokeDasharray: previewDashOf(isFriendlyReinforce),
-        strokeWidth: '1.8',
-        groupClass: 'wg-preview-arrow',
-        lineClass: 'wg-preview-line',
-        showPill: false,
-        placeMarker: placeMarkerClear,
-        route: routePointsFor(latestState, entry.fromHexIndex, entry.toHexIndex, labeledPreviewTargets),
-      });
+      renderRouteMarks(previewLayer, toSlot, entry.seatId, routePointsFor(latestState, entry.fromHexIndex, entry.toHexIndex, labeledPreviewTargets), 'wg-preview-arrow', placeClear);
       renderedCount += 1;
     }
     previewLayer.prepend(renderRouteNetwork(previewStrokes));
@@ -1902,6 +1879,8 @@ export function createWargamesMap(
       animQueue.clear();
       resetDiplomacyFx();
       armyLayer.replaceChildren();
+      routeLayer.replaceChildren();
+      glideLayer.replaceChildren();
       fxLayer.replaceChildren();
       previewLayer.replaceChildren();
       advanceOverlay('reset');
@@ -1974,19 +1953,52 @@ export function createWargamesMap(
     const previousVillages = lastVillageSnapshots.map(cloneVillage);
     displayedVillages = previousVillages.map(cloneVillage);
     paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
-    armyLayer.replaceChildren();
     previewLayer.replaceChildren();
+    glideLayer.replaceChildren();
 
     const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
-    const glidesByDestHex = new Map<number, { fromSlot: HexNodeSlot; toSlot: HexNodeSlot; army: ArmySnapshot }[]>();
+    const recapRestingArmies = new Map([...lastArmySnapshots].filter(([, army]) => !isSpotlightActive || army.owner === spotlightSeatId));
+    routeLayer.replaceChildren();
+    const renderRecapArmies = () => {
+      armyLayer.replaceChildren();
+      const recapArmies = [...recapRestingArmies].map(([id, army]) => ({ id, hexIndex: army.hexIndex, owner: army.owner, troops: army.troops }));
+      renderArmyPlacements(armyLayer, armyPlacementsOf(recapArmies), displayedVillages, state);
+    };
+    renderRecapArmies();
+
+    const glidesByDestHex = new Map<number, ArmyGlide[]>();
     const seenArmyIds = new Set<string>();
-    const pushGlide = (destIndex: number, fromSlot: HexNodeSlot, toSlot: HexNodeSlot, army: ArmySnapshot) => {
+    const pushGlide = (destIndex: number, army: ArmySnapshot, armyId: string) => {
+      const glide: ArmyGlide = { army, armyId, fromHexIndex: army.hexIndex, destHexIndex: destIndex };
       const existing = glidesByDestHex.get(destIndex);
       if (existing) {
-        existing.push({ fromSlot, toSlot, army });
+        existing.push(glide);
         return;
       }
-      glidesByDestHex.set(destIndex, [{ fromSlot, toSlot, army }]);
+      glidesByDestHex.set(destIndex, [glide]);
+    };
+
+    const startArmyGlide = (glide: ArmyGlide, glideIndex: number, convergingCount: number, durationMs: number): { node: SVGElement | null; settle: () => void } => {
+      recapRestingArmies.delete(glide.armyId);
+      renderRecapArmies();
+      const arrivedArmy = nextArmySnapshots.get(glide.armyId);
+      const staysOnBoard = arrivedArmy !== undefined && arrivedArmy.hexIndex === glide.destHexIndex;
+      const route = marchRouteOf(state, glide.fromHexIndex, glide.destHexIndex);
+      const routeHexIndices = route.hexIndices.length >= 2 && route.hexIndices.at(-1) === glide.destHexIndex ? route.hexIndices : [glide.fromHexIndex, glide.destHexIndex];
+      const lateralStep = convergingCount > 1 ? (glideIndex - (convergingCount - 1) / 2) * 14 : 0;
+      const routePoints = routeHexIndices.map((hexIndex, pointIndex) => ({
+        x: (slots[hexIndex]?.centerX ?? 0) + (pointIndex === routeHexIndices.length - 1 ? lateralStep : 0),
+        y: (slots[hexIndex]?.centerY ?? 0) + ARMY_TOKEN_TILE_OFFSET_Y,
+      }));
+      const node = appendGlidingArmy(glideLayer, routePoints, glide.army, durationMs, { isCompact: true, fadesOnArrival: !staysOnBoard });
+      return {
+        node,
+        settle: () => {
+          if (!staysOnBoard || !arrivedArmy || !latestState || latestState.matchId !== state.matchId) return;
+          recapRestingArmies.set(glide.armyId, arrivedArmy);
+          renderRecapArmies();
+        },
+      };
     };
 
     const currentArmyById = new Map(armies.map((army) => [army.id, army]));
@@ -2003,7 +2015,7 @@ export function createWargamesMap(
       const toSlot = slots[destIndex];
       if (!fromSlot || !toSlot) continue;
       if (isSpotlightActive && prevArmy.owner !== spotlightSeatId) continue;
-      pushGlide(destIndex, fromSlot, toSlot, prevArmy);
+      pushGlide(destIndex, prevArmy, armyId);
     }
 
     for (const army of armies) {
@@ -2014,14 +2026,14 @@ export function createWargamesMap(
       const toSlot = slots[army.currentHexIndex];
       if (!fromSlot || !toSlot) continue;
       if (isSpotlightActive && army.owner !== spotlightSeatId) continue;
-      pushGlide(army.currentHexIndex, fromSlot, toSlot, {
+      pushGlide(army.currentHexIndex, {
         hexIndex: army.originHexIndex,
         targetHexIndex: army.targetHexIndex,
         originHexIndex: army.originHexIndex,
         owner: army.owner,
         troops: { ...army.troops },
         status: army.status,
-      });
+      }, army.id);
     }
 
     const tickOrders = state.ordersByTick[resolvedTick];
@@ -2035,14 +2047,14 @@ export function createWargamesMap(
       const displayTroops = troopCountOf(army.troops) > 0
         ? { ...army.troops }
         : findOrderTroopsForArmy(tickOrders, army.owner, army.originHexIndex, army.targetHexIndex);
-      pushGlide(army.targetHexIndex, fromSlot, toSlot, {
+      pushGlide(army.targetHexIndex, {
         hexIndex: army.originHexIndex,
         targetHexIndex: army.targetHexIndex,
         originHexIndex: army.originHexIndex,
         owner: army.owner,
         troops: displayTroops,
         status: army.status,
-      });
+      }, army.id);
     }
 
     const deltasByHex = new Map<number, HexDeltaSummary>();
@@ -2115,9 +2127,9 @@ export function createWargamesMap(
           }
           for (const item of batch) {
             for (let glideIndex = 0; glideIndex < item.glides.length; glideIndex += 1) {
-              const glide = item.glides[glideIndex];
-              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs, glideIndex, item.glides.length);
-              if (node) mounted.push(node);
+              const started = startArmyGlide(item.glides[glideIndex], glideIndex, item.glides.length, durationMs);
+              if (started.node) mounted.push(started.node);
+              deferredUpdates.push(started.settle);
             }
             if (item.delta) {
               const applyVillageUpdate = () => {
@@ -2130,11 +2142,11 @@ export function createWargamesMap(
               if (item.delta.troopDelta !== 0) {
                 const deltaLabel = item.delta.troopDelta > 0 ? `+${item.delta.troopDelta}` : String(item.delta.troopDelta);
                 const deltaFill = item.delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--text-dim)';
-                mounted.push(appendDeltaCallout(fxLayer, item.slot.centerX, item.slot.centerY - 4, deltaLabel, deltaFill, durationMs));
+                mounted.push(appendDeltaCallout(fxLayer, item.slot.centerX, item.slot.centerY - 20, deltaLabel, deltaFill, durationMs));
               }
               if (item.delta.buildingUpgrades.length > 0) {
                 const upgrade = item.delta.buildingUpgrades[0];
-                const upgradeY = item.delta.troopDelta !== 0 ? item.slot.centerY + 11 : item.slot.centerY - 4;
+                const upgradeY = item.delta.troopDelta !== 0 ? item.slot.centerY - 38 : item.slot.centerY - 20;
                 mounted.push(appendGlyphCallout(fxLayer, item.slot.centerX, upgradeY, {
                   prefix: '+',
                   glyphPath: upgrade.path,
@@ -2162,13 +2174,15 @@ export function createWargamesMap(
           durationMs: 1250,
           start: (durationMs) => {
             const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
+            const settles: (() => void)[] = [];
             for (let glideIndex = 0; glideIndex < glides.length; glideIndex += 1) {
-              const glide = glides[glideIndex];
-              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs, glideIndex, glides.length);
-              if (node) mounted.push(node);
+              const started = startArmyGlide(glides[glideIndex], glideIndex, glides.length, durationMs);
+              if (started.node) mounted.push(started.node);
+              settles.push(started.settle);
             }
             return () => {
               for (const node of mounted) node.remove();
+              for (const settle of settles) settle();
             };
           },
         });
@@ -2204,10 +2218,10 @@ export function createWargamesMap(
             if (!bubbleNode && delta && delta.troopDelta !== 0) {
               const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
               const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
-              mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
+              mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 20, deltaLabel, deltaFill, durationMs));
             }
             if (!bubbleNode && delta && delta.loyaltyDelta < 0) {
-              const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
+              const loyaltyY = delta.troopDelta !== 0 ? slot.centerY - 38 : slot.centerY - 20;
               mounted.push(appendGlyphCallout(fxLayer, slot.centerX, loyaltyY, {
                 prefix: '',
                 glyphPath: CONTROL_FLAG_PATH,
@@ -2272,6 +2286,7 @@ export function createWargamesMap(
 
   function dispose(): void {
     animQueue.dispose();
+    glideLayer.replaceChildren();
     diplomacyQueue.dispose();
     commsLayer.replaceChildren();
     fxLayer.replaceChildren();
@@ -2283,5 +2298,5 @@ export function createWargamesMap(
     return overlayMode !== 'recap' && animQueue.getState() === 'idle';
   }
 
-  return { element: svg, caption, update, isBoardSettled, dispose };
+  return { element: svg, viewport, caption, update, isBoardSettled, dispose };
 }

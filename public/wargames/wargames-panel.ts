@@ -43,7 +43,7 @@ import { textArea } from '../ui/text-input.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { GRAIN_COLOR, ORE_COLOR } from './wargames-econ-glyphs.ts';
 import { createWargamesEconomy } from './wargames-economy.ts';
-import { createEconomyLens } from './wargames-economy-lens.ts';
+import { createEconomyLens, ECONOMY_KEY_ROWS } from './wargames-economy-lens.ts';
 import { createDiplomacyLog } from './wargames-diplomacy-log.ts';
 import { createTurnTrack } from './turn-track.ts';
 import type { TurnTrack } from './turn-track.ts';
@@ -1186,6 +1186,7 @@ function buildMapLegend(): HTMLElement {
       legendItem(createWargamesGlyph(BEACON_GLYPH_PATH, 14, 'var(--text-head)'), 'Beacon'),
       ...Object.values(TERRAIN_GLYPHS).map((terrain) => legendItem(createWargamesGlyph(terrain.path, 14, terrain.color), terrain.label)),
     ]),
+    legendGroup('Economy', ECONOMY_KEY_ROWS.map((row) => legendItem(createWargamesGlyph(row.path, 14, row.color), row.label))),
     legendGroup('Moves', [
       legendItem(arrowSwatchIcon('4 2'), 'Army marching'),
       legendItem(arrowSwatchIcon('2 3'), 'Planned order (seat view or selected hex)'),
@@ -1321,7 +1322,7 @@ function ensureLiveShell(): PersistentLiveShell {
   const hexIntelSlot = el('div');
 
   const mapKey = buildMapKey();
-  stage.append(boardBarSlot, economyLens.controls, mapView.element, mapView.caption, hexIntelSlot, mapKey.keySlot);
+  stage.append(boardBarSlot, economyLens.controls, mapView.viewport, mapView.caption, hexIntelSlot, mapKey.keySlot);
   mapPane.append(stage);
   wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane, diplomacyLog.element, economyView.element);
   liveShell = { wrap, factionStripSlot, spotlightSlot, endgameSlot, boardBarSlot, hexIntelSlot, mapKeyPopover: mapKey.legend };

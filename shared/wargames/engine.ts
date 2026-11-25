@@ -724,7 +724,7 @@ export function warehouseCapOf(village: Pick<VillageState, 'buildings'>): number
   return BASE_WAREHOUSE_CAP + (village.buildings.farm + village.buildings.mine) * WAREHOUSE_PER_LEVEL;
 }
 
-export function villageYieldOf(village: Pick<VillageState, 'buildings'>): ResourceBundle {
+function villageYieldOf(village: Pick<VillageState, 'buildings'>): ResourceBundle {
   return {
     grain: BASE_PRODUCTION_PER_TICK + village.buildings.farm * PRODUCTION_PER_LEVEL,
     ore: BASE_PRODUCTION_PER_TICK + village.buildings.mine * PRODUCTION_PER_LEVEL,
@@ -789,6 +789,14 @@ function improvementYieldOf(state: MatchState, hexIndex: number, tile: Territory
   if (tile.improvement === null) return { grain: 0, ore: 0 };
   const perLevel = yieldPerLevelOf(state, hexIndex, tile.improvement, hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex]));
   return { grain: tile.level * perLevel.grain, ore: tile.level * perLevel.ore };
+}
+
+export function paidImprovementYieldOf(state: MatchState, hexIndex: number): ResourceBundle {
+  const tile = state.territory.get(hexIndex);
+  if (!tile || tile.level === 0) return { grain: 0, ore: 0 };
+  const payer = nearestOwnedVillageOf(state, tile.owner, hexIndex);
+  if (!payer) return { grain: 0, ore: 0 };
+  return improvementYieldOf(state, hexIndex, tile, payer);
 }
 
 function landPointsFor(rule: WargamesTerritoryRule, landHexes: number): number {

@@ -1,23 +1,23 @@
 import type { SeatId } from '#shared/contracts/wargames.ts';
-import { villageYieldOf, warehouseCapOf } from '#shared/wargames/engine.ts';
+import { paidImprovementYieldOf, villageIncomeOf, warehouseCapOf } from '#shared/wargames/engine.ts';
+import { TERRAIN_MIN_RADIUS } from '#shared/wargames/terrain.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { el } from '../dom-helpers.ts';
 import { createSvgShape } from '../svg-dom.ts';
-import { switchInput } from '../ui/switch.ts';
-import { ECON_GLYPHS, econGlyph, GRAIN_COLOR, ORE_COLOR } from './wargames-econ-glyphs.ts';
+import { econGlyph, GRAIN_COLOR, ORE_COLOR } from './wargames-econ-glyphs.ts';
 import type { EconGlyphKey } from './wargames-econ-glyphs.ts';
-import { hexCenter, SEAT_COLORS, seatLabelOf } from './wargames-map.ts';
+import { GRAIN_GLYPH_PATH, hexCenter, IMPROVEMENT_SLOT_Y, ORE_GLYPH_PATH, SEAT_COLORS, seatLabelOf, VILLAGE_INCOME_MAX_WIDTH, VILLAGE_INCOME_SLOT_Y } from './wargames-map.ts';
 import './wargames-economy-lens.css';
 
 type VillageState = NonNullable<MatchState['villages'][number]>;
 
 const HIT_RADIUS = 36;
-const BAR_OFFSET_Y = -15;
-const BAR_HEIGHT = 7;
-const BAR_MIN_WIDTH = 16;
-const BAR_MAX_WIDTH = 60;
-const SEGMENT_GAP = 1.5;
-const CHIP_PADDING = 2;
+const MARK_GLYPH_SIZE = 9;
+const MARK_FONT_SIZE = '9';
+const MARK_DIGIT_WIDTH = 5.3;
+const MARK_ITEM_GAP = 3;
+const STOCK_BAR_HEIGHT = 2.5;
+const STOCK_BAR_OFFSET_Y = 7.5;
 
 interface EconomyLens {
   readonly controls: HTMLElement;
@@ -44,9 +44,9 @@ function boardVillagesOf(state: MatchState): VillageState[] {
   return state.villages.filter((village): village is VillageState => village !== null);
 }
 
-function incomeOf(village: VillageState): { grain: number; ore: number } {
+function incomeOf(state: MatchState, village: VillageState): { grain: number; ore: number } {
   if (village.productionState !== 'producing') return { grain: 0, ore: 0 };
-  return villageYieldOf(village);
+  return villageIncomeOf(state, village);
 }
 
 function ownerLabelOf(state: MatchState, owner: SeatId | null): string {
@@ -56,7 +56,7 @@ function ownerLabelOf(state: MatchState, owner: SeatId | null): string {
 
 function summaryOf(state: MatchState, village: VillageState): string {
   if (village.isBeacon) return `Beacon ${village.hexIndex}, ${village.owner === null ? 'unheld' : seatLabelOf(state, village.owner)}: raiders ${village.troops.raider}, guards ${village.troops.guard}, envoys ${village.troops.envoy}`;
-  const income = incomeOf(village);
+  const income = incomeOf(state, village);
   const cap = warehouseCapOf(village);
   const { farm, mine, wall } = village.buildings;
   const { raider, guard, envoy } = village.troops;
@@ -93,7 +93,7 @@ function fillDetail(detail: HTMLElement, state: MatchState, village: VillageStat
     fillBeaconDetail(detail, state, village);
     return;
   }
-  const income = incomeOf(village);
+  const income = incomeOf(state, village);
   const cap = warehouseCapOf(village);
   const head = el('span', 'wg-lens-detail-head');
   const swatch = el('span', 'wg-faction-swatch');
@@ -126,47 +126,97 @@ function fillDetail(detail: HTMLElement, state: MatchState, village: VillageStat
   detail.replaceChildren(head, incomeRow, stockRow, buildingRow, troopRow);
 }
 
-function appendIncomeBar(layer: SVGElement, centerX: number, centerY: number, income: { grain: number; ore: number }, maxVisibleIncome: number, isUnowned: boolean): void {
-  const total = income.grain + income.ore;
-  if (total === 0 || maxVisibleIncome === 0) return;
-  const width = BAR_MIN_WIDTH + (BAR_MAX_WIDTH - BAR_MIN_WIDTH) * (total / maxVisibleIncome);
-  const left = centerX - width / 2;
-  const top = centerY + BAR_OFFSET_Y - BAR_HEIGHT / 2;
-  const grainWidth = Math.max(1, (width - SEGMENT_GAP) * (income.grain / total));
-  const oreWidth = Math.max(1, width - SEGMENT_GAP - grainWidth);
-  const chip = createSvgShape('g', { class: isUnowned ? 'wg-lens-mark wg-lens-mark-unowned' : 'wg-lens-mark' });
-  layer.append(chip);
-  chip.append(
-    createSvgShape('rect', {
-      x: (left - CHIP_PADDING).toFixed(1),
-      y: (top - CHIP_PADDING).toFixed(1),
-      width: (width + CHIP_PADDING * 2).toFixed(1),
-      height: String(BAR_HEIGHT + CHIP_PADDING * 2),
-      rx: '2.5',
-      class: 'wg-lens-chip-bg',
-    }),
-    createSvgShape('rect', { x: left.toFixed(1), y: top.toFixed(1), width: grainWidth.toFixed(1), height: String(BAR_HEIGHT), rx: '1.5', fill: GRAIN_COLOR }),
-    createSvgShape('rect', { x: (left + grainWidth + SEGMENT_GAP).toFixed(1), y: top.toFixed(1), width: oreWidth.toFixed(1), height: String(BAR_HEIGHT), rx: '1.5', fill: ORE_COLOR }),
-  );
+interface ResourceMark {
+  readonly path: string;
+  readonly color: string;
+  readonly label: string;
+  readonly stockShare: number | null;
+  readonly width: number;
 }
 
-function legendKey(key: 'grain' | 'ore', color: string): HTMLElement {
-  const wrap = el('span', 'wg-lens-chip');
-  const swatch = el('span', 'wg-lens-key-swatch');
-  swatch.style.background = color;
-  wrap.append(swatch, econGlyph(key, 12, null), el('span', '', ECON_GLYPHS[key].label));
-  return wrap;
+function resourceMarkOf(path: string, color: string, amount: number, stockShare: number | null): ResourceMark {
+  const label = String(amount);
+  return { path, color, label, stockShare, width: MARK_GLYPH_SIZE + 1.5 + label.length * MARK_DIGIT_WIDTH };
 }
+
+function appendMarkGlyph(container: SVGElement, path: string, centerX: number, centerY: number, color: string): void {
+  const scale = MARK_GLYPH_SIZE / 16;
+  const group = createSvgShape('g', { transform: `translate(${(centerX - MARK_GLYPH_SIZE / 2).toFixed(1)}, ${(centerY - MARK_GLYPH_SIZE / 2).toFixed(1)}) scale(${scale.toFixed(3)})` });
+  group.append(createSvgShape('path', { d: path, fill: 'none', stroke: color, 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+  container.append(group);
+}
+
+function appendResourceMarks(layer: SVGElement, startX: number, centerY: number, marks: readonly ResourceMark[], className: string, maxWidth = Number.POSITIVE_INFINITY): void {
+  const group = createSvgShape('g', { class: className });
+  const fullWidth = marksWidth(marks);
+  if (fullWidth > maxWidth) {
+    const pivotX = startX + fullWidth / 2;
+    group.setAttribute('transform', `translate(${pivotX.toFixed(1)} ${centerY.toFixed(1)}) scale(${(maxWidth / fullWidth).toFixed(3)}) translate(${(-pivotX).toFixed(1)} ${(-centerY).toFixed(1)})`);
+  }
+  let cursorX = startX;
+  for (const mark of marks) {
+    appendMarkGlyph(group, mark.path, cursorX + MARK_GLYPH_SIZE / 2, centerY, mark.color);
+    const text = createSvgShape('text', { x: (cursorX + MARK_GLYPH_SIZE + 1.5).toFixed(1), y: (centerY + 3.5).toFixed(1), 'font-size': MARK_FONT_SIZE, fill: mark.color, class: 'wg-lens-mark-text' });
+    text.textContent = mark.label;
+    group.append(text);
+    if (mark.stockShare !== null) {
+      const barTop = centerY + STOCK_BAR_OFFSET_Y - STOCK_BAR_HEIGHT / 2;
+      group.append(
+        createSvgShape('rect', { x: cursorX.toFixed(1), y: barTop.toFixed(1), width: mark.width.toFixed(1), height: String(STOCK_BAR_HEIGHT), class: 'wg-lens-stock-track' }),
+        createSvgShape('rect', { x: cursorX.toFixed(1), y: barTop.toFixed(1), width: (mark.width * Math.min(1, Math.max(0, mark.stockShare))).toFixed(1), height: String(STOCK_BAR_HEIGHT), fill: mark.color }),
+      );
+    }
+    cursorX += mark.width + MARK_ITEM_GAP;
+  }
+  layer.append(group);
+}
+
+function marksWidth(marks: readonly ResourceMark[]): number {
+  return marks.reduce((sum, mark) => sum + mark.width, 0) + Math.max(0, marks.length - 1) * MARK_ITEM_GAP;
+}
+
+function appendVillageIncome(layer: SVGElement, state: MatchState, village: VillageState, centerX: number, centerY: number): void {
+  const income = incomeOf(state, village);
+  if (income.grain + income.ore === 0) return;
+  const cap = Math.max(1, warehouseCapOf(village));
+  const marks = [
+    resourceMarkOf(GRAIN_GLYPH_PATH, GRAIN_COLOR, income.grain, village.resources.grain / cap),
+    resourceMarkOf(ORE_GLYPH_PATH, ORE_COLOR, income.ore, village.resources.ore / cap),
+  ];
+  appendResourceMarks(layer, centerX - marksWidth(marks) / 2, centerY + VILLAGE_INCOME_SLOT_Y, marks, village.owner === null ? 'wg-lens-mark wg-lens-mark-unowned' : 'wg-lens-mark', VILLAGE_INCOME_MAX_WIDTH);
+}
+
+function improvementYieldMarkOf(state: MatchState, hexIndex: number): ResourceMark | null {
+  const paid = paidImprovementYieldOf(state, hexIndex);
+  if (paid.ore > 0) return resourceMarkOf(ORE_GLYPH_PATH, ORE_COLOR, paid.ore, null);
+  if (paid.grain > 0) return resourceMarkOf(GRAIN_GLYPH_PATH, GRAIN_COLOR, paid.grain, null);
+  return null;
+}
+
+function appendImprovementYields(layer: SVGElement, state: MatchState): void {
+  for (const [hexIndex, tile] of state.territory) {
+    if (tile.level === 0 || (tile.improvement !== 'field' && tile.improvement !== 'quarry')) continue;
+    if (state.villages[hexIndex] !== null) continue;
+    const mark = improvementYieldMarkOf(state, hexIndex);
+    const hex = state.hexes[hexIndex];
+    if (!mark || !hex) continue;
+    const center = hexCenter(hex.q, hex.r);
+    appendResourceMarks(layer, center.x - 2, center.y + IMPROVEMENT_SLOT_Y, [mark], 'wg-lens-mark');
+  }
+}
+
+export const ECONOMY_KEY_ROWS: readonly { path: string; color: string; label: string }[] = [
+  { path: GRAIN_GLYPH_PATH, color: GRAIN_COLOR, label: 'Grain a turn, bar fills to the warehouse cap' },
+  { path: ORE_GLYPH_PATH, color: ORE_COLOR, label: 'Ore a turn, bar fills to the warehouse cap' },
+];
 
 export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoardSettled: () => boolean): EconomyLens {
-  let isOn = false;
   let latestState: MatchState | null = null;
   let hoveredHexIndex: number | null = null;
   const layer = createSvgShape('g', { class: 'wg-lens-layer' });
   const markLayer = createSvgShape('g', { class: 'wg-lens-marks' });
   const hitLayer = createSvgShape('g', { class: 'wg-lens-hits' });
   layer.append(markLayer, hitLayer);
-  layer.setAttribute('display', 'none');
 
   let selectedHexIndex: number | null = null;
   let heldInput: LensInput | null = null;
@@ -180,17 +230,8 @@ export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoa
   }
   const detail = el('div', 'wg-lens-detail');
 
-  const toggle = el('label', 'wg-lens-toggle');
-  const lensSwitch = switchInput({ label: 'Economy lens', checked: false, onChange: (checked) => setLensOn(checked) });
-  toggle.append(lensSwitch, econGlyph('grain', 12, null), el('span', '', 'Economy'));
-
-  const legend = el('div', 'wg-lens-legend');
-  legend.append(el('span', 'wg-econ-muted', 'Bar: income per turn'), legendKey('grain', GRAIN_COLOR), legendKey('ore', ORE_COLOR));
-  const controlRow = el('div', 'wg-lens-control-row');
-  controlRow.append(toggle, legend);
   const controls = el('div', 'wg-lens-controls');
-  controls.append(controlRow, detail);
-  controls.dataset.lens = 'off';
+  controls.append(detail);
   const hitsByHexIndex = new Map<number, SVGElement>();
   const villageByHexIndex = new Map<number, VillageState>();
 
@@ -234,20 +275,16 @@ export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoa
   function render(): void {
     markLayer.replaceChildren();
     villageByHexIndex.clear();
-    layer.setAttribute('display', isOn ? 'inline' : 'none');
-    controls.dataset.lens = isOn ? 'on' : 'off';
-    if (!isOn || !latestState) return;
+    if (!latestState) return;
     const state = latestState;
-    const villages = boardVillagesOf(state);
-    const maxVisibleIncome = Math.max(0, ...villages.map((village) => {
-      const income = incomeOf(village);
-      return income.grain + income.ore;
-    }));
-    for (const village of villages) {
+    const isDenseMap = (state.spec.mapRadius ?? 0) >= TERRAIN_MIN_RADIUS;
+    appendImprovementYields(markLayer, state);
+    for (const village of boardVillagesOf(state)) {
       const tile = state.hexes[village.hexIndex];
       if (!tile) continue;
       const center = hexCenter(tile.q, tile.r);
-      if (!village.isBeacon) appendIncomeBar(markLayer, center.x, center.y, incomeOf(village), maxVisibleIncome, village.owner === null);
+      const isQuietBarbarian = isDenseMap && village.owner === null && village.hexIndex !== selectedHexIndex;
+      if (!village.isBeacon && !isQuietBarbarian) appendVillageIncome(markLayer, state, village, center.x, center.y);
       villageByHexIndex.set(village.hexIndex, village);
       const hit = hitFor(village.hexIndex);
       hit.setAttribute('points', hitPolygonPoints(center.x, center.y));
@@ -261,10 +298,6 @@ export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoa
     showDetail();
   }
 
-  function setLensOn(checked: boolean): void {
-    isOn = checked;
-    render();
-  }
 
 
   return {

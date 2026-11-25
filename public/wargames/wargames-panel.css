@@ -373,7 +373,6 @@
 
 .wg-board-caption {
   width: 100%;
-  max-width: 860px;
   height: 84px;
   flex: none;
   box-sizing: border-box;
@@ -416,20 +415,53 @@
   font-style: italic;
 }
 
+.wg-map-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--wg-map-aspect, 1);
+  max-height: max(420px, calc(100dvh - 380px));
+  overflow: hidden;
+}
+
 .wg-hex-svg {
   width: 100%;
-  max-width: 860px;
-  height: auto;
-  max-height: max(360px, calc(100dvh - 400px));
+  height: 100%;
   display: block;
+  touch-action: pan-x pan-y;
+  user-select: none;
+}
+
+.wg-map-viewport[data-zoom="zoomed"] .wg-hex-svg {
+  touch-action: none;
+  cursor: grab;
+}
+
+.wg-map-viewport[data-zoom="zoomed"] .wg-hex-svg:active {
+  cursor: grabbing;
+}
+
+.wg-map-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .wg-hex-cell {
   cursor: pointer;
 }
 
-.wg-fx-layer {
+.wg-fx-layer,
+.wg-route-layer,
+.wg-hex-content-layer {
   pointer-events: none;
+}
+
+.wg-garrison-plate {
+  fill: var(--bg);
+  fill-opacity: 0.6;
 }
 
 .wg-hex-index {
@@ -654,21 +686,6 @@
   }
 }
 
-@keyframes wg-army-glide {
-  0% {
-    opacity: 1;
-    transform: translate(var(--wg-dx), var(--wg-dy));
-  }
-  80% {
-    opacity: 1;
-    transform: translate(0, 0);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(0, 0);
-  }
-}
-
 @keyframes wg-combat-clash {
   0% {
     opacity: 0;
@@ -733,10 +750,6 @@
 
   .wg-army-line {
     animation: wg-march-flow 0.9s linear infinite;
-  }
-
-  .wg-army-glide {
-    animation: wg-army-glide 0.52s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   .wg-combat-clash {
