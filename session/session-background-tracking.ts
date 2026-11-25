@@ -73,6 +73,7 @@ interface SessionBackgroundTracking {
   clearAgents(): void;
   stopAnnouncedBackgroundTasks(): void;
   stashGateHeldReady(signal: ResolvedStatusSignal): void;
+  restoreGateHeldReady(held: Omit<GateHeldReady, "seq">): void;
   clearGateHeldReady(): void;
   trackWakeup(raw: HookSignal): void;
   pendingWakeup(): PendingWakeup | null;
@@ -382,23 +383,27 @@ function createSessionBackgroundTracking({
     if (outcome === "removed") emitAgentsChange();
   }
 
-  function stashGateHeldReady(signal: ResolvedStatusSignal): void {
-    const now = clock.nowMs();
+  function restoreGateHeldReady(held: Omit<GateHeldReady, "seq">): void {
     gateHeldReady = {
+      ...held,
+      seq: signalSeq,
+    };
+    gateQuietSince = null;
+    port.resyncWorkingLatch();
+    evaluateGateHeldReady();
+  }
+
+  function stashGateHeldReady(signal: ResolvedStatusSignal): void {
+    restoreGateHeldReady({
       source: signal.source,
       signal: signal.signal,
       confidence: signal.confidence,
       state: port.state(),
-      ts: now,
-      seq: signalSeq,
+      ts: clock.nowMs(),
       agentWorkExpiriesAtHold: tasks.agentWorkExpiryCount(),
       shellWorkExpiriesAtHold: tasks.shellWorkExpiryCount(),
       hadWorkAtHold: activeAgentCount() > 0,
-    };
-
-    gateQuietSince = null;
-    port.resyncWorkingLatch();
-    evaluateGateHeldReady();
+    });
   }
 
   function clearAgents(): void {
@@ -514,6 +519,7 @@ function createSessionBackgroundTracking({
     clearAgents,
     stopAnnouncedBackgroundTasks,
     stashGateHeldReady,
+    restoreGateHeldReady,
     clearGateHeldReady,
     trackWakeup,
     pendingWakeup,

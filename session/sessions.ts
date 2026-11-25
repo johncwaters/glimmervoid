@@ -1064,7 +1064,7 @@ class Session extends EventEmitter {
     }
 
     const hookEvent = String(raw.event || "").toLowerCase();
-    if (hookEvent === "stop") this._observeCompaction("stop");
+    if (hookEvent === "stop" || (raw.signal === "ready" && raw.source === "hook")) this._observeCompaction("stop");
     if (raw.signal === "compaction-start") {
       this._observeCompaction(raw.signal);
       this._statusSource.reset();
@@ -1095,7 +1095,7 @@ class Session extends EventEmitter {
       const proposedPlanText = raw.payload?.[PROPOSED_PLAN_TEXT_FIELD];
       if (raw.promptKind === "plan" && typeof proposedPlanText === "string") this.emit("plan-proposed", { planText: proposedPlanText });
     }
-    if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
+    if (raw && raw.signal === "session-start" && this._onSessionStartHook(raw)) return;
     if (raw && raw.signal === "resume") {
       this._promptPhase = "prompted";
       this._observeCompaction("resume");
@@ -1131,13 +1131,13 @@ class Session extends EventEmitter {
     return isConversationReplacedAtStartup({ hasPromptSinceSpawn: this._promptPhase === "prompted", currentResumeSessionId: this._resumeSessionId, reportedId, sessionStartSource: raw.payload.source });
   }
 
-  _onSessionStartHook(raw: HookSignal): void {
+  _onSessionStartHook(raw: HookSignal): boolean {
     const payload = raw.payload || {};
     const src = String(payload.source || "").toLowerCase();
-    if (src !== "clear" && src !== "compact") return;
+    if (src !== "clear" && src !== "compact") return false;
     if (src === "compact") {
       this._finishCompaction();
-      return;
+      return true;
     }
     this._compaction = createCompactionTracking();
     this._emitSessionDetail();
@@ -1148,6 +1148,7 @@ class Session extends EventEmitter {
     this._setPendingPromptKind(null);
     this._promptNotes.forgetHints();
     this._armPromptSupervisionLine();
+    return false;
   }
 
   _captureClaudeSessionId(
@@ -1209,6 +1210,7 @@ class Session extends EventEmitter {
       signal, source, state: this.state,
       pendingPromptKind: this._pendingPromptKind,
       pendingPromptToolName: this._pendingPromptToolName,
+      heldReady: this.backgroundTracking.heldReady(),
     });
     if (this._compaction.isCompacting !== wasCompacting) this._emitSessionDetail();
   }
@@ -1221,7 +1223,7 @@ class Session extends EventEmitter {
   }
 
   _finishCompaction(): boolean {
-    const finished = finishCompaction(this._compaction, this.state);
+    const finished = finishCompaction(this._compaction, this.state, this.backgroundTracking.heldReady());
     this._compaction = finished.tracking;
     const isTurnStillOpen = finished.tracking.hasPromptInFlight;
     if (finished.shouldResetDetectionSources) {
@@ -1231,6 +1233,13 @@ class Session extends EventEmitter {
     if (finished.event) {
       this.transition(finished.event, { source: "hook", signal: "compaction-end" });
       this._setPendingPromptKind(finished.returnState?.pendingPromptKind ?? null, finished.returnState?.pendingPromptToolName ?? null);
+    }
+    if (finished.returnHeldReady) {
+      this.backgroundTracking.restoreGateHeldReady(finished.returnHeldReady);
+      if (this.backgroundTracking.heldReady() !== null) {
+        this._chatOutbox.drain();
+        this.emit("turn-end-held");
+      }
     }
     this._emitSessionDetail();
     return isTurnStillOpen;

@@ -324,3 +324,120 @@ test('v2-late-stop-permission-answered.jsonl: a permission prompt answered after
   const outcome = replayThroughSession('v2-late-stop-permission-answered.jsonl', t, { hooksReportPrompts: true });
   assert.equal(outcome.finalState, STATES.COMPLETE);
 });
+
+test('idle compaction during a gate-held shell task preserves the hold and completes when the shell TTL expires', (testContext) => {
+  testContext.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new Session({
+    id: 'idle-compaction-held-shell-after',
+    name: 'claude',
+    path: process.cwd(),
+    agent: 'claude-code',
+    statusConflictMs: 20,
+    statusDedupMs: 10,
+    shellTaskTtlMs: 10_000,
+    gateReleaseSettleMs: 100,
+  });
+  testContext.after(() => session.destroy());
+  session.state = STATES.IDLE;
+
+  const runningShell = [{ id: 'b42g6ih3a', type: 'shell', status: 'running' }];
+  let turnEndHeldCount = 0;
+  session.on('turn-end-held', () => { turnEndHeldCount += 1; });
+  session.ingestHookSignal({ signal: 'resume', source: 'hook', event: 'UserPromptSubmit', payload: { hook_event_name: 'UserPromptSubmit' }, ts: Date.now() });
+  session.ingestHookSignal({ signal: 'background-task-launched', source: 'hook', event: 'PostToolUse', payload: { tool_name: 'Bash', tool_input: { command: 'node harness.ts', run_in_background: true }, tool_response: { backgroundTaskId: 'b42g6ih3a' } }, ts: Date.now() });
+  session.ingestHookSignal({ signal: 'ready', source: 'hook', event: 'Stop', payload: { hook_event_name: 'Stop', background_tasks: runningShell }, ts: Date.now() });
+  assert.equal(session.state, STATES.RUNNING);
+  assert.equal(turnEndHeldCount, 1);
+
+  testContext.mock.timers.tick(5_000);
+  session._titleSource.feed(`\x1b]0;${String.fromCharCode(0x2802)} Claude Code\x07`);
+  session.ingestHookSignal({ signal: 'compaction-start', source: 'hook', event: 'PreCompact', payload: { hook_event_name: 'PreCompact', trigger: 'auto' }, ts: Date.now() });
+  testContext.mock.timers.tick(1_000);
+  session.ingestHookSignal({ signal: 'subagent-stop', source: 'hook', event: 'SubagentStop', payload: { hook_event_name: 'SubagentStop', agent_id: 'compact-agent', background_tasks: runningShell }, ts: Date.now() });
+  session.ingestHookSignal({ signal: 'session-start', source: 'hook', event: 'SessionStart', payload: { hook_event_name: 'SessionStart', source: 'compact' }, ts: Date.now() });
+  assert.equal(turnEndHeldCount, 2);
+  testContext.mock.timers.tick(500);
+  session.ingestHookSignal({ signal: 'compaction-end', source: 'hook', event: 'PostCompact', payload: { hook_event_name: 'PostCompact', trigger: 'auto' }, ts: Date.now() });
+  assert.equal(turnEndHeldCount, 2);
+  assert.equal(session.state, STATES.RUNNING);
+
+  testContext.mock.timers.tick(4_000);
+  assert.equal(session.state, STATES.COMPLETE);
+});
+
+for (const [label, endEvent, sendPreCompact] of [
+  ['StopFailure followed by idle compaction', 'StopFailure', true],
+  ['SessionStart compact arriving without PreCompact', 'Stop', false],
+] as const) {
+  test(`idle compaction preserves gate-held shell task for ${label}`, (testContext) => {
+    testContext.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const session = new Session({
+      id: `idle-compaction-edge-${endEvent}-${sendPreCompact}`,
+      name: 'claude',
+      path: process.cwd(),
+      agent: 'claude-code',
+      statusConflictMs: 20,
+      statusDedupMs: 10,
+      shellTaskTtlMs: 10_000,
+      gateReleaseSettleMs: 100,
+    });
+    testContext.after(() => session.destroy());
+    session.state = STATES.IDLE;
+
+    const runningShell = [{ id: 'b1', type: 'shell', status: 'running' }];
+    session.ingestHookSignal({ signal: 'resume', source: 'hook', event: 'UserPromptSubmit', payload: { hook_event_name: 'UserPromptSubmit' }, ts: Date.now() });
+    session.ingestHookSignal({ signal: 'background-task-launched', source: 'hook', event: 'PostToolUse', payload: { tool_name: 'Bash', tool_input: { command: 'node harness.ts', run_in_background: true }, tool_response: { backgroundTaskId: 'b1' } }, ts: Date.now() });
+    session.ingestHookSignal({ signal: 'ready', source: 'hook', event: endEvent, payload: { hook_event_name: endEvent, background_tasks: runningShell }, ts: Date.now() });
+    assert.equal(session.state, STATES.RUNNING);
+
+    testContext.mock.timers.tick(5_000);
+    if (sendPreCompact) {
+      session.ingestHookSignal({ signal: 'compaction-start', source: 'hook', event: 'PreCompact', payload: { hook_event_name: 'PreCompact', trigger: 'auto' }, ts: Date.now() });
+    }
+    session.ingestHookSignal({ signal: 'session-start', source: 'hook', event: 'SessionStart', payload: { hook_event_name: 'SessionStart', source: 'compact' }, ts: Date.now() });
+    assert.equal(session.state, STATES.RUNNING);
+
+    testContext.mock.timers.tick(6_000);
+    assert.equal(session.state, STATES.COMPLETE);
+  });
+}
+
+for (const [label, kind, expectedState] of [
+  ['shell task expires during idle compaction', 'shell', STATES.COMPLETE],
+  ['subagent expires during idle compaction', 'subagent', STATES.WAITING],
+] as const) {
+  test(`idle compaction settles immediately when a ${label}`, (testContext) => {
+    testContext.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const session = new Session({
+      id: `idle-compaction-expired-${kind}`,
+      name: 'claude',
+      path: process.cwd(),
+      agent: 'claude-code',
+      statusConflictMs: 20,
+      statusDedupMs: 10,
+      shellTaskTtlMs: 5_000,
+      agentTtlMs: 5_000,
+      gateReleaseSettleMs: 100,
+    });
+    testContext.after(() => session.destroy());
+    session.state = STATES.IDLE;
+
+    session.ingestHookSignal({ signal: 'resume', source: 'hook', event: 'UserPromptSubmit', payload: { hook_event_name: 'UserPromptSubmit' }, ts: Date.now() });
+    if (kind === 'shell') {
+      session.ingestHookSignal({ signal: 'background-task-launched', source: 'hook', event: 'PostToolUse', payload: { tool_name: 'Bash', tool_input: { command: 'node harness.ts', run_in_background: true }, tool_response: { backgroundTaskId: 'b1' } }, ts: Date.now() });
+      session.ingestHookSignal({ signal: 'ready', source: 'hook', event: 'Stop', payload: { hook_event_name: 'Stop', background_tasks: [{ id: 'b1', type: 'shell', status: 'running' }] }, ts: Date.now() });
+    }
+    if (kind === 'subagent') {
+      session.ingestHookSignal({ signal: 'subagent-start', source: 'hook', event: 'SubagentStart', payload: { hook_event_name: 'SubagentStart', agent_id: 'sub-1' }, ts: Date.now() });
+      session.ingestHookSignal({ signal: 'ready', source: 'hook', event: 'Stop', payload: { hook_event_name: 'Stop' }, ts: Date.now() });
+    }
+    assert.equal(session.state, STATES.RUNNING);
+
+    testContext.mock.timers.tick(3_000);
+    session._titleSource.feed(`\x1b]0;${String.fromCharCode(0x2802)} Claude Code\x07`);
+    session.ingestHookSignal({ signal: 'compaction-start', source: 'hook', event: 'PreCompact', payload: { hook_event_name: 'PreCompact', trigger: 'auto' }, ts: Date.now() });
+    testContext.mock.timers.tick(3_000);
+    session.ingestHookSignal({ signal: 'session-start', source: 'hook', event: 'SessionStart', payload: { hook_event_name: 'SessionStart', source: 'compact' }, ts: Date.now() });
+    assert.equal(session.state, expectedState);
+  });
+}
