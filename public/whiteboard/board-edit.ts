@@ -431,6 +431,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
     glideToCamera(target);
   }
 
+  function showCamera(keptCamera: Camera): void {
+    stopGlide();
+    owedFit = null;
+    camera = keptCamera;
+    applyCamera();
+  }
+
   function glideToView(view: Rect): void {
     if (viewport.clientWidth === 0 || view.width <= 0) return;
     const target = { x: view.x, y: view.y, scale: viewport.clientWidth / view.width };
@@ -2190,6 +2197,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     fitArea: (bounds: Rect) => fitArea(bounds, MAX_FIT_ZOOM),
     frameArea: glideToArea,
     glideToView,
+    showCamera,
     startPresenting,
     endPresenting,
     selectedIds: (): ReadonlySet<string> => selectedIds,

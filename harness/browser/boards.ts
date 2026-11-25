@@ -2263,7 +2263,7 @@ function openBoardTitle(panel: Locator, boardTitle: string): Locator {
   return panel.locator('.wb-board-title', { hasText: boardTitle });
 }
 
-async function controlReplyOf(page: Page, type: string, payload: Record<string, unknown>): Promise<unknown> {
+export async function controlReplyOf(page: Page, type: string, payload: Record<string, unknown>): Promise<unknown> {
   return page.evaluate(async ({ type, payload }) => {
     const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
     const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
@@ -2342,11 +2342,11 @@ async function verifyPhoneHoldDrag(page: Page, panel: Locator, boardTitle: strin
   await boardWithout(open, 'the lifted box is gone', (element) => element.id === 'lift-box');
 }
 
-async function createBoardOverControl(page: Page, boardTitle: string): Promise<string> {
+export async function createBoardOverControl(page: Page, boardTitle: string): Promise<string> {
   return CreatedReply.parse(await controlReplyOf(page, 'whiteboard-create', { title: boardTitle })).summary.id;
 }
 
-async function showBoardInFocus(page: Page, sessionId: string, boardTitle: string): Promise<Locator> {
+export async function showBoardInFocus(page: Page, sessionId: string, boardTitle: string): Promise<Locator> {
   await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
   const center = page.locator('#focus-center');

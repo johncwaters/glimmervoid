@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
 import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_REPLY, SHOWN_PAGE_TICKED_TEXT, SHOW_CARD_BELOW_COMMAND, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import fs from 'node:fs';
-import { boardElementsOf, boxBoardRectsOf, boxScreenRectsOf, clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
+import { boardElementsOf, boxBoardRectsOf, boxScreenRectsOf, clickBoardBoxWhere, controlReplyOf, createBoardOverControl, hoverBoardBoxWhere, showBoardInFocus } from './boards.ts';
 import { DRAFT_PR_STATE, FAKE_PR_NUMBER, FAKE_PR_STATE_ENV, FAKE_PR_URL, READY_PR_STATE } from './fake-pr.ts';
 import type { Element as BoardElement } from '../../shared/contracts/whiteboard.ts';
 import { pollFor } from './review-changes.ts';
@@ -126,6 +126,42 @@ function clearMapPointIn(page: Page, bounds: Box): Promise<{ x: number; y: numbe
     }
     return null;
   }, bounds);
+}
+
+async function studioCameraOf(page: Page): Promise<{ x: number; y: number; scale: number }> {
+  return page.evaluate(() => {
+    const world = document.querySelector<HTMLElement>('.board-session-view .wb-world');
+    const transform = world ? new DOMMatrixReadOnly(getComputedStyle(world).transform) : null;
+    return transform ? { x: -transform.e / transform.a, y: -transform.f / transform.a, scale: transform.a } : { x: Number.NaN, y: Number.NaN, scale: Number.NaN };
+  });
+}
+
+async function verifyStudioCameraKeptAcrossFocusBoard(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  await page.locator('#tab-focus').click();
+  const focusSessionId = await page.locator('.focus-rail .session-row[data-id]').first().getAttribute('data-id', { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.ok(focusSessionId, 'Focus lists a session to show a board beside');
+  await page.locator('#tab-board-session').click();
+  await root.locator('.wb-viewport').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const viewport = await boxOf(page, '.board-session-view .wb-viewport');
+  await page.mouse.move(viewport.x + 30, viewport.y + viewport.height / 2);
+  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(STEADY_PAN_STEP_PX * 3, STEADY_PAN_STEP_PX * 2);
+  await delay(MAP_GLIDE_SETTLE_MS);
+  const leftCamera = await studioCameraOf(page);
+  const focusBoardTitle = `Focus board ${focusSessionId.slice(0, 8)}`;
+  const focusBoardId = await createBoardOverControl(page, focusBoardTitle);
+  await controlReplyOf(page, 'whiteboard-connect', { boardId: focusBoardId, sessionId: focusSessionId });
+  await page.locator('#tab-focus').click();
+  await showBoardInFocus(page, focusSessionId, focusBoardTitle);
+  await page.locator('#tab-board-session').click();
+  await root.locator('.wb-viewport').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await delay(MAP_GLIDE_SETTLE_MS);
+  const backCamera = await studioCameraOf(page);
+  const isSameCamera = Math.abs(backCamera.x - leftCamera.x) < 1 && Math.abs(backCamera.y - leftCamera.y) < 1 && Math.abs(backCamera.scale - leftCamera.scale) < 0.001;
+  assert.ok(isSameCamera, `the Studio map keeps the camera the operator left after Focus shows another board (left ${JSON.stringify(leftCamera)}, back ${JSON.stringify(backCamera)})`);
+  await page.mouse.move(viewport.x + 30, viewport.y + viewport.height / 2);
+  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(-STEADY_PAN_STEP_PX * 3, -STEADY_PAN_STEP_PX * 2);
+  await delay(MAP_GLIDE_SETTLE_MS);
 }
 
 async function verifyFirstViewClearOfBar(page: Page): Promise<void> {
@@ -502,6 +538,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-log').isVisible(), false, 'the chat log stays folded on open');
   await verifyFirstViewClearOfBar(page);
+  await verifyStudioCameraKeptAcrossFocusBoard(page);
   assert.equal(await root.locator('.bs-top-left > :not(.bs-chip, .bs-menu)').count(), 0, 'the top left holds only the repo chip');
   await page.locator('.session-name', { hasText: / main$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
 

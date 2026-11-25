@@ -168,7 +168,8 @@ let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
 let contextMenu: BoardContextMenu | null = null;
 let inspector: BoardInspector | null = null;
-let shouldFitOnNextRender = true;
+let firstViewOfNextRender: 'fit' | 'kept camera' | null = 'fit';
+const keptCameraByBoardId = new Map<string, Camera>();
 const fittedBoardIdsByGuest = new WeakMap<BoardHostGuest, Set<string>>();
 let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
@@ -778,13 +779,22 @@ export function paintBoard(): void {
   paintReview();
   paintAgentChange();
   editor?.afterBoardPaint(tiled.version);
-  if (shouldFitOnNextRender) {
-    fitFirstView();
-    shouldFitOnNextRender = false;
+  if (firstViewOfNextRender) {
+    showFirstView(board.id, firstViewOfNextRender);
+    firstViewOfNextRender = null;
   }
   focusAgentChangeOf(board.id);
   paintToolbar();
   guest?.onPainted(hostCamera);
+}
+
+function showFirstView(boardId: string, firstView: 'fit' | 'kept camera'): void {
+  const keptCamera = firstView === 'kept camera' ? keptCameraByBoardId.get(boardId) : undefined;
+  if (keptCamera) {
+    editor?.showCamera(keptCamera);
+    return;
+  }
+  fitFirstView();
 }
 
 function fitFirstView(): void {
@@ -812,8 +822,9 @@ function selectBoard(boardId: string): void {
   if (selectedBoardId === boardId) return;
   editor?.endPresenting();
   gatherClickOpenedStacksOfSelectedBoard();
+  if (selectedBoardId && firstViewOfNextRender === null) keptCameraByBoardId.set(selectedBoardId, hostCamera);
   selectedBoardId = boardId;
-  shouldFitOnNextRender = true;
+  firstViewOfNextRender = 'kept camera';
   editor?.clearSelection();
   editor?.closeInlineEditor();
   inspector?.closeBoardSettings();
@@ -1879,7 +1890,7 @@ function fitFirstGuestView(seatedGuest: BoardHostGuest, boardId: string): void {
   if (fittedBoardIds.has(boardId)) return;
   fittedBoardIds.add(boardId);
   fittedBoardIdsByGuest.set(seatedGuest, fittedBoardIds);
-  shouldFitOnNextRender = true;
+  firstViewOfNextRender = 'fit';
 }
 
 export function showBoardBeside(boardId: string | null, sessionId: string | null, nextGuest: BoardHostGuest | null = null): void {
