@@ -55,6 +55,21 @@ const VERBS_BY_WORK_KIND: Record<Exclude<WorkKind, 'working'>, readonly string[]
   running: ['Running a command', 'Poking the shell', 'Waiting on a command', 'Pressing enter, bravely', 'Running a command, nervously'],
 };
 
+const PLAIN_VERB_BY_WORK_KIND: Record<Exclude<WorkKind, 'working'>, string> = {
+  busy: 'Working',
+  thinking: 'Thinking',
+  reading: 'Reading',
+  editing: 'Editing',
+  running: 'Running a command',
+};
+
+const PLAIN_VERB_BY_GLIMMERVOID_TOOL = new Map<string, string>(Object.entries({
+  whiteboard: 'Drawing on the board',
+  show: 'Showing on the board',
+  session: 'Starting a session',
+  attention: 'Asking you',
+}));
+
 const VERB_BY_GLIMMERVOID_TOOL = new Map<string, string>(Object.entries({
   whiteboard: 'Doodling on your board',
   show: 'Sticking it on the fridge',
@@ -158,6 +173,12 @@ export function verbChoicesFor(beat: ActivityBeat): readonly string[] {
   if (beat.glimmervoidTool !== null) return [VERB_BY_GLIMMERVOID_TOOL.get(beat.glimmervoidTool) ?? GLIMMERVOID_FALLBACK_VERB];
   if (beat.workKind === 'working') return [`Using ${beat.toolName ?? 'a tool'}`];
   return VERBS_BY_WORK_KIND[beat.workKind];
+}
+
+export function plainVerbFor(beat: ActivityBeat): string {
+  if (beat.glimmervoidTool !== null) return PLAIN_VERB_BY_GLIMMERVOID_TOOL.get(beat.glimmervoidTool) ?? PLAIN_VERB_BY_WORK_KIND.busy;
+  if (beat.workKind === 'working') return verbChoicesFor(beat)[0] ?? '';
+  return PLAIN_VERB_BY_WORK_KIND[beat.workKind];
 }
 
 export type ChatPhase = 'starting' | 'working' | 'monitoring' | 'quiet' | 'stopped';

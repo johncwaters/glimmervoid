@@ -304,10 +304,14 @@ function boardChangeTextOf(card: ChatCardByType['board-change']): HTMLElement {
   return text;
 }
 
+export function showOnBoardButton(onShow: () => void, shortcutKey?: string): HTMLButtonElement {
+  return button({ variant: 'primary', size: 'small', textCase: 'inline', label: 'Show on board', shortcutKey, onClick: onShow });
+}
+
 function renderBoardChangeCard(card: ChatCardByType['board-change']): HTMLElement {
   const row = el('section', 'chat-board-change');
   row.dataset.cardType = card.cardType;
-  const showOnBoard = button({ variant: 'primary', size: 'small', textCase: 'inline', label: 'Show on board', shortcutKey: shortcutHint('show-board-change', SHORTCUT_PLATFORM), onClick: () => dispatchCardAction(row, card, 'focus', '') });
+  const showOnBoard = showOnBoardButton(() => dispatchCardAction(row, card, 'focus', ''), shortcutHint('show-board-change', SHORTCUT_PLATFORM));
   const icon = createLineIcon(BOARDS_ICON_PATH, '1.5');
   icon.classList.add('chat-board-change-icon');
   row.append(icon, boardChangeTextOf(card), showOnBoard);

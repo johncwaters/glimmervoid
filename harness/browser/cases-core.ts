@@ -881,6 +881,9 @@ export function needsDoneMeansChecks(scenario: Scenario): boolean {
 
 export const SHOWN_PAGE_FILE_NAME = 'chapter-ticks.html';
 export const SHOWN_PAGE_TICKED_TEXT = 'Ticked';
+export const SHOWN_PAGE_REPLY = 'The chapter ticks page is on the map.';
+export const SHOW_CARD_BELOW_COMMAND = 'show-card-below ';
+export const SHOWN_CARD_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="60" viewBox="0 0 240 60"><rect width="240" height="60" fill="#2f855a"/></svg>';
 export const SHOWN_PAGE_HTML = `<!doctype html><html><head><title>Chapter ticks</title></head><body><button type="button" id="tick">Tick</button><script>
 document.getElementById('tick').addEventListener('click', (event) => { event.currentTarget.textContent = '${SHOWN_PAGE_TICKED_TEXT}'; });
 </script></body></html>`;

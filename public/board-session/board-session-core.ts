@@ -58,3 +58,15 @@ export function isBelowFloor(bounds: Rect, viewWidthPx: number, viewHeightPx: nu
   const fitted = fittedCamera(bounds, viewWidthPx, viewHeightPx, reservedBottomPx);
   return fitted !== null && fitted.scale < floorScale;
 }
+
+function shiftToFit(start: number, length: number, clearStart: number, clearLength: number): number {
+  if (length > clearLength || start < clearStart) return start - clearStart;
+  return Math.max(0, start + length - (clearStart + clearLength));
+}
+
+export function viewMovedToShow(area: Rect, clearArea: Rect, view: Rect): Rect | null {
+  const shiftX = shiftToFit(area.x, area.width, clearArea.x, clearArea.width);
+  const shiftY = shiftToFit(area.y, area.height, clearArea.y, clearArea.height);
+  if (shiftX === 0 && shiftY === 0) return null;
+  return { ...view, x: view.x + shiftX, y: view.y + shiftY };
+}

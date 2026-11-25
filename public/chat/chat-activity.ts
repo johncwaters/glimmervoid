@@ -3,7 +3,7 @@ import { BADGE_LABELS, STATES, type SessionState } from '#shared/states.ts';
 import { STATUS_LEGEND } from '../status-legend-core.ts';
 import { el } from '../dom-helpers.ts';
 import { createSvgShape } from '../svg-dom.ts';
-import { type ActivityBeat, BUSY_BEAT, type ChatPhase, MONITORING_VERB, verbChoicesFor } from './chat-activity-core.ts';
+import { type ActivityBeat, BUSY_BEAT, type ChatPhase, MONITORING_VERB, plainVerbFor, verbChoicesFor } from './chat-activity-core.ts';
 
 interface ChatActivity {
   element: HTMLElement;
@@ -40,17 +40,25 @@ function legendMeaningOf(state: SessionState): string {
   return STATUS_LEGEND.find((entry) => entry.state === state && !entry.awaitingBackgroundTasks)?.meaning ?? '';
 }
 
-function pickedVerb(beat: ActivityBeat): string {
+type ActivityVerbs = 'varied' | 'plain';
+
+function randomVerbFor(beat: ActivityBeat): string {
   const choices = verbChoicesFor(beat);
   return choices[Math.floor(Math.random() * choices.length)] ?? '';
 }
+
+const VERB_PICKER_BY_STYLE: Record<ActivityVerbs, (beat: ActivityBeat) => string> = {
+  varied: randomVerbFor,
+  plain: plainVerbFor,
+};
 
 function beatKey(beat: ActivityBeat): string {
   if (beat.glimmervoidTool !== null) return `glimmervoid:${beat.glimmervoidTool}`;
   return beat.workKind === 'working' ? `working:${beat.toolName}` : beat.workKind;
 }
 
-export function createChatActivity(): ChatActivity {
+export function createChatActivity(verbs: ActivityVerbs = 'varied'): ChatActivity {
+  const pickedVerb = VERB_PICKER_BY_STYLE[verbs];
   const element = el('div', 'chat-activity');
   element.toggleAttribute('data-idle', true);
   element.setAttribute('role', 'status');

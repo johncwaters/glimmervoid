@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, ELICITATION_REPLY_PREFIX, ELICITATION_SERVER_NAME, ELICITATION_LINK_URL, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, ELICITATION_REPLY_PREFIX, ELICITATION_SERVER_NAME, ELICITATION_LINK_URL, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML, SHOWN_PAGE_REPLY, SHOW_CARD_BELOW_COMMAND, SHOWN_CARD_SVG } from './cases-core.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -545,6 +545,16 @@ function dispatch(command: string): void {
     const pagePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-page-')), SHOWN_PAGE_FILE_NAME);
     fs.writeFileSync(pagePath, SHOWN_PAGE_HTML);
     postAgentVerb('whiteboard', { sub: 'show', path: pagePath });
+    appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: SHOWN_PAGE_REPLY }] } });
+    dispatch('stop');
+    return;
+  }
+  if (command.startsWith(SHOW_CARD_BELOW_COMMAND)) {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    const cardPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-card-')), 'refund-flow.svg');
+    fs.writeFileSync(cardPath, SHOWN_CARD_SVG);
+    postAgentVerb('whiteboard', { sub: 'show', path: cardPath, near: { of: command.slice(SHOW_CARD_BELOW_COMMAND.length).trim(), side: 'bottom' } });
     dispatch('stop');
     return;
   }

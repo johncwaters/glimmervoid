@@ -154,7 +154,7 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   repoButton.append(repoName, createLineIcon(CARET_ICON_PATH, '1.5'));
   repoButton.addEventListener('click', () => actions.toggleRepoMenu(card, repoButton));
   head.append(faceSlot, name, repoButton, moreButton);
-  const activity = createChatActivity();
+  const activity = createChatActivity('plain');
   const digest = el('p', 'bs-card-digest');
   const approvals = el('div', 'bs-card-approvals-slot');
   card.append(head, activity.element, digest, refusal, approvals, menu);

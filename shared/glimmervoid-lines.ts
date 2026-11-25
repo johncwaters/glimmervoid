@@ -24,6 +24,10 @@ function decodedXmlText(text: string): string {
   return text.replace(XML_ENTITY_PATTERN, (_entity, name: string) => CHARACTER_BY_XML_ENTITY[name] ?? '');
 }
 
+export function isRelayNewsLine(promptText: string): boolean {
+  return RELAY_LINE_PATTERN.test(promptText.trim());
+}
+
 export function glimmervoidLineLabelOf(promptText: string): string | null {
   const trimmed = promptText.trim();
   const relay = RELAY_LINE_PATTERN.exec(trimmed);

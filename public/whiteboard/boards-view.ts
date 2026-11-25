@@ -169,6 +169,7 @@ let editor: BoardEditor | null = null;
 let contextMenu: BoardContextMenu | null = null;
 let inspector: BoardInspector | null = null;
 let shouldFitOnNextRender = true;
+const fittedBoardIdsByGuest = new WeakMap<BoardHostGuest, Set<string>>();
 let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
 let reviewRequestKey: string | null = null;
@@ -1873,10 +1874,19 @@ export function boundsOfHostBox(boxId: string): Rect | null {
   return renderer?.boundsOf(boxId) ?? null;
 }
 
+function fitFirstGuestView(seatedGuest: BoardHostGuest, boardId: string): void {
+  const fittedBoardIds = fittedBoardIdsByGuest.get(seatedGuest) ?? new Set<string>();
+  if (fittedBoardIds.has(boardId)) return;
+  fittedBoardIds.add(boardId);
+  fittedBoardIdsByGuest.set(seatedGuest, fittedBoardIds);
+  shouldFitOnNextRender = true;
+}
+
 export function showBoardBeside(boardId: string | null, sessionId: string | null, nextGuest: BoardHostGuest | null = null): void {
   seatGuest(nextGuest);
   pairedSessionId = sessionId;
   if (boardId) selectBoard(boardId);
+  if (boardId && guest) fitFirstGuestView(guest, boardId);
   paintPairedSession();
 }
 

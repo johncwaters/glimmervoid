@@ -272,8 +272,12 @@ function ringAgentChange(boardId: string, change: AgentChange): void {
   notifyTilesChanged();
 }
 
-function onAgentChange(listener: (sessionId: string, boardChange: AgentChip) => void): void {
+function onAgentChange(listener: (sessionId: string, boardChange: AgentChip) => void): () => void {
   agentChangeListeners.push(listener);
+  return () => {
+    const listenerIndex = agentChangeListeners.indexOf(listener);
+    if (listenerIndex >= 0) agentChangeListeners.splice(listenerIndex, 1);
+  };
 }
 
 function unshownAgentChangeOf(sessionId: string): AgentChip | null {

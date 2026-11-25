@@ -1,6 +1,6 @@
 import { createChatActivity } from '../chat/chat-activity.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
-import { renderCard } from '../chat/chat-cards.ts';
+import { renderCard, showOnBoardButton } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import { createComposer } from '../chat/composer.ts';
 import { STAND_IN_UNRECORDED_MAX_MS, draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
@@ -24,6 +24,8 @@ import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
+import { onAgentChange } from '../whiteboard/board-tile-store.ts';
+import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { errorMessage } from '#shared/text.ts';
 import { clock } from '#shared/clock.ts';
 import { addressLabelOf, boxMentionAt, matchingBoxChoices, textWithoutMention } from './branch-core.ts';
@@ -42,6 +44,11 @@ const RAIL_TICK_MS = 30_000;
 const NO_UPLOADS_URL = '';
 const PENDING_RUNNING_STATUS_TEXT = 'Queued';
 const PENDING_IDLE_STATUS_TEXT = 'Sending';
+const KEPT_BOARD_CHANGES_PER_SESSION_MAX = 50;
+const boardChangesBySessionId = new Map<string, AgentChip[]>();
+onAgentChange((sessionId, boardChange) => {
+  boardChangesBySessionId.set(sessionId, [...(boardChangesBySessionId.get(sessionId) ?? []), boardChange].slice(-KEPT_BOARD_CHANGES_PER_SESSION_MAX));
+});
 
 interface DockActivity {
   phase: ChatPhase;
@@ -61,6 +68,8 @@ interface DockSession {
   onDelivered: (kind: DockDelivery) => void;
   outbox: () => readonly ChatOutboxEntry[];
   activity: () => DockActivity;
+  mapBoardId: () => string | null;
+  showBoardChange: (sessionId: string, boardChange: AgentChip) => void;
 }
 
 type DockDelivery = 'talk' | 'branch' | 'progress';
@@ -114,10 +123,13 @@ interface TurnRowOptions {
   isExpanded: boolean;
   toggleExpanded: () => void;
   addressBranch: (branch: DockBranch) => void;
+  boardChange: AgentChip | null;
+  showBoardChange: (boardChange: AgentChip) => void;
+  isStartedByBranchNews: boolean;
 }
 
 function isInsideFullReply(eventTarget: EventTarget | null): boolean {
-  return eventTarget instanceof Element && eventTarget.closest('.bs-full-reply') !== null;
+  return eventTarget instanceof Element && eventTarget.closest('.bs-full-reply, .bs-reply-actions') !== null;
 }
 
 function pressableOnKeys(target: HTMLElement, label: string, press: () => void): void {
@@ -152,6 +164,12 @@ function turnRowOf(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeak
   const body = el('div', 'bs-bubble-body');
   body.append(shownTextElementOf(shownText));
   if (options.isExpanded) body.append(fullReplyOf(part));
+  const boardChange = options.boardChange;
+  if (boardChange !== null) {
+    const actions = el('div', 'bs-reply-actions');
+    actions.append(showOnBoardButton(() => options.showBoardChange(boardChange)));
+    body.append(actions);
+  }
   bubble.append(el('span', 'bs-bubble-who', speaker.name), body);
   bubble.setAttribute('aria-expanded', String(options.isExpanded));
   pressableOnKeys(bubble, `Whole reply from ${speaker.name}`, options.toggleExpanded);
@@ -170,6 +188,11 @@ function promptRowOf(part: Extract<ChatPart, { kind: 'prompt' }>, speaker: FeedS
   row.append(bubble);
   row.hidden = part.isBoardAnswer;
   return row;
+}
+
+interface TurnStart {
+  at: number;
+  isRelayNews: boolean;
 }
 
 interface PendingSend {
@@ -222,10 +245,10 @@ function lastReplyTextOf(part: Extract<ChatPart, { kind: 'turn' }>): string | nu
   return lastTextSegment?.kind === 'text' ? lastTextSegment.text : null;
 }
 
-function shownTextOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, digestOf: DockSession['digestOf']): TurnShownText | null {
+function shownTextOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, digestOf: DockSession['digestOf'], isStartedByBranchNews: boolean): TurnShownText | null {
   const chatLine = chatLineOfTurn(part, speaker, digestOf);
   if (chatLine !== null) return { kind: 'chat-line', text: chatLine };
-  if (speaker.branch !== null || !part.isOver) return null;
+  if (speaker.branch !== null || !part.isOver || isStartedByBranchNews) return null;
   const lastReplyText = lastReplyTextOf(part);
   return lastReplyText === null ? null : { kind: 'last-reply', text: lastReplyText };
 }
@@ -233,7 +256,7 @@ function shownTextOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: Fee
 function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, digestOf: DockSession['digestOf'], options: TurnRowOptions): HTMLElement | null {
   if (part.kind === 'prompt') return promptRowOf(part, speaker);
   if (part.kind === 'turn') {
-    const shownText = shownTextOfTurn(part, speaker, digestOf);
+    const shownText = shownTextOfTurn(part, speaker, digestOf, options.isStartedByBranchNews);
     if (shownText !== null) return turnRowOf(part, speaker, shownText, options);
     const unshownTurn = el('div', 'bs-row bs-row-agent');
     unshownTurn.hidden = true;
@@ -279,6 +302,7 @@ export function createDock(session: DockSession): Dock {
   const composer = createComposer(() => NO_UPLOADS_URL);
   const pill = composer.element;
   pill.classList.add('bs-pill');
+  pill.dataset.boardIsland = '';
   const addressChip = el('span', 'bs-pill-address');
   const addressText = el('span', 'bs-pill-address-text');
   const clearAddressButton = createPressable('bs-pill-address-clear');
@@ -293,7 +317,7 @@ export function createDock(session: DockSession): Dock {
   input.setAttribute('aria-label', `Message ${session.name}`);
   input.setAttribute('aria-autocomplete', 'list');
   input.before(addressChip);
-  const activity = createChatActivity();
+  const activity = createChatActivity('plain');
   logContent.append(activity.element);
   element.append(logFrame, failure, mentions, pill);
 
@@ -310,6 +334,45 @@ export function createDock(session: DockSession): Dock {
   const branchTurnOverBySessionId = new Map<string, () => boolean>();
 
   const rowKeyOf = (sessionId: string, partId: string) => `${sessionId}:${partId}`;
+
+  const turnStartsBySessionId = new Map<string, Map<string, TurnStart>>();
+
+  const turnStartsOf = (sessionId: string) => [...(turnStartsBySessionId.get(sessionId)?.values() ?? [])];
+
+  const noteTurnStart = (sessionId: string, part: ChatPart) => {
+    if (part.kind !== 'prompt' && part.kind !== 'system-line') return;
+    const turnStarts = turnStartsBySessionId.get(sessionId) ?? new Map<string, TurnStart>();
+    turnStarts.set(part.id, { at: part.at, isRelayNews: part.kind === 'system-line' && part.isRelayNews });
+    turnStartsBySessionId.set(sessionId, turnStarts);
+  };
+
+  const forgetTurnStarts = (sessionId: string) => turnStartsBySessionId.delete(sessionId);
+
+  const isStartedByBranchNews = (sessionId: string, part: Extract<ChatPart, { kind: 'turn' }>) => {
+    const openedAt = part.openedAt;
+    if (openedAt === null) return false;
+    const startsBefore = turnStartsOf(sessionId).filter((turnStart) => turnStart.at <= openedAt);
+    const latestStart = startsBefore.reduce<TurnStart | null>((latest, turnStart) => latest === null || turnStart.at >= latest.at ? turnStart : latest, null);
+    return latestStart?.isRelayNews ?? false;
+  };
+
+  const turnOwning = (sessionId: string, changedAt: number) => {
+    let owningTurn: Extract<ChatPart, { kind: 'turn' }> | null = null;
+    for (const shownTurn of turnByKey.values()) {
+      const openedAt = shownTurn.part.openedAt;
+      if (shownTurn.sessionId !== sessionId || openedAt === null || openedAt > changedAt) continue;
+      if (owningTurn === null || openedAt > (owningTurn.openedAt ?? 0)) owningTurn = shownTurn.part;
+    }
+    const owningOpenedAt = owningTurn?.openedAt ?? null;
+    if (owningOpenedAt === null) return null;
+    const hasLaterTurnStart = turnStartsOf(sessionId).some((turnStart) => turnStart.at > owningOpenedAt && turnStart.at <= changedAt);
+    return hasLaterTurnStart ? null : owningTurn;
+  };
+
+  const boardChangeOfTurn = (sessionId: string, part: Extract<ChatPart, { kind: 'turn' }>) => {
+    const ownedChanges = (boardChangesBySessionId.get(sessionId) ?? []).filter((boardChange) => boardChange.boardId === session.mapBoardId() && turnOwning(sessionId, boardChange.at)?.id === part.id);
+    return ownedChanges.at(-1) ?? null;
+  };
 
   const showFailure = (failureText: string | null) => {
     failure.hidden = failureText === null;
@@ -349,43 +412,65 @@ export function createDock(session: DockSession): Dock {
     }
   };
 
+  const renderPart = (sessionId: string, speaker: FeedSpeaker, part: ChatPart) => {
+    const key = rowKeyOf(sessionId, part.id);
+    const boardChange = part.kind === 'turn' ? boardChangeOfTurn(sessionId, part) : null;
+    const row = renderedPartOf(part, speaker, session.digestOf, {
+      isExpanded: expandedRowKeys.has(key),
+      isStartedByBranchNews: part.kind === 'turn' && isStartedByBranchNews(sessionId, part),
+      toggleExpanded: () => {
+        if (!expandedRowKeys.delete(key)) expandedRowKeys.add(key);
+        upsertParts(sessionId, [turnByKey.get(key)?.part ?? part]);
+        rowByKey.get(key)?.querySelector<HTMLElement>('.bs-bubble-agent')?.focus();
+      },
+      addressBranch,
+      boardChange,
+      showBoardChange: (shownChange) => session.showBoardChange(sessionId, shownChange),
+    });
+    if (row === null) {
+      rowByKey.get(key)?.remove();
+      rowByKey.delete(key);
+      return;
+    }
+    row.dataset.partId = part.id;
+    row.dataset.sessionId = sessionId;
+    row.dataset.boardChangeAt = String(boardChange?.at ?? '');
+    const partTime = partTimeOf(part);
+    if (partTime !== null) row.dataset.at = String(partTime);
+    const shownRow = rowByKey.get(key);
+    rowByKey.set(key, row);
+    if (shownRow) {
+      shownRow.replaceWith(row);
+      return;
+    }
+    logRows.append(row);
+  };
+
+  const refreshBoardChangeRows = (sessionId: string) => {
+    const speaker = speakerBySessionId.get(sessionId);
+    if (!speaker) return;
+    for (const [key, shownTurn] of turnByKey) {
+      if (shownTurn.sessionId !== sessionId) continue;
+      const ownedChangeAt = String(boardChangeOfTurn(sessionId, shownTurn.part)?.at ?? '');
+      if ((rowByKey.get(key)?.dataset.boardChangeAt ?? '') !== ownedChangeAt) renderPart(sessionId, speaker, shownTurn.part);
+    }
+  };
+
   const upsertParts = (sessionId: string, parts: readonly ChatPart[]) => {
     const speaker = speakerBySessionId.get(sessionId);
     if (!speaker) return;
     for (const part of parts) {
-      const key = rowKeyOf(sessionId, part.id);
-      if (part.kind === 'turn') turnByKey.set(key, { sessionId, part });
-      const row = renderedPartOf(part, speaker, session.digestOf, {
-        isExpanded: expandedRowKeys.has(key),
-        toggleExpanded: () => {
-          if (!expandedRowKeys.delete(key)) expandedRowKeys.add(key);
-          upsertParts(sessionId, [turnByKey.get(key)?.part ?? part]);
-          rowByKey.get(key)?.querySelector<HTMLElement>('.bs-bubble-agent')?.focus();
-        },
-        addressBranch,
-      });
-      if (row === null) {
-        rowByKey.get(key)?.remove();
-        rowByKey.delete(key);
-        continue;
-      }
-      row.dataset.partId = part.id;
-      row.dataset.sessionId = sessionId;
-      const partTime = partTimeOf(part);
-      if (partTime !== null) row.dataset.at = String(partTime);
-      const shownRow = rowByKey.get(key);
-      rowByKey.set(key, row);
-      if (shownRow) {
-        shownRow.replaceWith(row);
-        continue;
-      }
-      logRows.append(row);
+      noteTurnStart(sessionId, part);
+      if (part.kind === 'turn') turnByKey.set(rowKeyOf(sessionId, part.id), { sessionId, part });
     }
+    for (const part of parts) renderPart(sessionId, speaker, part);
+    refreshBoardChangeRows(sessionId);
   };
 
   const removeParts = (sessionId: string, partIds: readonly string[]) => {
     for (const partId of partIds) {
       const key = rowKeyOf(sessionId, partId);
+      turnStartsBySessionId.get(sessionId)?.delete(partId);
       rowByKey.get(key)?.remove();
       rowByKey.delete(key);
       turnByKey.delete(key);
@@ -435,6 +520,7 @@ export function createDock(session: DockSession): Dock {
         removeParts(sessionId, droppedPartIds);
       },
       onRebuilt: (rebuiltParts, replacedPartIds) => {
+        forgetTurnStarts(sessionId);
         if (speaker.branch) {
           removeParts(sessionId, replacedPartIds);
           removeSessionRows(sessionId);
@@ -455,6 +541,7 @@ export function createDock(session: DockSession): Dock {
       onBeats: () => {},
       isTurnOver,
       onReset: () => {
+        forgetTurnStarts(sessionId);
         if (!speaker.branch) shownPromptPartIds.clear();
         removeSessionRows(sessionId);
       },
@@ -545,6 +632,9 @@ export function createDock(session: DockSession): Dock {
   };
   const stopFollowingOutbox = onChatOutboxNoted((sessionId) => {
     if (sessionId === session.sessionId) paintQueue();
+  });
+  const stopFollowingBoardChanges = onAgentChange((sessionId, boardChange) => {
+    if (boardChange.boardId === session.mapBoardId()) refreshBoardChangeRows(sessionId);
   });
 
   const closeMentions = () => {
@@ -726,6 +816,7 @@ export function createDock(session: DockSession): Dock {
       feed.close();
       feedBySessionId.delete(sessionId);
       speakerBySessionId.delete(sessionId);
+      forgetTurnStarts(sessionId);
       if (address.kind === 'branch' && address.sessionId === sessionId) setAddress(MAIN_ADDRESS);
     }
     for (const branch of branches) {
@@ -760,7 +851,7 @@ export function createDock(session: DockSession): Dock {
       for (const [key, { sessionId, part }] of turnByKey) {
         const speaker = speakerBySessionId.get(sessionId);
         if (!speaker) continue;
-        const shownText = shownTextOfTurn(part, speaker, session.digestOf)?.text ?? null;
+        const shownText = shownTextOfTurn(part, speaker, session.digestOf, isStartedByBranchNews(sessionId, part))?.text ?? null;
         if ((rowByKey.get(key)?.dataset.digest ?? null) === shownText) continue;
         upsertParts(sessionId, [part]);
       }
@@ -769,6 +860,7 @@ export function createDock(session: DockSession): Dock {
     paintActivity,
     close: () => {
       stopFollowingOutbox();
+      stopFollowingBoardChanges();
       for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
       dockListeners.abort();
       clearInterval(railTimer);

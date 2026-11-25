@@ -16,10 +16,11 @@ import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import { boundsOfHostBox, glideHostTo, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
 import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
-import { dismissAgentChange, onAgentChange, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
+import { dismissAgentChange, markAgentChangeShown, onAgentChange, ringAgentChange, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
+import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { SHOWN_BOX_ID_RE } from '#shared/whiteboard-constants.ts';
 import { onBoardSessionStatusChanged, onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
-import { isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf } from './board-session-core.ts';
+import { isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf, viewMovedToShow } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { RepoChoice, RepoSession } from './board-session-core.ts';
@@ -330,9 +331,8 @@ function viewAreaShowing(area: Rect): Rect | null {
   if (!parts) return null;
   const overlay = parts.askCards.element;
   const rightReservedPx = reservedRightOf(overlay, parts.guide.element);
-  const clearArea = clearViewArea(overlay.clientWidth, overlay.clientHeight, parts.dockSlot.offsetHeight, rightReservedPx);
-  if (isRectInside(area, clearArea)) return null;
-  return viewShowingAsk(area, overlay.clientWidth, overlay.clientHeight, rightReservedPx);
+  const clearArea = clearViewArea(overlay.clientWidth, overlay.clientHeight, reservedBelow(parts.dockSlot, overlay), rightReservedPx);
+  return viewMovedToShow(area, clearArea, currentViewArea(overlay));
 }
 
 function revealShownCards(): void {
@@ -341,6 +341,16 @@ function revealShownCards(): void {
   unseenShownCards = null;
   dismissAgentChange();
   const shownArea = viewAreaShowing(shownCards.area);
+  if (shownArea !== null) glideHostTo(shownArea);
+}
+
+function showBoardChange(sessionId: string, boardChange: AgentChip): void {
+  if (boardChange.boardId !== boardId) return;
+  markAgentChangeShown(sessionId, boardChange.change);
+  dismissAgentChange();
+  ringAgentChange(boardChange.boardId, boardChange.change);
+  const changedArea = unionOf(boardChange.change.boxes.map((box) => box.rect));
+  const shownArea = changedArea === null ? null : viewAreaShowing(changedArea);
   if (shownArea !== null) glideHostTo(shownArea);
 }
 
@@ -396,26 +406,20 @@ function clearViewArea(viewWidthPx: number, viewHeightPx: number, reservedBottom
   return { x: hostCamera.x + ASK_VIEW_SIDE_MARGIN_PX / scale, y: hostCamera.y + ASK_VIEW_TOP_MARGIN_PX / scale, width: Math.max(0, viewWidthPx - ASK_VIEW_SIDE_MARGIN_PX * 2 - reservedRightPx) / scale, height: Math.max(0, viewHeightPx - ASK_VIEW_TOP_MARGIN_PX - reservedBottomPx) / scale };
 }
 
-function viewShowingAsk(askArea: Rect, viewWidthPx: number, viewHeightPx: number, reservedRightPx: number): Rect {
-  const scale = hostCamera.scale;
-  const width = viewWidthPx / scale;
-  const height = viewHeightPx / scale;
-  return { x: askArea.x + askArea.width + (ASK_VIEW_SIDE_MARGIN_PX + reservedRightPx) / scale - width, y: askArea.y - ASK_VIEW_TOP_MARGIN_PX / scale, width, height };
-}
-
-function isRectInside(inner: Rect, outer: Rect): boolean {
-  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
-}
-
 function sessionBoxIds(): string[] {
   const presence = presenceOf(shownSessionId);
   const presenceBoxIds = [presence.workedPath, ...presence.namedPaths].flatMap((presencePath) => boxIdOfPresencePath(presencePath) ?? []);
   return [...presenceBoxIds, ...changedBoxIds];
 }
 
+function reservedBelow(element: HTMLElement | null, overlay: HTMLElement): number {
+  if (element === null) return 0;
+  return Math.max(0, overlay.getBoundingClientRect().bottom - element.getBoundingClientRect().top);
+}
+
 function firstViewArea(mapBounds: Rect, viewWidthPx: number, viewHeightPx: number): Rect | null {
   if (!parts) return null;
-  const reservedBottomPx = parts.dockSlot.offsetHeight;
+  const reservedBottomPx = reservedBelow(parts.dockSlot.querySelector<HTMLElement>('[data-board-island]'), parts.askCards.element);
   const titleSizePx = Number.parseFloat(getComputedStyle(parts.root).getPropertyValue('--type-title')) || TITLE_SIZE_FALLBACK_PX;
   if (!isBelowFloor(mapBounds, viewWidthPx, viewHeightPx, reservedBottomPx, readableFloorScale(titleSizePx))) return null;
   return unionOf(sessionBoxIds().flatMap((boxId) => boundsOfHostBox(boxId) ?? []));
@@ -646,6 +650,8 @@ function mountDock(): void {
       const phase = phaseOfSession(sessionId);
       return { phase, beat: phase === 'working' ? watchBySessionId.get(sessionId)?.lastBeat ?? null : null };
     },
+    mapBoardId: () => boardId,
+    showBoardChange,
   });
   parts.dockSlot.append(dock.element);
   syncBranches();
@@ -822,7 +828,6 @@ function mountBoardSessionView(panel: HTMLElement): void {
   notice.setAttribute('role', 'status');
   notice.hidden = true;
   const dockSlot = el('div', 'bs-dock-slot');
-  dockSlot.dataset.boardIsland = '';
   const askCards = createAskCards();
   const diffPanel = createDiffPanel();
   const guide = createStudioGuide();

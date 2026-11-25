@@ -22,7 +22,7 @@ export type ChatPart =
   | { kind: 'prompt'; id: string; text: string; at: number; attachments: string[]; isBoardAnswer: boolean }
   | TurnPart
   | { kind: 'skill'; id: string; skillName: string }
-  | { kind: 'system-line'; id: string; label: string; at: number }
+  | { kind: 'system-line'; id: string; label: string; at: number; isRelayNews: boolean }
   | BackgroundTaskPart
   | { kind: 'card'; id: string; card: ChatCard };
 

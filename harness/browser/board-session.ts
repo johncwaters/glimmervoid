@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
-import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_TICKED_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_REPLY, SHOWN_PAGE_TICKED_TEXT, SHOW_CARD_BELOW_COMMAND, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import fs from 'node:fs';
 import { boardElementsOf, boxBoardRectsOf, boxScreenRectsOf, clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
 import { DRAFT_PR_STATE, FAKE_PR_NUMBER, FAKE_PR_STATE_ENV, FAKE_PR_URL, READY_PR_STATE } from './fake-pr.ts';
@@ -128,6 +128,101 @@ function clearMapPointIn(page: Page, bounds: Box): Promise<{ x: number; y: numbe
   }, bounds);
 }
 
+async function verifyFirstViewClearOfBar(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const boardId = await studioMapBoardIdOf(page, root);
+  assert.ok(boardId, 'the Studio map has a board on open');
+  const barCoveredBoxIds = async () => {
+    const bar = await boxOf(page, '.board-session-view .bs-pill');
+    const boxRects = await boxScreenRectsOf(page, root, boardId);
+    return [...boxRects].filter(([, rect]) => rectsOverlap(rect, bar)).map(([boxId]) => boxId);
+  };
+  await pollFor('the first map view to settle above the message bar', BOARD_SESSION_TIMEOUT_MS, async () => (await barCoveredBoxIds()).length === 0 ? true : null).catch(() => undefined);
+  assert.deepEqual(await barCoveredBoxIds(), [], 'the first map view keeps every box clear of the folded message bar');
+}
+
+async function verifyShowOnBoard(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
+  await pillInput.click();
+  const showOnBoard = root.locator('.bs-row-agent:not([hidden])', { hasText: SHOWN_PAGE_REPLY }).getByRole('button', { name: 'Show on board', exact: true }).last();
+  await showOnBoard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const boardId = await studioMapBoardIdOf(page, root);
+  assert.ok(boardId, 'the Studio map has a board for the shown page');
+  const pageBounds = await shownPageBoundsOf(page);
+  const pageCenter = { x: pageBounds.x + pageBounds.width / 2, y: pageBounds.y + pageBounds.height / 2 };
+  const shownBoxId = [...await boxScreenRectsOf(page, root, boardId)].find(([, rect]) => pageCenter.x > rect.x && pageCenter.x < rect.x + rect.width && pageCenter.y > rect.y && pageCenter.y < rect.y + rect.height)?.[0];
+  assert.ok(shownBoxId, 'the shown page sits in a map box');
+  const viewport = await boxOf(page, '.board-session-view .wb-viewport');
+  await page.mouse.move(viewport.x + 30, viewport.y + viewport.height / 2);
+  for (let step = 0; step < MAP_PAN_STEPS; step += 1) await page.mouse.wheel(MAP_PAN_STEP_PX, MAP_PAN_STEP_PX);
+  const isPageInView = async () => {
+    const shownBoxRect = (await boxScreenRectsOf(page, root, boardId)).get(shownBoxId);
+    return shownBoxRect !== undefined && rectsOverlap(shownBoxRect, viewport);
+  };
+  assert.equal(await isPageInView(), false, 'panning moves the shown page out of view');
+  await pillInput.click();
+  await showOnBoard.click();
+  await pollFor('Show on board to bring the shown page back into view', BOARD_SESSION_TIMEOUT_MS, async () => await isPageInView() ? true : null);
+}
+
+function isRectWithin(inner: Box, outer: Box): boolean {
+  const slackPx = 2;
+  return inner.x >= outer.x - slackPx && inner.y >= outer.y - slackPx && inner.x + inner.width <= outer.x + outer.width + slackPx && inner.y + inner.height <= outer.y + outer.height + slackPx;
+}
+
+async function clearMapArea(page: Page): Promise<Box> {
+  return page.evaluate(() => {
+    const viewport = document.querySelector('.board-session-view .wb-viewport')?.getBoundingClientRect();
+    const dockSlot = document.querySelector('.board-session-view .bs-dock-slot')?.getBoundingClientRect();
+    const guide = document.querySelector<HTMLElement>('.board-session-view .bs-guide');
+    if (!viewport || !dockSlot) return { x: 0, y: 0, width: 0, height: 0 };
+    const guideReservePx = guide && !guide.hidden ? Math.max(0, viewport.right - guide.getBoundingClientRect().left) : 0;
+    return { x: viewport.x + 24, y: viewport.y + 64, width: viewport.width - 48 - guideReservePx, height: dockSlot.top - viewport.y - 64 };
+  });
+}
+
+async function verifyShownCardKeepsMapInView(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const boardId = await studioMapBoardIdOf(page, root);
+  assert.ok(boardId, 'the Studio map is known');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
+  await pillInput.click();
+  await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const pageReplyRow = root.locator('.bs-row-agent:not([hidden])', { hasText: SHOWN_PAGE_REPLY }).last();
+  const pageReplyChangeAt = await pageReplyRow.getAttribute('data-board-change-at');
+  const anchorBox = (await boardElementsOf(page, root, boardId)).find((element) => element.kind === 'box' && element.title.startsWith('Map at'));
+  assert.ok(anchorBox, 'the map has its freshness box to show a card below');
+  const viewport = await boxOf(page, '.board-session-view .wb-viewport');
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const anchorRect = (await boxScreenRectsOf(page, root, boardId)).get(anchorBox.id);
+    const dockTop = (await boxOf(page, '.board-session-view .bs-dock-slot')).y;
+    assert.ok(anchorRect, 'the freshness box is laid out');
+    const shiftPx = dockTop - 16 - (anchorRect.y + anchorRect.height);
+    if (Math.abs(shiftPx) < 4) break;
+    await page.mouse.move(viewport.x + 30, viewport.y + viewport.height / 2);
+    await page.mouse.wheel(0, -shiftPx);
+    await delay(MAP_GLIDE_SETTLE_MS);
+  }
+  const shownBefore = await boxScreenRectsOf(page, root, boardId);
+  const clearBefore = await clearMapArea(page);
+  const visibleBefore = [...shownBefore].filter(([, rect]) => isRectWithin(rect, clearBefore)).map(([boxId]) => boxId);
+  assert.ok(visibleBefore.includes(anchorBox.id), 'the freshness box sits just above the open log before the card is shown');
+  await pillInput.fill(`${SHOW_CARD_BELOW_COMMAND}${anchorBox.id}`);
+  await pillInput.press('Enter');
+  const shownCardBoxId = await pollFor('the shown card to land on the map', BOARD_SESSION_TIMEOUT_MS, async () => [...(await boxScreenRectsOf(page, root, boardId)).keys()].find((boxId) => !shownBefore.has(boxId)) ?? null);
+  const isCardRevealed = async () => {
+    const shownCardRect = (await boxScreenRectsOf(page, root, boardId)).get(shownCardBoxId);
+    return shownCardRect !== undefined && isRectWithin(shownCardRect, await clearMapArea(page));
+  };
+  await pollFor('the shown card to come inside the clear map area', BOARD_SESSION_TIMEOUT_MS, async () => await isCardRevealed() ? true : null);
+  const shownAfter = await boxScreenRectsOf(page, root, boardId);
+  const clearAfter = await clearMapArea(page);
+  const stillVisible = visibleBefore.filter((boxId) => { const rect = shownAfter.get(boxId); return rect !== undefined && isRectWithin(rect, clearAfter); });
+  assert.ok(stillVisible.length > 0, `revealing a card below the map keeps a box that was in view (before: ${visibleBefore.join(', ')})`);
+  assert.equal(await pageReplyRow.getAttribute('data-board-change-at'), pageReplyChangeAt, 'a later turn\'s board change leaves an earlier reply\'s Show on board where it was');
+}
+
 async function verifyShownPageOnMap(page: Page): Promise<void> {
   const root = page.locator('.board-session-view');
   const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
@@ -153,6 +248,8 @@ async function verifyShownPageOnMap(page: Page): Promise<void> {
   await viewerPage.getByRole('button', { name: SHOWN_PAGE_TICKED_TEXT, exact: true }).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.keyboard.press('Escape');
   assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'a page an agent showed on the map takes no address');
+  await verifyShowOnBoard(page);
+  await verifyShownCardKeepsMapInView(page);
 }
 
 function prCardLinesOf(element: BoardElement | undefined): Record<string, string> | null {
@@ -404,6 +501,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
     return (notice !== null && !notice.hidden && (notice.textContent ?? '').length > 0) || (canvas !== null && canvas.width > 0 && notice?.hidden === true);
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-log').isVisible(), false, 'the chat log stays folded on open');
+  await verifyFirstViewClearOfBar(page);
   assert.equal(await root.locator('.bs-top-left > :not(.bs-chip, .bs-menu)').count(), 0, 'the top left holds only the repo chip');
   await page.locator('.session-name', { hasText: / main$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
 
@@ -544,6 +642,10 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-log', { hasText: 'npm test -- run-1' }).count(), 0, 'the Studio log shows replies, not tool calls');
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill');
+  const fontSizeOf = (selector: string) => root.locator(selector).first().evaluate((element) => getComputedStyle(element).fontSize);
+  assert.equal(await fontSizeOf('.bs-pill textarea.chat-composer-input'), await fontSizeOf('.bs-row-agent:not([hidden]) .bs-bubble'), 'the message bar types at the log bubbles\' size');
+  const openLog = await boxOf(page, '.board-session-view .bs-log');
+  assert.ok(Math.abs(openLog.x - pillBefore.x) <= LAYOUT_TOLERANCE_PX && Math.abs(openLog.width - pillBefore.width) <= LAYOUT_TOLERANCE_PX, `the message bar shares the open log's width and edges (bar ${pillBefore.x}+${pillBefore.width}, log ${openLog.x}+${openLog.width})`);
   assert.equal((await boxOf(page, '.board-session-view .bs-card[data-main] .bs-card-repo')).height, repoButtonBefore.height, 'the repo name keeps its height');
   assert.equal(await root.locator('.wb-island-board').isVisible(), false, 'Studio hides the board title island; the repo chip names the map');
   await root.locator('.wb-island-board .wb-status').evaluate((status: HTMLElement) => { status.hidden = false; status.textContent = 'Could not undo that change.'; });

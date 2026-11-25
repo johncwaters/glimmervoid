@@ -81,11 +81,12 @@ export function buildDirectorPrompt(resultPath: string): string {
     '{"chatLine": "..." or null, "digest": "..." or null, "points": ["..."]}',
     '',
     'Rules:',
-    `- chatLine: one sentence of at most ${CHAT_LINE_MAX_CHARS} characters for the operator's chat, only when they must act (a question, a decision, a blocker), a piece of work is finished, or the reply answers or explains something to them; otherwise null. Most turns get null.`,
+    `- chatLine: one short sentence of at most ${CHAT_LINE_MAX_CHARS} characters for the operator's chat, only when they must act (a question, a decision, a blocker), a piece of work is finished, or the reply answers or explains something to them; otherwise null. Most turns get null.`,
     '- When the reply answers or explains something, chatLine is that answer in one sentence, saying where on the board to look when the reply says it put the answer there.',
     `- digest: what is worth keeping on the agent's card in Studio, one line of at most ${DIGEST_MAX_CHARS} characters leading with the distinctive thing (the feature, file or bug), not a generic verb; null when nothing is.`,
     `- points: 0 to ${MAX_POINTS} short facts behind the digest (a result, a failure, a follow-up), each at most ${POINT_MAX_CHARS} characters; digest and points together stay within ${CARD_WORD_LIMIT} words.`,
     '- When the reply asks the operator a question or waits on a decision, chatLine states that question.',
+    "- chatLine is null when the reply only relays that another agent (a branch) finished, its state or what it said: that agent's own line already reached the operator.",
     '- Report only what the reply says. Never answer its questions, never add advice, never invent results.',
   ].join('\n');
 }

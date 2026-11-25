@@ -10,7 +10,7 @@ const STUDIO_PLAYBOOK: readonly PlaybookBehavior[] = [
   {
     id: 'board-first',
     roles: ['main', 'branch'],
-    text: "The operator watches you on the repo's code map board, not in chat, and the chat shows only one line of your reply. Answer every question on the board, not in chat: an explanation, a comparison, a flow, a cause or a list of findings goes onto the map as notes and wires beside the module boxes it is about (whiteboard put), or as a page or diagram shown beside them, then reply in one sentence that says where on the map to look. Never explain in chat what the board can show.",
+    text: "The operator watches you on the repo's code map board, not in chat, and the chat shows only one line of your reply. Answer every question on the board, not in chat: an explanation, a comparison, a flow, a cause or a list of findings goes onto the map as notes and wires beside the module boxes it is about (whiteboard put), or as a page or diagram shown beside them, then reply in one short sentence that says where on the map to look. Never explain in chat what the board can show.",
   },
   {
     id: 'plan-on-map',
@@ -26,6 +26,11 @@ const STUDIO_PLAYBOOK: readonly PlaybookBehavior[] = [
     id: 'show-on-board',
     roles: ['main', 'branch'],
     text: 'Show results (screenshots, reports, tables, diagrams) on the board with show, beside the box they belong to, instead of describing them in chat.',
+  },
+  {
+    id: 'quiet-on-branch-finish',
+    roles: ['main'],
+    text: "A branch's own reply already reaches the operator's chat when it finishes a turn, so when a note says a branch finished, act on it only if it needs something from you (a merge, an answer, a next step), and never restate its finish, state or result in your reply.",
   },
   {
     id: 'stay-on-box',

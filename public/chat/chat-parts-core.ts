@@ -4,7 +4,7 @@ import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from '.
 import type { BackgroundTaskPart, ChatCard, ChatPart, TurnPart } from './chat-part.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
-import { glimmervoidLineLabelOf, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
+import { glimmervoidLineLabelOf, isRelayNewsLine, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
 import { unwrapPastedContent } from '#shared/pasted-content.ts';
 import { fileEditsOf } from '#shared/file-edits-core.ts';
 import type { FileEdit } from '#shared/file-edits-core.ts';
@@ -333,7 +333,8 @@ function systemLineLabelOf(record: TraceRecord): string | null {
 function systemLinePartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
   const label = systemLineLabelOf(record);
   if (label === null) return null;
-  return { kind: 'system-line', id: nextPartId(state, 'system-line'), label, at: record.ts };
+  const isRelayNews = record.kind === 'prompt' && isRelayNewsLine(record.text);
+  return { kind: 'system-line', id: nextPartId(state, 'system-line'), label, at: record.ts, isRelayNews };
 }
 
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
