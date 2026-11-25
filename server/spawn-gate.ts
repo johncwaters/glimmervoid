@@ -288,5 +288,235 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
   return { run, idle: queue.idle };
 }
 
-export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout, queueAdmissionTimeoutError };
+type HeavyCommandClass = 'typecheck' | 'test' | 'browser-test' | 'build' | 'install' | 'lint';
+
+interface HeavyLease {
+  id: string;
+  sessionId: string;
+  toolUseId: string | null;
+  commandClass: HeavyCommandClass;
+  acquiredAtMs: number;
+}
+
+interface HeavyAcquireRequest {
+  sessionId: string;
+  toolUseId?: string | null;
+  commandClass: HeavyCommandClass;
+  maxWaitMs?: number;
+  signal?: AbortSignal;
+}
+
+type HeavyAcquireOutcome =
+  | { status: 'granted'; lease: HeavyLease }
+  | { status: 'timeout' | 'aborted' };
+
+export interface HeavyCommandGate {
+  acquire(request: HeavyAcquireRequest): Promise<HeavyAcquireOutcome>;
+  release(leaseId: string): void;
+  releaseByToolUse(sessionId: string, toolUseId: string | null): void;
+  releaseSession(sessionId: string): void;
+  snapshot(): { active: HeavyLease[]; queuedCount: number; maxSlots: number };
+  stop(): void;
+}
+
+const DEFAULT_HEAVY_LEASE_TTL_MS = 5 * 60 * 1000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
+const GLIMMERVOID_COORDINATION_SEGMENT = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*glimmervoid\s+(?:spawn|send|read|sessions|whiteboard|codemap|memory|claim|wake|attention|answer|close|limits)\b/i;
+const SHELL_SEGMENT_SEPARATOR = /\s*(?:&&|\|\||[;|\n])\s*/;
+const HEAVY_SEGMENT_PATTERNS: readonly [HeavyCommandClass, RegExp][] = [
+  ['browser-test', /\b(?:playwright|test:browser)\b|harness\/browser\b/i],
+  ['typecheck', /\b(?:tsc|typecheck)\b/i],
+  ['test', /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test(?::[\w-]+)?\b|\b(?:vitest|jest|pytest)\b|\b(?:cargo|go)\s+test\b/i],
+  ['build', /\b(?:vite|webpack|esbuild|rollup|cargo|go)\s+build\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b/i],
+  ['install', /\b(?:npm|pnpm|yarn|bun)\s+(?:ci|install)\b/i],
+  ['lint', /\bbiome\s+(?:check|ci|lint)\b|\beslint\b/i],
+];
+
+function classifyHeavySegment(segment: string): HeavyCommandClass | null {
+  if (!segment || GLIMMERVOID_COORDINATION_SEGMENT.test(segment)) return null;
+  for (const [commandClass, pattern] of HEAVY_SEGMENT_PATTERNS) {
+    if (pattern.test(segment)) return commandClass;
+  }
+  if (/\bnode\b/i.test(segment) && /--test\b/i.test(segment)) return 'test';
+  return null;
+}
+
+function classifyHeavyCommand(command: string): HeavyCommandClass | null {
+  const trimmed = command.trim();
+  if (!trimmed) return null;
+  for (const segment of trimmed.split(SHELL_SEGMENT_SEPARATOR)) {
+    const matched = classifyHeavySegment(segment.trim());
+    if (matched !== null) return matched;
+  }
+  return null;
+}
+
+interface HeavyWaiter {
+  request: HeavyAcquireRequest;
+  state: 'queued' | 'done';
+  waitTimer: ReturnType<typeof setTimeout> | undefined;
+  onAbort: (() => void) | null;
+  resolve: (outcome: HeavyAcquireOutcome) => void;
+}
+
+interface ActiveHeavyLease {
+  lease: HeavyLease;
+  ttlTimer: ReturnType<typeof setTimeout> | undefined;
+}
+
+function createHeavyCommandGate({
+  maxSlots,
+  defaultLeaseTtlMs = DEFAULT_HEAVY_LEASE_TTL_MS,
+  nowMs = clock.nowMs,
+}: {
+  maxSlots: number;
+  defaultLeaseTtlMs?: number;
+  nowMs?: () => number;
+}): HeavyCommandGate {
+  const slotLimit = Math.max(1, Math.floor(Number.isFinite(maxSlots) ? maxSlots : 1));
+  const clampedLeaseTtlMs = Number.isFinite(defaultLeaseTtlMs) && defaultLeaseTtlMs > 0
+    ? Math.min(defaultLeaseTtlMs, MAX_TIMEOUT_MS)
+    : null;
+  const activeById = new Map<string, ActiveHeavyLease>();
+  const waiters: HeavyWaiter[] = [];
+  let gateState: 'open' | 'stopped' = 'open';
+  let nextLeaseSequence = 0;
+
+  function grant(request: HeavyAcquireRequest): HeavyLease {
+    nextLeaseSequence += 1;
+    const lease: HeavyLease = {
+      id: `heavy-${nextLeaseSequence}`,
+      sessionId: request.sessionId,
+      toolUseId: request.toolUseId ?? null,
+      commandClass: request.commandClass,
+      acquiredAtMs: nowMs(),
+    };
+    const ttlTimer = clampedLeaseTtlMs !== null
+      ? setTimeout(() => { release(lease.id); }, clampedLeaseTtlMs)
+      : undefined;
+    ttlTimer?.unref?.();
+    activeById.set(lease.id, { lease, ttlTimer });
+    return lease;
+  }
+
+  function cleanupWaiter(waiter: HeavyWaiter): void {
+    if (waiter.waitTimer !== undefined) clearTimeout(waiter.waitTimer);
+    if (waiter.onAbort) waiter.request.signal?.removeEventListener('abort', waiter.onAbort);
+  }
+
+  function abortMatchingWaiters(predicate: (waiter: HeavyWaiter) => boolean): void {
+    for (let index = waiters.length - 1; index >= 0; index -= 1) {
+      const waiter = waiters[index];
+      if (!waiter || !predicate(waiter)) continue;
+      waiters.splice(index, 1);
+      if (waiter.state !== 'queued') continue;
+      waiter.state = 'done';
+      cleanupWaiter(waiter);
+      waiter.resolve({ status: 'aborted' });
+    }
+  }
+
+  function drainQueue(): void {
+    if (gateState === 'stopped') return;
+    while (activeById.size < slotLimit && waiters.length > 0) {
+      const next = waiters.shift();
+      if (!next || next.state !== 'queued') continue;
+      next.state = 'done';
+      cleanupWaiter(next);
+      next.resolve({ status: 'granted', lease: grant(next.request) });
+    }
+  }
+
+  function release(leaseId: string): void {
+    const active = activeById.get(leaseId);
+    if (!active) return;
+    if (active.ttlTimer !== undefined) clearTimeout(active.ttlTimer);
+    activeById.delete(leaseId);
+    drainQueue();
+  }
+
+  function releaseByToolUse(sessionId: string, toolUseId: string | null): void {
+    if (toolUseId !== null) {
+      abortMatchingWaiters((waiter) => waiter.request.sessionId === sessionId && (waiter.request.toolUseId ?? null) === toolUseId);
+      for (const [leaseId, active] of activeById) {
+        if (active.lease.sessionId === sessionId && active.lease.toolUseId === toolUseId) {
+          release(leaseId);
+          return;
+        }
+      }
+      return;
+    }
+    for (const [leaseId, active] of activeById) {
+      if (active.lease.sessionId === sessionId) {
+        release(leaseId);
+        return;
+      }
+    }
+  }
+
+  function releaseSession(sessionId: string): void {
+    abortMatchingWaiters((waiter) => waiter.request.sessionId === sessionId);
+    const matchingLeaseIds = [...activeById.entries()]
+      .filter(([, active]) => active.lease.sessionId === sessionId)
+      .map(([leaseId]) => leaseId);
+    for (const leaseId of matchingLeaseIds) release(leaseId);
+  }
+
+  function acquire(request: HeavyAcquireRequest): Promise<HeavyAcquireOutcome> {
+    if (gateState === 'stopped' || request.signal?.aborted) return Promise.resolve({ status: 'aborted' });
+    if (activeById.size < slotLimit && waiters.length === 0) {
+      return Promise.resolve({ status: 'granted', lease: grant(request) });
+    }
+    return new Promise<HeavyAcquireOutcome>((resolve) => {
+      const waiter: HeavyWaiter = {
+        request,
+        state: 'queued',
+        waitTimer: undefined,
+        onAbort: null,
+        resolve,
+      };
+      const failWaiter = (status: 'timeout' | 'aborted') => {
+        if (waiter.state !== 'queued') return;
+        waiter.state = 'done';
+        cleanupWaiter(waiter);
+        const index = waiters.indexOf(waiter);
+        if (index >= 0) waiters.splice(index, 1);
+        resolve({ status });
+      };
+      if (request.maxWaitMs !== undefined && Number.isFinite(request.maxWaitMs)) {
+        const clampedWaitMs = Math.min(Math.max(0, request.maxWaitMs), MAX_TIMEOUT_MS);
+        waiter.waitTimer = setTimeout(() => failWaiter('timeout'), clampedWaitMs);
+      }
+      if (request.signal) {
+        waiter.onAbort = () => failWaiter('aborted');
+        request.signal.addEventListener('abort', waiter.onAbort, { once: true });
+      }
+      waiters.push(waiter);
+    });
+  }
+
+  function stop(): void {
+    gateState = 'stopped';
+    for (const active of activeById.values()) {
+      if (active.ttlTimer !== undefined) clearTimeout(active.ttlTimer);
+    }
+    activeById.clear();
+    abortMatchingWaiters(() => true);
+  }
+
+  return {
+    acquire,
+    release,
+    releaseByToolUse,
+    releaseSession,
+    snapshot: () => ({
+      active: [...activeById.values()].map((active) => active.lease),
+      queuedCount: waiters.length,
+      maxSlots: slotLimit,
+    }),
+    stop,
+  };
+}
+
+export { classifyHeavyCommand, createHeavyCommandGate, createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout, queueAdmissionTimeoutError };
 export type { MemoryAdmission, MemoryGateStatus };

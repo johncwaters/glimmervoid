@@ -11,6 +11,8 @@ import { contestantDiffStats } from '../race/race-diff.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { selfLaunch } from '../runtime-paths.ts';
+import { classifyHeavyCommand } from '../spawn-gate.ts';
+import type { HeavyCommandGate } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { launchArgvFor, overallStatus, parseCheckCommand, readVerificationSettings, redactSecretLines, settingsFingerprint } from './core/verification-core.ts';
 
@@ -55,6 +57,8 @@ interface VerificationWiringDependencies {
   builtInChecks?: BuiltInChecks;
   isSessionSandboxOn: () => boolean;
   broadcastControl: (message: ControlMessageRecord) => void;
+  heavyCommandGate?: HeavyCommandGate;
+  testConcurrency?: number | null;
   logger: Pick<Console, 'warn'>;
   platform?: string;
 }
@@ -157,6 +161,8 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const liveCheckPidsBySession = new Map<string, Set<number>>();
   const attachedSessionIds = new Set<string>();
   const attachedSessionById = new Map<string, VerifiableSession>();
+  const sessionAbortById = new Map<string, AbortController>();
+  const stopController = new AbortController();
   const panelSessionIds = new Set<string>();
   const invalidConfigMessageBySession = new Map<string, string | null>();
 
@@ -185,16 +191,52 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return { id: spec.id, command: spec.command, status: 'skipped', exitCode: null, outputTail: reason };
   }
 
+const NODE_VALUE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '-e', '--eval', '-p', '--print', '-C', '--conditions', '--env-file', '--test-name-pattern', '--test-reporter', '--test-reporter-destination', '--test-concurrency', '--test-timeout']);
+
+function withTestConcurrencyArg(argv: readonly string[], testConcurrency: number | null): string[] {
+  if (testConcurrency === null || !Number.isInteger(testConcurrency) || testConcurrency < 1) return [...argv];
+  const isNodeBinary = /(?:^|[\\/])node(?:\.exe)?$/i.test(argv[0] ?? '');
+  if (!isNodeBinary) return [...argv];
+  let testFlagIndex = -1;
+  for (let index = 1; index < argv.length; index += 1) {
+    const token = argv[index] ?? '';
+    if (token === '--') break;
+    if (!token.startsWith('-')) break;
+    if (token === '--test-concurrency' || token.startsWith('--test-concurrency=')) return [...argv];
+    if (token === '--test') testFlagIndex = index;
+    if (NODE_VALUE_FLAGS.has(token)) index += 1;
+  }
+  if (testFlagIndex === -1) return [...argv];
+  return [...argv.slice(0, testFlagIndex + 1), `--test-concurrency=${testConcurrency}`, ...argv.slice(testFlagIndex + 1)];
+}
+
   async function runCheck(sessionId: string, worktreeDir: string, spec: { id: string; command: string }, timeoutMs: number): Promise<CheckOutcome> {
     if (dependencies.isSessionSandboxOn()) return skippedOutcome(spec, SANDBOX_SKIP_REASON);
     const parsedArgv = parseCheckCommand(spec.command);
     if (!parsedArgv) return skippedOutcome(spec, 'the command uses shell syntax, so it was not run; give a plain program and arguments');
-    const argv = parsedArgv[0] === GLIMMERVOID_PROGRAM ? [...selfLaunch('cli'), ...parsedArgv.slice(1)] : parsedArgv;
+    const baseArgv = parsedArgv[0] === GLIMMERVOID_PROGRAM ? [...selfLaunch('cli'), ...parsedArgv.slice(1)] : parsedArgv;
+    const testConcurrency = dependencies.testConcurrency ?? null;
+    const argv = withTestConcurrencyArg(baseArgv, testConcurrency);
     const env = buildAllowlistedChildEnv(process.env, platform);
     const { program, args } = launchArgvFor(argv, platform, env.ComSpec ?? env.COMSPEC ?? 'cmd.exe');
-    const result = await runCheckProcess(program, args, worktreeDir, env, timeoutMs, platform, liveCheckPidsOf(sessionId));
-    const output = result.launchError ?? result.outputTail;
-    return { id: spec.id, command: spec.command, status: statusOf(result), exitCode: result.exitCode, outputTail: redactSecretLines(output, secretEnvValues()) };
+    const sessionController = sessionAbortById.get(sessionId);
+    const waitSignal = sessionController
+      ? AbortSignal.any([stopController.signal, sessionController.signal])
+      : stopController.signal;
+    const acquired = dependencies.heavyCommandGate
+      ? await dependencies.heavyCommandGate.acquire({ sessionId, commandClass: classifyHeavyCommand(spec.command) ?? 'test', signal: waitSignal })
+      : null;
+    if (acquired && acquired.status !== 'granted') return skippedOutcome(spec, 'the verification check was cancelled while waiting for a build slot');
+    try {
+      if (stopController.signal.aborted || !attachedSessionIds.has(sessionId)) {
+        return skippedOutcome(spec, 'the verification check was cancelled before starting');
+      }
+      const result = await runCheckProcess(program, args, worktreeDir, env, timeoutMs, platform, liveCheckPidsOf(sessionId));
+      const output = result.launchError ?? result.outputTail;
+      return { id: spec.id, command: spec.command, status: statusOf(result), exitCode: result.exitCode, outputTail: redactSecretLines(output, secretEnvValues()) };
+    } finally {
+      if (acquired?.status === 'granted') dependencies.heavyCommandGate?.release(acquired.lease.id);
+    }
   }
 
   function runAgentCheck(sessionId: string, worktreeDir: string, agentCheck: AgentCheck, timeoutMs: number): Promise<CheckOutcome> {
@@ -346,6 +388,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   function attachSession(session: VerifiableSession): void {
     attachedSessionIds.add(session.id);
     attachedSessionById.set(session.id, session);
+    sessionAbortById.set(session.id, new AbortController());
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
     if (session.ephemeral && ownerIdOf(session.parent) === null) return;
     session.on('post-turn-check', () => {
@@ -362,6 +405,8 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     forgetSession: (sessionId) => {
       attachedSessionIds.delete(sessionId);
       attachedSessionById.delete(sessionId);
+      sessionAbortById.get(sessionId)?.abort();
+      sessionAbortById.delete(sessionId);
       panelSessionIds.delete(sessionId);
       killChecksOf(sessionId);
       cachedRunBySession.delete(sessionId);
@@ -371,6 +416,9 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       inFlightBySession.delete(sessionId);
     },
     stop: () => {
+      stopController.abort();
+      for (const controller of sessionAbortById.values()) controller.abort();
+      sessionAbortById.clear();
       for (const sessionId of [...liveCheckPidsBySession.keys()]) killChecksOf(sessionId);
     },
   };

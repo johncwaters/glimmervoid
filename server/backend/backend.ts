@@ -116,6 +116,8 @@ import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createVerificationWiring } from '../verification/verification-wiring.ts';
+import { resolveHostResourceProfile } from '../core/memory-admission-core.ts';
+import { createHeavyCommandGate } from '../spawn-gate.ts';
 import { createLoopGuardWiring } from '../session/loop-guard-wiring.ts';
 import { createReactionsWiring } from '../reactions-wiring.ts';
 import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
@@ -394,11 +396,18 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const agentSessions = new Map<string, Session>();
   const fileClaims = createFileClaims({ findLiveSession: (sessionId) => allLiveSessions().find((session) => session.id === sessionId && session.state !== STATES.DONE && session.state !== STATES.FAILED) ?? null });
   const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), scanFiles: createCodemapClient().scanFiles, claimsByOthersOf: fileClaims.claimsByOthersOf });
+  const hostResourceProfile = resolveHostResourceProfile(os.totalmem());
+  const heavyCommandGate = createHeavyCommandGate({
+    maxSlots: hostResourceProfile.heavyCommandSlots,
+    defaultLeaseTtlMs: hostResourceProfile.leaseTtlMs,
+  });
   const verification = createVerificationWiring({
     getVerificationConfig: () => configStore.config.verification,
     builtInChecks: { outcomesOf: async (session, commitSha) => [...await codemap.builtInChecksOf(session, commitSha), ...await whiteboards.layoutChecksOf(session.id)], requiredIdsOf: (session) => codemap.requiredCheckIdsOf(session), freshnessOf: (session) => whiteboards.layoutFreshnessOf(session.id) },
     isSessionSandboxOn: () => configStore.config.sessionSandbox === true,
     broadcastControl: broadcastControlFromWebSockets,
+    heavyCommandGate,
+    testConcurrency: hostResourceProfile.testConcurrency,
     logger: console,
   });
   const loopGuard = createLoopGuardWiring({ getLoopGuardConfig: () => configStore.config.loopGuard, logger: console });
@@ -931,7 +940,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     wargames: laneAssembly.wargames,
     starHint: laneAssembly.starHint,
     usage,
-    verification,
+    verification: {
+      stop: () => {
+        verification.stop();
+        heavyCommandGate.stop();
+      },
+    },
     traceWiring,
     uploadsWiring,
     whiteboards,
