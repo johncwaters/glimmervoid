@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Studio director runs on Sonnet at low effort.** The model that decides which Studio turns reach you and writes their one-line digests now runs Sonnet at low effort instead of Haiku.
 - **A Wargames map you can read.** The map fills its panel instead of a small box in the middle, so on a Large map at a 1600px window unit counts read at about 17px. Zoom with Ctrl or Cmd and the wheel, a pinch, or the zoom and Fit buttons at the map's corner, and drag to pan once zoomed. Armies show their unit icons and counts in their seat color, one token per seat per tile, instead of dots. Each village keeps its income, garrison and control in fixed spots that never overlap, and routes end at the tile edge.
 - **Economy marks are always on.** Each village shows its grain and ore a turn with a thin bar filling toward its warehouse cap, and fields and quarries show what they add. The Economy switch is gone, and its legend is now in the Key.
 - **Wargames seats get a reason to talk each turn.** The talk-phase prompt now names one thing: the biggest army marching at one of your villages or land hexes, with its troops and when it arrives, or else the nearest seat you have gone longest without messaging. The rulebook says talk lets seats take turns on a village, a quiet seat is the easy target, and a public message reaches every seat at once.

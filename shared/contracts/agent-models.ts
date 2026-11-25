@@ -77,4 +77,5 @@ export const DEFAULT_MODELS = Object.freeze({
   loginRefresh: 'haiku',
   siteCapture: 'sonnet',
   boardHabits: 'sonnet',
+  studioDirector: 'sonnet',
 });

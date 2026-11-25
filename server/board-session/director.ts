@@ -23,6 +23,8 @@ import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import type { TracePage, TracePageRequest } from '../trace-wiring.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 
+const STUDIO_DIRECTOR_EFFORT = 'low';
+
 const DIRECTOR_LANE_TOOLS = Object.freeze(['Read', 'Write']);
 const DIRECTOR_AUTHOR = Object.freeze({ id: 'director', name: 'Director' });
 const BOOTSTRAP_PROMPT = `Read ${DIRECTOR_PROMPT_FILE} and follow its instructions`;
@@ -93,7 +95,7 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
       await writeUntrustedPayload(workDir, payload, DIRECTOR_REPLY_MAX_CHARS);
       await fs.writeFile(path.join(workDir, DIRECTOR_PROMPT_FILE), promptOf(resultPath), 'utf8');
       if (signal.aborted) return null;
-      await spawnLane({ id: `director:${crypto.randomUUID()}`, name: 'Studio director', cwd: workDir, prompt: BOOTSTRAP_PROMPT, agent: 'claude-code', model: DEFAULT_MODELS.taskTitleRefiner, signal });
+      await spawnLane({ id: `director:${crypto.randomUUID()}`, name: 'Studio director', cwd: workDir, prompt: BOOTSTRAP_PROMPT, agent: 'claude-code', model: DEFAULT_MODELS.studioDirector, effort: STUDIO_DIRECTOR_EFFORT, signal });
       if (signal.aborted) return null;
       return await readLaneResultFile(resultPath);
     } finally {
