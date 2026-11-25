@@ -361,11 +361,12 @@ export function createWargamesLauncher({
   const discardedSessionIds = new Set<string>();
   const foldCase = process.platform === 'win32';
 
-  function nudgeIdleSeats(tick: number, phase: string, sessionIds: readonly string[]): void {
+  function nudgeIdleSeats(tick: number, phase: string, sessionIds: readonly string[], hasLand: boolean): void {
+    const landHint = hasLand && phase === 'orders' ? ' When get_state yourLand.examples.claim is present, it is a claim order you can submit as written.' : '';
     for (const sessionId of sessionIds) {
       const session = sessions.get(sessionId);
       if (!session || session._destroyed || !IDLE_NUDGE_STATES.has(session.state)) continue;
-      session.deliver(`Tick ${tick} (${phase} phase) started. Call get_state() to continue.`, {
+      session.deliver(`Tick ${tick} (${phase} phase) started. Call get_state() to continue.${landHint}`, {
         when: 'idle',
         submit: true,
         timeoutMs: SEAT_NUDGE_TIMEOUT_MS,
@@ -451,7 +452,7 @@ export function createWargamesLauncher({
       }
       return { ok: true as const, sessionId: session.id };
     }, {
-      onPhaseChanged: (_matchId, tick, phase, _status, sessionIds) => nudgeIdleSeats(tick, phase, sessionIds),
+      onPhaseChanged: (_matchId, tick, phase, _status, sessionIds) => nudgeIdleSeats(tick, phase, sessionIds, wargamesBalanceFor(spec.rulesVersion).territory !== null),
       onMatchEnded: (matchId, sessionIds) => { void cleanupMatchSessions(sessionIds, matchId); },
     });
   }

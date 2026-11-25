@@ -8,10 +8,12 @@ import { parseArgs } from 'node:util';
 import WebSocket from 'ws';
 import { z } from 'zod';
 
+import { ImprovementKind } from '../shared/contracts/wargames.ts';
 import type { WargamesEvent } from '../shared/contracts/wargames.ts';
 import { diplomacyMetrics } from '../shared/wargames/analytics.ts';
 import type { DiplomacyMetrics } from '../shared/wargames/analytics.ts';
-import { replayMatch } from '../shared/wargames/engine.ts';
+import { replayMatch, replayMatchAtTick, territoryCountOf } from '../shared/wargames/engine.ts';
+import type { MatchState } from '../shared/wargames/engine.ts';
 import { createWargamesStore, wargamesDirectoryOf } from '../server/wargames/wargames-store.ts';
 import { prepareIsolatedEnvironment } from './support/backend-harness.ts';
 
@@ -48,10 +50,29 @@ function tableRows(metricsList: readonly DiplomacyMetrics[]): string[] {
   return [header, divider, ...rows];
 }
 
+const LAND_CHECK_TICK = 8;
+
+function landRows(events: readonly WargamesEvent[]): string[] {
+  const state = replayMatch(events);
+  const atCheck: MatchState | null = state.tick >= LAND_CHECK_TICK ? replayMatchAtTick(events, LAND_CHECK_TICK) : null;
+  const header = `| ${state.matchId} seat | marches to open hexes | improvement builds | first claim tick | land at tick ${LAND_CHECK_TICK} | land at end | improvement levels at end |`;
+  const rows = state.seats.map(({ config: { seatId, modelDisplay } }) => {
+    const orders = Object.values(state.ordersByTick).flatMap((ordersBySeat) => ordersBySeat[seatId] ?? []);
+    const openMarches = orders.filter((order) => order.kind === 'march' && state.villages[order.toHexIndex] === null).length;
+    const improvementBuilds = orders.filter((order) => order.kind === 'build' && ImprovementKind.safeParse(order.building).success).length;
+    const claimTicks = state.reportsBySeat[seatId].flatMap((report) => (report.payload.kind === 'land' && report.payload.claimer === seatId ? [report.payload.tick] : []));
+    const improvementLevels = [...state.territory.values()].filter((tile) => tile.owner === seatId).reduce((sum, tile) => sum + tile.level, 0);
+    const landAtCheck = atCheck === null ? '-' : String(territoryCountOf(atCheck, seatId));
+    return `| ${seatId} ${modelDisplay} | ${openMarches} | ${improvementBuilds} | ${claimTicks.length === 0 ? '-' : Math.min(...claimTicks)} | ${landAtCheck} | ${territoryCountOf(state, seatId)} | ${improvementLevels} |`;
+  });
+  return [header, `|${'---|'.repeat(7)}`, ...rows];
+}
+
 async function printReport(logPaths: readonly string[]): Promise<void> {
-  const eventLists = await Promise.all(logPaths.map(readMatchLog));
-  const metricsList = eventLists.filter((events) => events.length > 0).map((events) => diplomacyMetrics(replayMatch(events)));
+  const eventLists = (await Promise.all(logPaths.map(readMatchLog))).filter((events) => events.length > 0);
+  const metricsList = eventLists.map((events) => diplomacyMetrics(replayMatch(events)));
   console.log(tableRows(metricsList).join('\n'));
+  for (const events of eventLists) console.log(['', ...landRows(events)].join('\n'));
 }
 
 function delay(timeoutMs: number): Promise<void> {

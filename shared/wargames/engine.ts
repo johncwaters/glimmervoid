@@ -2902,6 +2902,7 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     phase: state.phase,
     yourSeatId: seatId,
     yourStatus: seat.status,
+    ...(state.balance.territory === null ? {} : { yourLand: landSummaryOf(state, state.balance.territory, seatId) }),
     yourTribeId: seat.tribeId,
     tribeMembers,
     seatStatuses,
@@ -2919,7 +2920,6 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     ...(state.balance.territory === null ? {} : {
       territory: territoryViewOf(state),
       yourVillagesFounded: state.villagesFoundedBySeat[seatId] ?? 0,
-      yourLand: landSummaryOf(state, state.balance.territory, seatId),
     }),
   };
 }
