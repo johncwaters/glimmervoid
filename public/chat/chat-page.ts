@@ -150,6 +150,10 @@ function attachChatListeners(targets: ChatListenerTargets): void {
     event.preventDefault();
     cancelOutboxEntry(sessionId, entryId);
   });
+  root.addEventListener('chat-open-terminal', () => {
+    setSessionView('terminal');
+    closeSessionPage();
+  });
   root.addEventListener('chat-stop', () => {
     sendControlMsg({ type: 'chat-stop', id: sessionId });
   });

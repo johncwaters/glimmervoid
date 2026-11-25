@@ -29,8 +29,11 @@ test('a board answer the agent never takes is never noted as taken, so no later 
     const { outbox, takenNotes } = outboxNotingTaken(() => 5_000);
     outbox.queue('Answer to your board question', [], 'board-answer');
     mock.timers.tick(60_000);
-    assert.deepEqual(outbox.entries().map((entry) => entry.state), ['failed']);
+    assert.deepEqual(outbox.entries().map((entry) => [entry.state, entry.shouldOpenTerminal]), [['failed', true]]);
     assert.deepEqual(takenNotes, []);
+    const restartedOutbox = outboxNotingTaken(() => 5_000).outbox;
+    restartedOutbox.adopt(outbox.entries());
+    assert.deepEqual(restartedOutbox.entries().map((entry) => [entry.state, entry.shouldOpenTerminal, entry.failure]), [['failed', false, 'The session restarted before the message was sent.']]);
   } finally {
     mock.timers.reset();
   }

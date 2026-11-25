@@ -159,6 +159,14 @@ function sendNowButtonOf(entry: ChatOutboxEntry): HTMLButtonElement {
   return sendNowButton;
 }
 
+function openTerminalButtonOf(): HTMLButtonElement {
+  const openTerminalButton = button({ variant: 'quiet', size: 'small', textCase: 'inline', label: 'Open Terminal' });
+  openTerminalButton.addEventListener('click', () => {
+    openTerminalButton.dispatchEvent(new CustomEvent('chat-open-terminal', { bubbles: true, composed: true }));
+  });
+  return openTerminalButton;
+}
+
 function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => string, canSendNow: boolean): HTMLElement {
   const row = el('div', 'chat-queued-row');
   row.dataset.state = entry.state;
@@ -169,6 +177,7 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
   });
   const meta = el('div', 'chat-queued-meta');
   if (canSendNow && entry.state === 'held') meta.append(sendNowButtonOf(entry));
+  if (entry.state === 'failed' && entry.shouldOpenTerminal) meta.append(openTerminalButtonOf());
   meta.append(cancelButton);
   const queuedPrompt = renderPromptBubble(entry.text, entry.attachments, uploadUrlOf);
   queuedPrompt.classList.add('chat-prompt-queued');

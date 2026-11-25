@@ -7,6 +7,7 @@ import type { DeliverySettlement } from "./core/input-delivery-core.ts";
 const SUBMITTED_UNRECORDED_MAX_MS = 15_000;
 const OUTBOX_FULL_TEXT = `${CHAT_OUTBOX_MAX_ENTRIES} messages are already waiting, so this one was not queued.`;
 
+const TERMINAL_SETTLEMENTS: ReadonlySet<DeliverySettlement> = new Set(["pasted", "withheld"]);
 const UNDELIVERED_TEXT_BY_SETTLEMENT: Record<Exclude<DeliverySettlement, "submitted">, string> = {
   pasted: "The message is in the agent input box but was not sent, because text typed in the terminal is still waiting there. Open Terminal to send or clear it.",
   withheld: "The message is in the agent input box but was not sent, because you typed in the terminal meanwhile. Open Terminal to send or clear it.",
@@ -70,7 +71,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
       drain();
       return;
     }
-    replaceEntry(entryId, { state: "failed", failure: UNDELIVERED_TEXT_BY_SETTLEMENT[settlement] });
+    replaceEntry(entryId, { state: "failed", failure: UNDELIVERED_TEXT_BY_SETTLEMENT[settlement], shouldOpenTerminal: TERMINAL_SETTLEMENTS.has(settlement) });
   }
 
   function stopUnrecordedTimers(): void {
@@ -102,7 +103,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     if (!submittedEntry) return;
     if (port.reportsTurnStarts()) {
       submittedAtByEntryId.delete(entryId);
-      replaceEntry(entryId, { state: "failed", failure: NOT_TAKEN_TEXT });
+      replaceEntry(entryId, { state: "failed", failure: NOT_TAKEN_TEXT, shouldOpenTerminal: true });
       port.noteNotTaken();
       return;
     }
@@ -124,7 +125,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   function queue(text: string, attachments: readonly string[], origin: ChatOutboxOrigin): QueueOutcome {
     if (outboxEntries.length >= CHAT_OUTBOX_MAX_ENTRIES) return { ok: false, error: OUTBOX_FULL_TEXT };
     const entryId = randomUUID();
-    publish([...outboxEntries, { entryId, text, attachments: [...attachments], state: "held", failure: null, origin }]);
+    publish([...outboxEntries, { entryId, text, attachments: [...attachments], state: "held", failure: null, shouldOpenTerminal: false, origin }]);
     drain();
     return { ok: true, entryId };
   }
@@ -152,6 +153,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
 
   function carriedEntryOf(entry: ChatOutboxEntry): ChatOutboxEntry {
     if (entry.state === "sending") return { ...entry, state: "failed", failure: RESTARTED_TEXT };
+    if (entry.state === "failed" && entry.shouldOpenTerminal) return { ...entry, failure: RESTARTED_TEXT, shouldOpenTerminal: false };
     if (entry.state !== "submitted") return entry;
     return { ...entry, state: "failed", failure: RESTARTED_BEFORE_TURN_TEXT };
   }
