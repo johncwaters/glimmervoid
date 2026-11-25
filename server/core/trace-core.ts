@@ -1,6 +1,6 @@
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { isImageBlock, pastedImagesRecordOf, traceImagesField, traceImagesIn } from '../trace/core/trace-image-core.ts';
-import { ANSWERED_QUESTION_TEXT_MAX_CHARS, AnsweredQuestion, MAX_ANSWERED_QUESTIONS, MAX_ANSWERED_QUESTION_OPTIONS, MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
+import { ANSWERED_QUESTION_TEXT_MAX_CHARS, AnsweredQuestion, PermissionMode, MAX_ANSWERED_QUESTIONS, MAX_ANSWERED_QUESTION_OPTIONS, MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
 import { z } from 'zod';
 import { parseJsonRecord } from './json-core.ts';
 import { rawTextOr, textOr } from '../../shared/coerce.ts';
@@ -112,7 +112,8 @@ interface TranscriptLine {
   sourceToolUseID?: unknown;
   subtype?: unknown;
   content?: unknown;
-  message?: { content?: unknown };
+  message?: { content?: unknown; id?: unknown; usage?: { output_tokens?: unknown } | null };
+  permissionMode?: unknown;
   apiError?: unknown;
   isApiErrorMessage?: unknown;
   compactMetadata?: { preTokens?: unknown; postTokens?: unknown } | null;
@@ -466,7 +467,7 @@ function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceL
   }
   if (records.length === 0 && hasSkippedThinkingBlock) return [];
   if (records.length === 0) return [rawRecord(rawLine, line, context)];
-  return records;
+  return withMessageUsage(records, rawTextOr(line.message?.id, null), line.message?.usage?.output_tokens);
 }
 
 const COMMAND_OUTPUT_PATTERN = /^\s*<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>\s*$/;
@@ -552,6 +553,13 @@ function localCommandRecords(line: TranscriptLine, context: TraceLineContext): T
   return record ? [record] : [];
 }
 
+function withMessageUsage(records: TraceRecord[], messageId: string | null, outputTokens: unknown): TraceRecord[] {
+  const tokens = countOrNull(outputTokens, 0);
+  const [first, ...rest] = records;
+  if (first === undefined || messageId === null || tokens === null) return records;
+  return [{ ...first, usage: { messageId: messageId.slice(0, 200), outputTokens: tokens } }, ...rest];
+}
+
 function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineContext): TraceRecord[] {
   const line = parseTranscriptLine(rawLine);
   if (!line) return [rawRecord(rawLine, null, context)];
@@ -561,6 +569,11 @@ function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineConte
   if (hookMessages) return hookMessages;
   const localCommand = localCommandRecords(line, context);
   if (localCommand) return localCommand;
+  const permissionModeName = line.type === 'permission-mode' ? rawTextOr(line.permissionMode, null) : null;
+  if (permissionModeName) {
+    const knownMode = PermissionMode.safeParse(permissionModeName);
+    return [{ ...baseRecord(line, context), kind: 'permission-mode', mode: knownMode.success ? knownMode.data : 'other', modeName: permissionModeName.slice(0, 64) }];
+  }
   const systemEvent = systemEventRecords(line, context);
   if (systemEvent) return systemEvent;
   if (isDroppedLine(line)) return [];

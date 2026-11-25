@@ -10,6 +10,7 @@ export type { TracePrepend, TraceSessionOption, TraceTurn, TraceTurnAppend, Trac
 export function traceRecordBody(record: TraceRecord): string {
   if (record.kind === 'prompt' || record.kind === 'expansion' || record.kind === 'thinking' || record.kind === 'assistant' || record.kind === 'notice' || record.kind === 'usage_limit' || record.kind === 'command-output' || record.kind === 'hook-message') return record.text;
   if (record.kind === 'model-change') return record.model;
+  if (record.kind === 'permission-mode') return record.mode;
   if (record.kind === 'compaction') return compactionText(record);
   if (record.kind === 'agent-error') return agentErrorText(record);
   if (record.kind === 'tool_result') return record.content;

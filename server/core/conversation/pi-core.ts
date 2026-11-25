@@ -20,7 +20,7 @@ const SessionEntry = z.object({
 });
 
 const UserMessage = z.object({ role: z.literal('user'), content: MessageContent });
-const AssistantMessage = z.object({ role: z.literal('assistant'), content: z.array(ContentBlock) });
+const AssistantMessage = z.object({ role: z.literal('assistant'), content: z.array(ContentBlock), usage: z.object({ output: z.number().int().nonnegative() }).optional() });
 const ToolResultMessage = z.object({ role: z.literal('toolResult'), toolCallId: z.string().min(1), content: MessageContent, isError: z.boolean().optional() });
 const BashExecutionMessage = z.object({ role: z.literal('bashExecution'), command: z.string(), output: z.string().default(''), exitCode: z.number().nullish(), cancelled: z.boolean().optional() });
 const CustomMessage = z.object({ role: z.literal('custom'), content: MessageContent });
@@ -66,7 +66,13 @@ function messageRecords(base: RecordBase, message: unknown): TraceRecord[] {
   const user = UserMessage.safeParse(message);
   if (user.success) return userMessageRecords(base, user.data.content);
   const assistant = AssistantMessage.safeParse(message);
-  if (assistant.success) return assistant.data.content.flatMap((block) => assistantBlockRecords(base, block));
+  if (assistant.success) {
+    const records = assistant.data.content.flatMap((block) => assistantBlockRecords(base, block));
+    const [first, ...rest] = records;
+    const outputTokens = assistant.data.usage?.output;
+    if (first === undefined || outputTokens === undefined || base.uuid === null) return records;
+    return [{ ...first, usage: { messageId: base.uuid, outputTokens } }, ...rest];
+  }
   const toolResult = ToolResultMessage.safeParse(message);
   if (toolResult.success) return [{ ...toolResultRecord(base, toolResult.data.toolCallId, contentText(toolResult.data.content), toolResult.data.isError === true), ...traceImagesField(toolResult.data.content, base.ts) }];
   const bashExecution = BashExecutionMessage.safeParse(message);

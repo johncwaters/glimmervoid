@@ -101,6 +101,7 @@ const TRACE_TAG_BY_KIND: Record<TraceRecord['kind'], string> = {
   compaction: 'COMPACTED',
   'agent-error': 'ERROR',
   'hook-message': 'HOOK',
+  'permission-mode': 'MODE',
   raw: 'RAW',
 };
 
@@ -118,6 +119,7 @@ function traceLabelParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<strin
   if (record.kind === 'raw') return { prefix: 'Raw: ', text: firstDetailLine(record.line) };
   if (record.kind === 'command-output') return { prefix: 'Command output: ', text: firstDetailLine(record.text) };
   if (record.kind === 'model-change') return { prefix: 'Model: ', text: record.model };
+  if (record.kind === 'permission-mode') return { prefix: 'Permission mode: ', text: record.mode };
   if (record.kind === 'compaction') return { prefix: '', text: compactionText(record) };
   if (record.kind === 'agent-error') return { prefix: 'Agent error: ', text: firstDetailLine(record.text) };
   if (record.kind === 'hook-message') return { prefix: `${hookLabelOf(record)}: `, text: firstDetailLine(record.text) };

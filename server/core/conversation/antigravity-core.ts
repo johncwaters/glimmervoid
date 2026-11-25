@@ -22,6 +22,7 @@ const Step = z.object({
   content: z.string().default(''),
   thinking: z.string().default(''),
   tool_calls: z.array(ToolCall).default([]),
+  output_tokens: z.coerce.number().int().nonnegative().optional(),
 });
 
 type Step = z.infer<typeof Step>;
@@ -45,7 +46,10 @@ function plannerRecords(base: RecordBase, stepNamespace: string, step: Step): Tr
     name: toolCall.name,
     ...boundedToolCallInput(toolCall.args),
   }));
-  return [...textRecords(base, 'thinking', step.thinking), ...textRecords(base, 'assistant', step.content), ...toolCalls];
+  const [first, ...rest] = [...textRecords(base, 'thinking', step.thinking), ...textRecords(base, 'assistant', step.content), ...toolCalls];
+  if (first === undefined) return [];
+  if (step.output_tokens === undefined || base.uuid === null) return [first, ...rest];
+  return [{ ...first, usage: { messageId: base.uuid, outputTokens: step.output_tokens } }, ...rest];
 }
 
 function launchedSubagentIdOf(output: string): string | undefined {

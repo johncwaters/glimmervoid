@@ -34,6 +34,7 @@ interface ChatTurn {
   previousRecordAt: number | null;
   lastAt: number;
   taskList: TaskItem[] | null;
+  outputTokensByMessageId: Map<string, number>;
   isOver: boolean;
 }
 
@@ -94,7 +95,7 @@ export function createChatPartsState(workingDirectory: string | null = null): Ch
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
-  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingTexts: [], thinkingChars: 0, thinkingFrom: null, previousRecordAt: null, lastAt: 0, taskList: null, isOver: false };
+  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingTexts: [], thinkingChars: 0, thinkingFrom: null, previousRecordAt: null, lastAt: 0, taskList: null, outputTokensByMessageId: new Map(), isOver: false };
 }
 
 function durationTextOf(turn: ChatTurn): string | null {
@@ -127,6 +128,7 @@ function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
     thoughtText: turn.isOver ? thoughtTextOf(turn) : null,
     thinkingText: turn.thinkingTexts.length > 0 ? turn.thinkingTexts.join('\n\n') : null,
     taskList: turn.taskList,
+    outputTokens: turn.outputTokensByMessageId.size === 0 ? null : [...turn.outputTokensByMessageId.values()].reduce((total, tokens) => total + tokens, 0),
     durationText: turn.isOver ? durationTextOf(turn) : null,
     isOver: turn.isOver,
   };
@@ -305,6 +307,7 @@ function noteTurnRecord(state: ChatPartsState, record: TraceRecord, emit: (part:
     return;
   }
   noteThinking(state.turn, record);
+  if (record.usage !== undefined) state.turn.outputTokensByMessageId.set(record.usage.messageId, Math.max(record.usage.outputTokens, state.turn.outputTokensByMessageId.get(record.usage.messageId) ?? 0));
   const touch = turnTouchOf(state, record);
   if (touch === 'untouched') return;
   const { turn } = state;

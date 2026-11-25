@@ -646,6 +646,49 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
+const OUTPUT_TOKENS_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': CONVERSATION_FIXTURE_BY_AGENT['claude-code'],
+  codex: { unproducible: 'Codex reports output tokens on token_count event lines, which the Codex converter does not read (it reads item_completed lines)' },
+  kimi: { unproducible: 'Kimi Code reports tokens on usage.record wire lines, which the Kimi converter does not read' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so the token fields of its relayed message events are unknown' },
+  pi: CONVERSATION_FIXTURE_BY_AGENT.pi,
+  antigravity: CONVERSATION_FIXTURE_BY_AGENT.antigravity,
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = OUTPUT_TOKENS_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`live output tokens in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`live output tokens in Chat on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    const { parts } = appendChatRecords(createChatPartsState(), records);
+    assert.ok(parts.some((part) => part.kind === 'turn' && (part.outputTokens ?? 0) > 0), `${agent} carried no output tokens to the turn`);
+  });
+}
+
+const PERMISSION_MODE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-permission-mode.jsonl', vendorSessionId: '46110dc0-886a-4d0d-ba14-24fa6ee56690' },
+  codex: { unproducible: 'Codex records its approval policy on turn_context lines, which the Codex converter does not read' },
+  kimi: { unproducible: 'No Kimi Code session exists on the capture host to capture a permission mode change' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed permission mode event exists to capture' },
+  pi: { unproducible: 'pi has no permission modes; every tool runs without asking' },
+  antigravity: { unproducible: 'Antigravity transcript steps carry no permission mode field' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = PERMISSION_MODE_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`permission mode on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`permission mode on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    assert.deepEqual(records.map((record) => (record.kind === 'permission-mode' ? record.mode : record.kind)), ['plan']);
+  });
+}
+
 function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
   const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
   const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);

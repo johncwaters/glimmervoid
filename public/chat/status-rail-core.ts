@@ -1,3 +1,6 @@
+import type { PermissionMode } from '#shared/contracts/trace.ts';
+
+export type SessionPermissionMode = { mode: PermissionMode; modeName: string };
 import type { ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { SessionMeterReading } from '#shared/contracts/control/lane-messages.ts';
 import { formatTokens, formatUsd, planLimitsForModel, planWindowOf } from '../usage/usage-store-core.ts';
@@ -10,7 +13,8 @@ export type RailField =
   | { kind: 'context'; tokens: number; window: number }
   | { kind: 'callCost'; usd: number }
   | { kind: 'sessionCost'; usd: number }
-  | { kind: 'mode'; name: string };
+  | { kind: 'mode'; name: string }
+  | { kind: 'permission'; mode: string };
 
 interface RailInput {
   meter: SessionMeterReading | null;
@@ -20,6 +24,7 @@ interface RailInput {
   nowMs: number;
   canChangeModel?: boolean;
   agent?: string | null;
+  permissionMode?: SessionPermissionMode | null;
 }
 
 const DEFAULT_OUTPUT_STYLE = 'default';
@@ -73,10 +78,18 @@ function modeFieldOf(meter: SessionMeterReading | null): RailField | null {
   return { kind: 'mode', name: outputStyle };
 }
 
-export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, nowMs, canChangeModel = false, agent = null }: RailInput): RailField[] {
+const DEFAULT_PERMISSION_MODE = 'default';
+const PERMISSION_MODE_TEXT_BY_MODE: Readonly<Record<PermissionMode, string>> = { default: 'default', acceptEdits: 'accept edits', bypassPermissions: 'bypass permissions', plan: 'plan mode', dontAsk: "don't ask", auto: 'auto mode', other: 'other mode' };
+
+function permissionFieldOf(permissionMode: SessionPermissionMode | null): RailField | null {
+  if (permissionMode === null || permissionMode.mode === DEFAULT_PERMISSION_MODE) return null;
+  return { kind: 'permission', mode: permissionMode.mode === 'other' ? permissionMode.modeName : PERMISSION_MODE_TEXT_BY_MODE[permissionMode.mode] };
+}
+
+export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, nowMs, canChangeModel = false, agent = null, permissionMode = null }: RailInput): RailField[] {
   const activeModel = meter?.model ?? selection?.model ?? null;
   const scopedPlanLimits = planLimitsForModel(planLimits, activeModel, agent);
-  const fields = [modelFieldOf(meter, selection, canChangeModel, agent), tightestPlanFieldOf(scopedPlanLimits, nowMs), contextFieldOf(meter), ...costFieldsOf(meter, sessionCostUSD), modeFieldOf(meter)];
+  const fields = [modelFieldOf(meter, selection, canChangeModel, agent), tightestPlanFieldOf(scopedPlanLimits, nowMs), contextFieldOf(meter), ...costFieldsOf(meter, sessionCostUSD), modeFieldOf(meter), permissionFieldOf(permissionMode)];
   return fields.filter((field): field is RailField => field !== null);
 }
 
@@ -93,6 +106,7 @@ const RAIL_TEXT_BY_KIND: { [Kind in RailField['kind']]: (field: Extract<RailFiel
   callCost: ({ usd }) => `~${formatUsd(usd)}/call`,
   sessionCost: ({ usd }) => `session ${formatUsd(usd)}`,
   mode: ({ name }) => name,
+  permission: ({ mode }) => mode,
 };
 
 export function railTextOf<Kind extends RailField['kind']>(field: Extract<RailField, { kind: Kind }>): string {

@@ -17,6 +17,7 @@ import type { RailField } from './status-rail-core.ts';
 
 interface ChatView {
   element: HTMLElement;
+  stopActivityStats(): void;
   upsert(parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>): void;
   remove(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
@@ -269,6 +270,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     announceNearTop();
     const runningTurn = parts.findLast((part): part is TurnPart => part.kind === 'turn' && !part.isOver);
     if (runningTurn !== undefined) activity.narrate(interimReplyOf(runningTurn), runningCallLabelOf(runningTurn));
+    if (runningTurn !== undefined) activity.showStats(runningTurn.openedAt, runningTurn.outputTokens);
   };
   keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
   const setPhase = (phase: ChatPhase, isTurnRunning: boolean) => {
@@ -284,5 +286,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     if (turnEnd === null || isInTurnRow || turnEnd.pill.parentElement === turnEndRow) return;
     turnEndRow.replaceChildren(turnEnd.pill, turnEnd.list);
   };
-  return { element, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes, showLoaded };
+  return { element, stopActivityStats: activity.stopStats, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes, showLoaded };
 }

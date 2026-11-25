@@ -2,6 +2,9 @@ import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX, type BrandMa
 import { BADGE_LABELS, STATES, type SessionState } from '#shared/states.ts';
 import { STATUS_LEGEND } from '../status-legend-core.ts';
 import { el } from '../dom-helpers.ts';
+import { twoUnitDurationText } from '#shared/display-text.ts';
+import { formatTokens } from '../usage/usage-store-core.ts';
+import { clock } from '#shared/clock.ts';
 import { createSvgShape } from '../svg-dom.ts';
 import { type ActivityBeat, BUSY_BEAT, type ChatPhase, MONITORING_VERB, plainVerbFor, verbChoicesFor } from './chat-activity-core.ts';
 
@@ -10,6 +13,8 @@ interface ChatActivity {
   setPhase(phase: ChatPhase): void;
   beat(beats: readonly ActivityBeat[]): void;
   narrate(reply: string | null, callLabel: string | null): void;
+  showStats(openedAt: number | null, outputTokens: number | null): void;
+  stopStats(): void;
 }
 
 const INWARD_BY_SIDE: Record<BrandMarkSide, { dx: number; dy: number }> = {
@@ -57,6 +62,14 @@ function beatKey(beat: ActivityBeat): string {
   return beat.workKind === 'working' ? `working:${beat.toolName}` : beat.workKind;
 }
 
+const STATS_TICK_MS = 1000;
+const MS_PER_SECOND = 1000;
+
+function liveStatsText(elapsedMs: number, outputTokens: number | null): string {
+  const elapsedText = twoUnitDurationText(Math.max(0, Math.floor(elapsedMs / MS_PER_SECOND)), { smallestUnit: 's', dropsZeroRemainder: false });
+  return outputTokens === null || outputTokens === 0 ? elapsedText : `${elapsedText}, ${formatTokens(outputTokens)} tokens`;
+}
+
 export function createChatActivity(verbs: ActivityVerbs = 'varied'): ChatActivity {
   const pickedVerb = VERB_PICKER_BY_STYLE[verbs];
   const element = el('div', 'chat-activity');
@@ -73,7 +86,26 @@ export function createChatActivity(verbs: ActivityVerbs = 'varied'): ChatActivit
   mark.append(light);
   const verb = el('span', 'chat-activity-verb');
   const detail = el('span', 'chat-activity-detail');
-  element.append(mark, verb, detail);
+  const stats = el('span', 'chat-activity-stats');
+  element.append(mark, verb, detail, stats);
+  let statsOpenedAt: number | null = null;
+  let statsTokens: number | null = null;
+  let statsTimer: ReturnType<typeof setInterval> | undefined;
+  const stopStats = () => {
+    statsOpenedAt = null;
+    statsTokens = null;
+    stats.textContent = '';
+    clearInterval(statsTimer);
+    statsTimer = undefined;
+  };
+  const paintStats = () => {
+    if (statsOpenedAt === null || shownPhase !== 'working') {
+      stopStats();
+      return;
+    }
+    stats.textContent = liveStatsText(clock.nowMs() - statsOpenedAt, statsTokens);
+    statsTimer ??= setInterval(paintStats, STATS_TICK_MS);
+  };
   let shownBeatKey = '';
   let shownPhase: ChatPhase = 'quiet';
   let shownReply: string | null = null;
@@ -213,6 +245,7 @@ export function createChatActivity(verbs: ActivityVerbs = 'varied'): ChatActivit
       const wasStarting = shownPhase === 'starting';
       const wasBusy = wasStarting || shownPhase === 'working' || shownPhase === 'monitoring';
       shownPhase = phase;
+      paintStats();
       clearTimeout(readyTimer);
       shownReply = null;
       element.dataset.phase = phase;
@@ -233,6 +266,12 @@ export function createChatActivity(verbs: ActivityVerbs = 'varied'): ChatActivit
       }
       showQuiet(wasBusy && phase === 'quiet');
     },
+    showStats: (openedAt, outputTokens) => {
+      statsOpenedAt = openedAt;
+      statsTokens = outputTokens;
+      paintStats();
+    },
+    stopStats,
     beat: (beats) => {
       const shownBeat = beats.at(-1);
       if (shownPhase !== 'working' || shownBeat === undefined) return;

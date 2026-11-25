@@ -23,6 +23,7 @@ interface ChatFeedOptions {
   onRebuilt: (rebuiltParts: readonly ChatPart[], replacedPartIds: readonly string[]) => void;
   onFailure: (failureText: string | null) => void;
   onRecords?: (appendedRecords: readonly TraceRecord[]) => void;
+  onEarlierRecords?: (prependedRecords: readonly TraceRecord[]) => void;
 }
 
 export interface ChatFeed {
@@ -102,6 +103,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     residentRecords = [...reply.records, ...residentRecords];
     const replacedPartIds = partsState.residentPartIds;
     partsState = createChatPartsState(options.workingDirectory);
+    options.onEarlierRecords?.(reply.records);
     const rebuilt = appendChatRecords(partsState, residentRecords);
     const rebuiltPartById = new Map(rebuilt.parts.map((part) => [part.id, part]));
     const endedTurnParts = options.isTurnOver() ? endChatTurn(partsState) : [];

@@ -303,3 +303,9 @@ test('a Claude usage limit line becomes a usage_limit record with its reset time
   assert.equal(record.window, 'weekly');
   assert.equal(record.text, 'You have hit your weekly limit, resets 4am (America/Denver)');
 });
+
+test('a permission mode Glimmervoid does not know still replaces the shown one', () => {
+  const modeLine = (permissionMode: string) => JSON.stringify({ type: 'permission-mode', permissionMode, sessionId: 'session-1' });
+  const records = [modeLine('plan'), modeLine('autoEdit')].flatMap((line) => traceRecordsFromTranscriptLine(line, context));
+  assert.deepEqual(records.map((record) => (record.kind === 'permission-mode' ? [record.mode, record.modeName] : record.kind)), [['plan', 'plan'], ['other', 'autoEdit']]);
+});

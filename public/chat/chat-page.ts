@@ -1,3 +1,4 @@
+import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { CHAT_SEND_MAX_ATTACHMENTS, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
 import type { PlanGate } from '#shared/contracts/plan-gate.ts';
 import { errorMessage } from '#shared/text.ts';
@@ -497,10 +498,20 @@ function buildChat(sessionId: string): MountedChat {
     handleKeydown: waits.handleKeydown,
   });
 
+  const notePermissionMode = (records: readonly TraceRecord[], isNewer: boolean) => {
+    const newestMode = records.findLast((record) => record.kind === 'permission-mode' && record.agentId === undefined);
+    if (newestMode?.kind !== 'permission-mode') return;
+    if (!isNewer && sessionState.permissionMode !== null) return;
+    if (newestMode.modeName === sessionState.permissionMode?.modeName) return;
+    sessionState.permissionMode = { mode: newestMode.mode, modeName: newestMode.modeName };
+    showRail();
+  };
   const feed = createChatFeed({
     sessionId,
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null,
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
+    onRecords: (records) => notePermissionMode(records, true),
+    onEarlierRecords: (records) => notePermissionMode(records, false),
     onPartsChanged: (changedParts, droppedPartIds, isLive) => {
       const newPromptParts = takeNewPromptParts(changedParts, droppedPartIds);
       chatView.upsert(changedParts, isLive ? arrivingPartIdsOf(changedParts, newPromptParts) : NO_ARRIVING_PARTS);
@@ -579,11 +590,13 @@ function buildChat(sessionId: string): MountedChat {
     },
     park: () => {
       stopRail();
+      chatView.stopActivityStats();
       sessionState.draft = chatView.readDraft();
       waits.releaseTerminal();
     },
     close: () => {
       stopRail();
+      chatView.stopActivityStats();
       sessionState.draft = chatView.readDraft();
       sessionState.draftAttachments = chatView.readAttachments();
       waits.releaseTerminal();
@@ -639,6 +652,7 @@ export function sessionRailFieldsOf(sessionId: string, canChangeModel: boolean):
     nowMs: clock.nowMs(),
     canChangeModel,
     agent,
+    permissionMode: chatSessionStateOf(sessionId).permissionMode,
   });
 }
 

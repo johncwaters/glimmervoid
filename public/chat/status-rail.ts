@@ -14,6 +14,7 @@ const RAIL_GROUP_BY_KIND: Readonly<Record<Exclude<RailField['kind'], 'model'>, R
   callCost: 'work',
   sessionCost: 'work',
   mode: 'work',
+  permission: 'work',
 };
 
 interface StatusRail {

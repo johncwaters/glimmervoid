@@ -16,6 +16,9 @@ export const AnsweredQuestion = z.strictObject({
 });
 export type AnsweredQuestion = z.infer<typeof AnsweredQuestion>;
 
+export const PermissionMode = z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk', 'auto', 'other']);
+export type PermissionMode = z.infer<typeof PermissionMode>;
+
 export const TraceImage = z.strictObject({
   fileName: UploadFileName,
   mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
@@ -32,6 +35,7 @@ const TraceRecordBase = z.object({
   agentType: z.string().min(1).optional(),
   transcriptOffset: z.number().int().nonnegative().optional(),
   truncated: z.boolean().optional(),
+  usage: z.strictObject({ messageId: z.string().min(1).max(200), outputTokens: z.number().int().nonnegative() }).optional(),
 });
 
 export const SUBAGENT_SIGNAL_EVENT = 'subagent-signal';
@@ -142,6 +146,11 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     toolName: z.string().min(1).max(200).nullable(),
     text: z.string().max(MAX_RAW_LINE_CHARS),
     isError: z.boolean(),
+  }),
+  TraceRecordBase.extend({
+    kind: z.literal('permission-mode'),
+    mode: PermissionMode,
+    modeName: z.string().min(1).max(64),
   }),
   TraceRecordBase.extend({
     kind: z.literal('model-change'),
