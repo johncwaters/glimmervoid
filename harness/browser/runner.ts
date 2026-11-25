@@ -1263,7 +1263,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-chat-default-phone') {
       await verifyChatStaysDefaultOnPhone(viewer.page);
-      return passedOutcome('chat-default-phone', 'Chat shows the session bar, Back and the system back gesture go to the list and keep Chat first, and Terminal switches back and stays first');
+      return passedOutcome('chat-default-phone', 'Chat shows the session bar, Back and the system back gesture go to the list and keep Chat first, the Session tab keeps Chat, and Terminal switches back and stays first');
     }
     if (step.kind === 'assert-chat-default') {
       await verifyChatStaysDefault(viewer.page);

@@ -817,6 +817,9 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.goBack();
   await page.locator('.phone-board-list button.session-row').first().click();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.phone-nav > .phone-nav-item[data-screen="terminal"]').click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('.session-chat .chat-composer').isVisible(), true, 'the Session tab keeps the view the toggle chose');
   await page.locator('button[data-action="show-terminal"]:visible').click();
   await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.locator('button[data-action="show-terminal"]:visible').getAttribute('aria-pressed'), 'true', 'the Terminal button reads pressed while the terminal shows');

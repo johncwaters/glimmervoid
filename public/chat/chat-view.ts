@@ -43,7 +43,6 @@ const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, st
   submitted: 'Sent',
 };
 
-const DOCK_CLEARANCE_PX = 20;
 const TURN_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['[', -1], [']', 1]]);
 const PROMPT_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['{', -1], ['}', 1]]);
 const PROMPT_SELECTOR = ':scope > :is(.chat-prompt, .chat-prompt-with-attachments)';
@@ -238,8 +237,22 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   dock.append(jumpBar, composer.element);
   element.append(scroller, dock);
   attachChatLinkPopup(element, scroller, dock);
+  const composerParts = composer.element;
+  const draftGrowthPx = () => {
+    const attachments = composerParts.querySelector<HTMLElement>('.chat-composer-attachments');
+    const inputRow = composerParts.querySelector<HTMLElement>('.chat-composer-row');
+    const attachButton = composerParts.querySelector<HTMLElement>('.chat-composer-attach');
+    const sendStopSlot = composerParts.querySelector<HTMLElement>('.chat-composer-slot');
+    const rowGapPx = Number.parseFloat(getComputedStyle(composerParts).rowGap) || 0;
+    const attachmentsGrowthPx = attachments && attachments.childElementCount > 0 ? attachments.offsetHeight + rowGapPx : 0;
+    const restingRowHeightPx = Math.max(attachButton?.offsetHeight ?? 0, sendStopSlot?.offsetHeight ?? 0);
+    const inputGrowthPx = Math.max(0, (inputRow?.offsetHeight ?? 0) - restingRowHeightPx);
+    return attachmentsGrowthPx + inputGrowthPx;
+  };
   new ResizeObserver(() => {
-    scrollContent.style.paddingBottom = `${dock.offsetHeight + DOCK_CLEARANCE_PX}px`;
+    const growthPx = Math.min(draftGrowthPx(), dock.offsetHeight);
+    scroller.style.marginBottom = `${dock.offsetHeight - growthPx}px`;
+    scrollContent.style.paddingBottom = `${growthPx}px`;
   }).observe(dock, { box: 'border-box' });
   const announceNearTop = () => {
     if (scroller.scrollTop >= scroller.clientHeight) return;

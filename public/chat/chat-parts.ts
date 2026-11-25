@@ -80,6 +80,9 @@ export function renderAttachmentThumbnail(fileName: string, uploadUrlOf: UploadU
   image.alt = '';
   image.loading = 'lazy';
   image.addEventListener('error', () => image.remove(), { once: true });
+  image.addEventListener('load', () => {
+    if (image.naturalWidth > 0 && image.naturalHeight > 0) thumbnail.style.setProperty('--thumbnail-ratio', String(image.naturalWidth / image.naturalHeight));
+  }, { once: true });
   image.src = uploadUrlOf(fileName);
   thumbnail.append(el('span', 'chat-prompt-thumbnail-name', fileName), image);
   return thumbnail;

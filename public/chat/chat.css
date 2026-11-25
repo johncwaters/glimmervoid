@@ -470,7 +470,7 @@
   color: var(--text-muted);
   font: var(--type-meta)/1 var(--font-mono);
 }
-.chat-activity[data-idle] { visibility: hidden; }
+.chat-activity[data-idle] { display: none; }
 .chat-activity { --activity-hue: var(--accent); }
 
 .chat-activity-mark { flex: none; width: 24px; height: 24px; overflow: visible; }
@@ -937,7 +937,7 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 
 .chat-prompt-thumbnail-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--bg-surface); }
 
-.chat-prompt-thumbnails > .chat-prompt-thumbnail { width: 384px; max-width: 100%; height: auto; aspect-ratio: 16 / 10; }
+:is(.chat-prompt-thumbnails, .chat-turn-call-images) .chat-prompt-thumbnail { width: min(384px, 100%, calc(320px * var(--thumbnail-ratio, 1.6))); height: auto; aspect-ratio: var(--thumbnail-ratio, 16 / 10); }
 
 .chat-prompt-thumbnails .chat-prompt-thumbnail-image { object-fit: contain; }
 
@@ -1048,8 +1048,6 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 .chat-card-recommended { color: var(--text-muted); font-size: var(--type-meta); font-weight: 400; }
 
 .chat-turn-call-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px 20px; }
-
-.chat-turn-call-images .chat-prompt-thumbnail { width: 384px; max-width: 100%; height: auto; aspect-ratio: 16 / 10; }
 
 .chat-turn-call-images .chat-prompt-thumbnail-image { object-fit: contain; }
 

@@ -161,7 +161,7 @@ function buildNav() {
     const btn = buildNavButton(screen.label, screen.iconPath);
     btn.dataset.screen = screen.id;
     btn.addEventListener('click', () => {
-      showScreen(screen.id);
+      showScreen(screen.id === TERMINAL ? chosenSessionScreen() : screen.id);
     });
     navButtonById.set(screen.id, btn);
     nav.appendChild(btn);
@@ -257,6 +257,10 @@ function goBackFromSession() {
     return;
   }
   showScreen(BOARD);
+}
+
+function chosenSessionScreen() {
+  return getSessionView() === 'chat' && isPageScreen('chat') ? 'chat' : TERMINAL;
 }
 
 function showTerminalView() {
