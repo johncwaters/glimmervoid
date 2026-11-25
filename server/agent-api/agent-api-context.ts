@@ -61,7 +61,7 @@ interface AgentApiWiringOptions {
   operatorState?: AgentOperatorStatePort | null;
   whiteboards?: Pick<WhiteboardPort, 'handleAgent' | 'putWithoutReadCheck' | 'readPlanBoard'> | null;
   lookupWhy?: ((request: { target: string; cwd: string }) => Promise<WhyLookup>) | null;
-  secrets?: Pick<SecretsBroker, 'need' | 'envFor'> | null;
+  secrets?: Pick<SecretsBroker, 'needWithin' | 'envFor'> | null;
   races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;
   startRace?: RaceLauncher['start'] | null;
   wargames?: Pick<WargamesRunner, 'statusFrame' | 'historyFrame' | 'abortMatch' | 'isWargamesSession'> | null;

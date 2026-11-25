@@ -30,8 +30,9 @@ function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, onH
   now?: () => number;
   tickMs?: number;
   log?: Pick<Console, 'log'>;
-}): { stop(): void } {
+}): { noteBusy(): void; stop(): void } {
   let quietAwakeMs = 0;
+  let lastNotedBusyAt = Number.NEGATIVE_INFINITY;
   let previousTickAt = now();
   let isRequestInFlight = false;
   let hasLoggedNoAdapter = false;
@@ -57,7 +58,7 @@ function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, onH
       onHostWoke(sleptMs);
     }
     const sessions = [...liveSessions()];
-    const isBusy = sessions.some(isSessionBusy) || isWakeDueWithinIdleWindow(nextWakeAt(), nowMs);
+    const isBusy = lastNotedBusyAt >= previousTickAt || sessions.some(isSessionBusy) || isWakeDueWithinIdleWindow(nextWakeAt(), nowMs);
     quietAwakeMs = nextQuietAwakeMs({ quietAwakeMs, isBusy, previousTickAt, nowMs, tickMs });
     previousTickAt = nowMs;
     if (isRequestInFlight || !shouldRequestStop(quietAwakeMs)) return;
@@ -67,7 +68,7 @@ function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, onH
 
   const interval = setInterval(tick, tickMs);
   interval.unref();
-  return { stop: () => clearInterval(interval) };
+  return { noteBusy: () => { lastNotedBusyAt = now(); }, stop: () => clearInterval(interval) };
 }
 
 export { startIdleStop };

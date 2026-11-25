@@ -569,7 +569,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     comments,
     checkout,
     packs,
-    need: async (session, { names, reason }) => (secrets ? { status: 200, body: await secrets.need(needingSessionOf(session), names, reason ?? null) } : refusal(503, 'secrets are not available in this Glimmervoid')),
+    need: async (session, { names, reason, waitSeconds }) => (secrets ? { status: 200, body: await secrets.needWithin(needingSessionOf(session), names, reason ?? null, (waitSeconds ?? 0) * 1000) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     secrets: async (session) => (secrets ? { status: 200, body: await secrets.envFor(needingSessionOf(session)) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
     wargames,

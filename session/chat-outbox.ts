@@ -4,7 +4,6 @@ import type { ChatOutboxEntry, ChatOutboxOrigin } from "../shared/contracts/sess
 import { unrefTimer } from "../shared/timer-deps.ts";
 import type { DeliverySettlement } from "./core/input-delivery-core.ts";
 
-const IN_FLIGHT_RECHECK_MS = 500;
 const SUBMITTED_UNRECORDED_MAX_MS = 15_000;
 const OUTBOX_FULL_TEXT = `${CHAT_OUTBOX_MAX_ENTRIES} messages are already waiting, so this one was not queued.`;
 
@@ -49,7 +48,6 @@ function isWaitingToSend(entry: ChatOutboxEntry): boolean {
 
 function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   let outboxEntries: ChatOutboxEntry[] = [];
-  let recheckTimer: ReturnType<typeof setTimeout> | null = null;
   const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
   const submittedAtByEntryId = new Map<string, number>();
 
@@ -113,22 +111,11 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     drain();
   }
 
-  function recheckSoon(): void {
-    if (recheckTimer) return;
-    recheckTimer = unrefTimer(setTimeout(() => {
-      recheckTimer = null;
-      drain();
-    }, IN_FLIGHT_RECHECK_MS));
-  }
-
   function drain(): void {
     if (!outboxEntries.every(isWaitingToSend)) return;
     const nextEntry = outboxEntries.find(isWaitingToSend);
     if (!nextEntry || !port.canTakeMessage()) return;
-    if (port.isDeliveryInFlight()) {
-      recheckSoon();
-      return;
-    }
+    if (port.isDeliveryInFlight()) return;
     replaceEntry(nextEntry.entryId, { state: "sending" });
     const delivery = port.deliver(nextEntry, (settlement) => settle(nextEntry.entryId, settlement));
     if (!delivery.ok) replaceEntry(nextEntry.entryId, { state: "failed", failure: `The message could not be typed into the session: ${delivery.reason ?? "unknown reason"}.` });
@@ -176,8 +163,6 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   }
 
   function dispose(): void {
-    if (recheckTimer) clearTimeout(recheckTimer);
-    recheckTimer = null;
     stopUnrecordedTimers();
     submittedAtByEntryId.clear();
   }

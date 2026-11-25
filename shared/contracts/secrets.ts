@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const MAX_NAMES_PER_NEED = 32;
 const MAX_NEED_REASON_LENGTH = 300;
+const MAX_NEED_WAIT_SECONDS = 60;
 
 export const SecretName = z.string({ error: 'a secret name must be a string' })
   .regex(/^[A-Z_][A-Z0-9_]{0,127}$/, { error: 'a secret name must be an environment variable name in capitals, for example OPENAI_API_KEY' });
@@ -56,6 +57,10 @@ export const AgentNeedRequest = z.object({
     .min(1, { error: 'reason must not be empty' })
     .max(MAX_NEED_REASON_LENGTH, { error: `reason must be at most ${MAX_NEED_REASON_LENGTH} characters` })
     .regex(/^\P{Cc}*$/u, { error: 'reason cannot hold control characters' })
+    .optional(),
+  waitSeconds: z.number({ error: 'waitSeconds must be a number' }).int({ error: 'waitSeconds must be a whole number' })
+    .min(1, { error: 'waitSeconds must be at least 1' })
+    .max(MAX_NEED_WAIT_SECONDS, { error: `waitSeconds must be at most ${MAX_NEED_WAIT_SECONDS}` })
     .optional(),
 }).strict();
 

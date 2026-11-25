@@ -29,7 +29,8 @@ import { repoParts } from '../shared/contracts/github-ids.ts';
 const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
 const NEED_WAIT_LIMIT_MS = 5 * 60 * 1000;
-const NEED_POLL_INTERVAL_MS = 3000;
+const NEED_HELD_WAIT_SECONDS = 50;
+const NEED_UNREACHABLE_RETRY_MS = 3000;
 const HELP_LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its limits, so run glimmervoid limits to see why';
 
 type ParsedArguments = Extract<ParsedCommand, { kind: 'run' }>;
@@ -570,8 +571,9 @@ function replyError(reply: unknown, fallback: string): string {
   return typeof error === 'string' ? error : fallback;
 }
 
-async function askNeedOnce(names: readonly string[], reason: string | null): Promise<AgentNeedReply | string> {
-  const reply: unknown = await askAgentApi('need', reason === null ? { names } : { names, reason }).catch(unreachableReply);
+async function askNeedOnce(names: readonly string[], reason: string | null, waitSeconds: number | null): Promise<AgentNeedReply | string> {
+  const body = { names, ...(reason === null ? {} : { reason }), ...(waitSeconds === null ? {} : { waitSeconds }) };
+  const reply: unknown = await askAgentApi('need', body).catch(unreachableReply);
   const parsed = AgentNeedReply.safeParse(reply);
   if (parsed.success) return parsed.data;
   return replyError(reply, 'Glimmervoid gave no usable answer');
@@ -584,10 +586,16 @@ function isStillPending(reply: AgentNeedReply | string): boolean {
 
 async function waitedNeedReply(names: readonly string[], { isWaiting, reason }: { isWaiting: boolean; reason: string | null }): Promise<AgentNeedReply | string> {
   const deadlineMs = clock.nowMs() + NEED_WAIT_LIMIT_MS;
-  let reply = await askNeedOnce(names, reason);
-  while (isWaiting && isStillPending(reply) && clock.nowMs() < deadlineMs) {
-    await new Promise((resolve) => setTimeout(resolve, NEED_POLL_INTERVAL_MS));
-    reply = await askNeedOnce(names, reason);
+  const heldWaitSeconds = (): number | null => {
+    const remainingSeconds = Math.floor((deadlineMs - clock.nowMs()) / 1000);
+    return isWaiting && remainingSeconds >= 1 ? Math.min(NEED_HELD_WAIT_SECONDS, remainingSeconds) : null;
+  };
+  let reply = await askNeedOnce(names, reason, heldWaitSeconds());
+  while (isWaiting && isStillPending(reply)) {
+    if (typeof reply === 'string') await new Promise((resolve) => setTimeout(resolve, NEED_UNREACHABLE_RETRY_MS));
+    const waitSeconds = heldWaitSeconds();
+    if (waitSeconds === null) return reply;
+    reply = await askNeedOnce(names, reason, waitSeconds);
   }
   return reply;
 }

@@ -60,6 +60,7 @@ interface SessionOutput {
   clearPendingPaste(): void;
   hasPendingPaste(): boolean;
   isDeliveryInFlight(): boolean;
+  onDeliveryIdle(listener: () => void): void;
   forgetUnsubmittedComposerPaste(): void;
   rememberSize(cols: number, rows: number): boolean;
   ptySize(): { cols: number; rows: number };
@@ -83,8 +84,35 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   let pendingSubmitListener: SettleListener | undefined;
   let hasUnsubmittedPasteInComposer = false;
   let submittedTurnGraceEndsAt = 0;
+  let graceEndTimer: NodeJS.Timeout | null = null;
+  const deliveryIdleListeners = new Set<() => void>();
   let lastCols: number | null = null;
   let lastRows: number | null = null;
+
+  function isDeliveryInFlight(): boolean {
+    return hasPastesAhead() || clock.nowMs() < submittedTurnGraceEndsAt;
+  }
+
+  function announceIfDeliveryIdle(): void {
+    queueMicrotask(() => {
+      if (isDeliveryInFlight()) return;
+      for (const listener of deliveryIdleListeners) listener();
+    });
+  }
+
+  function endSubmittedTurnGrace(): void {
+    if (graceEndTimer) clearTimeout(graceEndTimer);
+    graceEndTimer = null;
+    submittedTurnGraceEndsAt = 0;
+    announceIfDeliveryIdle();
+  }
+
+  function startSubmittedTurnGrace(): void {
+    if (graceEndTimer) clearTimeout(graceEndTimer);
+    submittedTurnGraceEndsAt = clock.nowMs() + SUBMITTED_TURN_GRACE_MS;
+    graceEndTimer = setTimeout(endSubmittedTurnGrace, SUBMITTED_TURN_GRACE_MS);
+    graceEndTimer.unref();
+  }
 
   function stopWatchingForReady(): void {
     if (!isWatchingForReady) return;
@@ -103,6 +131,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     pendingSubmitListener = undefined;
     stopWatchingForReady();
     for (const onSettled of droppedListeners) settleLater(onSettled, "dropped");
+    announceIfDeliveryIdle();
   }
 
   function forgetUnsubmittedComposerPaste(): void {
@@ -132,7 +161,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
       return "withheld";
     }
     options.write("\r");
-    submittedTurnGraceEndsAt = clock.nowMs() + SUBMITTED_TURN_GRACE_MS;
+    startSubmittedTurnGrace();
     return "submitted";
   }
 
@@ -193,7 +222,9 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     queuedDeliveries.splice(expiredIndex, 1);
     options.onPasteExpired?.(expired.text);
     settleLater(expired.onSettled, "expired");
-    if (queuedDeliveries.length === 0 && !isDrainingQueue) stopWatchingForReady();
+    if (queuedDeliveries.length > 0 || isDrainingQueue) return;
+    stopWatchingForReady();
+    announceIfDeliveryIdle();
   }
 
   function enqueueAheadOfUnsubmittedPastes(queued: QueuedDelivery): void {
@@ -293,7 +324,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   options.on("exit", clearPendingPaste);
   options.on("exit", forgetUnsubmittedComposerPaste);
   options.on("state-change", ({ to }: StateChange) => {
-    if (to === STATES.RUNNING || to === STATES.WAITING) submittedTurnGraceEndsAt = 0;
+    if (to === STATES.RUNNING || to === STATES.WAITING) endSubmittedTurnGrace();
   });
 
   return {
@@ -307,7 +338,8 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     deliver,
     clearPendingPaste,
     hasPendingPaste: () => queuedDeliveries.length > 0,
-    isDeliveryInFlight: () => hasPastesAhead() || clock.nowMs() < submittedTurnGraceEndsAt,
+    isDeliveryInFlight,
+    onDeliveryIdle: (listener) => { deliveryIdleListeners.add(listener); },
     forgetUnsubmittedComposerPaste,
     rememberSize,
     ptySize,

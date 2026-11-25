@@ -255,6 +255,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('teardown', ({ cause }: { id: string; cause: SessionEndCause }) => {
       clearCompactionConfirm();
       isAcknowledgeDeferredForCompaction = false;
+      dependencies.telegramChannel.noteStateChange(session.id);
       captureSessionEnded(cause);
     });
 

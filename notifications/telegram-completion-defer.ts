@@ -1,7 +1,5 @@
 import type { NotificationContext } from './notification-manager.ts';
 
-const DEFAULT_TELEGRAM_COMPLETION_RECHECK_MS = 1000;
-
 interface DeferredDelivery {
   sessionId: string;
   category: string;
@@ -16,7 +14,6 @@ interface DeliveryDecision {
 
 function createTelegramCompletionDefer({
   deliver,
-  recheckMs = DEFAULT_TELEGRAM_COMPLETION_RECHECK_MS,
   onDeferredSend = () => {},
 }: {
   deliver: (
@@ -25,31 +22,16 @@ function createTelegramCompletionDefer({
     message: string,
     context?: Partial<NotificationContext>,
   ) => DeliveryDecision | undefined;
-  recheckMs?: number;
   onDeferredSend?: (sessionId: string) => void;
 }) {
-  const pendingCompletions = new Map<string, { delivery: DeferredDelivery; timer: NodeJS.Timeout }>();
+  const pendingCompletions = new Map<string, DeferredDelivery>();
 
   function cancel(sessionId: string): void {
-    const pending = pendingCompletions.get(sessionId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
     pendingCompletions.delete(sessionId);
   }
 
   function schedule(delivery: DeferredDelivery): void {
-    const pending = pendingCompletions.get(delivery.sessionId);
-    if (pending) {
-      pending.delivery = delivery;
-      return;
-    }
-    const timer = setTimeout(() => {
-      const latest = pendingCompletions.get(delivery.sessionId)?.delivery || delivery;
-      pendingCompletions.delete(delivery.sessionId);
-      sendDeferred(latest);
-    }, recheckMs);
-    timer.unref();
-    pendingCompletions.set(delivery.sessionId, { delivery, timer });
+    pendingCompletions.set(delivery.sessionId, delivery);
   }
 
   function send(delivery: DeferredDelivery): DeliveryDecision | undefined {
@@ -80,15 +62,14 @@ function createTelegramCompletionDefer({
   }
 
   channel.recheck = (sessionId: string): void => {
-    const pending = pendingCompletions.get(sessionId);
-    if (!pending) return;
-    const delivery = pending.delivery;
+    const delivery = pendingCompletions.get(sessionId);
+    if (!delivery) return;
     cancel(sessionId);
     sendDeferred(delivery);
   };
   channel.noteStateChange = cancel;
   channel.destroy = (): void => {
-    for (const sessionId of pendingCompletions.keys()) cancel(sessionId);
+    pendingCompletions.clear();
   };
   return channel;
 }

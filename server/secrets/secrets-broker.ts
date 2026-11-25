@@ -85,6 +85,13 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+type HeldWaitOutcome = 'changed' | 'timed-out' | 'session-ended';
+
+interface HeldWaiter {
+  sessionId: string;
+  wake: (outcome: HeldWaitOutcome) => void;
+}
+
 function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSecret, saveToAgeFile = async () => ({ message: 'Glimmervoid cannot save values on this host', detail: '' }), removeFromAgeFile = async () => ({ message: 'Glimmervoid cannot remove values on this host', detail: '' }), listAgeFileNames = async () => [], warn = console.warn, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), writtenNames = { remember: async () => undefined, namesIn: async () => [] }, now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
@@ -94,6 +101,19 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
   const deliveriesBySession = new Map<string, Map<string, DeliveredName>>();
   const deliveredValuesBySession = new Map<string, Set<string>>();
   const launchHoldsBySession = new Map<string, LaunchHold>();
+  const heldWaiters = new Set<HeldWaiter>();
+  let asksInFlight = 0;
+
+  function wakeHeldWaiters(sessionId: string | null, outcome: HeldWaitOutcome): void {
+    if (outcome === 'changed' && asksInFlight > 0) return;
+    for (const waiter of [...heldWaiters]) {
+      if (sessionId === null || waiter.sessionId === sessionId) waiter.wake(outcome);
+    }
+  }
+
+  events.on('card-changed', ({ sessionId }: { sessionId: string }) => wakeHeldWaiters(sessionId, 'changed'));
+  events.on('delivered', (sessionId: string) => wakeHeldWaiters(sessionId, 'changed'));
+  events.on('approvals-changed', () => wakeHeldWaiters(null, 'changed'));
   let ageFileNames: string[] = [];
   let isAgeFileListStale = true;
   let pendingAgeFileList: Promise<void> | null = null;
@@ -341,6 +361,40 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     return { ok: true, results, envFile: results.some((result) => result.status === 'delivered') ? envFile : null };
   }
 
+  async function askCounted(session: NeedingSession, names: readonly string[], reason: string | null): Promise<AgentNeedReply> {
+    asksInFlight += 1;
+    try {
+      return await need(session, names, reason);
+    } finally {
+      asksInFlight -= 1;
+    }
+  }
+
+  function nextChangeFor(sessionId: string, waitMs: number): Promise<HeldWaitOutcome> {
+    return new Promise((resolve) => {
+      const waiter: HeldWaiter = {
+        sessionId,
+        wake: (outcome) => {
+          clearTimeout(timer);
+          heldWaiters.delete(waiter);
+          resolve(outcome);
+        },
+      };
+      const timer = setTimeout(() => waiter.wake('timed-out'), waitMs);
+      heldWaiters.add(waiter);
+    });
+  }
+
+  async function needWithin(session: NeedingSession, names: readonly string[], reason: string | null, waitMs: number): Promise<AgentNeedReply> {
+    const waitEndsAtMs = now() + waitMs;
+    for (;;) {
+      const reply = await askCounted(session, names, reason);
+      const remainingMs = waitEndsAtMs - now();
+      if (!reply.results.some((result) => result.status === 'pending') || remainingMs <= 0) return reply;
+      if (await nextChangeFor(session.id, remainingMs) !== 'changed') return reply;
+    }
+  }
+
   async function envFor(session: NeedingSession): Promise<AgentSecretsEnvReply> {
     const alwaysAllowedNames = Object.entries(approvalsOf(readSecrets(), session.project)).filter(([, approval]) => approval.isAllowed).map(([name]) => name);
     const readableNames = [...new Set([...alwaysAllowedNames, ...(allowedOnceNamesBySession.get(session.id) ?? []), ...deliveredNamesFor(session).keys()])].sort();
@@ -488,10 +542,11 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     deliveredValuesBySession.delete(sessionId);
     allowedOnceNamesBySession.delete(sessionId);
     settleLaunchHold(sessionId, { refusal: 'the session ended' });
+    wakeHeldWaiters(sessionId, 'session-ended');
     closeCard(sessionId);
   }
 
-  return { events, need, holdForLaunch, deniedLaunchNames, envFor, decide, revoke, requestsSnapshot, approvalsMessage, removeAgeFileName, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
+  return { events, need, needWithin, holdForLaunch, deniedLaunchNames, envFor, decide, revoke, requestsSnapshot, approvalsMessage, removeAgeFileName, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

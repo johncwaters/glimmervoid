@@ -44,6 +44,7 @@ import {
 import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
 import { startIdleStop } from '../idle-stop-wiring.ts';
+import { isSessionBusy } from '../core/idle-stop-core.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
 import { createGithubSource } from '../github/github-source.ts';
@@ -659,6 +660,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     codemap.attachSession(session);
     branchMerge.attachSession(session);
     laneAssembly.races.attachSession(session);
+    const noteIfBusy = (): void => {
+      if (isSessionBusy(session)) idleStop.noteBusy();
+    };
+    session.on('state-change', noteIfBusy);
+    session.on('agents-change', noteIfBusy);
     session.on('pr-links-change', studioPrCards.syncSoon);
     agentApi?.watchSessionWakes(session);
     agentApi?.linkBranchSession(session);

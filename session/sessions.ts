@@ -590,6 +590,7 @@ class Session extends EventEmitter {
       noteNotTaken: () => this.enterCheckTerminal(),
       emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
     });
+    this._output.onDeliveryIdle(() => this._chatOutbox.drain());
     this.on("state-change", ({ from, to }: { from: SessionState; to: SessionState }) => {
       if (startsTurn(from, to)) this._chatOutbox.noteTurnTaken();
       this._chatOutbox.drain();
