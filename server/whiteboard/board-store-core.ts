@@ -20,7 +20,6 @@ const BOARD_STORE_SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS boards (
   id TEXT PRIMARY KEY,
   head TEXT NOT NULL,

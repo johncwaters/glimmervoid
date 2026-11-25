@@ -5,11 +5,12 @@ import { clock } from '../../shared/clock.ts';
 const SQLITE_FILE_MODE = 0o600;
 const UNREADABLE_DATABASE_CODES = new Set([11, 26]);
 const BULK_TRANSACTION_ROWS = 1000;
+const SQLITE_BUSY_WAIT_MS = 5000;
 
 function openDatabase(databasePath: string, schema: string): DatabaseSync {
   fs.closeSync(fs.openSync(databasePath, 'a', SQLITE_FILE_MODE));
   fs.chmodSync(databasePath, SQLITE_FILE_MODE);
-  const database = new DatabaseSync(databasePath);
+  const database = new DatabaseSync(databasePath, { timeout: SQLITE_BUSY_WAIT_MS });
   try {
     database.exec(schema);
     return database;

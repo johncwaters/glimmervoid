@@ -183,6 +183,53 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   }
 });
 
+test('a restart while another connection briefly holds the board store waits for it and lists the stored boards', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-held-'));
+  const first = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await first.loaded;
+  const storedId = (await first.handleOperator.create('Code map: held')).summary?.id ?? '';
+  await first.close();
+  const holder = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
+  holder.exec('PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE');
+  const released = new Promise<void>((resolve) => setTimeout(() => { holder.exec('COMMIT'); holder.close(); resolve(); }, 300));
+
+  const restarted = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await restarted.loaded;
+  await released;
+  assert.deepEqual(restarted.snapshotMessage().boards.map((board) => board.id), [storedId]);
+});
+
+test('a restart that cannot read the held board store refuses new boards until the stored ones are back and broadcast', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-unread-'));
+  const first = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await first.loaded;
+  const storedId = (await first.handleOperator.create('Code map: held')).summary?.id ?? '';
+  await first.close();
+  const holder = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
+  holder.exec('PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE');
+
+  const broadcastBoardIds: string[][] = [];
+  const restarted = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} }, broadcastControl: (message) => {
+    const snapshot = z.object({ type: z.literal('whiteboards-snapshot'), boards: z.array(z.object({ id: z.string() })) }).safeParse(message);
+    if (snapshot.success) broadcastBoardIds.push(snapshot.data.boards.map((board) => board.id));
+  } });
+  await restarted.loaded;
+  holder.exec('COMMIT');
+  holder.close();
+  let refusedCount = 0;
+  while (!restarted.snapshotMessage().boards.some((board) => board.id === storedId)) {
+    const created = await restarted.handleOperator.create('Code map: held');
+    assert.equal(created.ok, false);
+    assert.match(created.error ?? '', /not read yet/);
+    refusedCount += 1;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  while (!broadcastBoardIds.some((boardIds) => boardIds.includes(storedId))) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(refusedCount > 0);
+  assert.deepEqual(restarted.snapshotMessage().boards.map((board) => board.title), ['Code map: held']);
+  assert.equal((await restarted.handleOperator.create('Another board')).ok, true);
+});
+
 test('a restart lists stored boards without reading their elements, answers a view sent before it finished loading, reads a sticky an older build wrote after the upgrade as a placed note and its numbered line as a bullet, and a board with a damaged element row refuses only its own reads', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-lazy-'));
   const first = openWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });

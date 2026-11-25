@@ -112,6 +112,7 @@ interface WhiteboardReply {
 
 type StagedWrite = StagedElements & { commit: () => void };
 type CommittedReply = { reply: WhiteboardReply };
+type StoredBoardsRead = { state: 'unread' } | { state: 'rereading'; done: Promise<void> } | { state: 'read' };
 type LinkedCardFollow = WatchedFolder & { watcher: WatchDebounce; boxIdsByBoardId: Map<string, Set<string>> };
 type RecordChange = {
   ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord, layout: LayoutSummary | null) => CommittedReply;
@@ -378,6 +379,7 @@ function createWhiteboardWiring({
   const writerByElementIdByBoardId = new Map<string, Map<string, string>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
+  let storedBoardsRead: StoredBoardsRead = { state: 'unread' };
   const loaded = Promise.all([loadBoards(), assets.loaded, attachmentStore.load()]).then(sweepUnusedAssets).then(() => {});
 
   async function sweepUnusedAssets(): Promise<number> {
@@ -449,6 +451,7 @@ function createWhiteboardWiring({
     });
     for (const { boardId, elementId, writtenBy } of elementWriters) noteElementWriter(boardId, elementId, writtenBy);
     await migrateJsonBoards();
+    storedBoardsRead = { state: 'read' };
   }
 
   async function migrateJsonBoards(): Promise<void> {
@@ -672,6 +675,7 @@ function createWhiteboardWiring({
   async function close(): Promise<void> {
     stopFollowingLinkedFolders();
     await loaded.catch(() => {});
+    if (storedBoardsRead.state === 'rereading') await storedBoardsRead.done.catch(() => {});
     await Promise.all([store.close(), tiles.close()]);
   }
 
@@ -803,7 +807,23 @@ function createWhiteboardWiring({
     return saveNewRecord(record, 'created', PUT_GUIDE);
   }
 
+  function rereadStoredBoards(): void {
+    if (storedBoardsRead.state !== 'unread') return;
+    const done = loadBoards().finally(() => {
+      if (storedBoardsRead.state === 'read') {
+        broadcastControl(snapshotMessage());
+        return;
+      }
+      storedBoardsRead = { state: 'unread' };
+    });
+    storedBoardsRead = { state: 'rereading', done };
+  }
+
   async function saveNewRecord(record: BoardRecord, verb: string, note: string): Promise<WhiteboardReply> {
+    if (storedBoardsRead.state !== 'read') {
+      rereadStoredBoards();
+      return refusal(503, `the stored boards are not read yet, so the board was not ${verb}; try again in a few seconds`);
+    }
     const boardId = record.board.id;
     recordsByBoardId.set(boardId, record);
     try {

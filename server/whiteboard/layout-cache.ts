@@ -18,7 +18,6 @@ const WRITE_ROWS_PER_SLICE = 2000;
 const LAYOUT_CACHE_SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
-PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS layout_head (
   board_id TEXT PRIMARY KEY,
   version INTEGER NOT NULL,
