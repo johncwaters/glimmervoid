@@ -2,7 +2,7 @@ export const BRANCH_PROMPT_PREFIX = 'You are a branch of the session ';
 const OPERATOR_PART_MARKER = ' The operator asks: ';
 
 export function branchPromptOf(orchestratorName: string, repoName: string, aboutTitle: string, operatorPrompt: string): string {
-  return `${BRANCH_PROMPT_PREFIX}${orchestratorName}, working in ${repoName} on ${aboutTitle}. Commit your work on this branch.${OPERATOR_PART_MARKER}${operatorPrompt}`;
+  return `${BRANCH_PROMPT_PREFIX}${orchestratorName}, working in ${repoName} on ${aboutTitle}. Commit your work on this branch, and land it only when ${orchestratorName} tells you to.${OPERATOR_PART_MARKER}${operatorPrompt}`;
 }
 
 export function operatorPartOfPrompt(promptText: string): string {
@@ -21,18 +21,10 @@ function folderPrefixOf(aboutTitle: string): string {
   return aboutTitle === REPO_ROOT_BRANCH_TITLE ? '' : `${aboutTitle.replace(/\/+$/, '')}/`;
 }
 
-function isInsideBranchFolder(repoPath: string, aboutTitle: string): boolean {
-  return repoPath.startsWith(folderPrefixOf(aboutTitle));
-}
-
 export function overlappingBranchTitle(aboutTitle: string, liveBranchTitles: readonly string[]): string | null {
   const wantedPrefix = folderPrefixOf(aboutTitle);
   return liveBranchTitles.find((liveTitle) => {
     const livePrefix = folderPrefixOf(liveTitle);
     return livePrefix.startsWith(wantedPrefix) || wantedPrefix.startsWith(livePrefix);
   }) ?? null;
-}
-
-export function pathsOutsideBranchFolder(repoPaths: readonly string[], aboutTitle: string): string[] {
-  return repoPaths.filter((repoPath) => !isInsideBranchFolder(repoPath, aboutTitle));
 }

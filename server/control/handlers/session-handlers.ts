@@ -32,7 +32,7 @@ import { machineSkipsPermissionsByDefault } from '../../session/core/session-reg
 import { decidePermissions } from '../../../shared/session-permissions.ts';
 import { resolvePackageBin } from '../../runtime-paths.ts';
 import { studioHomeDir, wakeOrchestrator } from '../../board-session/studio-main.ts';
-import { isBranchWorkElsewhere } from '../../board-session/branch-merge.ts';
+import { isBranchWorkLanded } from '../../board-session/landed-branches.ts';
 import { branchParentIdOf } from '../../../shared/parent-link.ts';
 import { ORCHESTRATOR_NAME } from '../../core/studio-main-core.ts';
 import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
@@ -545,10 +545,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   async function findLocalRemovalRefusal(sess: Session, confirmedKeptPaths: ReadonlySet<string>): Promise<RemovalRefusal | null> {
     const keptPaths = await sess.hasWorkspaceMembers() ? await sess.findWorkspaceKeptWork() : [];
     const branchParentId = branchParentIdOf(sess.parent);
-    if (branchParentId !== null) {
-      const parent = sessions.get(branchParentId) ?? null;
-      if (!(await isBranchWorkElsewhere(sess, parent))) return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not yet in ${parent?.name ?? 'its parent'}. Closing it deletes them.`);
-    }
+    if (branchParentId !== null && !(await isBranchWorkLanded(sess))) return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not landed on the integration branch of its repo. Closing it deletes them.`);
     if (branchParentId === null && !sess.isWorkspace && await sess.hasUnmergedWork()) {
       const checkoutWork = keptPaths.length > 0 ? ` Its checkouts also hold work not saved: ${keptPaths.map((kept) => kept.path).join(', ')}.` : '';
       return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.${checkoutWork}`, keptPaths.length > 0 ? keptPaths : undefined);

@@ -313,7 +313,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (memoryShortfall) return refusal(503, memoryShortfall);
     const outcome = await start({ orchestratorId: orchestrator.id, place, prompt });
     if (!outcome.ok) return refusal(409, outcome.error);
-    const note = `${outcome.name} works in ${outcome.repoName} on ${outcome.title}, on a worktree cut from that repo's integration branch: session read ${outcome.sessionId} reads its messages and session send ${outcome.sessionId} <text> steers it`;
+    const note = `${outcome.name} works in ${outcome.repoName} on ${outcome.title}, on a worktree cut from that repo's integration branch: session read ${outcome.sessionId} reads its messages and session send ${outcome.sessionId} <text> steers it. It lands nothing until you tell it to, and its session closes once its work has landed`;
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
   }
 

@@ -94,7 +94,7 @@ import { createTelemetry } from '../telemetry.ts';
 import { createSessionPreviews } from '../session/session-previews.ts';
 import { createCodemapService } from '../codemap/codemap-wiring.ts';
 import { createCodemapClient } from '../codemap/codemap-client.ts';
-import { createBranchMerge } from '../board-session/branch-merge.ts';
+import { createLandedBranches } from '../board-session/landed-branches.ts';
 import type { BranchWiring } from '../board-session/branch-wiring.ts';
 import { studioHomeDir } from '../board-session/studio-main.ts';
 import { branchParentIdOf } from '../../shared/parent-link.ts';
@@ -678,7 +678,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
 
-  const branchMerge = createBranchMerge({ findSession: getSessionAny, liveSessions: allLiveSessions, tellMain: (branchId, text) => agentApi?.tellParent(branchId, text) ?? false, closeBranch: async (branchId) => closeSession ? closeSession(branchId) : { ok: false, error: 'the control handlers are not ready' }, logger: console });
+  const landedBranches = createLandedBranches({ findSession: getSessionAny, closeBranch: async (branchId) => closeSession ? closeSession(branchId) : { ok: false, error: 'the control handlers are not ready' }, logger: console });
 
   function wireSessionEvents(session: Session): void {
     wireSessionStatusEvents(session);
@@ -687,7 +687,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       codemap.noteBranchesChanged();
       session.on('teardown', () => codemap.noteBranchesChanged());
     }
-    branchMerge.attachSession(session);
+    landedBranches.attachSession(session);
     laneAssembly.races.attachSession(session);
     const noteIfBusy = (): void => {
       if (isSessionBusy(session)) idleStop.noteBusy();
