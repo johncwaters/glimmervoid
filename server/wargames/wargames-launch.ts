@@ -9,7 +9,7 @@ import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index
 import { ArmyStatus, ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, WARGAMES_TRAVEL_HEXES_PER_TICK, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
 import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
 import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, marchCostOf } from '../../shared/wargames/terrain.ts';
-import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
+import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType, WargamesTerritoryRule } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -113,9 +113,22 @@ function victoryPointLine(spec: WargamesMatchSpecType, clock: string): string | 
   const landRule = balance.territory === null ? '' : ` plus 1 VP per ${balance.territory.tilesPerPoint} land hexes it holds,`;
   return [
     `${clock} Victory points (VP) decide the match. At the end of every tick each seat gains 1 VP per village it holds and ${victory.beaconPoints} VP per Beacon it holds with at least 1 troop inside,${economyRule}${landRule} and VP are never lost.`,
+    ...landObjectiveLines(balance.territory, victory.economyIncomePerPoint),
     `The first seat to reach ${target} VP wins; otherwise the seat with the most VP after tick ${spec.maxTicks} wins (ties: more villages, then more income). get_state shows every seat's VP in victoryPointsBySeat and the target in victoryPointTarget.`,
     'Beacons are the sites with isBeacon true in get_state sites: they produce nothing and cannot be built on; capture them like a village, and a Beacon left with no troops goes back to unowned at the end of the tick. get_state sites lists every village and Beacon on the map, even ones you cannot see into.',
   ].join(' ');
+}
+
+function landObjectiveLines(territory: WargamesTerritoryRule | null, economyIncomePerPoint: number): string[] {
+  if (territory === null) return [];
+  const { tilesPerPoint, quarryOreTileBonus } = territory;
+  const { field, quarry } = territory.improvements;
+  return [
+    `Land wins matches: you start owning every open hex next to your villages, and every ${tilesPerPoint} land hexes score 1 VP per tick, as much as a whole village, with no battle. ${tilesPerPoint * 3} land hexes score 3 VP every tick.`,
+    'Claim more: march 1 troop to an open hex touching your land; once it has stood there through the next tick, the hex is yours. A village you capture or found brings the unowned open hexes around it.',
+    `Improve land: a Field on land next to your village adds ${field.yieldPerLevel} grain per tick per level, a Quarry ${quarry.yieldPerLevel} ore (${quarry.yieldPerLevel + quarryOreTileBonus} on an Ore deposit), and every ${economyIncomePerPoint} income per tick is 1 more VP per tick.`,
+    'get_state yourLand shows your land count, land VP per tick, the hexes you can claim next and what each suits, and in examples a claim march and a build order you can submit as written.',
+  ];
 }
 
 function objectiveLine(spec: WargamesMatchSpecType): string {

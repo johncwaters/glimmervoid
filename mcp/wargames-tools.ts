@@ -77,7 +77,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('get_state', {
     title: 'Get Match State',
-    description: 'Read your fog-of-war view of the current tick, phase, visible villages, armies, contracts, and breach ledger. Pass ready: true during talk or contracts when finished so the phase can advance early, and wait_for_change: true to block until the tick, phase, or match status changes.',
+    description: 'Read your fog-of-war view of the current tick, phase, visible villages, armies, contracts, and breach ledger. Where the rules have land, yourLand lists your land count, land VP per tick, hexes you can claim next, and ready-made claim and build orders. Pass ready: true during talk or contracts when finished so the phase can advance early, and wait_for_change: true to block until the tick, phase, or match status changes.',
     inputSchema: z.strictObject({
       ready: z.boolean().optional(),
       wait_for_change: z.boolean().optional(),
@@ -86,7 +86,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('get_reports', {
     title: 'Get Signed Reports',
-    description: 'Read engine-signed battle and scout reports received since a given tick.',
+    description: 'Read engine-signed battle, scout, and land (a hex you claimed or lost) reports received since a given tick.',
     inputSchema: z.strictObject({ since_tick: z.number().int().min(0).default(0) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'get_reports', args)));
 

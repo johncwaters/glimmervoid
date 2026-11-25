@@ -1635,7 +1635,7 @@
     },
     {
       "name": "land",
-      "definition": "In Wargames v9, a hex that is not a village and that a seat has claimed by holding it with a standing army; it scores victory points and can hold one improvement"
+      "definition": "In Wargames v9, a hex that is not a village and that a seat owns: the open hexes around each village the seat starts with, captures or founds, and hexes it claims by holding them with a standing army; it scores victory points and can hold one improvement"
     },
     {
       "name": "claim",
