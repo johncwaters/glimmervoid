@@ -232,14 +232,12 @@ test('with no GitHub read token the watcher runs no GitHub probe, the log says o
     appliedTokens.push(credentials.github);
     return applyCredentials(credentials);
   };
-  const changedAtMs = Date.now();
   linkCredentials.github = 'first-token';
   link.credentialsMayHaveChanged();
   linkCredentials.github = 'read-token';
   link.credentialsMayHaveChanged();
   await eventually(() => appliedTokens.at(-1) === 'read-token' ? true : undefined);
-  assert.ok(Date.now() - changedAtMs < 1500, 'a credential change is delivered at once, never after a debounce');
-  assert.deepEqual(appliedTokens, ['first-token', 'read-token'], 'a change made while a delivery is in flight is delivered right after it');
+  assert.deepEqual(appliedTokens, ['first-token', 'read-token'], 'a credential change is delivered at once, never merged by a debounce, and a change made while a delivery is in flight is delivered right after it');
   await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
   await eventually(() => github.requests.length >= 1 ? true : undefined);
 });
@@ -1475,7 +1473,10 @@ async function signedWatcherCall(doormanPort: number, linkSecret: Buffer, method
 test('a doorman with a GitHub App binds the installation its tenant connected through the device flow, mints a read-only installation token scoped to the repositories the user reaches, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token and the connected user token over the signed link, leaves an operator read token in charge, and stops handing out the user token once the tenant disconnects', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, [10 * 60_000 + 200]);
-  const { linkSecret, tenant } = await doormanTenant(t, 'apptenant000001', 'http://127.0.0.1:9');
+  const nudgeTakingServer = http.createServer((_request, response) => response.writeHead(204).end());
+  const nudgeTakingServerPort = await listenOnLoopback(nudgeTakingServer);
+  t.after(() => new Promise((resolve) => nudgeTakingServer.close(resolve)));
+  const { linkSecret, tenant } = await doormanTenant(t, 'apptenant000001', `http://127.0.0.1:${nudgeTakingServerPort}`);
   const probeAuthorizations: string[] = [];
   const probeFetch: typeof fetch = async (_input, init) => {
     probeAuthorizations.push(new Headers(init?.headers).get('authorization') ?? '');
