@@ -39,6 +39,7 @@ import type { VerificationWiring } from '../verification/verification-wiring.ts'
 import type { SessionReviewWiring } from '../review/session-review-wiring.ts';
 import type { HostReadyReader } from '../ready-host.ts';
 import type { CodemapService } from '../codemap/codemap-wiring.ts';
+import type { StudioReposStore } from '../board-session/studio-repos-store.ts';
 import type { BoardAsks } from '../whiteboard/board-ask.ts';
 import type { Director } from '../board-session/director.ts';
 
@@ -132,6 +133,7 @@ interface BackendControlDependencies {
   hostReady: HostReadyReader;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   director: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
+  studioRepos: Pick<StudioReposStore, 'repos' | 'setBranchAgent'> | null;
   codemap: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo' | 'studioAreas' | 'boxesOfStudioPaths'> | null;
   boardAsks: Pick<BoardAsks, 'answer' | 'openAsksOf'> | null;
   reviews: ReviewPort;
@@ -231,6 +233,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     hostReady: dependencies.hostReady,
     whiteboards: dependencies.whiteboards,
     codemap: dependencies.codemap,
+    studioRepos: dependencies.studioRepos,
     boardAsks: dependencies.boardAsks,
     director: dependencies.director,
     reviews: dependencies.reviews,

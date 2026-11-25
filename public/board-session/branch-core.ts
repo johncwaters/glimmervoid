@@ -4,6 +4,7 @@ import { branchParentIdOf } from '#shared/parent-link.ts';
 export interface BoxChoice {
   boxId: string;
   title: string;
+  repoName: string;
 }
 
 export interface BoxMention {
@@ -31,6 +32,10 @@ export function textWithoutMention(text: string, mention: BoxMention): string {
   return `${text.slice(0, mention.start)}${text.slice(mention.end)}`.replace(/\s{2,}/g, ' ').trimStart();
 }
 
+export function placeTitleOf(repoName: string, boxTitle: string): string {
+  return `${repoName} ${boxTitle}`;
+}
+
 export function matchingBoxChoices(choices: readonly BoxChoice[], query: string): BoxChoice[] {
   const needle = query.toLowerCase();
   const rankOf = (choice: BoxChoice) => {
@@ -38,14 +43,21 @@ export function matchingBoxChoices(choices: readonly BoxChoice[], query: string)
     if (title.startsWith(needle)) return 0;
     const lastSegment = title.slice(title.lastIndexOf('/') + 1);
     if (lastSegment.startsWith(needle)) return 1;
-    return 2;
+    if (title.includes(needle)) return 2;
+    return 3;
   };
-  const firstChoiceByTitle = new Map<string, BoxChoice>();
-  for (const choice of choices) if (!firstChoiceByTitle.has(choice.title)) firstChoiceByTitle.set(choice.title, choice);
-  return [...firstChoiceByTitle.values()]
-    .filter((choice) => choice.title.toLowerCase().includes(needle))
+  const firstChoiceByPlace = new Map<string, BoxChoice>();
+  for (const choice of choices) {
+    const place = `${choice.repoName}/${choice.title}`;
+    if (!firstChoiceByPlace.has(place)) firstChoiceByPlace.set(place, choice);
+  }
+  const bestChoices = [...firstChoiceByPlace]
+    .filter(([place]) => place.toLowerCase().includes(needle))
+    .map(([, choice]) => choice)
     .sort((left, right) => rankOf(left) - rankOf(right) || left.title.length - right.title.length || left.title.localeCompare(right.title))
     .slice(0, MAX_BOX_CHOICES);
+  const repoNames = [...new Set(bestChoices.map((choice) => choice.repoName))];
+  return repoNames.flatMap((repoName) => bestChoices.filter((choice) => choice.repoName === repoName));
 }
 
 export function branchSessionIdsOf(sessions: Iterable<[string, { parent: ParentLink | null }]>, parentId: string): string[] {

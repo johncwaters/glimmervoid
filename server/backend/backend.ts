@@ -1091,6 +1091,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hostReady,
     whiteboards,
     codemap,
+    studioRepos,
     boardAsks,
     director,
     reviews,

@@ -222,10 +222,10 @@ subscribeSettings((change) => {
   openAddSessionSheet.applyLiveSettings();
 });
 
-export function createAddSessionDialog(onStudioStarted: ((mainId: string) => void) | null = null) {
+export function createAddSessionDialog(onStudioStarted: ((mainId: string) => void) | null = null, studioRepoDir: string | null = null) {
   const { overlay, dialog, close } = createModalOverlay({ dialogClass: 'dialog add-session-dialog', closeOnBackdrop: false });
   overlay.classList.add('add-session-overlay');
-  const picker = mountAddSessionPicker(dialog, { onStarted: close, onCancel: close, onStudioStarted });
+  const picker = mountAddSessionPicker(dialog, { onStarted: close, onCancel: close, onStudioStarted, studioRepoDir });
   openAddSessionSheet = { dialog, refresh: picker.refresh, applyLiveSettings: picker.applyLiveSettings };
   applyDialogAria(dialog, 'add-session-title');
 }

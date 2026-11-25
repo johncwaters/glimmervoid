@@ -28,7 +28,7 @@ import { onAgentChange } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { errorMessage } from '#shared/text.ts';
 import { clock } from '#shared/clock.ts';
-import { addressLabelOf, boxMentionAt, matchingBoxChoices, textWithoutMention } from './branch-core.ts';
+import { addressLabelOf, boxMentionAt, matchingBoxChoices, placeTitleOf, textWithoutMention } from './branch-core.ts';
 import type { BoxChoice, BoxMention, DockAddress } from './branch-core.ts';
 
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -657,7 +657,7 @@ export function createDock(session: DockSession): Dock {
     if (mention === null) return;
     input.value = textWithoutMention(input.value, mention);
     closeMentions();
-    setAddress({ kind: 'new-branch', aboutBoxId: choice.boxId, aboutTitle: choice.title });
+    setAddress({ kind: 'new-branch', aboutBoxId: choice.boxId, aboutTitle: placeTitleOf(choice.repoName, choice.title) });
     composer.restoreDraft(input.value);
     input.focus();
   };
@@ -673,7 +673,14 @@ export function createDock(session: DockSession): Dock {
       item.addEventListener('click', () => pickChoice(choice));
       return item;
     });
-    mentions.replaceChildren(...items);
+    const groupedItems = items.flatMap((item, index) => {
+      const repoName = mentionChoices[index]?.repoName ?? '';
+      if (index > 0 && mentionChoices[index - 1]?.repoName === repoName) return [item];
+      const groupLabel = el('div', 'bs-mention-group', repoName);
+      groupLabel.setAttribute('role', 'presentation');
+      return [groupLabel, item];
+    });
+    mentions.replaceChildren(...groupedItems);
     mentions.hidden = items.length === 0;
     if (items.length === 0) return input.removeAttribute('aria-activedescendant');
     input.setAttribute('aria-activedescendant', `bs-mention-${activeChoiceIndex}`);

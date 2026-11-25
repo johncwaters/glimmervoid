@@ -3,6 +3,7 @@ import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { ParentLink } from '../../shared/contracts/session.ts';
 import { branchPromptOf, overlappingBranchTitle } from '../../shared/board-branch-core.ts';
 import type { BranchAbout, BranchTarget } from '../../shared/board-branch-core.ts';
+import type { StudioBranchAgent } from '../../shared/contracts/studio-repos.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import type { Session } from '../../session/sessions.ts';
 
@@ -28,6 +29,7 @@ interface BranchWiringDeps {
   listSessions: () => Iterable<Session>;
   listRepos: () => Promise<readonly BranchRepo[]>;
   repoOfBox: (boxId: string) => Promise<BranchRepo | null>;
+  branchAgentOf: (repoKey: string) => Promise<StudioBranchAgent | null>;
   resolveTarget: (repoDir: string, about: BranchAbout) => Promise<BranchTarget>;
   createProjectSession: CreateProjectSession;
 }
@@ -55,7 +57,7 @@ function namedRepoOf(repos: readonly BranchRepo[], named: string): { ok: true; r
   return { ok: false, error: `${named} is not a Studio repo; the Studio repos are ${listedText}` };
 }
 
-function createBranchWiring({ findSession, listSessions, listRepos, repoOfBox, resolveTarget, createProjectSession }: BranchWiringDeps) {
+function createBranchWiring({ findSession, listSessions, listRepos, repoOfBox, branchAgentOf, resolveTarget, createProjectSession }: BranchWiringDeps) {
   const spawnsByRepoKey = createKeyedSerialQueue();
 
   async function placedRepoOf(place: BranchPlace): Promise<PlacedRepo> {
@@ -84,16 +86,17 @@ function createBranchWiring({ findSession, listSessions, listRepos, repoOfBox, r
     const heldTitle = overlappingBranchTitle(target.title, liveRepoBranches.map((branch) => branch.parent?.box?.title ?? ''));
     const holder = liveRepoBranches.find((branch) => branch.parent?.box?.title === heldTitle);
     if (heldTitle !== null) return { ok: false, error: `${holder?.name ?? 'A live branch'} already works on ${heldTitle} in ${repoName}, which overlaps ${target.title}; send that branch the work, or close it in Studio first.` };
-    const link: ParentLink = { sessionId: orchestrator.id, box: { id: target.boxId, title: target.title } };
+    const link: ParentLink = { sessionId: orchestrator.id, box: { id: target.boxId, title: target.title, repoName } };
+    const branchAgent = await branchAgentOf(repo.repoKey);
     const created = createProjectSession({
       name: `${repoName} ${target.title.split('/').filter(Boolean).at(-1) ?? target.title}`,
       path: repo.repoDir,
-      agent: orchestrator.agentId,
+      agent: branchAgent?.agentId ?? orchestrator.agentId,
       dangerouslySkipPermissions: orchestrator.dangerouslySkipPermissions,
       saneYolo: orchestrator.saneYolo,
-      accountId: orchestrator.accountId,
+      accountId: branchAgent ? branchAgent.accountId : orchestrator.accountId,
       requireExistingPath: true,
-      runSettings: { parent: link },
+      runSettings: { parent: link, ...(branchAgent?.setup ? { agentSetup: { ...branchAgent.setup, instructions: '' } } : {}) },
     });
     if (!created.ok) return created;
     const branch = findSession(created.project.id);

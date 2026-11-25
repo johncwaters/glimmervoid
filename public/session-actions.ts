@@ -81,8 +81,8 @@ export function openAddSessionDialog() {
   openWithDialogs((dialogs) => dialogs.createAddSessionDialog());
 }
 
-export function openStudioRepoDialog(onStudioStarted: (mainId: string) => void) {
-  openWithDialogs((dialogs) => dialogs.createAddSessionDialog(onStudioStarted));
+export function openStudioRepoDialog(onStudioStarted: (mainId: string) => void, studioRepoDir: string | null = null) {
+  openWithDialogs((dialogs) => dialogs.createAddSessionDialog(onStudioStarted, studioRepoDir));
 }
 
 let revealSessionInView: (id: string) => void = selectSession;

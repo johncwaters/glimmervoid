@@ -103,10 +103,8 @@ test('repos and folders of one repo with the same folder names draw their own bo
   const emptyRepoDir = path.join(tmpDir, 'empty');
   fs.mkdirSync(emptyRepoDir);
   await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: emptyRepoDir });
-  codemap.openArea(emptyRepoDir);
-  const emptyAreaOf = async () => (await codemap.studioAreas()).areas.find((area) => area.repoDir === emptyRepoDir);
-  for (let attempt = 0; attempt < 200 && !(await emptyAreaOf()); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
-  const emptyArea = await emptyAreaOf();
+  assert.equal((await codemap.openArea(emptyRepoDir))?.repoName, 'empty');
+  const emptyArea = (await codemap.studioAreas()).areas.find((area) => area.repoDir === emptyRepoDir);
   assert.match(emptyArea?.mapError ?? '', /no commit to map/, 'a repo opened in Studio whose map cannot be built is listed with the reason');
   assert.equal(emptyArea?.isMapFailed, true);
 

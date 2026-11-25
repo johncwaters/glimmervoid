@@ -4,6 +4,7 @@ import { PlanGate } from './plan-gate.ts';
 import { STATES } from '../states.ts';
 import { ModelSelection, SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
+import { STUDIO_REPO_NAME_MAX } from './studio-repos.ts';
 import { AgentAccountId } from './agent-accounts.ts';
 import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
 import { AgentNeedReply, AgentSecretsEnvReply } from './secrets.ts';
@@ -20,7 +21,7 @@ import { WhiteboardAgentReply } from './whiteboard.ts';
 
 export const ParentLink = z.object({
   sessionId: z.string().min(1),
-  box: z.object({ id: z.string().min(1).max(40), title: z.string().max(80) }).nullable().default(null),
+  box: z.object({ id: z.string().min(1).max(40), title: z.string().max(80), repoName: z.string().max(STUDIO_REPO_NAME_MAX).default('') }).nullable().default(null),
 });
 export type ParentLink = z.infer<typeof ParentLink>;
 

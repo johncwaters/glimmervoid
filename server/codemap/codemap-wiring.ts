@@ -390,14 +390,25 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { boardId, areas: drawnAreas };
   }
 
-  function openArea(repoDir: string): void {
-    const opening = async () => {
-      if (!isMappedDir(repoDir) || (await repoKeyOf(repoDir)) === null) return logger.warn(`[codemap] ${repoDir} is not a git repository, so it has no map area`);
-      await areaRepoOf(repoDir);
-      const map = await currentMap({ repoDir });
+  function drawOpenedArea(repoDir: string): void {
+    currentMap({ repoDir }).then((map) => {
       if ('error' in map) logger.warn(`[codemap] the map area of ${repoDir} was not drawn: ${map.error}`);
-    };
-    opening().catch((error: unknown) => logger.warn(`[codemap] the map area of ${repoDir} was not opened: ${errorMessage(error)}`));
+    }, (error: unknown) => logger.warn(`[codemap] the map area of ${repoDir} was not drawn: ${errorMessage(error)}`));
+  }
+
+  async function openArea(repoDir: string): Promise<MapAreaRepo | null> {
+    try {
+      if (!isMappedDir(repoDir) || (await repoKeyOf(repoDir)) === null) {
+        logger.warn(`[codemap] ${repoDir} is not a git repository, so it has no map area`);
+        return null;
+      }
+      const areaRepo = await areaRepoOf(repoDir);
+      drawOpenedArea(repoDir);
+      return areaRepo;
+    } catch (error) {
+      logger.warn(`[codemap] the map area of ${repoDir} was not opened: ${errorMessage(error)}`);
+      return null;
+    }
   }
 
   function removeAreasOfMissingFolders(keptRepoDir: string): void {

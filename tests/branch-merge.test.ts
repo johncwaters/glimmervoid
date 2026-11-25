@@ -40,7 +40,7 @@ test('bringIn tells the Orchestrator its worktree has no branch checked out and 
   commitAll(branchDir, 'idea');
 
   const orchestrator = new Session({ id: 'orchestrator', name: 'orchestrator', path: orchestratorDir, ptySpawn: () => fakePty() });
-  const branch = new Session({ id: 'branch', name: 'notes-branch', path: branchDir, parent: { sessionId: orchestrator.id, box: { id: 'notes-box', title: 'notes' } }, ptySpawn: () => fakePty() });
+  const branch = new Session({ id: 'branch', name: 'notes-branch', path: branchDir, parent: { sessionId: orchestrator.id, box: { id: 'notes-box', title: 'notes', repoName: 'repo' } }, ptySpawn: () => fakePty() });
   const toldMain: string[] = [];
   const branchMerge = createBranchMerge({
     findSession: (sessionId) => [orchestrator, branch].find((session) => session.id === sessionId) ?? null,

@@ -49,7 +49,7 @@ function assertSameBox(before: Box, after: Box, what: string): void {
 
 const StudioMapBoxes = z.object({
   boardId: z.string().nullable().default(null),
-  areas: z.array(z.object({ anchorBoxId: z.string() })).default([]),
+  areas: z.array(z.object({ anchorBoxId: z.string(), repoKey: z.string(), repoName: z.string(), repoDir: z.string() })).default([]),
   boxRectById: z.record(z.string(), z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() })).default({}),
 });
 
@@ -305,13 +305,21 @@ function rectsOverlap(first: Box, second: Box): boolean {
   return first.x < second.x + second.width && second.x < first.x + first.width && first.y < second.y + second.height && second.y < first.y + first.height;
 }
 
+const CLEAR_CANVAS_INSET_PX = 40;
+
 async function bringBoxIntoView(page: Page, root: Locator, boardId: string, boxId: string): Promise<void> {
   const viewport = await root.locator('.wb-viewport').boundingBox();
   const cardOnScreen = (await boxScreenRectsOf(page, root, boardId)).get(boxId);
   assert.ok(viewport && cardOnScreen, 'the map and the card are laid out');
   const center = { x: cardOnScreen.x + cardOnScreen.width / 2, y: cardOnScreen.y + cardOnScreen.height / 2 };
   const isInView = center.x > viewport.x && center.x < viewport.x + viewport.width && center.y > viewport.y && center.y < viewport.y + viewport.height;
-  if (isInView) return;
+  if (isInView && (await clearMapPointIn(page, cardOnScreen)) !== null) return;
+  if (isInView) {
+    await page.mouse.move(viewport.x + viewport.width - CLEAR_CANVAS_INSET_PX, viewport.y + CLEAR_CANVAS_INSET_PX * 3);
+    await page.mouse.wheel(0, cardOnScreen.y - (viewport.y + CLEAR_CANVAS_INSET_PX * 3));
+    await delay(MAP_GLIDE_SETTLE_MS);
+    return;
+  }
   await page.locator('.wb-island-agent-change', { hasText: `#${FAKE_PR_NUMBER}` }).getByRole('button', { name: 'Go to card', exact: true }).click({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await delay(MAP_GLIDE_SETTLE_MS);
 }
@@ -376,8 +384,11 @@ async function addressCardBox(page: Page, pillBefore: Box): Promise<void> {
   const mention = root.getByRole('option').first();
   await mention.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.match(await mention.textContent() ?? '', /card/, 'the box picker offers the card file');
+  const [studioArea] = (await studioMapBoxesOf(page, root)).areas;
+  assert.ok(studioArea, 'Studio has a repo area');
+  assert.equal(await root.locator('.bs-mention-group').first().textContent(), studioArea.repoName, 'the box picker groups its boxes under the name of their repo');
   await pillInput.press('Enter');
-  await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith('New branch on'), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.waitForFunction((addressStart) => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith(addressStart), `New branch on ${studioArea.repoName} `, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await pillInput.inputValue(), '', 'picking a box takes the @ mention out of the pill');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill with a branch address');
 }
@@ -386,7 +397,10 @@ async function addressBranch(page: Page): Promise<void> {
   const root = page.locator('.board-session-view');
   await root.locator(MESSAGE_BAR_SELECTOR).click();
   await root.locator('.bs-row-agent.bs-row-branch .bs-face').last().click();
-  await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith('To '), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  const [studioArea] = (await studioMapBoxesOf(page, root)).areas;
+  assert.ok(studioArea, 'Studio has a repo area');
+  await page.waitForFunction((addressStart) => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith(addressStart), `To ${studioArea.repoName} `, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.match(await root.locator('.bs-row-you.bs-row-branch .bs-bubble-who').last().textContent() ?? '', new RegExp(`^To ${studioArea.repoName} `), 'a log row to a branch names its repo');
 }
 
 async function clearAddress(page: Page): Promise<void> {
@@ -797,7 +811,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'a box that is not a folder or file on the map takes no address');
   const barInput = root.locator(MESSAGE_BAR_SELECTOR);
   const barAddress = root.locator('.bs-pill-address-text');
-  const repoRootAddress = root.locator('.bs-pill-address-text', { hasText: /^New branch on repo root$/ });
+  const repoRootAddress = root.locator('.bs-pill-address-text', { hasText: /^New branch on \S+ repo root$/ });
   const addressRepoRoot = async () => {
     const deadline = Date.now() + BOARD_SESSION_TIMEOUT_MS;
     while (Date.now() < deadline) {
@@ -816,7 +830,18 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await barInput.fill('work');
   await barInput.press('Enter');
   await root.locator('.bs-failure:not([hidden])', { hasText: 'already works on repo root' }).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await barAddress.textContent(), 'New branch on repo root', 'a refused box address stays in the bar to retarget');
+  assert.match(String(await barAddress.textContent()), /^New branch on \S+ repo root$/, 'a refused box address stays in the bar to retarget');
+
+  const [studioArea] = (await studioMapBoxesOf(page, root)).areas;
+  assert.ok(studioArea, 'Studio has a repo area');
+  const repoAgentMark = root.locator(`.bs-repo-agent[data-repo-key="${studioArea.repoKey}"]`);
+  assert.equal(await repoAgentMark.getAttribute('aria-label'), `Branch agent of ${studioArea.repoName}`, 'the repo card carries the agent its branches run');
+  await repoAgentMark.click();
+  const repoDialog = page.locator('.add-session-dialog');
+  await repoDialog.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await repoDialog.locator('#add-session-path').inputValue(), studioArea.repoDir, 'the agent mark of a repo opens the repo dialog on that repo, to change its branch agent');
+  await repoDialog.getByRole('button', { name: 'Cancel' }).click();
+  await repoDialog.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
 
   const mainCard = root.locator('.bs-card[data-main]').first();
   const studioMainId = await mainCard.getAttribute('data-session-id');

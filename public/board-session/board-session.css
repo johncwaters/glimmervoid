@@ -205,6 +205,9 @@
   .bs-presence-glow[data-tier='edited'] { border-width: 3px; border-color: var(--agent-brand, #ff7a59); }
   @keyframes bs-glow { from { opacity: 0.55; } to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .bs-presence-glow { animation: none; } }
+  .bs-repo-agent { position: absolute; top: 0; left: 0; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-card); pointer-events: auto; cursor: pointer; }
+  .bs-repo-agent:hover, .bs-repo-agent:focus-visible { border-color: var(--bs-branch); outline: none; }
+  .bs-repo-agent-face { display: grid; place-items: center; width: 14px; height: 14px; }
 
   .bs-cards { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
   .bs-card-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
@@ -315,6 +318,7 @@
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
   }
   .bs-mentions[hidden] { display: none; }
+  .bs-mention-group { padding: 4px 8px 2px; color: var(--text-muted); font-size: var(--type-meta); }
   .bs-mention { height: 28px; padding: 0 8px; overflow: hidden; border: 0; border-radius: 6px; background: none; color: var(--text); font-family: var(--font-mono); font-size: var(--type-meta); text-align: left; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
   .bs-mention[aria-selected='true'], .bs-mention:hover { background: color-mix(in srgb, var(--bs-branch) 18%, var(--bg-surface)); color: var(--text-head); }
 

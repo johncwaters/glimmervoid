@@ -46,7 +46,7 @@ import { createAgentWaits } from './agent-waits.ts';
 import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import type { Dock, DockBranch } from './dock.ts';
-import { branchSessionIdsOf } from './branch-core.ts';
+import { branchSessionIdsOf, placeTitleOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 import { isStudioSession } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
@@ -279,7 +279,7 @@ function addressBox(clickedBoardId: string, boxId: string): void {
   if (clickedBoardId !== boardId || shownSessionId === null) return;
   const choice = moduleChoices.find((candidate) => candidate.boxId === boxId);
   if (choice === undefined) return;
-  dock?.addressBox(choice.boxId, choice.title);
+  dock?.addressBox(choice.boxId, placeTitleOf(choice.repoName, choice.title));
 }
 
 function toggleOpenedBranch(sessionId: string): void {
@@ -295,14 +295,14 @@ function shownBranchIds(): string[] {
 function dockBranchesOf(branchIds: readonly string[]): DockBranch[] {
   return branchIds.flatMap((branchId) => {
     const ui = sessionUIs.get(branchId);
-    const branchTitle = ui?.parent?.box?.title;
-    if (!ui || branchTitle === undefined) return [];
+    const branchBox = ui?.parent?.box;
+    if (!ui || !branchBox) return [];
     return [{
       sessionId: branchId,
       name: sessionName(ui) || branchId.slice(0, 8),
       workingDirectory: sessionWorkingDirectoryOf(branchId) ?? ui.path,
       agentId: ui.agent ?? null,
-      aboutTitle: branchTitle,
+      aboutTitle: placeTitleOf(branchBox.repoName, branchBox.title).trim(),
       isTurnOver: () => chatPhaseOf(sessionUIs.get(branchId)?.currentState) !== 'working',
     }];
   });
@@ -520,7 +520,9 @@ function paintPresence(): void {
   }
   const glows = [...tierByBoxId].map(([boxId, tier]) => ({ boxId, tier }));
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
-  parts.presenceLayer.paint({ glows }, board);
+  const orchestratorAgentId = shownSessionId === null ? null : sessionUIs.get(shownSessionId)?.agent ?? null;
+  const repoAgents = areas.map((area) => ({ repoKey: area.repoKey, repoName: area.repoName, anchorBoxId: area.anchorBoxId, agentId: area.branchAgentId ?? orchestratorAgentId }));
+  parts.presenceLayer.paint({ glows, repoAgents }, board);
   const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
   parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, () => shownFixedAreas);
   dock?.paintActivity();
@@ -747,11 +749,17 @@ function ensureOrchestrator(anchorSessionId: string): void {
     .catch(() => showNotice(NO_MAIN_TEXT));
 }
 
-function openStudioRepo(): void {
+function openStudioRepo(repoDir: string | null = null): void {
   openStudioRepoDialog((mainId) => {
     pendingMainId = mainId;
     refreshBoardSessionView();
-  });
+    requestBoxes();
+  }, repoDir);
+}
+
+function pickRepoAgent(repoKey: string): void {
+  const area = areas.find((candidate) => candidate.repoKey === repoKey);
+  if (area) openStudioRepo(area.repoDir);
 }
 
 function menuActionItem(label: string, action: string, onPick: () => void): HTMLElement {
@@ -790,7 +798,7 @@ function toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void 
 
 function openMenu(opener: HTMLButtonElement): void {
   if (!parts) return;
-  const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', openStudioRepo);
+  const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', () => openStudioRepo());
   const orchestratorId = shownSessionId;
   const orchestratorItems = orchestratorId === null ? [] : [
     el('div', 'bs-menu-rule'),
@@ -808,7 +816,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   const menu = el('div', 'bs-menu bs-card-menu bs-repo-menu');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
-  const presenceLayer = createPresenceLayer(boundsOfHostBox);
+  const presenceLayer = createPresenceLayer(boundsOfHostBox, pickRepoAgent);
   const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, close: closeBranchAgent, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
   const topLeft = el('div', 'bs-top-left');
   const noRepoChip = createPressable('bs-chip');

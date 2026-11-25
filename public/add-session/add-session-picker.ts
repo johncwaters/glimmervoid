@@ -113,9 +113,9 @@ function cancelButtons(onCancel: (() => void) | undefined): HTMLButtonElement[] 
   return [btnCancel];
 }
 
-type AddSessionPickerOptions = { onStarted: () => void; onCancel?: () => void; onStudioStarted?: ((mainId: string) => void) | null };
+type AddSessionPickerOptions = { onStarted: () => void; onCancel?: () => void; onStudioStarted?: ((mainId: string) => void) | null; studioRepoDir?: string | null };
 
-export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel, onStudioStarted = null }: AddSessionPickerOptions) {
+export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel, onStudioStarted = null, studioRepoDir = null }: AddSessionPickerOptions) {
   dialog.innerHTML = addSessionHTML;
 
   const pickEl = query(dialog, '#add-session-pick');
@@ -1084,6 +1084,10 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     renderLaunchers();
   });
   renderLaunchers();
+  if (studioRepoDir !== null) {
+    target = { kind: 'folder' };
+    pathInput.value = studioRepoDir;
+  }
   advance();
   refresh();
 

@@ -45,8 +45,8 @@ test('the Orchestrator runs in the Studio home, lists every Studio repo from its
   const codemap = createCodemapService({ whiteboards, areas: studioRepos, specsRoot: path.join(tmpDir, 'specs'), isMappedDir: (repoDir) => repoDir !== studioHomeDir() });
   const sessions = new Map<string, Session>();
   const createdProjects: ProjectEntry[] = [];
-  const createProjectSession = (args: { name: string; path: string; runSettings?: Partial<ProjectEntry> }) => {
-    const project: ProjectEntry = { ...args.runSettings, id: `session-${createdProjects.length + 1}`, name: args.name, path: args.path };
+  const createProjectSession = (args: { name: string; path: string; agent?: ProjectEntry['agent']; runSettings?: Partial<ProjectEntry> }) => {
+    const project: ProjectEntry = { ...args.runSettings, id: `session-${createdProjects.length + 1}`, name: args.name, path: args.path, ...(args.agent ? { agent: args.agent } : {}) };
     createdProjects.push(project);
     sessions.set(project.id, new Session({ id: project.id, name: project.name, path: project.path, isStudioMain: project.isStudioMain === true, parent: project.parent ?? null, ptySpawn: () => fakePty() }));
     return { ok: true as const, project };
@@ -56,6 +56,7 @@ test('the Orchestrator runs in the Studio home, lists every Studio repo from its
     listSessions: () => sessions.values(),
     listRepos: () => codemap.listedRepos(),
     repoOfBox: (boxId) => codemap.repoOfBox(boxId),
+    branchAgentOf: async (repoKey) => (await studioRepos.repos()).find((listed) => listed.repoKey === repoKey)?.branchAgent ?? null,
     resolveTarget: (repoDir, about) => codemap.branchTargetOf(repoDir, about),
     createProjectSession,
   });
@@ -125,13 +126,19 @@ test('the Orchestrator runs in the Studio home, lists every Studio repo from its
   assert.equal(secondBranch.path, secondRepoDir, 'the branch runs in the repo the Orchestrator named');
   assert.equal(secondBranch.parent?.sessionId, orchestrator.id);
   assert.equal(secondBranch.parent?.box?.title, 'lib');
+  assert.equal(secondBranch.parent?.box?.repoName, 'second', 'the branch link names its repo for the log and the address chip');
   assert.ok(secondBranch.parent?.box?.id.startsWith(repoIdPrefixOf(CODEMAP_ID_PREFIXES.map, secondRepo.repoKey)), 'the branch sits on a box of that repo area');
   assert.equal(createdProjects.at(-1)?.startSha, undefined, 'a branch starts from its repo integration branch, not from a pinned commit');
+  assert.equal(createdProjects.at(-1)?.agentSetup, undefined, 'a repo with no branch agent set runs its branches on the agent of the Orchestrator');
   assert.match(secondBranch.chatOutboxEntries[0]?.text ?? '', /^You are a branch of the session Orchestrator, working in second on lib\. .* The operator asks: fix the parts$/);
 
   assert.match(errorOf(await spawn(orchestrator, { prompt: 'more parts', repo: secondRepo.repoKey, about: 'lib/part3.ts' })), /already works on lib in second/);
+  await studioRepos.setBranchAgent(firstRepo.repoKey, { agentId: 'codex', accountId: null, setup: { agent: 'codex', model: 'gpt-5.2-codex', options: [] } });
+  await assert.rejects(studioRepos.setBranchAgent(firstRepo.repoKey, { agentId: '', accountId: null, setup: null }), 'a blank agent never reaches studio-repos.json, where it would hide the repo on the next start');
   const byFile = await spawn(orchestrator, { prompt: 'fix a part', repo: firstRepo.repoKey, about: 'lib/part3.ts' });
   assert.equal(byFile.status, 200, 'the same folder name in another repo is free');
+  assert.equal(createdProjects.at(-1)?.agent, 'codex', 'a branch runs the agent set for its repo');
+  assert.deepEqual(createdProjects.at(-1)?.agentSetup, { agent: 'codex', model: 'gpt-5.2-codex', options: [], instructions: '' }, 'a branch runs the model set for its repo');
   assert.equal(sessions.get(String((byFile.body as { sessionId?: string }).sessionId))?.path, firstRepoDir);
 
   const appBoxId = (await codemap.branchTargetOf(secondRepoDir, { repoPath: 'app' }));

@@ -63,6 +63,7 @@ import type { WakeView } from '../shared/contracts/wakes.ts';
 import { createSettingsHandlers } from './control/handlers/settings-handlers.ts';
 import { createWhiteboardHandlers } from './control/handlers/whiteboard-handlers.ts';
 import type { CodemapService } from './codemap/codemap-wiring.ts';
+import type { StudioReposStore } from './board-session/studio-repos-store.ts';
 import type { BoardAsks } from './whiteboard/board-ask.ts';
 import { createBoardSessionHandlers } from './control/handlers/board-session-handlers.ts';
 import { createBranchWiring } from './board-session/branch-wiring.ts';
@@ -188,6 +189,7 @@ interface ControlHandlerDeps {
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   director?: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
   studioGuide?: StudioGuideStore | null;
+  studioRepos?: Pick<StudioReposStore, 'repos' | 'setBranchAgent'> | null;
   codemap?: Pick<CodemapService, 'boxesOfSession' | 'boxRectsOf' | 'setFolderOpen' | 'branchTargetOf' | 'openArea' | 'repoOfBox' | 'listedRepos' | 'mapBoardIdOfRepo' | 'studioAreas' | 'boxesOfStudioPaths'> | null;
   boardAsks?: Pick<BoardAsks, 'answer' | 'openAsksOf'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
@@ -223,6 +225,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     listSessions: () => context.sessions.values(),
     listRepos: async () => deps.codemap ? deps.codemap.listedRepos() : [],
     repoOfBox: async (boxId) => deps.codemap ? deps.codemap.repoOfBox(boxId) : null,
+    branchAgentOf: async (repoKey) => (await deps.studioRepos?.repos())?.find((listed) => listed.repoKey === repoKey)?.branchAgent ?? null,
     resolveTarget: async (repoDir, about) => deps.codemap ? deps.codemap.branchTargetOf(repoDir, about) : { ok: false, error: 'the code map is not running, so a branch has no box to work on' },
     createProjectSession: context.createProjectSession,
   });

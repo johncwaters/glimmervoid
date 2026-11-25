@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { clock } from '../../shared/clock.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { StudioRepo, StudioReposFile } from '../../shared/contracts/studio-repos.ts';
+import { STUDIO_REPO_NAME_MAX, StudioBranchAgent, StudioRepo, StudioReposFile } from '../../shared/contracts/studio-repos.ts';
 
 const REPO_KEY_HEX_LENGTH = 8;
 
@@ -11,6 +11,7 @@ type StudioReposStore = {
   repos(): Promise<readonly StudioRepo[]>;
   addRepo(repoDir: string): Promise<StudioRepo>;
   removeRepo(repoKey: string): Promise<void>;
+  setBranchAgent(repoKey: string, branchAgent: StudioBranchAgent): Promise<StudioRepo | null>;
 };
 
 function createStudioReposStore({ filePath, logger, nowMs = clock.nowMs, newRepoKey = () => crypto.randomBytes(REPO_KEY_HEX_LENGTH / 2).toString('hex') }: { filePath: string | null; logger: Pick<Console, 'warn'>; nowMs?: () => number; newRepoKey?: () => string }): StudioReposStore {
@@ -50,7 +51,10 @@ function createStudioReposStore({ filePath, logger, nowMs = clock.nowMs, newRepo
   function unusedRepoName(current: readonly StudioRepo[], repoDir: string): string {
     const folderName = path.basename(repoDir) || 'repo';
     const takenNames = new Set(current.map((listed) => listed.repoName.toLowerCase()));
-    const nameOf = (copyNumber: number) => (copyNumber === 1 ? folderName : `${folderName}-${copyNumber}`);
+    const nameOf = (copyNumber: number) => {
+      const copySuffix = copyNumber === 1 ? '' : `-${copyNumber}`;
+      return `${folderName.slice(0, STUDIO_REPO_NAME_MAX - copySuffix.length)}${copySuffix}`;
+    };
     let copyNumber = 1;
     while (takenNames.has(nameOf(copyNumber).toLowerCase())) copyNumber += 1;
     return nameOf(copyNumber);
@@ -79,7 +83,18 @@ function createStudioReposStore({ filePath, logger, nowMs = clock.nowMs, newRepo
     return change((current) => ({ nextRepos: current.some((listed) => listed.repoKey === repoKey) ? current.filter((listed) => listed.repoKey !== repoKey) : current, changed: undefined }));
   }
 
-  return { repos, addRepo, removeRepo };
+  function setBranchAgent(repoKey: string, pickedBranchAgent: StudioBranchAgent): Promise<StudioRepo | null> {
+    return change((current) => {
+      const branchAgent = StudioBranchAgent.parse(pickedBranchAgent);
+      const listed = current.find((candidate) => candidate.repoKey === repoKey);
+      if (!listed) return { nextRepos: current, changed: null };
+      const changedRepo: StudioRepo = { ...listed, branchAgent };
+      return { nextRepos: current.map((candidate) => (candidate === listed ? changedRepo : candidate)), changed: changedRepo };
+    });
+  }
+
+  return { repos, addRepo, removeRepo, setBranchAgent };
 }
 
 export { createStudioReposStore };
+export type { StudioReposStore };

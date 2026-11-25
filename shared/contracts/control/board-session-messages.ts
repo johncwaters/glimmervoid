@@ -27,7 +27,7 @@ export type OpenBoardAsk = z.infer<typeof OpenBoardAsk>;
 const SessionMapBoxes = z.object({ boxIdByPath: z.record(z.string(), z.string()).default({}), fallbackBoxId: z.string().nullable().default(null), changedBoxIds: z.array(z.string()).default([]) });
 export type SessionMapBoxes = z.infer<typeof SessionMapBoxes>;
 
-const StudioMapArea = z.object({ repoKey: z.string(), repoName: z.string(), isFolded: z.boolean(), anchorBoxId: z.string(), mapError: z.string().nullable().default(null) });
+const StudioMapArea = z.object({ repoKey: z.string(), repoName: z.string(), repoDir: z.string(), isFolded: z.boolean(), anchorBoxId: z.string(), mapError: z.string().nullable().default(null), branchAgentId: z.string().nullable().default(null) });
 export type StudioMapArea = z.infer<typeof StudioMapArea>;
 
 export const boardSessionClientVariants = [

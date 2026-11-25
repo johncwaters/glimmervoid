@@ -1030,7 +1030,7 @@ test('a parent and the child it spawned message each other through their own cha
 });
 
 test('a Studio branch and its main message each other on a channel opened from the branch link, which a replaced main takes over with one copy of each note, neither starts a session, the branch reaches no other session, and close leaves a branch alone', async () => {
-  const branch = new Session({ id: 'branch-server', name: 'parent server', path: process.cwd(), ptySpawn: () => fakePty(), parent: { sessionId: 'parent', box: { id: 'box-server', title: 'server' } } });
+  const branch = new Session({ id: 'branch-server', name: 'parent server', path: process.cwd(), ptySpawn: () => fakePty(), parent: { sessionId: 'parent', box: { id: 'box-server', title: 'server', repoName: 'glimmervoid' } } });
   const fixture = wiringFixture({ parentIsStudioMain: true, laneSessions: [branch] });
   try {
     fixture.wiring.linkBranchSession(fixture.parent);

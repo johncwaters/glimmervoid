@@ -168,6 +168,25 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     });
   }
 
+  async function openStudioRepo(repoPath: string, msg: AddSessionRequest): Promise<void> {
+    const { codemap = null, studioRepos = null } = deps;
+    const pickedAgentId = msg.agent?.trim() ?? '';
+    const listed = await codemap?.openArea(repoPath);
+    if (!listed || !studioRepos || pickedAgentId === '') return;
+    await studioRepos.setBranchAgent(listed.repoKey, { agentId: pickedAgentId, accountId: msg.accountId ?? null, setup: msg.setup ?? null });
+  }
+
+  function startStudio(msg: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): void {
+    const orchestratorId = wakeOrchestrator(sessions.values());
+    if (orchestratorId !== null) {
+      sendFirstPrompt(orchestratorId, msg.prompt);
+      reply({ ok: true, sessionId: orchestratorId });
+      return;
+    }
+    fs.mkdirSync(studioHomeDir(), { recursive: true });
+    createAddedSession({ ...msg, path: studioHomeDir(), name: ORCHESTRATOR_NAME }, reply, { ...runSettings, isStudioMain: true });
+  }
+
   function addSession(request: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): void {
     const msg = withShellDefaults(request);
     const refusal = shellAddSessionRefusal(msg) ?? addSessionRefusal(msg);
@@ -188,15 +207,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       refuseAddSession(msg, reply, { error: missingFolderError(msg.path) });
       return;
     }
-    deps.codemap?.openArea(repoPath);
-    const orchestratorId = wakeOrchestrator(sessions.values());
-    if (orchestratorId !== null) {
-      sendFirstPrompt(orchestratorId, msg.prompt);
-      reply({ ok: true, sessionId: orchestratorId });
-      return;
-    }
-    fs.mkdirSync(studioHomeDir(), { recursive: true });
-    createAddedSession({ ...msg, path: studioHomeDir(), name: ORCHESTRATOR_NAME }, reply, { ...runSettings, isStudioMain: true });
+    openStudioRepo(repoPath, msg).then(() => startStudio(msg, reply, runSettings)).catch((error: unknown) => reply({ ok: false, error: `The branch agent of ${path.basename(repoPath)} was not kept: ${errorMessage(error)}` }));
   }
 
   async function handlePackLaunch(msg: ClientMessageOf<'pack-launch'>, ws: ControlSocket): Promise<void> {

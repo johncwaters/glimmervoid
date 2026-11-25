@@ -21,11 +21,11 @@ type MainAgentOutcome = { ok: true; mainId: string } | { ok: false; error: strin
 
 function createBoardSessionHandlers(context: ControlContext, deps: ControlHandlerDeps, branches: BranchWiring): ControlHandlerGroup {
   const { findSession, createProjectSession, findConfiguredProject, sessions } = context;
-  const { codemap = null, boardAsks = null, director = null, studioGuide = null } = deps;
+  const { codemap = null, studioRepos = null, boardAsks = null, director = null, studioGuide = null } = deps;
 
   function ensureMainAgent(anchor: Session): MainAgentOutcome {
     if (findConfiguredProject(anchor.id)?.repos) return { ok: false, error: WORKSPACE_MAIN_TEXT };
-    if (!anchor.isStudioMain) codemap?.openArea(anchor.path);
+    if (!anchor.isStudioMain) void codemap?.openArea(anchor.path);
     const ensured = ensureOrchestrator(sessions.values(), createProjectSession, { agent: anchor.agentId, dangerouslySkipPermissions: anchor.dangerouslySkipPermissions, saneYolo: anchor.saneYolo, accountId: anchor.accountId });
     if (!ensured.ok) return ensured;
     return { ok: true, mainId: ensured.orchestratorId };
@@ -49,7 +49,9 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
         const studio = await codemap.studioAreas();
         const boxesBySessionId = Object.fromEntries(await Promise.all(Object.entries(message.pathsBySessionId).map(async ([watchedId, paths]) => [watchedId, await sessionMapBoxesOf(watchedId, paths)] as const)));
         const boxChoices = studio.areas.flatMap((area) => area.boxChoices.map((choice) => ({ ...choice, repoName: area.repoName })));
-        const areas = studio.areas.map(({ repoKey, repoName, isFolded, anchorBoxId, mapError }) => ({ repoKey, repoName, isFolded, anchorBoxId, mapError }));
+        const listedRepos = (await studioRepos?.repos()) ?? [];
+        const branchAgentIdOf = (repoKey: string) => listedRepos.find((listed) => listed.repoKey === repoKey)?.branchAgent?.agentId ?? null;
+        const areas = studio.areas.map(({ repoKey, repoName, repoDir, isFolded, anchorBoxId, mapError }) => ({ repoKey, repoName, repoDir, isFolded, anchorBoxId, mapError, branchAgentId: branchAgentIdOf(repoKey) }));
         const firstUnmapped = studio.areas.find((area) => area.mapError !== null);
         if (firstUnmapped && studio.areas.every((area) => area.mapError !== null)) return ws.send(JSON.stringify({ ...reply, ok: false, boardId: studio.boardId, error: firstUnmapped.mapError, isMapFailed: studio.areas.some((area) => area.isMapFailed) }));
         const placedBoxIds = [...areas.map((area) => area.anchorBoxId), ...Object.keys(boxesBySessionId).flatMap((watchedId) => sessions.get(watchedId)?.parent?.box?.id ?? []), ...Object.values(boxesBySessionId).flatMap((boxes) => [...Object.values(boxes.boxIdByPath), ...boxes.changedBoxIds, ...(boxes.fallbackBoxId === null ? [] : [boxes.fallbackBoxId])])];
