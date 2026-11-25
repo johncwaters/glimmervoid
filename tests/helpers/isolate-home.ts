@@ -50,6 +50,9 @@ delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW;
 process.env.GLIMMERVOID_HOME = resolveIsolatedTestHome();
 process.env.CLAUDE_CONFIG_DIR = path.join(process.env.GLIMMERVOID_HOME, 'claude-config');
 for (const vendorHomeVariable of VENDOR_HOME_VARS.filter((name) => name !== 'CLAUDE_CONFIG_DIR')) process.env[vendorHomeVariable] = path.join(process.env.GLIMMERVOID_HOME, vendorHomeVariable.toLowerCase());
+process.env.ANTIGRAVITY_BRAIN_DIR = path.join(process.env.GLIMMERVOID_HOME, 'antigravity-brain');
+process.env.PI_CODING_AGENT_DIR = path.join(process.env.GLIMMERVOID_HOME, 'pi-agent');
+delete process.env.PI_CODING_AGENT_SESSION_DIR;
 
 const isolatedTestTemp = mintFolderRemovedOnExit('glimmervoid-test-tmp-');
 for (const temporaryFolderVariable of ['TMPDIR', 'TEMP', 'TMP']) process.env[temporaryFolderVariable] = isolatedTestTemp;

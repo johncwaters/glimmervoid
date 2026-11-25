@@ -93,6 +93,7 @@ interface BoardTileService {
   warningsNamingOf(board: Board, elementIds: readonly string[]): Promise<string[]>;
   pictureImagesOf(board: Board, options: PictureOptions): Promise<PictureImage[]>;
   pictureOf(board: Board, dataUriByAssetId: Record<string, string>, options: PictureOptions): Promise<BoardPictureRead>;
+  close(): Promise<void>;
 }
 
 function headOf(board: Board): BoardFraming {
@@ -285,6 +286,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     warningsNamingOf: async (board, elementIds) => (await layouts.ask(board, { kind: 'warnings-naming', boardId: board.id, ids: [...elementIds] })).warnings ?? [],
     pictureImagesOf: async (board, options) => (await layouts.ask(board, { kind: 'picture-images', boardId: board.id, options })).pictureImages ?? [],
     pictureOf,
+    close: () => layouts.close(),
   };
 }
 

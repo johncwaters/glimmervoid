@@ -236,6 +236,7 @@ interface WhiteboardPort {
   fileUnfiledBoards(): Promise<void>;
   followLinkedFolders(): Promise<void>;
   stopFollowingLinkedFolders(): void;
+  close(): Promise<void>;
   takeBoardNotice(sessionId: string, sessionProject: string | null): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
@@ -665,6 +666,12 @@ function createWhiteboardWiring({
     linkWatchByBoardId.clear();
     for (const { watcher } of linkedCardFollowByFolder.values()) watcher.stop();
     linkedCardFollowByFolder.clear();
+  }
+
+  async function close(): Promise<void> {
+    stopFollowingLinkedFolders();
+    await loaded.catch(() => {});
+    await Promise.all([store.close(), tiles.close()]);
   }
 
   async function syncLinkedFolder(boardId: string): Promise<void> {
@@ -1942,7 +1949,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, putPrCard, openAsksOf, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, putPrCard, openAsksOf, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, close, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

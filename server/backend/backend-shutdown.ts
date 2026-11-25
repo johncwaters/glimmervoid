@@ -47,7 +47,7 @@ interface BackendShutdownDependencies {
   starHint?: Stoppable | null;
   traceWiring?: Stoppable | null;
   uploadsWiring?: Stoppable | null;
-  whiteboards?: { stopFollowingLinkedFolders: () => void } | null;
+  whiteboards?: { stopFollowingLinkedFolders: () => void; close: () => Promise<void> } | null;
   traceChangeBroadcast?: Stoppable | null;
   telegramOutbox: { idle: () => unknown };
   configStore?: { idle: () => unknown };
@@ -148,8 +148,14 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     }
     const uploadsWiring = dependencies.uploadsWiring;
     if (uploadsWiring) stoppers.add('uploads', () => uploadsWiring.stop());
-    dependencies.whiteboards?.stopFollowingLinkedFolders();
-
+    const whiteboards = dependencies.whiteboards;
+    if (whiteboards) {
+      whiteboards.stopFollowingLinkedFolders();
+      stoppers.add('whiteboards', async () => {
+        await Promise.allSettled([...pendingReaps]);
+        return whiteboards.close();
+      });
+    }
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
     destroySessions([dependencies.taskTitleSessions ?? new Map(), dependencies.directorSessions ?? new Map(), dependencies.questionManagerSessions ?? new Map(), dependencies.raceSessions ?? new Map()], pendingReaps);

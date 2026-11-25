@@ -145,6 +145,29 @@ async function newBoard(title: string): Promise<string> {
   return board.id;
 }
 
+const openClosables: { close: () => Promise<void> }[] = [];
+
+function openWhiteboardWiring(...options: Parameters<typeof createWhiteboardWiring>): ReturnType<typeof createWhiteboardWiring> {
+  const wiring = createWhiteboardWiring(...options);
+  openClosables.push(wiring);
+  return wiring;
+}
+
+async function restartWhiteboardWiring(running: ReturnType<typeof createWhiteboardWiring>, ...options: Parameters<typeof createWhiteboardWiring>): Promise<ReturnType<typeof createWhiteboardWiring>> {
+  await running.close();
+  return openWhiteboardWiring(...options);
+}
+
+function openBoardStore(boardsRoot: string): ReturnType<typeof createBoardStore> {
+  const store = createBoardStore(boardsRoot);
+  openClosables.push(store);
+  return store;
+}
+
+test.afterEach(async () => {
+  await Promise.all(openClosables.splice(0).map((closable) => closable.close()));
+});
+
 test.before(async () => {
   fixture.prevEnv = process.env.GLIMMERVOID_CONFIG;
   fixture.tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-whiteboard-'));
@@ -323,6 +346,7 @@ test('a put larger than other agent requests but inside the put limit lands, and
   const past = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(Math.ceil(WHITEBOARD_LIMITS.putBytes / bytesPerOp) + 1, 'b') });
   assert.equal(past.status, 413);
   assert.match(String(past.body.error), /nothing changed/);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'delete', board: boardId })).status, 200);
 });
 
 test('the operator deletes a board from the dashboard and a connected agent is told it was deleted', async () => {
@@ -960,7 +984,7 @@ test('a board file carries its board id, so importing it overwrites that board i
 
 test('a board file overwrites its board even when the board is not loaded yet after a restart, brings back a board deleted this run, and a version 1 file with no board id opens as a new board', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'board-file-restart-'));
-  const beforeRestart = createWhiteboardWiring({ boardsRoot });
+  const beforeRestart = openWhiteboardWiring({ boardsRoot });
   const boardId = ((await beforeRestart.handleOperator.create('Saved game')) as { summary: { id: string } }).summary.id;
   const box = (id: string, title: string) => ({ op: 'add', element: { kind: 'box', id, title, place: { at: { x: 40, y: 40 } } } });
   assert.equal((await beforeRestart.handleOperator.put(boardId, z.array(Op).parse([box('a', 'alpha'), box('b', 'beta')]))).ok, true);
@@ -973,7 +997,7 @@ test('a board file overwrites its board even when the board is not loaded yet af
   friendBox.title = 'alpha, edited';
   delete friendEdit.board.elements.b;
 
-  const afterRestart = createWhiteboardWiring({ boardsRoot });
+  const afterRestart = await restartWhiteboardWiring(beforeRestart, { boardsRoot });
   const overwritten = await afterRestart.handleOperator.importFile(zlib.gzipSync(JSON.stringify(friendEdit)));
   assert.equal(overwritten.status, 200, JSON.stringify(overwritten.body));
   const elementTitles = async (wiring: typeof afterRestart, id: string) => [...((await wiring.handleOperator.get(id)).board?.elements.values() ?? [])].map((element) => [element.id, 'title' in element ? element.title : null]);
@@ -1535,17 +1559,17 @@ test('a board the operator attached beside a session stays attached across a res
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'attached-restart-'));
   const project = path.join(boardsRoot, 'app');
   const agent = { id: 'attached-agent', name: 'agent', project };
-  const beforeRestart = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const beforeRestart = openWhiteboardWiring({ boardsRoot, projectOf: () => project });
   const boardId = ((await beforeRestart.handleOperator.create('Beside plan')) as { summary: { id: string } }).summary.id;
   await beforeRestart.handleOperator.connect(boardId, agent.id);
 
-  const afterRestart = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const afterRestart = await restartWhiteboardWiring(beforeRestart, { boardsRoot, projectOf: () => project });
   await afterRestart.loaded;
   assert.match(String(afterRestart.takeBoardNotice(agent.id, project)), new RegExp(`opened board "Beside plan" \\(${boardId}\\) beside this session`));
   assert.equal((await afterRestart.handleAgent(agent, { sub: 'new', title: 'second' })).status, 409);
   await afterRestart.handleOperator.detach(boardId, agent.id);
 
-  const afterDetachRestart = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const afterDetachRestart = await restartWhiteboardWiring(afterRestart, { boardsRoot, projectOf: () => project });
   const newWhileConnected = await afterDetachRestart.handleAgent(agent, { sub: 'new', title: 'second' });
   assert.equal(newWhileConnected.status, 409);
   assert.match(String(newWhileConnected.body.ok ? '' : newWhileConnected.body.error), new RegExp(`this session is already on board "Beside plan" \\(${boardId}\\)`));
@@ -1572,7 +1596,7 @@ test('a board an agent creates carries its project, and an unfiled board is file
 
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'unfiled-'));
   const operatorConnectedProject = path.join(boardsRoot, 'operator-connected');
-  const wiring = createWhiteboardWiring({ boardsRoot, projectOf: (sessionId) => (sessionId === 'operator-connected' ? operatorConnectedProject : null) });
+  const wiring = openWhiteboardWiring({ boardsRoot, projectOf: (sessionId) => (sessionId === 'operator-connected' ? operatorConnectedProject : null) });
   const operatorConnectedBoardId = ((await wiring.handleOperator.create('connected from the dashboard')) as { summary: { id: string } }).summary.id;
   await wiring.handleOperator.connect(operatorConnectedBoardId, 'operator-connected');
   assert.equal((await wiring.handleOperator.get(operatorConnectedBoardId)).board?.project, operatorConnectedProject);
@@ -1587,16 +1611,22 @@ test('a board an agent creates carries its project, and an unfiled board is file
   assert.equal(await projectOfBoard(path.join(boardsRoot, 'second')), firstProject);
 
   const restartRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'unfiled-restart-'));
-  const beforeFiling = createWhiteboardWiring({ boardsRoot: restartRoot });
+  const beforeFiling = openWhiteboardWiring({ boardsRoot: restartRoot });
   const knownSessionBoardId = ((await beforeFiling.handleOperator.create('made before filing')) as { summary: { id: string } }).summary.id;
   const goneSessionBoardId = ((await beforeFiling.handleOperator.create('session gone')) as { summary: { id: string } }).summary.id;
   await beforeFiling.handleOperator.connect(knownSessionBoardId, 'restored-session');
   await beforeFiling.handleOperator.connect(goneSessionBoardId, 'gone-session');
   assert.equal((await beforeFiling.handleOperator.get(knownSessionBoardId)).board?.project, null);
   const restoredProject = path.join(restartRoot, 'restored');
-  const afterRestart = createWhiteboardWiring({ boardsRoot: restartRoot, projectOf: (sessionId) => (sessionId === 'restored-session' ? restoredProject : null) });
+  const afterRestart = await restartWhiteboardWiring(beforeFiling, { boardsRoot: restartRoot, projectOf: (sessionId) => (sessionId === 'restored-session' ? restoredProject : null) });
   await afterRestart.fileUnfiledBoards();
-  const projectAfterAnotherRestart = async (boardId: string) => (await createWhiteboardWiring({ boardsRoot: restartRoot }).handleOperator.get(boardId)).board?.project;
+  await afterRestart.close();
+  const projectAfterAnotherRestart = async (boardId: string) => {
+    const readAfterRestart = openWhiteboardWiring({ boardsRoot: restartRoot });
+    const project = (await readAfterRestart.handleOperator.get(boardId)).board?.project;
+    await readAfterRestart.close();
+    return project;
+  };
   assert.equal(await projectAfterAnotherRestart(knownSessionBoardId), restoredProject);
   assert.equal(await projectAfterAnotherRestart(goneSessionBoardId), null);
 });
@@ -1604,7 +1634,7 @@ test('a board an agent creates carries its project, and an unfiled board is file
 test('an agent lists its own project boards in use, all lists every board, a title resolves only in its project, and a board idle 30 days unconnected is archived until a connect or an edit', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'project-scope-'));
   let clockMs = Date.UTC(2026, 0, 1);
-  const wiring = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  const wiring = openWhiteboardWiring({ boardsRoot, now: () => clockMs });
   const planner = { id: 'scope-planner', name: 'planner', project: path.join(boardsRoot, 'app') };
   const stranger = { id: 'scope-stranger', name: 'stranger', project: path.join(boardsRoot, 'other') };
   const boardId = ((await wiring.handleAgent(planner, { sub: 'new', title: 'App plan' })).body as { board: { id: string } }).board.id;
@@ -1642,7 +1672,7 @@ test('once its code session is gone a board checks refs against its project, the
   const project = path.join(boardsRoot, 'app');
   fs.mkdirSync(path.join(project, 'src'), { recursive: true });
   fs.writeFileSync(path.join(project, 'src', 'real.ts'), 'export {};\n', 'utf8');
-  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: (sessionId) => (sessionId === 'refs-successor' ? { root: project, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null) });
+  const wiring = openWhiteboardWiring({ boardsRoot, codeContextOf: (sessionId) => (sessionId === 'refs-successor' ? { root: project, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null) });
   const creator = { id: 'refs-creator', name: 'creator', project };
   const successor = { id: 'refs-successor', name: 'successor', project };
   const boardId = ((await wiring.handleAgent(creator, { sub: 'new', title: 'Refs plan' })).body as { board: { id: string } }).board.id;
@@ -1687,7 +1717,7 @@ test('once its code session is gone a board checks refs against its project, the
 test('a new session first prompt names the five newest boards of its project in use, once', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'project-notice-'));
   let clockMs = Date.UTC(2026, 0, 1);
-  const wiring = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  const wiring = openWhiteboardWiring({ boardsRoot, now: () => clockMs });
   const project = path.join(boardsRoot, 'app');
   const author = { id: 'notice-author', name: 'author', project };
   const newBoardAt = async (caller: typeof author, title: string) => {
@@ -1707,7 +1737,7 @@ test('a new session first prompt names the five newest boards of its project in 
   assert.equal(wiring.takeBoardNotice('notice-newcomer', project), null);
   assert.equal(wiring.takeBoardNotice('notice-elsewhere', path.join(boardsRoot, 'empty')), null);
 
-  const restarted = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  const restarted = await restartWhiteboardWiring(wiring, { boardsRoot, now: () => clockMs });
   await restarted.loaded;
   await restarted.handleAgent({ ...author, id: 'notice-newcomer' }, { sub: 'connect', board: projectBoardIds[5] ?? '' });
   assert.equal(restarted.takeBoardNotice(author.id, project), null);
@@ -1716,7 +1746,7 @@ test('a new session first prompt names the five newest boards of its project in 
 
 test('the next prompt tells a connected session once per new change to read the board before changing it, leaving the changes unread', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'prompt-notice-'));
-  const wiring = createWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot });
   const agent = { id: 'prompt-agent', name: 'prompt agent', project: boardsRoot };
   const created = await wiring.handleAgent(agent, { sub: 'new', title: 'Prompt plan' });
   const boardId = (created.body as { board: { id: string } }).board.id;
@@ -1743,7 +1773,7 @@ test('the next prompt tells a connected session once per new change to read the 
 
 test('the same bytes attached at once under an svg and an html name are each stored as the kind their name gives', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-race-'));
-  const wiring = createWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot });
   await wiring.loaded;
   const markup = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"><rect width="30" height="10"/></svg>';
   const racedPaths = ['race.svg', 'race.html'].map((racedName) => path.join(boardsRoot, racedName));
@@ -1758,7 +1788,7 @@ test('the same bytes attached at once under an svg and an html name are each sto
 test('a stored file keeps the preview it was stored with when attached again after a restart, whether or not the preview can be read', async () => {
   const { default: sharp } = await import('sharp');
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-restart-'));
-  const wiring = createWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot });
   await wiring.loaded;
   const widePath = path.join(boardsRoot, 'wide.png');
   await sharp({ create: { width: 2000, height: 400, channels: 3, background: '#f472b6' } }).png().toFile(widePath);
@@ -1767,7 +1797,7 @@ test('a stored file keeps the preview it was stored with when attached again aft
   const boardId = ((await wiring.handleOperator.create('wide')) as { summary: { id: string } }).summary.id;
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'wide', title: 'wide', media: first.media, place: { at: { x: 0, y: 0 } } } }]));
   fs.rmSync(path.join(boardsRoot, 'assets', `${first.media.asset}.preview.webp`));
-  const restarted = createWhiteboardWiring({ boardsRoot });
+  const restarted = await restartWhiteboardWiring(wiring, { boardsRoot });
   await restarted.loaded;
   const again = await restarted.assets.ingestFile(widePath);
   assert.ok(again.ok);
@@ -1780,7 +1810,7 @@ test('a stored file keeps the preview it was stored with when attached again aft
   assert.ok(clip.ok && clip.media.hasPreview);
   await restarted.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'clip', title: 'clip', media: clip.media, place: { at: { x: 0, y: 200 } } } }]));
   fs.writeFileSync(path.join(boardsRoot, 'assets', `${clip.media.asset}.preview.webp`), 'not a picture');
-  const restartedAgain = createWhiteboardWiring({ boardsRoot });
+  const restartedAgain = await restartWhiteboardWiring(restarted, { boardsRoot });
   await restartedAgain.loaded;
   const clipAgain = await restartedAgain.assets.ingestFile(clipPath);
   assert.ok(clipAgain.ok);
@@ -1841,7 +1871,7 @@ test('a large picture whose preview write runs out of disk is refused so it can 
 test('a photo turned by its EXIF orientation is sized and drawn upright for the agent picture', async () => {
   const { default: sharp } = await import('sharp');
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-orientation-'));
-  const wiring = createWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot });
   await wiring.loaded;
   const photoPath = path.join(boardsRoot, 'turned.jpg');
   await sharp({ create: { width: 40, height: 20, channels: 3, background: '#22d3ee' } }).jpeg().withMetadata({ orientation: 6 }).toFile(photoPath);
@@ -1856,7 +1886,7 @@ test('a photo turned by its EXIF orientation is sized and drawn upright for the 
 test('deleting a board sweeps the pictures no live board shows, sparing a pending attach, a picture still shown elsewhere, and one a put released within the hour', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-sweep-'));
   let clockMs = 1_800_000_000_000;
-  const wiring = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  const wiring = openWhiteboardWiring({ boardsRoot, now: () => clockMs });
   await wiring.loaded;
   const { default: sharp } = await import('sharp');
   const pictureOf = async (background: string) => {
@@ -1892,14 +1922,14 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
 
   const keptFilePath = path.join(boardsRoot, `${keptId}.json`);
   const savedKept = JSON.parse(JSON.stringify({ board: (await wiring.handleOperator.get(keptId)).board, log: [], cursorBySessionId: {}, createdBy: null })) as { board: { elements: Record<string, Record<string, unknown>> } };
-  await createBoardStore(boardsRoot).remove(keptId);
+  await openBoardStore(boardsRoot).remove(keptId);
   const { media: sharedMedia, ...sharedWithoutMedia } = savedKept.board.elements.shared ?? {};
   const { kind: _kind, mime: _mime, hasPreview: _hasPreview, ...imageFromRelease051 } = sharedMedia as Record<string, unknown>;
   savedKept.board.elements.shared = { ...sharedWithoutMedia, image: imageFromRelease051 };
   savedKept.board.elements.plain = { ...sharedWithoutMedia, id: 'plain', image: null };
   fs.writeFileSync(keptFilePath, JSON.stringify(savedKept));
   clockMs += 61 * 60_000;
-  const restarted = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  const restarted = await restartWhiteboardWiring(wiring, { boardsRoot, now: () => clockMs });
   await restarted.loaded;
   assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
   const migrated = (await restarted.handleOperator.get(keptId)).board?.elements;
@@ -1908,20 +1938,20 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
 
   fs.writeFileSync(path.join(boardsRoot, `${keptId}.json`), '{"board": "from a newer build"}');
   clockMs += 61 * 60_000;
-  await createWhiteboardWiring({ boardsRoot, now: () => clockMs, logger: { warn: () => {} } }).loaded;
+  await (await restartWhiteboardWiring(restarted, { boardsRoot, now: () => clockMs, logger: { warn: () => {} } })).loaded;
   assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
 });
 
 test('a board saved with units, panels, columns, lanes and retired fields loads them as step boxes, wires, panel boxes and free boxes stacked where their columns stood, with the retired fields dropped', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'saved-shapes-'));
-  const before = createWhiteboardWiring({ boardsRoot });
+  const before = openWhiteboardWiring({ boardsRoot });
   const planned = await before.handleOperator.create('planned');
   const plannedId = planned.summary?.id ?? '';
   const stepped = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u1', title: 'Unit', place: 'plan', step: {} } }]));
   assert.equal(stepped.ok, true, stepped.error ?? '');
   const plannedPath = path.join(boardsRoot, `${plannedId}.json`);
   const savedPlanned = JSON.parse(JSON.stringify({ board: (await before.handleOperator.get(plannedId)).board, log: [], cursorBySessionId: {}, createdBy: null })) as { board: Record<string, unknown> & { elements: Record<string, unknown> } };
-  await createBoardStore(boardsRoot).remove(plannedId);
+  await openBoardStore(boardsRoot).remove(plannedId);
   savedPlanned.board.columns = [{ id: 'intake', title: 'Intake' }, { id: 'apply', title: 'Apply' }];
   savedPlanned.board.lanes = [{ id: 'main', label: 'Main', color: 'blue' }];
   savedPlanned.board.legend = [{ tone: 'lane', label: 'per lane' }, { tone: 'plain', dashed: false, back: true, label: 'retry' }];
@@ -1938,7 +1968,7 @@ test('a board saved with units, panels, columns, lanes and retired fields loads 
   savedPlanned.board.elements.prior = { kind: 'panel', id: 'prior', title: 'Prior art', lines: [{ text: 'the old router', style: 'item', muted: false, ref: null, key: null }], order: 2 };
   fs.writeFileSync(plannedPath, JSON.stringify(savedPlanned));
 
-  const after = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const after = await restartWhiteboardWiring(before, { boardsRoot, logger: { warn: () => {} } });
   await after.loaded;
   const upgraded = Board.parse((await after.handleOperator.get(plannedId) as { board?: unknown }).board);
   assert.deepEqual(planSteps(upgraded).map((step) => [step.boxId, step.label, step.status, step.afterLabels]), [['schema', '1a', 'landed', []], ['u1', '1b', 'planned', []], ['route', '2', 'building', ['1a']]]);
@@ -1963,7 +1993,7 @@ test('a board saved with units, panels, columns, lanes and retired fields loads 
   assert.deepEqual([priorPanel.shape, priorPanel.title, priorPanel.lines.map((line) => line.text), priorPanel.order, priorPanel.place], ['box', 'Prior art', ['the old router'], 2, 'aside']);
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
-  const store = createBoardStore(boardsRoot);
+  const store = openBoardStore(boardsRoot);
   const plannedHead = (await store.loadHeads()).records.find((record) => record.board.id === plannedId);
   const storedPlanned = plannedHead ? await store.loadElements(plannedHead) : null;
   assert.ok(storedPlanned);
@@ -1982,7 +2012,7 @@ test('a Studio session shows onto its repo code map board, beside a map box with
     if (isMapLookupFailing) throw new Error('map store busy');
     return sessionId === 'studio-main' ? mapBoardId : null;
   };
-  const wiring = createWhiteboardWiring({ boardsRoot, studioBoardIdOf });
+  const wiring = openWhiteboardWiring({ boardsRoot, studioBoardIdOf });
   mapBoardId = ((await wiring.handleOperator.create('Code map: site')) as { summary: { id: string } }).summary.id;
   assert.equal((await wiring.handleOperator.put(mapBoardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'cm-module-docs', title: 'docs', place: { at: { x: 40, y: 40 } } } }, { op: 'add', element: { kind: 'box', id: 'operator-note', title: 'keep this', place: { at: { x: 40, y: 400 } } } }]))).ok, true);
   const orchestrator = { id: 'studio-main', name: 'site main', project: showerDir, cwd: showerDir };
@@ -2020,7 +2050,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'shower-'));
   fs.writeFileSync(path.join(showerDir, 'login.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#38bdf8' } }).png().toBuffer());
   fs.writeFileSync(path.join(showerDir, 'report.html'), '<!doctype html><html><head><title>Weekly report</title></head><body>numbers</body></html>');
-  const wiring = createWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot });
   const shower = { id: 'show-agent', name: 'checkout fix', project: showerDir, cwd: showerDir };
 
   const nearWithNoBoard = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', near: { of: 'ghost', side: 'right', gap: 60 } });
@@ -2078,7 +2108,7 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'in-the-way', title: 'In the way', place: { at: { x: 3250, y: 110 } } } }]) })).status, 200);
   const [layoutCheck] = await wiring.layoutChecksOf(shower.id);
   assert.ok(layoutCheck?.status === 'fail' && layoutCheck.outputTail.includes('wire crossing runs through box in-the-way'), `the board layout check fails on a warning naming an element the session wrote: ${JSON.stringify(layoutCheck)}`);
-  const [checkAfterRestart] = await createWhiteboardWiring({ boardsRoot }).layoutChecksOf(shower.id);
+  const [checkAfterRestart] = await openWhiteboardWiring({ boardsRoot }).layoutChecksOf(shower.id);
   assert.ok(checkAfterRestart?.status === 'fail' && checkAfterRestart.outputTail.includes('wire crossing runs through box in-the-way'), `the board layout check still fails after a restart: ${JSON.stringify(checkAfterRestart)}`);
   assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse(['crossing', 'wire-start', 'wire-end', 'in-the-way'].map((id) => ({ op: 'set', id, fields: id === 'crossing' ? { label: 'operator route' } : { title: `${id} by operator` } }))))).ok, true);
   const [checkAfterOperatorRewrite] = await wiring.layoutChecksOf(shower.id);
@@ -2203,7 +2233,7 @@ test('a spawned session shows and draws on the board of the session above it, wh
     const root = worktreeBySessionId.get(sessionId);
     return root ? { root, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null;
   };
-  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf, parentIdOf: (sessionId) => parentIdBySessionId.get(sessionId) ?? null });
+  const wiring = openWhiteboardWiring({ boardsRoot, codeContextOf, parentIdOf: (sessionId) => parentIdBySessionId.get(sessionId) ?? null });
   const grandchild = { id: 'grandchild', name: 'grandchild', project: childDir, cwd: childDir };
   const child = { id: 'child', name: 'child', project: childDir, cwd: childDir };
   const orphan = { id: 'orphan', name: 'orphan', project: childDir, cwd: childDir };
@@ -2310,7 +2340,7 @@ test('a linked page keeps its bundle on each read, follows edits to a file it re
   fs.chmodSync(path.join(worktree, 'report', 'locked.png'), 0o000);
   const pageText = '<!doctype html><html><body><img src="shot.png"><img src="locked.png"></body></html>';
   fs.writeFileSync(path.join(worktree, 'report', 'page.html'), pageText);
-  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) }) });
+  const wiring = openWhiteboardWiring({ boardsRoot, codeContextOf: () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) }) });
   const linker = { id: 'link-page-agent', name: 'linker', project: worktree, cwd: worktree };
 
   const shown = await wiring.handleAgent(linker, { sub: 'show', path: 'report/page.html', link: true });
@@ -2363,7 +2393,7 @@ test('a linked page follows live an edit in a subfolder it loads from, a rebuilt
   writeBuild('document.body.append("first");');
   const codeContextOf = () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) });
   const linker = { id: 'link-live-agent', name: 'linker', project: worktree, cwd: worktree };
-  const firstWiring = createWhiteboardWiring({ boardsRoot, codeContextOf });
+  const firstWiring = openWhiteboardWiring({ boardsRoot, codeContextOf });
   const shown = await firstWiring.handleAgent(linker, { sub: 'show', path: 'out/page.html', link: true });
   assert.equal(shown.status, 200, JSON.stringify(shown.body));
   const boardId = (shown.body as { board: { id: string } }).board.id;
@@ -2397,7 +2427,7 @@ test('a linked page follows live an edit in a subfolder it loads from, a rebuilt
   assert.notEqual(afterSecondRebuildEdit, afterRebuild, 'the rebuilt folder keeps being followed');
   firstWiring.stopFollowingLinkedFolders();
 
-  const restartedWiring = createWhiteboardWiring({ boardsRoot, codeContextOf });
+  const restartedWiring = await restartWhiteboardWiring(firstWiring, { boardsRoot, codeContextOf });
   await restartedWiring.followLinkedFolders();
   writeBuild('document.body.append("fifth");');
   const afterRestart = await followedLive(restartedWiring, afterSecondRebuildEdit);
@@ -2412,7 +2442,7 @@ test('a linked card follows its file in the code session worktree on each read, 
   fs.writeFileSync(path.join(worktree, 'docs', 'plan.md'), '# Plan\n\nfirst draft\n', 'utf8');
   fs.writeFileSync(path.join(boardsRoot, 'outside.md'), '# Outside\n', 'utf8');
   const liveSessionIds = new Set(['link-agent']);
-  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: (sessionId) => (liveSessionIds.has(sessionId) ? { root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null) });
+  const wiring = openWhiteboardWiring({ boardsRoot, codeContextOf: (sessionId) => (liveSessionIds.has(sessionId) ? { root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null) });
   const linker = { id: 'link-agent', name: 'linker', project: worktree, cwd: worktree };
 
   const shown = await wiring.handleAgent(linker, { sub: 'show', path: 'docs/plan.md', link: true });
@@ -2498,7 +2528,7 @@ test('an agent links a CSV or TSV sheet from its worktree and reads it back verb
   const quotedCsv = 'team,"note, with comma",q1\r\ninfra,"said ""hi""",1200\r\n';
   fs.writeFileSync(budgetPath, quotedCsv, 'utf8');
   fs.writeFileSync(path.join(worktree, 'scores.tsv'), 'name\tscore\nada\t9\n', 'utf8');
-  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) }) });
+  const wiring = openWhiteboardWiring({ boardsRoot, codeContextOf: () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) }) });
   const linker = { id: 'sheet-agent', name: 'linker', project: worktree, cwd: worktree };
 
   const shown = await wiring.handleAgent(linker, { sub: 'show', path: 'budget.csv', link: true });
@@ -2537,7 +2567,7 @@ test('an agent links a CSV or TSV sheet from its worktree and reads it back verb
   assert.deepEqual([0, 1, 2].map((sheetIndex) => wiring.assets.servableOf(`${bookMedia.asset}.sheet${sheetIndex}.csv`) !== null), [true, true, false]);
   const bookSave = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-3', 'team,q1\n', bookMedia.asset);
   assert.deepEqual([bookSave.ok, fs.readFileSync(path.join(worktree, 'book.xlsx')).equals(workbookBytes)], [false, true], 'a workbook is read-only: a save is refused and the file is untouched');
-  const restartedForBook = createWhiteboardWiring({ boardsRoot });
+  const restartedForBook = openWhiteboardWiring({ boardsRoot });
   await restartedForBook.loaded;
   assert.equal(restartedForBook.assets.mismatchOf(bookMedia), null, 'a workbook keeps its sheet names across a restart');
   fs.writeFileSync(path.join(worktree, 'broken.xlsx'), Buffer.concat([workbookBytes.subarray(0, 4), Buffer.from('not a workbook')]));
@@ -2594,7 +2624,7 @@ test('a board show creates is renamed once by the title lane, never over a renam
     },
     retitleBoard: (boardId, provisionalTitle, title, namedForSessionId) => wiring.retitleProvisionalBoard(boardId, provisionalTitle, title, namedForSessionId),
   });
-  const wiring = createWhiteboardWiring({
+  const wiring = openWhiteboardWiring({
     boardsRoot,
     parentIdOf: (sessionId) => (sessionId === 'named-agent' ? 'named-parent' : null),
     onBoardNamedProvisionally: (naming) => pendingNamings.push(refiner.nameBoard({ ...naming, sessionName: 'checkout fix', taskTitle: 'Chart the numbers' })),
@@ -2620,7 +2650,7 @@ test('a board show creates is renamed once by the title lane, never over a renam
 
 test('an agent reads operator ink as bounds and may remove it, but is refused drawing or changing a stroke', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'ink-'));
-  const wiring = createWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot });
   const agent = { id: 'ink-agent', name: 'ink agent', project: boardsRoot };
   const created = await wiring.handleAgent(agent, { sub: 'new', title: 'Ink' });
   const boardId = (created.body as { board: { id: string } }).board.id;
@@ -2653,7 +2683,7 @@ test('the code map board puts a moved box back at its generated place and keeps 
   for (let index = 0; index < 20; index++) writeSource(`app/screen${index}.ts`, `import { part${index} } from '../lib/part${index}.ts';\nexport const screen${index} = part${index};`);
   await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: repoDir });
   await commitAll();
-  const wiring = createWhiteboardWiring({ boardsRoot });
+  const wiring = openWhiteboardWiring({ boardsRoot });
   let overlaidPaths = ['app/screen1.ts'];
   const specsRoot = path.join(boardsRoot, 'specs');
   const longStepTitle = 'Add a heavy-command semaphore in spawn-gate and gate verification-wiring with test-concurrency';
@@ -2779,7 +2809,7 @@ test('a step session that ends while another plan run waits in the queue leaves 
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'plan-race-'));
   const project = path.join(boardsRoot, 'app');
   const runner = { id: 'plan-runner', name: 'runner', project };
-  const wiring = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const wiring = openWhiteboardWiring({ boardsRoot, projectOf: () => project });
   const boardId = ((await wiring.handleAgent(runner, { sub: 'new', title: 'Race it' })).body as { board: { id: string } }).board.id;
   const stepOp = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: `Build ${id}`, place: 'plan', step: { status: 'planned' } } });
   const putOps = async (ops: unknown[]) => assert.equal((await wiring.handleAgent(runner, { sub: 'put', board: boardId, ops: z.array(Op).parse(ops) })).status, 200);
@@ -2822,7 +2852,7 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'plan-run-'));
   const project = path.join(boardsRoot, 'app');
   const runner = { id: 'plan-runner', name: 'runner', project };
-  const wiring = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const wiring = openWhiteboardWiring({ boardsRoot, projectOf: () => project });
   const boardId = ((await wiring.handleAgent(runner, { sub: 'new', title: 'Ship it' })).body as { board: { id: string } }).board.id;
   const stepOp = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: `Build ${id}`, place: 'plan', step: { status: 'planned' }, lines: [{ text: `details of ${id}` }] } });
   const wireOp = (from: string, to: string) => ({ op: 'add', element: { kind: 'wire', id: `${from}-to-${to}`, from, to } });

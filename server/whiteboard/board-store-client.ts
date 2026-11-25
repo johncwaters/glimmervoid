@@ -33,6 +33,7 @@ interface BoardStore {
   setRects(boardId: string, rectsByElementId: Record<string, Rect>): Promise<void>;
   queryRegion(boardId: string, region: Rect, limit: number): Promise<string[]>;
   searchText(boardId: string, query: string, limit: number): Promise<string[]>;
+  close(): Promise<void>;
 }
 
 function createBoardStore(boardsRoot: string): BoardStore {
@@ -40,6 +41,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
   const pendingByRequestId = new Map<number, PendingRequest>();
   let nextRequestId = 1;
   let worker: Worker | null = null;
+  const answersInFlight = new Set<Promise<StoreAnswer>>();
 
   function failAll(failedWorker: Worker, error: Error): void {
     if (worker !== failedWorker) return;
@@ -73,11 +75,22 @@ function createBoardStore(boardsRoot: string): BoardStore {
     worker = running;
     const requestId = nextRequestId;
     nextRequestId += 1;
-    return new Promise((resolve, reject) => {
+    const answer = new Promise<StoreAnswer>((resolve, reject) => {
       pendingByRequestId.set(requestId, { resolve, reject });
       running.ref();
       running.postMessage({ ...body, requestId });
     });
+    answersInFlight.add(answer);
+    const forgetAnswer = () => { answersInFlight.delete(answer); };
+    answer.then(forgetAnswer, forgetAnswer);
+    return answer;
+  }
+
+  async function close(): Promise<void> {
+    while (answersInFlight.size > 0) await Promise.allSettled([...answersInFlight]);
+    const closing = worker;
+    worker = null;
+    if (closing) await closing.terminate();
   }
 
   async function loadHeads(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }> {
@@ -142,6 +155,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
     setRects: async (boardId, rectsByElementId) => { await request({ kind: 'set-rects', boardId, rectsByElementId }); },
     queryRegion: async (boardId, region, limit) => (await request({ kind: 'query-region', boardId, region, limit })).elementIds ?? [],
     searchText: async (boardId, query, limit) => (await request({ kind: 'search-text', boardId, query, limit })).elementIds ?? [],
+    close,
   };
 }
 

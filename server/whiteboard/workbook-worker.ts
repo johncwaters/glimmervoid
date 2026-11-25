@@ -1,4 +1,5 @@
 import fsp from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import { parentPort, workerData } from 'node:worker_threads';
 import zlib from 'node:zlib';
 
@@ -22,16 +23,21 @@ function endOfDirectoryOffsetOf(zipBytes: Buffer): number {
   throw new Error('the file is not a ZIP archive');
 }
 
-function inflatedLengthOf(deflatedBytes: Buffer, remainingBudgetBytes: number): number | null {
-  try {
-    return zlib.inflateRawSync(deflatedBytes, { maxOutputLength: Math.max(1, remainingBudgetBytes) }).length;
-  } catch (error) {
-    if (error instanceof RangeError && 'code' in error && error.code === 'ERR_BUFFER_TOO_LARGE') return null;
-    throw error;
+async function inflatedLengthWithin(deflatedBytes: Buffer, remainingBudgetBytes: number): Promise<number | null> {
+  const inflater = zlib.createInflateRaw();
+  Readable.from([deflatedBytes]).pipe(inflater);
+  let inflatedBytes = 0;
+  for await (const chunk of inflater) {
+    inflatedBytes += Buffer.byteLength(chunk);
+    if (inflatedBytes > remainingBudgetBytes) {
+      inflater.destroy();
+      return null;
+    }
   }
+  return inflatedBytes;
 }
 
-function isUnpackedWithinBudget(zipBytes: Buffer, budgetBytes: number): boolean {
+async function isUnpackedWithinBudget(zipBytes: Buffer, budgetBytes: number): Promise<boolean> {
   const endOfDirectory = endOfDirectoryOffsetOf(zipBytes);
   const entryCount = zipBytes.readUInt16LE(endOfDirectory + 8);
   let entryOffset = zipBytes.readUInt32LE(endOfDirectory + 16);
@@ -42,7 +48,7 @@ function isUnpackedWithinBudget(zipBytes: Buffer, budgetBytes: number): boolean 
     if (zipBytes.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_SIGNATURE) throw new Error('a ZIP entry points at no local header');
     if (zipBytes.readUInt16LE(localHeaderOffset + 8) !== ZIP_DEFLATE_METHOD) continue;
     const dataOffset = localHeaderOffset + ZIP_LOCAL_HEADER_BYTES + zipBytes.readUInt16LE(localHeaderOffset + 26) + zipBytes.readUInt16LE(localHeaderOffset + 28);
-    const inflatedLength = inflatedLengthOf(zipBytes.subarray(dataOffset), budgetBytes - unpackedBytes);
+    const inflatedLength = await inflatedLengthWithin(zipBytes.subarray(dataOffset), budgetBytes - unpackedBytes);
     if (inflatedLength === null) return false;
     unpackedBytes += inflatedLength;
     if (unpackedBytes > budgetBytes) return false;
@@ -53,7 +59,7 @@ function isUnpackedWithinBudget(zipBytes: Buffer, budgetBytes: number): boolean 
 async function workbookReplyOf(workbookPath: unknown): Promise<WorkbookReply> {
   if (typeof workbookPath !== 'string') throw new Error('the workbook reader was given no file');
   const zipBytes = await fsp.readFile(workbookPath);
-  if (!isUnpackedWithinBudget(zipBytes, BOARD_WORKBOOK_UNPACKED_CAP_BYTES)) return { error: 'the workbook unpacks past its budget', isUnpackedTooLarge: true };
+  if (!(await isUnpackedWithinBudget(zipBytes, BOARD_WORKBOOK_UNPACKED_CAP_BYTES))) return { error: 'the workbook unpacks past its budget', isUnpackedTooLarge: true };
   const workbook = read(zipBytes, { type: 'buffer' });
   const sheets = workbook.SheetNames.flatMap((name) => {
     const sheet = workbook.Sheets[name];

@@ -38,6 +38,7 @@ interface LayoutClient {
   ask(board: Board, body: LayoutRequestBody): Promise<LayoutAnswer>;
   cachedTiles(boardId: string, stamp: LayoutStamp, keys: readonly TileKey[], withChrome: boolean, sight: TileSight): Promise<LayoutAnswer>;
   forget(boardId: string): void;
+  close(): Promise<void>;
 }
 
 function createLayoutClient({ cachePath, onSavedLayoutWritten }: { cachePath: string | null; onSavedLayoutWritten: (written: SavedLayoutWrite) => void }): LayoutClient {
@@ -46,6 +47,7 @@ function createLayoutClient({ cachePath, onSavedLayoutWritten }: { cachePath: st
   let nextRequestId = 1;
   let nextSyncId = 1;
   let worker: Worker | null = null;
+  const answersInFlight = new Set<Promise<LayoutAnswer>>();
 
   function failAll(failedWorker: Worker, error: Error): void {
     if (worker !== failedWorker) return;
@@ -86,11 +88,28 @@ function createLayoutClient({ cachePath, onSavedLayoutWritten }: { cachePath: st
     worker = running;
     const requestId = nextRequestId;
     nextRequestId += 1;
-    return new Promise((resolve, reject) => {
+    const answer = new Promise<LayoutAnswer>((resolve, reject) => {
       pendingByRequestId.set(requestId, { resolve, reject });
       running.ref();
       running.postMessage({ ...body, requestId });
     });
+    answersInFlight.add(answer);
+    const forgetAnswer = () => { answersInFlight.delete(answer); };
+    answer.then(forgetAnswer, forgetAnswer);
+    return answer;
+  }
+
+  async function close(): Promise<void> {
+    const syncsPosting = () => [...syncByBoardId.values()].map((sync) => sync.posted);
+    await Promise.allSettled(syncsPosting());
+    while (answersInFlight.size > 0) {
+      await Promise.allSettled([...answersInFlight]);
+      await Promise.allSettled(syncsPosting());
+    }
+    const closing = worker;
+    worker = null;
+    syncByBoardId.clear();
+    if (closing) await closing.terminate();
   }
 
   function forgetSyncOnFailure(boardId: string, sync: BoardSync, answer: Promise<LayoutAnswer>): void {
@@ -181,7 +200,7 @@ function createLayoutClient({ cachePath, onSavedLayoutWritten }: { cachePath: st
     return post({ kind: 'cached-tiles', boardId, version: stamp.version, updatedAt: stamp.updatedAt, keys: [...keys], withChrome, sight });
   }
 
-  return { hold, advance, refresh, ask, cachedTiles, forget };
+  return { hold, advance, refresh, ask, cachedTiles, forget, close };
 }
 
 export { createLayoutClient };
