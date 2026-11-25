@@ -29,6 +29,8 @@ import type { HostAdapter } from './gcp-host.ts';
 import { createGithubAppMinter } from './github-app.ts';
 import type { GithubAppMinter } from './github-app.ts';
 import { createGithubUserLink } from './github-user.ts';
+import { createSeenDeliveries, isDeliveryId, isSignatureShaped, isSignatureValid, webhookEventOf } from './github-webhook.ts';
+import { createGcpRest } from './gcp-rest.ts';
 import type { GithubUserLink } from './github-user.ts';
 import { createFileTenantRecordStore } from './tenant-record-store.ts';
 import type { TenantRecordStore } from './tenant-record-store.ts';
@@ -39,12 +41,15 @@ import { HOST_PAGE_CONTENT_SECURITY_POLICY, overCapPage, signInPage, wakeLimited
 import { createFileDoormanState, createFileTenantState, createGcsDoormanState, stateBucketOf } from './doorman-state.ts';
 import type { DoormanState, DoormanTenantState } from './doorman-state.ts';
 import { clock } from '../../shared/clock.ts';
+import { parseJsonOrNull } from '../../server/core/json-core.ts';
 
 type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldPerTenant: number; readinessPollMs: number; meterTickMs: number; maxEdgeWakesPerHour: number };
 type WakeOutcome = 'answering' | 'no-adapter' | 'unmetered' | 'cooling-down' | 'unreachable' | 'over-cap' | 'wake-limited';
 type WakeKind = 'resume' | 'coldStart';
-type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; didLastWakeFail: boolean; wakeKind: WakeKind; stopStartedAtMs: number | null };
-type TenantWatcher = { handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void>; githubTokenChanged(): void; stop(): void };
+type WebhookSecretRead = { secret: Buffer | null; readAtMs: number };
+type WakeViewChanges = { next(): Promise<void>; announce(): void };
+type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; didLastWakeFail: boolean; wakeKind: WakeKind; stopStartedAtMs: number | null; wakeViewChanges: WakeViewChanges };
+type TenantWatcher = { handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void>; githubTokenChanged(): void; githubConnectionChanged(): void; stop(): void };
 type HeldGithubToken = { installationId: number; accountLogin: string; token: string; expiresAtMs: number };
 type TenantGithubToken = { held: readonly HeldGithubToken[]; mint: Promise<readonly HeldGithubToken[] | null> | null; refreshTimer: NodeJS.Timeout | null; failedAttempts: number; nextMintAllowedAtMs: number };
 type TenantEntry = { tenant: DoormanTenant; gate: TenantGate; edgeKey: Promise<Buffer | null> | null; meter: AwakeMeter | null; watcher: TenantWatcher | null; watcherSecretHex: string | null; watcherStart: Promise<TenantWatcher | null> | null; watcherRetryTimer: NodeJS.Timeout | null; failedWatcherStarts: number; github: TenantGithubToken; githubUser: GithubUserLink | null };
@@ -61,6 +66,13 @@ const PAIRING_UNSUPPORTED_STATUSES = new Set([401, 404, 405]);
 const DEVICE_PAIRING_TIMEOUT_MS = 10_000;
 const OPEN_PATH = '/doorman/open';
 const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
+const WAKE_POLL_HOLD_MS = 25_000;
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
+const MAX_REMEMBERED_DELIVERIES = 10_000;
+const WEBHOOK_SECRET_ID = 'github-app-webhook-secret';
+const WEBHOOK_SECRET_VERSION_ALIAS = 'current';
+const WEBHOOK_SECRET_REREAD_AFTER_MS = 60_000;
+const SECRET_NAME_PROJECT_PATTERN = /^(projects\/[^/]+)\/secrets\/[^/]+$/;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -73,6 +85,37 @@ function answerStatus(response: http.ServerResponse, status: number, extraHeader
   }
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...extraHeaders });
   response.end(JSON.stringify({ error: http.STATUS_CODES[status] ?? 'error' }));
+}
+
+function createWakeViewChanges(): WakeViewChanges {
+  let pendingChange: { promise: Promise<void>; resolve: () => void } | null = null;
+  return {
+    next: () => {
+      if (pendingChange !== null) return pendingChange.promise;
+      let resolve: () => void = () => {};
+      const promise = new Promise<void>((resolveChange) => {
+        resolve = resolveChange;
+      });
+      pendingChange = { promise, resolve };
+      return promise;
+    },
+    announce: () => {
+      const announced = pendingChange;
+      pendingChange = null;
+      announced?.resolve();
+    },
+  };
+}
+
+async function untilChangedOrMs(change: Promise<void>, holdMs: number): Promise<void> {
+  const holdTimeout = new AbortController();
+  await Promise.race([change, sleep(holdMs, undefined, { signal: holdTimeout.signal, ref: false }).catch(() => {})]);
+  holdTimeout.abort();
+}
+
+function answerNoContent(response: http.ServerResponse): void {
+  response.writeHead(204, { 'cache-control': 'no-store' });
+  response.end();
 }
 
 function answerBusy(response: http.ServerResponse): void {
@@ -104,6 +147,10 @@ function answerOverCap(response: http.ServerResponse, { usage, awakeHoursPerMont
 
 function isWakePoll(request: http.IncomingMessage): boolean {
   return request.headers[DOORMAN_WAKE_POLL_HEADER] !== undefined;
+}
+
+function isWakePagePoll(request: http.IncomingMessage): boolean {
+  return isWakePoll(request) && wantsWakingPage(request.method, request.headers.accept);
 }
 
 function answerWakeStatus(response: http.ServerResponse): void {
@@ -159,6 +206,23 @@ function answerSeeOther(response: http.ServerResponse, location: string, extraHe
   response.end();
 }
 
+async function rawBodyOf(request: http.IncomingMessage, maxBytes: number): Promise<Buffer | null> {
+  const chunks: Buffer[] = [];
+  let receivedBytes = 0;
+  for await (const chunk of request) {
+    const chunkBytes = Buffer.from(chunk);
+    receivedBytes += chunkBytes.length;
+    if (receivedBytes > maxBytes) return null;
+    chunks.push(chunkBytes);
+  }
+  return Buffer.concat(chunks);
+}
+
+function webhookSecretNameOf(app: DoormanGithubApp): string | null {
+  const project = app.privateKeySecret === null ? undefined : SECRET_NAME_PROJECT_PATTERN.exec(app.privateKeySecret)?.[1];
+  return project === undefined ? null : `${project}/secrets/${WEBHOOK_SECRET_ID}`;
+}
+
 async function formFieldOf(request: http.IncomingMessage, fieldName: string): Promise<string | null> {
   if (!String(request.headers['content-type'] ?? '').startsWith(FORM_CONTENT_TYPE)) return null;
   const chunks: Buffer[] = [];
@@ -185,6 +249,7 @@ async function createTenantWatcher(tenant: DoormanTenant, watcherFiles: WatcherF
   return {
     handle: listener.handle,
     githubTokenChanged: runner.githubTokenFallbackChanged,
+    githubConnectionChanged: () => nudges.send('github-connection', null, null),
     stop: () => {
       runner.stop();
       nudges.stop();
@@ -212,7 +277,9 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   proxy.on('proxyReqWs', (upstreamRequest, request) => upstreamRequest.once('upgrade', () => noteAnsweredFor(request)));
   let meterTimer: NodeJS.Timeout | null = null;
   let table = DoormanTenantTable.parse(initialTable);
-  let githubApp: { app: DoormanGithubApp; minter: GithubAppMinter | null } | null = null;
+  let githubApp: { app: DoormanGithubApp; minter: GithubAppMinter | null; webhookSecret: Promise<WebhookSecretRead> | null } | null = null;
+  const seenDeliveries = createSeenDeliveries(MAX_REMEMBERED_DELIVERIES);
+  const googleForWebhooks = createGcpRest({ fetchFn: githubAppFetch });
   const watcherHomesBySlug = new Map<string, string | null>();
   const authkit = createAuthkitVerifier({ fetchFn: authkitFetch, now, log });
   const records = recordStore ?? createFileTenantRecordStore({ watcherHomeFor: (slug) => watcherHomesBySlug.get(slug) ?? null });
@@ -243,6 +310,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     const coldStartReport = {
       onColdStart: () => {
         entry.gate.wakeKind = 'coldStart';
+        entry.gate.wakeViewChanges.announce();
         log.log(`[doorman] tenant ${entry.tenant.slug} could not resume: its zone has no room, so it is starting fresh from its disks`);
       },
       onStartedOn: (machineType: string) => log.log(`[doorman] tenant ${entry.tenant.slug} started on ${machineType}`),
@@ -288,8 +356,10 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     entry.gate.lastWakeAtMs = now();
     const wakePromise = runWake(entry, adapter, startedBy).finally(() => {
       entry.gate.wakePromise = null;
+      entry.gate.wakeViewChanges.announce();
     });
     entry.gate.wakePromise = wakePromise;
+    entry.gate.wakeViewChanges.announce();
     return wakePromise;
   }
 
@@ -373,7 +443,37 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     void wake.then((outcome) => outcome === 'answering' ? answerWakeStarted() : answerNotAwake(entry, outcome, request, response));
   }
 
+  function holdMsWhileCoolingDown(entry: TenantEntry): number {
+    const pageState = wakePageStateOf(entry);
+    if (pageState.phase !== 'holding' || pageState.retryInMs === null) return WAKE_POLL_HOLD_MS;
+    return Math.min(WAKE_POLL_HOLD_MS, pageState.retryInMs);
+  }
+
+  async function holdWakePollUntilViewChanges(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    if (entry.gate.heldCount >= tunables.maxHeldPerTenant) return answerWakingPage(request, response, wakePageStateOf(entry));
+    entry.gate.heldCount += 1;
+    try {
+      await answerWakePollOnViewChange(entry, request, response);
+    } finally {
+      entry.gate.heldCount -= 1;
+    }
+  }
+
+  async function answerWakePollOnViewChange(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    const viewChange = entry.gate.wakeViewChanges.next();
+    const wake = wakeTenant(entry, 'edge');
+    const isWakeInFlight = entry.gate.wakePromise === wake;
+    const outcome = isWakeInFlight ? null : await wake;
+    if (outcome === 'answering') return answerAwakeToWakePoll(response);
+    if (outcome !== null && outcome !== 'cooling-down') return answerNotAwake(entry, outcome, request, response);
+    await untilChangedOrMs(viewChange, isWakeInFlight ? WAKE_POLL_HOLD_MS : holdMsWhileCoolingDown(entry));
+    if (response.destroyed) return;
+    if (entry.gate.state === 'answering') return answerAwakeToWakePoll(response);
+    answerWakingPage(request, response, wakePageStateOf(entry));
+  }
+
   async function forwardAfterHold(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse, bodyless: Readable | undefined): Promise<void> {
+    if (isWakePagePoll(request)) return holdWakePollUntilViewChanges(entry, request, response);
     if (wantsWakingPage(request.method, request.headers.accept) || isWakePoll(request)) return answerWhileWaking(entry, request, response, () => answerWakingPage(request, response, wakePageStateOf(entry)));
     const outcome = await holdUntilAwake(entry);
     if (outcome !== 'answering') return answerNotAwake(entry, outcome, request, response);
@@ -499,7 +599,8 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     }
   }
 
-  function answerWakingForOpen(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse): void {
+  function answerWakingForOpen(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> | void {
+    if (isWakePagePoll(request)) return holdWakePollUntilViewChanges(entry, request, response);
     answerWhileWaking(entry, request, response, () => answerWakingPage(request, response, wakePageStateOf(entry)));
   }
 
@@ -548,9 +649,76 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     return !await hasEdgeSession(entry, owner, request);
   }
 
+  function readWebhookSecret(secretName: string): Promise<WebhookSecretRead> {
+    return googleForWebhooks.secretPayload(secretName, WEBHOOK_SECRET_VERSION_ALIAS).then((payload) => {
+      const secretText = payload.toString('utf8').trim();
+      return { secret: secretText === '' ? null : Buffer.from(secretText, 'utf8'), readAtMs: now() };
+    }, (readError: unknown) => {
+      log.warn(`[doorman] reading the GitHub webhook secret ${secretName} failed, so webhooks are refused for a minute: ${errorMessage(readError)}`);
+      return { secret: null, readAtMs: now() };
+    });
+  }
+
+  async function webhookSecret({ isRereadWanted }: { isRereadWanted: boolean }): Promise<WebhookSecretRead | null> {
+    const currentApp = githubApp;
+    if (currentApp === null) return null;
+    const secretName = webhookSecretNameOf(currentApp.app);
+    if (secretName === null) return null;
+    const cachedRead = currentApp.webhookSecret === null ? null : await currentApp.webhookSecret;
+    const isCachedReadKept = cachedRead !== null && (cachedRead.secret !== null || now() - cachedRead.readAtMs < WEBHOOK_SECRET_REREAD_AFTER_MS);
+    const isRereadAllowed = cachedRead === null || now() - cachedRead.readAtMs >= WEBHOOK_SECRET_REREAD_AFTER_MS;
+    if (isCachedReadKept && !(isRereadWanted && isRereadAllowed)) return cachedRead;
+    const secretRead = readWebhookSecret(secretName);
+    currentApp.webhookSecret = secretRead;
+    return secretRead;
+  }
+
+  async function isSignedByGithub(rawBody: Buffer, signature: string): Promise<boolean | 'no-secret'> {
+    const firstRead = await webhookSecret({ isRereadWanted: false });
+    if (firstRead?.secret == null) return 'no-secret';
+    if (isSignatureValid(firstRead.secret, rawBody, signature)) return true;
+    const reread = await webhookSecret({ isRereadWanted: true });
+    if (reread === null || reread === firstRead || reread.secret === null) return false;
+    return isSignatureValid(reread.secret, rawBody, signature);
+  }
+
+  async function actOnGithubWebhook(eventName: string | undefined, payload: unknown): Promise<boolean> {
+    const event = webhookEventOf(eventName, payload);
+    if (event.kind === 'ignored') return true;
+    const links = [...entriesBySlug.values()].flatMap((entry) => entry.githubUser === null ? [] : [{ slug: entry.tenant.slug, githubUser: entry.githubUser }]);
+    const reactions = await Promise.all(links.map(({ slug, githubUser }) => {
+      const reaction = event.kind === 'authorization-revoked' ? githubUser.authorizationRevoked(event.senderUserId) : githubUser.installationChanged(event.installationId, event.senderUserId);
+      return reaction.then(() => true, (reactionError: unknown) => {
+        log.warn(`[doorman] tenant ${slug} could not act on a GitHub ${eventName} webhook, so it answers 503 for GitHub to deliver again: ${errorMessage(reactionError)}`);
+        return false;
+      });
+    }));
+    return reactions.every((isActedOn) => isActedOn);
+  }
+
+  async function handleGithubWebhook(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    if (request.method !== 'POST') return answerStatus(response, 405, { allow: 'POST' });
+    const signature = request.headers['x-hub-signature-256'];
+    if (typeof signature !== 'string' || !isSignatureShaped(signature)) return answerStatus(response, 401);
+    const deliveryId = request.headers['x-github-delivery'];
+    if (typeof deliveryId !== 'string' || !isDeliveryId(deliveryId)) return answerStatus(response, 400);
+    const rawBody = await rawBodyOf(request, MAX_WEBHOOK_BODY_BYTES).catch(() => null);
+    if (rawBody === null) return answerStatus(response, 413);
+    const signedVerdict = await isSignedByGithub(rawBody, signature);
+    if (signedVerdict === 'no-secret') return answerBusy(response);
+    if (!signedVerdict) return answerStatus(response, 401);
+    if (!seenDeliveries.isNew(deliveryId)) return answerNoContent(response);
+    const eventName = request.headers['x-github-event'];
+    const isActedOn = await actOnGithubWebhook(typeof eventName === 'string' ? eventName : undefined, parseJsonOrNull(rawBody.toString('utf8')));
+    if (isActedOn) return answerNoContent(response);
+    seenDeliveries.forget(deliveryId);
+    answerBusy(response);
+  }
+
   async function handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     const route = routeOf(request);
     if (route.kind === 'refuse') return answerStatus(response, route.status);
+    if (route.kind === 'github-webhook') return handleGithubWebhook(request, response);
     const entry = entryFor(route.tenant);
     if (entry === null) return answerBusy(response);
     if (route.kind === 'watcher') return handleWatcherRequest(entry, request, response);
@@ -567,7 +735,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     if (!(socket instanceof net.Socket)) return refuseUpgrade(socket, 400);
     const route = routeOf(request);
     if (route.kind === 'refuse') return refuseUpgrade(socket, route.status);
-    if (route.kind === 'watcher') return refuseUpgrade(socket, 404);
+    if (route.kind === 'watcher' || route.kind === 'github-webhook') return refuseUpgrade(socket, 404);
     if (route.kind === 'edge') return refuseUpgrade(socket, 404);
     const entry = entryFor(route.tenant);
     if (entry === null) return refuseUpgrade(socket, 503);
@@ -609,6 +777,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
       if (minted.length > 0) scheduleGithubMint(entry, tokenRefreshDelayMs(Math.min(...minted.map((held) => held.expiresAtMs)), now()));
       return entry.github.held;
     }
+    entry.githubUser?.doubtInstallations();
     entry.github.failedAttempts += 1;
     const retryAfterMs = Math.max(0, ...failures.map((failure) => failure.retryAfterMs ?? 0));
     const backoffDelayMs = mintRetryDelayMs(entry.github.failedAttempts, retryAfterMs === 0 ? null : retryAfterMs);
@@ -706,6 +875,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   function rebindGithub(entry: TenantEntry): void {
     forgetGithubToken(entry);
     entry.watcher?.githubTokenChanged();
+    if (entry.gate.state === 'answering') entry.watcher?.githubConnectionChanged();
     if (entry.watcher !== null) void mintGithubTokens(entry);
   }
 
@@ -806,7 +976,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
 
   function adoptGithubApp(nextApp: DoormanGithubApp | null): void {
     if (JSON.stringify(nextApp) === JSON.stringify(githubApp?.app ?? null)) return;
-    githubApp = nextApp === null ? null : { app: nextApp, minter: nextApp.privateKeySecret === null ? null : createGithubAppMinter({ app: nextApp, privateKeySecret: nextApp.privateKeySecret, fetchFn: githubAppFetch, now }) };
+    githubApp = nextApp === null ? null : { app: nextApp, minter: nextApp.privateKeySecret === null ? null : createGithubAppMinter({ app: nextApp, privateKeySecret: nextApp.privateKeySecret, fetchFn: githubAppFetch, now }), webhookSecret: null };
     for (const entry of entriesBySlug.values()) rebindGithub(entry);
   }
 
@@ -837,7 +1007,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     for (const tenant of nextTable.tenants) {
       if (entriesBySlug.has(tenant.slug)) continue;
       const meter = await meterFor(tenant);
-      const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: meter?.lastWokeAtMs() ?? null, didLastWakeFail: false, wakeKind: 'resume', stopStartedAtMs: null };
+      const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: meter?.lastWokeAtMs() ?? null, didLastWakeFail: false, wakeKind: 'resume', stopStartedAtMs: null, wakeViewChanges: createWakeViewChanges() };
       watcherHomesBySlug.set(tenant.slug, tenant.watcherHome);
       entriesBySlug.set(tenant.slug, { tenant, gate, edgeKey: null, meter, watcher: null, watcherSecretHex: null, watcherStart: null, watcherRetryTimer: null, failedWatcherStarts: 0, github: { held: [], mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 }, githubUser: null });
     }
@@ -960,16 +1130,15 @@ async function runDoormanCli({ tablePath, stateUrl, rawPort }: { tablePath: stri
   const tableGone = new Promise<void>((resolve) => {
     markTableGone = resolve;
   });
-  const reload = () => {
-    state.readTable().then(doorman.applyTable, (reloadError: unknown) => {
-      if (isMissingFileError(reloadError)) {
-        console.log(`[doorman] ${state.where} is gone, stopping`);
-        markTableGone();
-        return;
-      }
-      console.warn(`[doorman] kept the previous tenant table: ${errorMessage(reloadError)}`);
-    });
-  };
+  const reload = (): Promise<boolean> => state.readTable().then(doorman.applyTable).then(() => true, (reloadError: unknown) => {
+    if (isMissingFileError(reloadError)) {
+      console.log(`[doorman] ${state.where} is gone, stopping`);
+      markTableGone();
+      return true;
+    }
+    console.warn(`[doorman] kept the previous tenant table: ${errorMessage(reloadError)}`);
+    return false;
+  });
   const stopWatching = state.watchTable(reload);
   process.on('SIGHUP', reload);
   await untilStopped(tableGone);

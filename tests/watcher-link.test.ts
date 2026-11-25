@@ -1011,7 +1011,7 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   assert.match(notifications[0], /used all .* awake hours for this month/);
 });
 
-test('a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out, even after a doorman restart', async (t) => {
+test('a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, holds the page\'s own poll until the wake settles, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out, even after a doorman restart', async (t) => {
   const tenantServer = http.createServer((_request, response) => response.end('awake'));
   const tenantPort = await listenOnLoopback(tenantServer);
   await new Promise((resolve) => tenantServer.close(resolve));
@@ -1047,6 +1047,8 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   const polledPage = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { ...browserHeaders, 'x-glimmervoid-wake-poll': '1' } });
   assert.equal(polledPage.status, 202, 'the page\'s own poll gets no error status, so the browser console stays quiet while the host sleeps');
   assert.match(polledPage.body, /id="wake"/);
+  assert.match(polledPage.body, /data-light="failed"|data-phase="holding"/, 'the page\'s own poll is held until the wake it waits on settles, here failing, not answered on a timer');
+  assert.deepEqual(wakeCalls, ['limitedtenant001']);
   const dashboardPoll = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { accept: 'application/json', 'x-glimmervoid-wake-poll': '1' } });
   assert.equal(dashboardPoll.status, 202, 'an open dashboard\'s poll is answered at once, never held until the host wakes');
   assert.deepEqual(DoormanWakeStatus.parse(JSON.parse(dashboardPoll.body)), { state: 'waking' });
@@ -1058,7 +1060,6 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
     }).on('error', reject).end();
   });
   assert.ok(pagePolicy.includes(`script-src 'sha256-${crypto.createHash('sha256').update(pageScript).digest('base64')}'`), 'the policy admits exactly the script the page carries');
-  await eventually(() => wakeCalls.length === 1 ? true : undefined);
   assert.deepEqual(await eventually(async () => {
     const answer = await statusAndBodyThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
     return answer.status === 200 ? answer : undefined;
@@ -1363,6 +1364,8 @@ test('a server starts one local doorman found by its port file, replaces it when
   await eventually(async () => fetch(new URL(HEALTH_PATH, replacementUrl)).then(() => undefined, () => true), 20_000);
 });
 
+const webhookSecretHeld = { value: 'whsec-test' };
+
 function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { personalRepositories = [], orgRepositories = ['site', 'glimmervoid'], orgInstallationReaches = orgRepositories }: { personalRepositories?: string[]; orgRepositories?: string[]; orgInstallationReaches?: string[] } = {}) {
   const appKey = { pem: '', publicKey: crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey };
   function rotateKey() {
@@ -1374,7 +1377,7 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { p
   const secretName = 'projects/glimmervoid-test/secrets/github-app-private-key';
   const mints: { claims: { iat: number; exp: number; iss: string }; body: { repositories?: string[]; permissions: Record<string, string> }; atMs: number }[] = [];
   const secretReads: string[] = [];
-  const user = { isAuthorized: false, issued: 0, liveAccessTokens: new Set<string>(), liveRefreshToken: null as string | null, refreshesWith: [] as string[], deviceFlowEnabled: true, userReads: 0, userReadGate: null as Promise<void> | null };
+  const user = { isAuthorized: false, issued: 0, liveAccessTokens: new Set<string>(), liveRefreshToken: null as string | null, refreshesWith: [] as string[], deviceFlowEnabled: true, userReads: 0, userReadGate: null as Promise<void> | null, installationReads: 0, isInstallationListFailing: false, installations: [{ id: 4242, account: { login: 'octo-org' } }, { id: 5151, account: { login: 'octo' } }] };
   function issueUserTokens() {
     user.issued += 1;
     const accessToken = `ghu_user${user.issued}`;
@@ -1391,6 +1394,7 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { p
     }
     if (url.startsWith('https://secretmanager.googleapis.com/')) {
       assert.equal(headers.get('authorization'), 'Bearer metadata-token');
+      if (url.includes('/secrets/github-app-webhook-secret/')) return Response.json({ name: 'webhook', payload: { data: Buffer.from(`${webhookSecretHeld.value}\n`).toString('base64') } });
       secretReads.push(url);
       return Response.json({ name: `${secretName}/versions/3`, payload: { data: Buffer.from(appKey.pem).toString('base64') } });
     }
@@ -1419,7 +1423,11 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { p
         await user.userReadGate;
         return Response.json({ id: 7, login: 'octo' });
       }
-      if (pathname === '/user/installations') return Response.json({ total_count: 2, installations: [{ id: 4242, account: { login: 'octo-org' } }, { id: 5151, account: { login: 'octo' } }] });
+      if (pathname === '/user/installations') {
+        user.installationReads += 1;
+        if (user.isInstallationListFailing) return Response.json({ message: 'Server Error' }, { status: 502 });
+        return Response.json({ total_count: user.installations.length, installations: user.installations });
+      }
       if (pathname === '/user/installations/4242/repositories') return Response.json({ total_count: orgRepositories.length, repositories: orgRepositories.map((name) => ({ name })) });
       if (pathname === '/user/installations/5151/repositories') return Response.json({ total_count: personalRepositories.length, repositories: personalRepositories.map((name) => ({ name })) });
       return Response.json({ message: 'Not Found' }, { status: 404 });
@@ -1521,20 +1529,26 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
   assert.equal(await link.githubUserCredential(), null, 'a disconnected tenant hands git no user token');
 });
 
-test('a server linked before its tenant connects GitHub asks for App grants as soon as it reads the connection as connected, and a reconnect-needed notice comes again after the connection leaves that state', async (t) => {
+test('a server linked before its tenant connects GitHub asks for App grants as soon as its doorman nudges that the connection changed, and a reconnect-needed notice comes again after the connection leaves that state', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, []);
-  const { linkSecret, tenant } = await doormanTenant(t, 'lateconnect0001', 'http://127.0.0.1:9');
+  let answerNudge: http.RequestListener = (_request, response) => response.writeHead(503).end();
+  const nudgeListener = http.createServer((request, response) => answerNudge(request, response));
+  const nudgePort = await listenOnLoopback(nudgeListener);
+  t.after(() => new Promise((resolve) => nudgeListener.close(resolve)));
+  const { linkSecret, tenant } = await doormanTenant(t, 'lateconnect0001', `http://127.0.0.1:${nudgePort}`);
   const doorman = createDoorman({
     table: { tenantDomain: null, githubApp: app.githubApp, tenants: [tenant] },
     probeFetch: async () => Response.json({ data: { viewer: { login: 'tenant' } } }), githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG,
   });
   const doormanPort = await doorman.listen(0);
+  const linkLines: string[] = [];
   const link = createWatcherLink({
-    linkSecret, now: () => clock.nowMs, log: QUIET_LOG,
+    linkSecret, now: () => clock.nowMs, log: { log: (line: string) => linkLines.push(line), warn: () => {} },
     credentials: () => ({ github: null, posthog: null }),
     startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${doormanPort}`, statusCheckMs: 50 }),
   });
+  answerNudge = (request, response) => link.answerNudgeRequest(request, response);
   t.after(async () => {
     link.stop();
     await doorman.close();
@@ -1543,8 +1557,11 @@ test('a server linked before its tenant connects GitHub asks for App grants as s
   await eventually(async () => ((await link.githubConnection('read'))?.state === 'disconnected' ? true : undefined));
   assert.equal((await link.githubConnection('connect'))?.state, 'awaiting-code');
   app.user.isAuthorized = true;
-  await eventually(async () => ((await link.githubConnection('read'))?.state === 'connected' ? true : undefined));
-  await eventually(() => (link.githubAppTokens().length > 0 ? true : undefined), 3_000);
+  await eventually(() => (link.githubAppTokens().length > 0 ? true : undefined), 5_000);
+  assert.equal((await link.githubConnection('read'))?.state, 'connected', 'the grants came from the doorman nudge, before the server read the connection again');
+  const stopLinesBefore = linkLines.filter((line) => line.includes('has no GitHub App tokens')).length;
+  assert.equal((await link.githubConnection('disconnect'))?.state, 'disconnected');
+  await eventually(() => (linkLines.filter((line) => line.includes('has no GitHub App tokens')).length > stopLinesBefore ? true : undefined), 5_000);
 
   const scriptedConnections: GithubConnection[] = [
     { state: 'reconnect-needed', login: 'octo', reason: 'revoked' },
@@ -1718,6 +1735,63 @@ test('a tenant record read that fails answers the server as a failed mint and re
   assert.equal(app.secretReads.length, 2, 'the key is reread once, on the refusal');
 });
 
+test('a doorman stops minting for an installation the moment a signed GitHub webhook says it changed, refuses a forged or replayed delivery without rereading anything, answers 503 to one it could not act on so its redelivery acts, rereads a rotated secret, rereads the installations hourly as backstop, and marks the connection revoked on an authorization webhook', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const app = fakeGithubApp(clock, []);
+  const { linkSecret, tenant } = await doormanTenant(t, 'hookedtenant0001', 'http://127.0.0.1:9');
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', githubApp: app.githubApp, tenants: [tenant] }, githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG });
+  t.after(() => doorman.close());
+  const doormanPort = await doorman.listen(0);
+  const tenantHost = 'hookedtenant0001.tenants.example';
+  const signedCall = async (method: 'GET' | 'POST', callPath: string) => requestThroughDoorman(doormanPort, { host: tenantHost, method, path: callPath, headers: signedHeaders(directionKey(linkSecret, 'server-to-watcher'), { method, path: callPath, body: '' }, clock.nowMs), body: '' });
+  const connectionState = async () => GithubConnectionAnswer.parse(JSON.parse((await signedCall('GET', GITHUB_CONNECTION_PATH)).body)).connection.state;
+  const grantedAccounts = async () => GithubTokenAnswer.parse(JSON.parse((await signedCall('POST', GITHUB_TOKEN_PATH)).body)).grants.map((grant) => grant.accountLogin);
+  const deliver = (eventName: string, payload: object, { deliveryId = crypto.randomUUID(), secret = webhookSecretHeld.value } = {}) => {
+    const body = JSON.stringify(payload);
+    const signature = `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`;
+    return requestThroughDoorman(doormanPort, { host: 'hooks.tenants.example', method: 'POST', path: '/github', headers: { 'content-type': 'application/json', 'x-github-event': eventName, 'x-github-delivery': deliveryId, 'x-hub-signature-256': signature }, body });
+  };
+
+  await signedCall('POST', GITHUB_CONNECT_PATH);
+  app.user.isAuthorized = true;
+  await eventually(async () => (await connectionState() === 'connected' ? true : undefined));
+  assert.deepEqual(await grantedAccounts(), ['octo-org']);
+
+  app.user.installations = [{ id: 5151, account: { login: 'octo' } }];
+  const readsBeforeHooks = app.user.installationReads;
+  assert.equal((await deliver('installation', { action: 'deleted', installation: { id: 4242 }, sender: { id: 99 } }, { secret: 'not-the-secret' })).status, 401);
+  assert.equal(app.user.installationReads, readsBeforeHooks, 'a forged delivery rereads nothing');
+  const deliveryId = crypto.randomUUID();
+  assert.equal((await deliver('installation', { action: 'deleted', installation: { id: 4242 }, sender: { id: 99 } }, { deliveryId })).status, 204);
+  assert.equal(app.user.installationReads, readsBeforeHooks + 1, 'the delivery rereads the installations through the tenant\'s own user token before it is answered');
+  assert.deepEqual(await grantedAccounts(), [], 'the removed installation gets no token, without waiting out a cache');
+  assert.equal((await deliver('installation', { action: 'deleted', installation: { id: 4242 }, sender: { id: 99 } }, { deliveryId })).status, 204);
+  assert.equal(app.user.installationReads, readsBeforeHooks + 1, 'a replayed delivery acts on nothing');
+
+  app.user.installations = [{ id: 4242, account: { login: 'octo-org' } }];
+  clock.nowMs += 61 * 60_000;
+  assert.deepEqual(await grantedAccounts(), ['octo-org'], 'a lost webhook is caught by the hourly reread of the installations');
+
+  const failingReads = app.user.installationReads;
+  app.user.isInstallationListFailing = true;
+  const failedDeliveryId = crypto.randomUUID();
+  assert.equal((await deliver('installation_repositories', { action: 'removed', installation: { id: 4242 }, sender: { id: 99 } }, { deliveryId: failedDeliveryId })).status, 503, 'a delivery the doorman could not act on is not answered as handled');
+  assert.ok(app.user.installationReads > failingReads);
+  app.user.isInstallationListFailing = false;
+  app.user.installations = [];
+  assert.equal((await deliver('installation_repositories', { action: 'removed', installation: { id: 4242 }, sender: { id: 99 } }, { deliveryId: failedDeliveryId })).status, 204, 'GitHub\'s redelivery of it is acted on, not taken for a replay');
+  assert.deepEqual(await grantedAccounts(), []);
+
+  const rotatedFrom = webhookSecretHeld.value;
+  webhookSecretHeld.value = 'whsec-rotated';
+  clock.nowMs += 61_000;
+  t.after(() => {
+    webhookSecretHeld.value = rotatedFrom;
+  });
+  assert.equal((await deliver('github_app_authorization', { action: 'revoked', sender: { id: 7 } })).status, 204, 'a rotated webhook secret is reread when a delivery fails against the kept one');
+  assert.equal(await connectionState(), 'reconnect-needed');
+});
+
 test('a stored repository the installation no longer reaches is dropped from the mint and named in the doorman log, so the tenant still gets its token', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, [], { orgRepositories: ['site', 'glimmervoid', 'renamed-away'], orgInstallationReaches: ['site', 'glimmervoid'] });
@@ -1738,7 +1812,7 @@ test('a stored repository the installation no longer reaches is dropped from the
   assert.match(GithubTokenAnswer.parse(await answer.json()).grants[0]?.token ?? '', /^ghs_minted\d$/);
   assert.deepEqual(app.mints.map((mint) => mint.body.repositories ?? null), [['glimmervoid', 'renamed-away', 'site'], null, ['glimmervoid', 'site']]);
   assert.deepEqual(app.mints[1].body.permissions, { metadata: 'read' }, 'the listing token reads metadata only');
-  assert.deepEqual(warnLines, ['[doorman] kind=github-token-repos-dropped tenant staletenant0001 GitHub installation 4242 (octo-org) no longer reaches renamed-away; minted for the other 2 repositories']);
+  assert.deepEqual(warnLines.filter((line) => line.startsWith('[doorman]')), ['[doorman] kind=github-token-repos-dropped tenant staletenant0001 GitHub installation 4242 (octo-org) no longer reaches renamed-away; minted for the other 2 repositories']);
 });
 
 test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, the server notifies once two weeks before the connection ends and once when a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {

@@ -426,8 +426,8 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     onGithubAppTokenChange();
   }
 
-  async function checkGithubToken(): Promise<void> {
-    if (githubTokenRequest !== null || watcherUrl === null || credentials().github !== null || !isGithubTokenDue()) return announceGithubAppTokenChange();
+  async function checkGithubToken({ isForced = false }: { isForced?: boolean } = {}): Promise<void> {
+    if (githubTokenRequest !== null || watcherUrl === null || credentials().github !== null || (!isForced && !isGithubTokenDue())) return announceGithubAppTokenChange();
     githubTokenRequest = requestGithubToken().then((answer) => {
       if (answer !== null) adoptGithubTokenAnswer(answer);
     });
@@ -627,7 +627,19 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     return rollup;
   }
 
+  function githubConnectionChanged(): void {
+    log.log('[watcher] the doorman says this server\'s GitHub connection changed');
+    githubUserGrant = null;
+    connectedGithubAccounts = '';
+    releaseGithubTokenHold();
+    void checkGithubToken({ isForced: true });
+  }
+
   function handleNudge(nudge: Nudge): void {
+    if (nudge.kind === 'github-connection') {
+      githubConnectionChanged();
+      return;
+    }
     if (nudge.kind === 'check-in' || nudge.probeId === null) {
       log.log(`[watcher] check-in at ${nudge.at}`);
       return;

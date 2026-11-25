@@ -7,7 +7,7 @@ import type { WakePageState } from './doorman-core.ts';
 
 const TYPICAL_WAKE_SECONDS = 15;
 const TYPICAL_COLD_START_SECONDS = 90;
-const WAKE_POLL_MS = 1000;
+const UNREACHABLE_RETRY_MS = 1000;
 const UNREACHABLE_STATUS_TEXT = 'Cannot reach Glimmervoid. Checking again.';
 
 const HOST_PAGE_STYLES = [
@@ -30,7 +30,7 @@ const HOST_PAGE_STYLES = [
   '.bar{width:min(240px,100%);height:4px;border-radius:2px;background:var(--border-dim);overflow:hidden}',
   '.bar-fill{height:100%;background:var(--accent);transform-origin:left;transform:scaleX(var(--fraction,0))}',
   '[data-phase="holding"] .bar{visibility:hidden}',
-  '@media (prefers-reduced-motion:no-preference){[data-phase="waking"] .bracket{animation:mark-scan 1.3s cubic-bezier(0.2,0.8,0.2,1) infinite}.bar-fill{transition:transform 1s linear}}',
+  '@media (prefers-reduced-motion:no-preference){[data-phase="waking"] .bracket{animation:mark-scan 1.3s cubic-bezier(0.2,0.8,0.2,1) infinite}.bar-fill{transition:transform var(--fill-ms,0ms) linear}}',
   '@keyframes mark-scan{0%,30%,100%{transform:none;stroke:var(--text-head)}12%{transform:translate(calc(var(--dx)*6px),calc(var(--dy)*6px));stroke:var(--accent)}}',
 ].join('');
 
@@ -48,10 +48,19 @@ const HOST_PAGE_SCRIPT = `(() => {
   const wake = document.getElementById('wake');
   if (wake === null) return;
   const statusLine = document.getElementById('wake-status');
+  const fillBar = (render) => {
+    wake.style.setProperty('--fill-ms', '0ms');
+    wake.style.setProperty('--fraction', render.dataset.fraction);
+    if (render.dataset.phase !== 'waking') return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      wake.style.setProperty('--fill-ms', render.dataset.remainingMs + 'ms');
+      wake.style.setProperty('--fraction', '1');
+    }));
+  };
   const showRender = (render) => {
     wake.dataset.phase = render.dataset.phase;
     wake.dataset.light = render.dataset.light;
-    wake.style.setProperty('--fraction', render.dataset.fraction);
+    fillBar(render);
     const renderedText = render.querySelector('#wake-status').textContent;
     if (statusLine.textContent !== renderedText) statusLine.textContent = renderedText;
   };
@@ -66,7 +75,7 @@ const HOST_PAGE_SCRIPT = `(() => {
       render = await readRender();
     } catch {
       statusLine.textContent = '${UNREACHABLE_STATUS_TEXT}';
-      setTimeout(poll, ${WAKE_POLL_MS});
+      setTimeout(poll, ${UNREACHABLE_RETRY_MS});
       return;
     }
     if (render === null) {
@@ -74,9 +83,10 @@ const HOST_PAGE_SCRIPT = `(() => {
       return;
     }
     showRender(render);
-    setTimeout(poll, ${WAKE_POLL_MS});
+    void poll();
   };
-  setTimeout(poll, ${WAKE_POLL_MS});
+  fillBar(wake);
+  void poll();
 })();`;
 
 const HOST_PAGE_CONTENT_SECURITY_POLICY = `default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${crypto.createHash('sha256').update(HOST_PAGE_SCRIPT).digest('base64')}'; connect-src 'self'`;
@@ -110,13 +120,18 @@ function wakeFraction(state: WakePageState): number {
   return Math.min(1, Math.round(state.elapsedMs / (typicalSecondsOf(state) * 10)) / 100);
 }
 
+function remainingWakeMs(state: WakePageState): number {
+  if (state.phase !== 'waking') return 0;
+  return Math.max(0, typicalSecondsOf(state) * 1000 - state.elapsedMs);
+}
+
 function wakingPage(state: WakePageState, refreshSeconds: number): string {
   const fraction = wakeFraction(state);
   const light = state.phase === 'waking' && state.didLastWakeFail ? 'failed' : 'off';
   return hostPage({
     heading: 'Waking your Glimmervoid',
     headExtra: `<noscript><meta http-equiv="refresh" content="${refreshSeconds}"></noscript>`,
-    mainAttributes: ` id="wake" data-phase="${state.phase}" data-light="${light}" data-fraction="${fraction}" style="--fraction:${fraction}"`,
+    mainAttributes: ` id="wake" data-phase="${state.phase}" data-light="${light}" data-fraction="${fraction}" data-remaining-ms="${remainingWakeMs(state)}" style="--fraction:${fraction}"`,
     body: `<p id="wake-status" role="status" aria-live="polite">${wakeStatusText(state)}</p><div class="bar" aria-hidden="true"><div class="bar-fill"></div></div>`,
   });
 }

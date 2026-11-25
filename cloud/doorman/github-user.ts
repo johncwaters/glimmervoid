@@ -56,16 +56,27 @@ function createGithubUserLink({ slug, app, store, sealKey, fetchFn = fetch, now 
   let held: UserAccessGrant | null = null;
   let refreshing: Promise<UserAccessGrant | null> | null = null;
   let isStopped = false;
+  let areInstallationsDoubted = false;
+  let indexedRecord: { userId: number; installationIds: ReadonlySet<number> } | null = null;
+
+  function indexRecord(record: GithubUserRecord | null): void {
+    indexedRecord = record === null ? null : { userId: record.userId, installationIds: new Set(record.installations.map((installation) => installation.installationId)) };
+  }
 
   async function loadRecord(): Promise<LoadedRecord> {
     const stored = await store.read(slug, GITHUB_USER_RECORD_NAME);
-    if (stored === null) return { record: null, generation: null };
+    if (stored === null) {
+      indexRecord(null);
+      return { record: null, generation: null };
+    }
     const opened = openSealed(sealKey, stored.bytes);
     const parsed = opened === null ? null : StoredGithubUser.safeParse(parseJsonOrNull(opened.toString('utf8')));
     if (parsed === null || !parsed.success) {
       log.warn(`[doorman] tenant ${slug} GitHub record does not open under this link secret; treating it as disconnected`);
+      indexRecord(null);
       return { record: null, generation: stored.generation };
     }
+    indexRecord(parsed.data.record);
     return { record: parsed.data.record, generation: stored.generation };
   }
 
@@ -314,10 +325,60 @@ function createGithubUserLink({ slug, app, store, sealKey, fetchFn = fetch, now 
   async function bindings(): Promise<GithubInstallationBinding[]> {
     const { record } = await loadRecord();
     if (record === null || record.reconnectReason !== null) return [];
-    if (!areInstallationsStale(record, now())) return record.installations;
-    await freshAccessToken().catch((refreshError: unknown) => log.warn(`[doorman] tenant ${slug} kept stale GitHub installations: ${errorMessage(refreshError)}`));
+    if (!areInstallationsDoubted && !areInstallationsStale(record, now())) return record.installations;
+    const access = await freshAccessToken().catch((refreshError: unknown) => {
+      log.warn(`[doorman] tenant ${slug} kept stale GitHub installations: ${errorMessage(refreshError)}`);
+      return null;
+    });
+    const refreshed = (await loadRecord()).record;
+    const isRereadDue = refreshed !== null && (areInstallationsDoubted || areInstallationsStale(refreshed, now()));
+    if (access !== null && isRereadDue) await rereadInstallations(access.token);
     const reloaded = (await loadRecord()).record;
     return reloaded === null || reloaded.reconnectReason !== null ? [] : reloaded.installations;
+  }
+
+  async function rereadInstallations(accessToken: string): Promise<'changed' | 'unchanged' | 'failed'> {
+    areInstallationsDoubted = false;
+    const freshBindings = await readBindings(accessToken).catch((readError: unknown) => {
+      areInstallationsDoubted = true;
+      log.warn(`[doorman] tenant ${slug} could not reread its GitHub installations: ${errorMessage(readError)}`);
+      return null;
+    });
+    if (freshBindings === null) return 'failed';
+    let installationsBefore: string | null = null;
+    await replaceRecord((current) => {
+      if (current === null) return undefined;
+      installationsBefore = JSON.stringify(current.installations);
+      return { ...current, installations: freshBindings, installationsReadAtMs: now() };
+    });
+    return installationsBefore !== null && installationsBefore !== JSON.stringify(freshBindings) ? 'changed' : 'unchanged';
+  }
+
+  function doubtInstallations(): void {
+    areInstallationsDoubted = true;
+  }
+
+  function isAboutThisTenant(installationId: number | null, senderUserId: number | null): boolean {
+    if (indexedRecord === null) return false;
+    if (senderUserId !== null && senderUserId === indexedRecord.userId) return true;
+    return installationId !== null && indexedRecord.installationIds.has(installationId);
+  }
+
+  async function installationChanged(installationId: number, senderUserId: number | null): Promise<void> {
+    if (isStopped || !isAboutThisTenant(installationId, senderUserId)) return;
+    areInstallationsDoubted = true;
+    const access = await freshAccessToken();
+    if (access === null) return;
+    const reread = await rereadInstallations(access.token);
+    if (reread === 'failed') throw new Error(`tenant ${slug} could not reread its GitHub installations`);
+    if (reread === 'changed') onChange();
+  }
+
+  async function authorizationRevoked(senderUserId: number): Promise<void> {
+    if (isStopped || !isAboutThisTenant(null, senderUserId)) return;
+    const { record } = await loadRecord();
+    if (record === null || record.userId !== senderUserId || record.reconnectReason !== null) return;
+    await exclusively(() => markReconnectNeeded('revoked', record.refreshToken));
   }
 
   function stop(): void {
@@ -326,7 +387,7 @@ function createGithubUserLink({ slug, app, store, sealKey, fetchFn = fetch, now 
     stopPolling();
   }
 
-  return { connect, connection, disconnect, bindings, userAccessGrant: freshAccessToken, stop };
+  return { connect, connection, disconnect, bindings, userAccessGrant: freshAccessToken, installationChanged, authorizationRevoked, doubtInstallations, stop };
 }
 
 type GithubUserLink = ReturnType<typeof createGithubUserLink>;

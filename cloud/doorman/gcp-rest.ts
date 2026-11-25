@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 type GoogleRefusal = Error & { httpStatus: number };
 
+const METADATA_PROJECT_ID_URL = 'http://metadata.google.internal/computeMetadata/v1/project/project-id';
 const METADATA_TOKEN_URL = 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
 const SECRET_MANAGER_ORIGIN = 'https://secretmanager.googleapis.com';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -46,6 +47,12 @@ function createGcpRest({ fetchFn = fetch }: { fetchFn?: typeof fetch } = {}) {
     return MetadataToken.parse(await jsonFrom(METADATA_TOKEN_URL, { headers: { 'metadata-flavor': 'Google' } }, 'the metadata server')).access_token;
   }
 
+  async function projectId(): Promise<string> {
+    const projectIdText = (await (await okResponse(METADATA_PROJECT_ID_URL, { headers: { 'metadata-flavor': 'Google' } }, 'the metadata server')).text()).trim();
+    if (projectIdText === '') throw new Error('the metadata server named no project');
+    return projectIdText;
+  }
+
   async function authorized(init: RequestInit): Promise<RequestInit> {
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${await accessToken()}`);
@@ -65,7 +72,7 @@ function createGcpRest({ fetchFn = fetch }: { fetchFn?: typeof fetch } = {}) {
     return Buffer.from(SecretVersionAccess.parse(await authorizedJson(secretUrl, {}, 'Secret Manager')).payload.data, 'base64');
   }
 
-  return { authorizedJson, authorizedResponse, secretPayload };
+  return { authorizedJson, authorizedResponse, projectId, secretPayload };
 }
 
 type GcpRest = ReturnType<typeof createGcpRest>;

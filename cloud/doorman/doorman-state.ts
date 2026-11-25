@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { nextBackoffMs } from '../../shared/backoff.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { AwakeEvent, DOORMAN_ROUTES_PREFIX, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { isMissingFileError } from '../../shared/text.ts';
@@ -28,7 +30,7 @@ type DoormanState = {
   where: string;
   lockFolder: string | null;
   readTable(): Promise<DoormanTenantTable>;
-  watchTable(onChange: () => void): () => void;
+  watchTable(onChange: () => Promise<boolean>): () => void;
   tenantState: DoormanTenantState;
   tenantRecords: TenantRecordStore | null;
 };
@@ -43,7 +45,12 @@ const LINK_SECRET_PATTERN = /^[0-9a-f]{64}$/;
 const LINK_SECRET_VERSION_ALIAS = 'latest';
 const TABLE_RELOAD_SETTLE_MS = 200;
 const TABLE_PRESENCE_POLL_MS = 2_000;
-const STATE_TABLE_POLL_MS = 10_000;
+const STATE_SUBSCRIPTION_ID = 'doorman-state';
+const PUBSUB_ORIGIN = 'https://pubsub.googleapis.com';
+const MAX_PULLED_MESSAGES = 100;
+const PULL_REQUEST_TIMEOUT_MS = 90_000;
+const PULL_RETRY_BASE_MS = 1_000;
+const PULL_RETRY_MAX_MS = 60_000;
 const LEDGER_WRITE_ATTEMPTS = 5;
 const RECENT_LEDGER_MONTHS = 2;
 const STORAGE_ORIGIN = 'https://storage.googleapis.com';
@@ -51,8 +58,8 @@ const STATE_BUCKET_PATTERN = /^gs:\/\/([a-z0-9][a-z0-9._-]{1,220}[a-z0-9])\/?$/;
 const NOT_FOUND: ReadonlySet<number> = new Set([404]);
 const PRECONDITION_FAILED: ReadonlySet<number> = new Set([412]);
 
-const ObjectGeneration = z.object({ generation: z.string().min(1) });
 const ObjectListPage = z.object({ items: z.array(z.object({ name: z.string(), generation: z.string().min(1) })).default([]), nextPageToken: z.string().optional() });
+const PulledMessages = z.object({ receivedMessages: z.array(z.object({ ackId: z.string().min(1) })).default([]) });
 const ROUTE_OBJECT_PATTERN = /^routes\/([a-z0-9]{12,40})\.json$/;
 
 function awakeEventsIn(ledgerText: string, where: string, log: DoormanStateLog): AwakeEvent[] {
@@ -134,7 +141,7 @@ async function readFileTable(tablePath: string): Promise<DoormanTenantTable> {
   return table;
 }
 
-function watchTableFile(tablePath: string, onChange: () => void): () => void {
+function watchTableFile(tablePath: string, onChange: () => Promise<boolean>): () => void {
   let settleTimer: NodeJS.Timeout | null = null;
   const watcher = fs.watch(canonicalizePath(path.dirname(tablePath)), (_event, changedName) => {
     if (changedName !== null && changedName !== path.basename(tablePath)) return;
@@ -178,15 +185,6 @@ function createGcsObjects(bucket: string, google: GcpRest) {
     return { bytes: Buffer.from(await response.arrayBuffer()), generation };
   }
 
-  async function generationOf(objectName: string): Promise<string | null> {
-    const response = await google.authorizedResponse(`${objectsUrl}/${encodeURIComponent(objectName)}?fields=generation`, {}, `reading gs://${bucket}/${objectName}`, NOT_FOUND);
-    if (response.status === 404) {
-      await response.body?.cancel();
-      return null;
-    }
-    return ObjectGeneration.parse(await response.json()).generation;
-  }
-
   async function write(objectName: string, contents: Buffer | string, ifGeneration: string | null): Promise<ObjectWrite> {
     const precondition = ifGeneration === null ? '' : `&ifGenerationMatch=${encodeURIComponent(ifGeneration)}`;
     const uploadUrl = `${STORAGE_ORIGIN}/upload/storage/v1/b/${encodeURIComponent(bucket)}/o?uploadType=media&name=${encodeURIComponent(objectName)}${precondition}`;
@@ -211,7 +209,7 @@ function createGcsObjects(bucket: string, google: GcpRest) {
     return [...(await generationsUnder(prefix)).keys()].sort();
   }
 
-  return { read, generationOf, write, generationsUnder, namesUnder };
+  return { read, write, generationsUnder, namesUnder };
 }
 
 type GcsObjects = ReturnType<typeof createGcsObjects>;
@@ -266,15 +264,6 @@ function gcsTenantRecords(objects: GcsObjects): TenantRecordStore {
   };
 }
 
-function stateFingerprint(tableGeneration: string | null, routeGenerations: Map<string, string>): string {
-  return JSON.stringify([tableGeneration, [...routeGenerations].sort()]);
-}
-
-async function stateFingerprintOf(objects: GcsObjects): Promise<string> {
-  const [tableGeneration, routeGenerations] = await Promise.all([objects.generationOf(STATE_TABLE_OBJECT_NAME), objects.generationsUnder(DOORMAN_ROUTES_PREFIX)]);
-  return stateFingerprint(tableGeneration, routeGenerations);
-}
-
 function createRouteReader(objects: GcsObjects, bucket: string, log: DoormanStateLog) {
   const keptRoutesByName = new Map<string, { generation: string; tenant: DoormanTenant }>();
   const refusedGenerationsByName = new Map<string, string>();
@@ -309,14 +298,53 @@ function createRouteReader(objects: GcsObjects, bucket: string, log: DoormanStat
   };
 }
 
-function watchStateTable(objects: GcsObjects, fingerprintRead: () => string | null, onChange: () => void, log: DoormanStateLog): () => void {
-  const poll = () => {
-    stateFingerprintOf(objects).then((fingerprint) => {
-      if (fingerprint !== fingerprintRead()) onChange();
-    }, (pollError: unknown) => log.warn(`[doorman] checking the tenant table failed: ${pollError instanceof Error ? pollError.message : String(pollError)}`));
-  };
-  const pollTimer = setInterval(poll, STATE_TABLE_POLL_MS);
-  return () => clearInterval(pollTimer);
+function followStateEvents(google: GcpRest, wasLastReadComplete: () => boolean, onChange: () => Promise<boolean>, log: DoormanStateLog): () => void {
+  const stopping = new AbortController();
+  let subscription: string | null = null;
+
+  async function pullOnce(): Promise<string[]> {
+    subscription ??= `projects/${await google.projectId()}/subscriptions/${STATE_SUBSCRIPTION_ID}`;
+    const pulled = PulledMessages.parse(await google.authorizedJson(`${PUBSUB_ORIGIN}/v1/${subscription}:pull`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxMessages: MAX_PULLED_MESSAGES }),
+      signal: AbortSignal.any([stopping.signal, AbortSignal.timeout(PULL_REQUEST_TIMEOUT_MS)]),
+    }, `pulling ${subscription}`));
+    return pulled.receivedMessages.map((message) => message.ackId);
+  }
+
+  async function acknowledge(ackIds: readonly string[]): Promise<void> {
+    await google.authorizedJson(`${PUBSUB_ORIGIN}/v1/${subscription}:acknowledge`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ackIds }), signal: stopping.signal }, `acknowledging ${subscription}`);
+  }
+
+  async function reloadAndAcknowledge(ackIds: readonly string[]): Promise<void> {
+    const isApplied = await onChange();
+    if (!isApplied || !wasLastReadComplete()) return;
+    await acknowledge(ackIds);
+  }
+
+  async function follow(): Promise<void> {
+    let failedPulls = 0;
+    while (!stopping.signal.aborted) {
+      const pulled = await pullOnce().catch((pullError: unknown) => pullError instanceof Error ? pullError : new Error(String(pullError)));
+      if (stopping.signal.aborted) return;
+      if (pulled instanceof Error && pulled.name === 'TimeoutError') continue;
+      if (pulled instanceof Error) {
+        failedPulls += 1;
+        const retryDelayMs = nextBackoffMs({ attempt: failedPulls, baseMs: PULL_RETRY_BASE_MS, maxMs: PULL_RETRY_MAX_MS, jitter: 'half' });
+        log.warn(`[doorman] pulling the state bucket's changes from ${subscription ?? STATE_SUBSCRIPTION_ID} failed, so table and route changes wait; retrying in ${Math.round(retryDelayMs / 1000)} s: ${pulled.message}`);
+        await sleep(retryDelayMs, undefined, { signal: stopping.signal }).catch(() => {});
+        continue;
+      }
+      const wasFailing = failedPulls > 0;
+      failedPulls = 0;
+      if (pulled.length === 0 && !wasFailing) continue;
+      await reloadAndAcknowledge(pulled).catch((reloadError: unknown) => log.warn(`[doorman] applying the state bucket's changes failed, so they are pulled again: ${reloadError instanceof Error ? reloadError.message : String(reloadError)}`));
+    }
+  }
+
+  void follow();
+  return () => stopping.abort();
 }
 
 function stateBucketOf(stateUrl: string): string | null {
@@ -326,7 +354,7 @@ function stateBucketOf(stateUrl: string): string | null {
 function createGcsDoormanState({ bucket, google = createGcpRest(), log = console }: { bucket: string; google?: GcpRest; log?: DoormanStateLog }) {
   const objects = createGcsObjects(bucket, google);
   const currentRoutes = createRouteReader(objects, bucket, log);
-  let fingerprintRead: string | null = null;
+  let wasLastReadComplete = true;
 
   async function readTable(): Promise<DoormanTenantTable> {
     const [stored, routeGenerations] = await Promise.all([objects.read(STATE_TABLE_OBJECT_NAME), objects.generationsUnder(DOORMAN_ROUTES_PREFIX)]);
@@ -334,13 +362,13 @@ function createGcsDoormanState({ bucket, google = createGcpRest(), log = console
     const table = DoormanTenantTable.parse(JSON.parse(stored.bytes.toString('utf8')));
     if (table.tenantDomain === null) {
       if (routeGenerations.size > 0) log.warn(`[doorman] gs://${bucket}/${STATE_TABLE_OBJECT_NAME} has no tenant domain, so the route objects under ${DOORMAN_ROUTES_PREFIX} are not served`);
-      fingerprintRead = stateFingerprint(stored.generation, routeGenerations);
+      wasLastReadComplete = true;
       return table;
     }
     const tableSlugs = new Set(table.tenants.map((tenant) => tenant.slug));
     const { routedTenants, isEveryRouteRead } = await currentRoutes(routeGenerations);
     const mergedTable = DoormanTenantTable.parse({ ...table, tenants: [...table.tenants, ...routedTenants.filter((tenant) => !tableSlugs.has(tenant.slug))] });
-    fingerprintRead = isEveryRouteRead ? stateFingerprint(stored.generation, routeGenerations) : null;
+    wasLastReadComplete = isEveryRouteRead;
     return mergedTable;
   }
 
@@ -348,7 +376,7 @@ function createGcsDoormanState({ bucket, google = createGcpRest(), log = console
     where: `gs://${bucket}/${STATE_TABLE_OBJECT_NAME}`,
     lockFolder: null,
     readTable,
-    watchTable: (onChange: () => void) => watchStateTable(objects, () => fingerprintRead, onChange, log),
+    watchTable: (onChange: () => Promise<boolean>) => followStateEvents(google, () => wasLastReadComplete, onChange, log),
     tenantState: {
       linkSecretHex: createLinkSecretReader(google, log),
       ledgerOf: (tenant: DoormanTenant) => gcsLedger(objects, tenant.slug, log),

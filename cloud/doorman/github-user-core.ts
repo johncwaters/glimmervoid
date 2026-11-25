@@ -23,7 +23,7 @@ const DEVICE_CODE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
 const SLOW_DOWN_STEP_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const ACCESS_TOKEN_REFRESH_LEAD_MS = 5 * 60_000;
-const INSTALLATIONS_STALE_AFTER_MS = 8 * 60 * 60_000;
+const INSTALLATIONS_STALE_AFTER_MS = 60 * 60_000;
 const MS_PER_SECOND = 1000;
 
 const DeviceCodeAnswer = z.object({

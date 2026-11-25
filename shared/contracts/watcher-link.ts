@@ -92,7 +92,7 @@ export type ProbeFailure = z.infer<typeof ProbeFailure>;
 export const Nudge = z.strictObject({
   nudgeId: z.uuid(),
   probeId: z.string().nullable(),
-  kind: z.enum(['changed', 'failing', 'recovered', 'check-in', 'alarm']),
+  kind: z.enum(['changed', 'failing', 'recovered', 'check-in', 'alarm', 'github-connection']),
   failure: ProbeFailure.nullable(),
   at: z.iso.datetime(),
 });

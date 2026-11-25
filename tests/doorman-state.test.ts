@@ -9,25 +9,62 @@ import type { DoormanTenant } from '../shared/contracts/doorman.ts';
 const BUCKET = 'tenant-state-bucket';
 const QUIET_LOG = { warn: () => {} };
 
+async function until(condition: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 1000; turn += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail('condition never held');
+}
+
 function createFakeCloudStorage() {
   const objectsByName = new Map<string, { bytes: Buffer; generation: number }>();
   let nextGeneration = 1;
   let conflictsLeft = 0;
   const secretsByName = new Map<string, string>();
   const failingReadNames = new Set<string>();
+  const pendingAckIds: string[] = [];
+  const acknowledgedAckIds: string[] = [];
+  const pullWaiters = new Set<() => void>();
+  let nextAckId = 1;
+
+  function announce(objectName: string): void {
+    if (objectName !== 'tenants.json' && !objectName.startsWith('routes/')) return;
+    pendingAckIds.push(`ack-${nextAckId}`);
+    nextAckId += 1;
+    for (const wake of pullWaiters) wake();
+  }
 
   function store(objectName: string, bytes: Buffer): void {
     objectsByName.set(objectName, { bytes, generation: nextGeneration });
     nextGeneration += 1;
+    announce(objectName);
+  }
+
+  async function pull(signal: AbortSignal | null | undefined): Promise<Response> {
+    while (pendingAckIds.length === 0) {
+      await new Promise<void>((resolve, reject) => {
+        pullWaiters.add(resolve);
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    }
+    pullWaiters.clear();
+    return Response.json({ receivedMessages: pendingAckIds.splice(0).map((ackId) => ({ ackId, message: { attributes: {} } })) });
   }
 
   const fetchFn: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
+    if (url.hostname === 'metadata.google.internal' && url.pathname.endsWith('/project/project-id')) return new Response('example-project');
     if (url.hostname === 'metadata.google.internal') return Response.json({ access_token: 'metadata-token' });
     assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer metadata-token');
     if (url.hostname === 'secretmanager.googleapis.com') {
       const secretText = secretsByName.get(url.pathname.replace(/^\/v1\//, '').replace(/\/versions\/latest:access$/, ''));
       return secretText === undefined ? new Response('missing', { status: 404 }) : Response.json({ payload: { data: Buffer.from(secretText).toString('base64') } });
+    }
+    if (url.href === 'https://pubsub.googleapis.com/v1/projects/example-project/subscriptions/doorman-state:pull') return pull(init?.signal);
+    if (url.href === 'https://pubsub.googleapis.com/v1/projects/example-project/subscriptions/doorman-state:acknowledge') {
+      acknowledgedAckIds.push(...JSON.parse(String(init?.body)).ackIds);
+      return Response.json({});
     }
     const objectsPath = `/storage/v1/b/${BUCKET}/o`;
     if (url.pathname === `/upload${objectsPath}`) {
@@ -57,7 +94,11 @@ function createFakeCloudStorage() {
   return {
     fetchFn,
     store: (objectName: string, text: string) => store(objectName, Buffer.from(text)),
-    remove: (objectName: string) => objectsByName.delete(objectName),
+    remove: (objectName: string) => {
+      objectsByName.delete(objectName);
+      announce(objectName);
+    },
+    acknowledgedAckIds,
     failNextRead: (objectName: string) => failingReadNames.add(objectName),
     textOf: (objectName: string) => objectsByName.get(objectName)?.bytes.toString('utf8') ?? null,
     names: () => [...objectsByName.keys()].sort(),
@@ -106,7 +147,7 @@ test('the Cloud Storage doorman state reads its table and Secret Manager link se
   assert.equal(restartedMeter.lastWokeAtMs(), Date.parse('2026-11-01T00:10:00.000Z'));
 });
 
-test('the Cloud Storage doorman state routes each routes/<slug>.json beside the tenant table, keeps the last good copy of a route that turns malformed, drops a deleted one, lets the table win a shared slug, and wakes its watcher on a route change', async (t) => {
+test('the Cloud Storage doorman state routes each routes/<slug>.json beside the tenant table, keeps the last good copy of a route that turns malformed, drops a deleted one, lets the table win a shared slug, and follows table and route changes through Pub/Sub, acknowledging a change only once it is applied', async (t) => {
   const storage = createFakeCloudStorage();
   const operatorTenant: DoormanTenant = { slug: 'operatortenant01', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'secret-manager', secret: 'projects/example-project/secrets/tenant-link-operatortenant01' }, watcherHome: null, awakeHoursPerMonth: null, host: null, owner: null };
   const routedTenant: DoormanTenant = { ...operatorTenant, slug: 'routedtenant0001', serverUrl: 'http://10.0.0.3:8080', linkSecret: { kind: 'secret-manager', secret: 'projects/example-project/secrets/tenant-link-routedtenant0001' }, owner: { workosUserId: 'user_01ROUTED', authkitClientId: 'client_01ACCOUNTS', accountPageUrl: 'https://accounts.example' } };
@@ -126,18 +167,28 @@ test('the Cloud Storage doorman state routes each routes/<slug>.json beside the 
   assert.equal((await state.readTable()).tenants[1].serverUrl, 'http://10.0.0.3:8080');
   assert.equal((await state.readTable()).tenants[1].serverUrl, 'http://10.0.0.4:8080');
 
-  t.mock.timers.enable({ apis: ['setInterval'] });
-  let changeCount = 0;
-  const stopWatching = state.watchTable(() => {
-    changeCount += 1;
+  const appliedTenantLists: string[][] = [];
+  let isNextReloadFailing = false;
+  const stopWatching = state.watchTable(async () => {
+    if (isNextReloadFailing) {
+      isNextReloadFailing = false;
+      return false;
+    }
+    appliedTenantLists.push((await state.readTable()).tenants.map((tenant) => tenant.slug));
+    return true;
   });
   t.after(stopWatching);
   storage.remove('routes/routedtenant0001.json');
-  t.mock.timers.tick(10_000);
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(changeCount, 1);
-  assert.deepEqual(await tenantsOf(), [['operatortenant01', null]]);
+  await until(() => appliedTenantLists.length === 1);
+  assert.deepEqual(appliedTenantLists, [['operatortenant01']], 'a removed route reaches the doorman through its Pub/Sub subscription, with no timed poll');
+  await until(() => storage.acknowledgedAckIds.length > 0);
+  const acknowledgedBeforeFailure = storage.acknowledgedAckIds.length;
+
+  isNextReloadFailing = true;
+  storage.store('routes/routedtenant0001.json', JSON.stringify(routedTenant));
+  await until(() => !isNextReloadFailing);
+  assert.equal(storage.acknowledgedAckIds.length, acknowledgedBeforeFailure, 'a change whose reload failed is not acknowledged, so Pub/Sub delivers it again');
+  storage.remove('routes/routedtenant0001.json');
 
   storage.store('routes/routedtenant0001.json', JSON.stringify(routedTenant));
   storage.store('tenants.json', JSON.stringify({ tenantDomain: null, tenants: [operatorTenant] }));

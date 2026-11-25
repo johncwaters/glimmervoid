@@ -9,6 +9,7 @@ type DoormanRoute =
   | { kind: 'watcher'; tenant: DoormanTenant }
   | { kind: 'forward'; tenant: DoormanTenant }
   | { kind: 'edge'; tenant: DoormanTenant; edgeAction: EdgeAction | null }
+  | { kind: 'github-webhook' }
   | { kind: 'refuse'; status: 404 | 421 };
 
 type EdgeAction = 'sign-in' | 'open';
@@ -45,6 +46,9 @@ function hostnameOf(hostHeader: string | undefined): string | null {
   return parsedHost === null ? null : parsedHost.hostname.toLowerCase();
 }
 
+const HOOKS_HOST_LABEL = 'hooks';
+const GITHUB_WEBHOOK_PATH = '/github';
+
 function tenantFor(table: DoormanTenantTable, hostHeader: string | undefined): DoormanTenant | null {
   if (table.tenantDomain === null) return table.tenants[0] ?? null;
   const hostname = hostnameOf(hostHeader);
@@ -54,7 +58,12 @@ function tenantFor(table: DoormanTenantTable, hostHeader: string | undefined): D
   return table.tenants.find((tenant) => tenant.slug === slug) ?? null;
 }
 
+function isHooksHost(table: DoormanTenantTable, hostHeader: string | undefined): boolean {
+  return table.tenantDomain !== null && hostnameOf(hostHeader) === `${HOOKS_HOST_LABEL}.${table.tenantDomain}`;
+}
+
 function routeRequest(table: DoormanTenantTable, hostHeader: string | undefined, pathname: string): DoormanRoute {
+  if (isHooksHost(table, hostHeader)) return pathname === GITHUB_WEBHOOK_PATH ? { kind: 'github-webhook' } : { kind: 'refuse', status: 404 };
   const tenant = tenantFor(table, hostHeader);
   if (tenant === null) return { kind: 'refuse', status: 421 };
   if (pathname === NUDGES_PATH || pathname === DEVICE_PAIRING_PATH || pathname === OWNER_LINK_PATH) return { kind: 'refuse', status: 404 };
