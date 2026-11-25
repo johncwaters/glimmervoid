@@ -198,6 +198,7 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     sessionChat: { enabled: cases.some((harnessCase) => needsSessionChat(harnessCase.scenario)) },
     repoRoots: [],
     autoResume: false,
+    sessionMemoryReserveMB: 0,
     worktree: { autoRebase: false, syncOnStart: false },
     branchGc: { enabled: false },
     usage: { enabled: false },

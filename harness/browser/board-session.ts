@@ -146,7 +146,6 @@ async function verifyStudioCameraKeptAcrossFocusBoard(page: Page): Promise<void>
   const viewport = await boxOf(page, '.board-session-view .wb-viewport');
   await page.mouse.move(viewport.x + 30, viewport.y + viewport.height / 2);
   for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(STEADY_PAN_STEP_PX * 3, STEADY_PAN_STEP_PX * 2);
-  await delay(MAP_GLIDE_SETTLE_MS);
   const leftCamera = await studioCameraOf(page);
   const focusBoardTitle = `Focus board ${focusSessionId.slice(0, 8)}`;
   const focusBoardId = await createBoardOverControl(page, focusBoardTitle);
@@ -155,13 +154,15 @@ async function verifyStudioCameraKeptAcrossFocusBoard(page: Page): Promise<void>
   await showBoardInFocus(page, focusSessionId, focusBoardTitle);
   await page.locator('#tab-board-session').click();
   await root.locator('.wb-viewport').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await delay(MAP_GLIDE_SETTLE_MS);
-  const backCamera = await studioCameraOf(page);
-  const isSameCamera = Math.abs(backCamera.x - leftCamera.x) < 1 && Math.abs(backCamera.y - leftCamera.y) < 1 && Math.abs(backCamera.scale - leftCamera.scale) < 0.001;
-  assert.ok(isSameCamera, `the Studio map keeps the camera the operator left after Focus shows another board (left ${JSON.stringify(leftCamera)}, back ${JSON.stringify(backCamera)})`);
+  let backCamera = await studioCameraOf(page);
+  const isLeftCamera = (camera: { x: number; y: number; scale: number }) => Math.abs(camera.x - leftCamera.x) < 1 && Math.abs(camera.y - leftCamera.y) < 1 && Math.abs(camera.scale - leftCamera.scale) < 0.001;
+  await pollFor('the Studio map to paint again after Focus', BOARD_SESSION_TIMEOUT_MS, async () => {
+    backCamera = await studioCameraOf(page);
+    return isLeftCamera(backCamera) ? true : null;
+  }).catch(() => undefined);
+  assert.ok(isLeftCamera(backCamera), `the Studio map keeps the camera the operator left after Focus shows another board (left ${JSON.stringify(leftCamera)}, back ${JSON.stringify(backCamera)})`);
   await page.mouse.move(viewport.x + 30, viewport.y + viewport.height / 2);
   for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(-STEADY_PAN_STEP_PX * 3, -STEADY_PAN_STEP_PX * 2);
-  await delay(MAP_GLIDE_SETTLE_MS);
 }
 
 async function verifyFirstViewClearOfBar(page: Page): Promise<void> {
