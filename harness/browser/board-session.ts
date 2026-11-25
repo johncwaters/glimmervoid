@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
-import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_REPLY, SHOWN_PAGE_TICKED_TEXT, SHOW_CARD_BELOW_COMMAND, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, DIRECTOR_MISFIT_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_REPLY, SHOWN_PAGE_TICKED_TEXT, SHOW_CARD_BELOW_COMMAND, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
@@ -422,9 +422,11 @@ async function verifyBranch(page: Page, pillBefore: Box): Promise<void> {
   const branchFace = root.locator('.bs-card-shrunk:not([hidden]) .bs-card-shrunk-face').first();
   await branchFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-card[data-branch]:not([hidden])').count(), 0, 'an idle branch shows only its face');
+  await root.locator('.bs-card-shrunk[data-flagged]:not([hidden])').first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
   await branchFace.click();
   const branchCard = root.locator('.bs-card[data-branch]:not([hidden])').first();
   await branchCard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await branchCard.locator('.bs-card-misfit:not([hidden])').textContent(), DIRECTOR_MISFIT_TEXT, 'a branch turn the Director judges off its task flags the card with the reason');
   await branchCard.locator('[data-action="board-session-agent-menu"]').click();
   await branchCard.locator('[data-action="board-session-agent-close"]').click();
   const closeRefusal = branchCard.locator('.bs-card-refusal:not([hidden])');
@@ -436,6 +438,8 @@ async function verifyBranch(page: Page, pillBefore: Box): Promise<void> {
   await pillInput.fill('branch-follow-up');
   await pillInput.press('Enter');
   await root.locator('.bs-row-agent.bs-row-branch', { hasText: 'Refunds reuse' }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
+  await root.locator('.bs-card[data-branch][data-flagged], .bs-card-shrunk[data-flagged]').first().waitFor({ state: 'detached', timeout: DIRECTOR_TIMEOUT_MS }).catch(() => undefined);
+  assert.equal(await root.locator('.bs-card[data-branch][data-flagged], .bs-card-shrunk[data-flagged]').count(), 0, 'the flag leaves once a later turn fits the task');
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
   await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });

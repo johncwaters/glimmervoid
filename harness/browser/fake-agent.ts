@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, ELICITATION_REPLY_PREFIX, ELICITATION_SERVER_NAME, ELICITATION_LINK_URL, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML, SHOWN_PAGE_REPLY, SHOW_CARD_BELOW_COMMAND, SHOWN_CARD_SVG } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, DIRECTOR_MISFIT_TEXT, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, ELICITATION_REPLY_PREFIX, ELICITATION_SERVER_NAME, ELICITATION_LINK_URL, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML, SHOWN_PAGE_REPLY, SHOW_CARD_BELOW_COMMAND, SHOWN_CARD_SVG } from './cases-core.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -66,8 +66,9 @@ if (process.argv.includes('-p') && process.argv.at(-1) === DIRECTOR_LANE_PROMPT)
     if (isUnimportantReply) return { chatLine: null, digest: null, points: [] };
     return { chatLine: replyLine, digest: null, points: [] };
   };
-  const verdict = verdictOf();
-  fs.writeFileSync(resultPath, JSON.stringify(verdict));
+  const isOffTask = payloadText.includes('Committed refunds');
+  const fitVerdict = directorPrompt.includes('"fitsTask"') ? { fitsTask: !isOffTask, misfit: isOffTask ? DIRECTOR_MISFIT_TEXT : null } : {};
+  fs.writeFileSync(resultPath, JSON.stringify({ ...verdictOf(), ...fitVerdict }));
   process.exit(0);
 }
 

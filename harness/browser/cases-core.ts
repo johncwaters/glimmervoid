@@ -871,6 +871,7 @@ export const ELICITATION_SERVER_NAME = 'linear';
 export const ELICITATION_LINK_URL = 'https://example.com/oauth/start';
 export const PROPOSED_PLAN_HEADING = 'Worker per board';
 export const DIRECTOR_DIGEST_TEXT = 'Checkout totals now add tax before the card charge';
+export const DIRECTOR_MISFIT_TEXT = 'It committed a refund policy file the task never asked for.';
 export const STUDIO_PROGRESS_ANSWER = 'Checkout totals are in, and no plan step is left.';
 export const LONG_CHECKOUT_REPLY = `I changed src/checkout/checkout.js so the order total adds tax before the charge reaches the card module. ${'The tax table is read once per order, rounded to cents, and logged beside the order id for support. '.repeat(5)}`;
 export const AGENT_DONE_LINE = { text: 'node starts in the worktree', command: 'node --version' };
