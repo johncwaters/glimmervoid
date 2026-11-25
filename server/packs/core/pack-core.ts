@@ -5,8 +5,8 @@ import { PACK_SECTION_NAMES, packSkillNameOf } from '../../../shared/contracts/p
 import { settingReachesCommand } from '../../../shared/contracts/pack-bridge.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
-import { PackAgent, PackHooks, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
-import type { PackCommandKind, PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackCommunity, PackJob, PackPrFlows as PackPrFlowsSection, PackSessions, PackSetting } from '../../../shared/contracts/pack.ts';
+import { PackAgent, PackCommunity, PackHooks, PackJobs, PackLaunchers, PackMcp, PackPrFlows, PackSettings, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackCommandKind, PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackJob, PackPrFlows as PackPrFlowsSection, PackSessions, PackSetting } from '../../../shared/contracts/pack.ts';
 import { packSecretEnvName, rendersPackServers } from '../../../mcp/core/agent-config.ts';
 import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
@@ -369,6 +369,9 @@ export function sourcePackDetails(header: PackHeader): SourcePackDetails {
     mcpServers: parsedOrNull(PackMcp, header.mcp)?.servers ?? [],
     hooks: parsedOrNull(PackHooks, header.hooks) ?? [],
     prFlows: parsedOrNull(PackPrFlows, header.prFlows),
+    communitySources: parsedOrNull(PackCommunity, header.community)?.sources ?? [],
+    jobs: parsedOrNull(PackJobs, header.jobs) ?? [],
+    settings: parsedOrNull(PackSettings, header.settings) ?? [],
   });
   const iconPath = ui?.panels.find((panel) => panel.icon !== undefined)?.icon ?? null;
   return { version: header.version, description: header.description ?? null, kinds, themeSwatches: (ui?.themes ?? []).map(themeSwatchOf), iconPath, previewPath: header.preview ?? null };

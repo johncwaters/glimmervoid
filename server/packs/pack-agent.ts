@@ -7,7 +7,7 @@ import { PACK_FILE_NAME, PACK_HOOK_INPUT_TEXT, PackHeader, packJsonSchemaText } 
 import type { PackRow } from '../../shared/contracts/control/pack-messages.ts';
 import { ATTENTION_NOTE_MAX_CHARS } from '../../shared/contracts/session.ts';
 import type { AgentPacksRequest } from '../../shared/contracts/session.ts';
-import { capitalized, packApprovalUrl, packGrants } from '../../shared/pack-approval.ts';
+import { capitalized, packApprovalUrl, packGrantsSentence } from '../../shared/pack-approval.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
 import { PACK_PANEL_CONTENT_POLICY } from './core/pack-core.ts';
@@ -87,14 +87,9 @@ function rowLines(row: PackRow): string[] {
   ];
 }
 
-function packGrantsText(row: PackRow): string {
-  const grants = packGrants(row);
-  return grants.length === 0 ? 'it adds nothing yet' : `it adds ${grants.join('; ')}`;
-}
-
 function packApprovalNote(row: PackRow, dashboardPort: number): string {
   const versionText = row.version === null ? '' : ` (v${row.version})`;
-  const note = `The pack '${row.name}'${versionText} waits for your approval at ${packApprovalUrl(dashboardPort, row.name)} or in the Packs tab. ${capitalized(packGrantsText(row))}.`;
+  const note = `The pack '${row.name}'${versionText} waits for your approval at ${packApprovalUrl(dashboardPort, row.name)} or in the Packs tab. ${capitalized(packGrantsSentence(row))}.`;
   const ellipsis = String.fromCharCode(0x2026);
   return note.length <= ATTENTION_NOTE_MAX_CHARS ? note : `${note.slice(0, ATTENTION_NOTE_MAX_CHARS - 1)}${ellipsis}`;
 }

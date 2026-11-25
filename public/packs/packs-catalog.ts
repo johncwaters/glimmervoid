@@ -7,21 +7,19 @@ import { emptyState } from '../ui/empty-state.ts';
 import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
+import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { sectionHeading } from '../ui/section-heading.ts';
 import { tag } from '../ui/tag.ts';
 import { disclosure } from '../ui/disclosure.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { openPackDetail } from './pack-approval-content.ts';
+import { kindGlyphPath, openPackDetail } from './pack-approval-content.ts';
 import { openFirstPackPanel, packTabIcon } from './pack-views.ts';
 import { PACKS_TAB_HASH, packsSnapshot, subscribePacks } from './packs-store.ts';
 import './packs-catalog.css';
 
 const PACKS_TRUST_LINE = 'An approved pack runs its commands on this machine; any change to its files asks again.';
 const SOURCE_REPLY_TIMEOUT_MS = 5 * 60_000;
-const THEME_GLYPH_PATH = 'M8 2.5a5.5 5.5 0 1 0 0 11z M8 2.5a5.5 5.5 0 0 1 0 11';
-const PANEL_GLYPH_PATH = 'M2.5 3.5h11v9h-11z M2.5 6h11 M6 6v6.5';
 const MAX_PREVIEW_SWATCHES = 4;
 const SOURCES_STATUS_KEY = 'add-source';
 const sourceStatusByKey = new Map<string, { tone: ActionStatusTone; text: string }>();
@@ -137,12 +135,6 @@ function nameWithVersion(packName: string, version: number | null): string {
 
 type CardPreview = { previewDataUrl: string | null; swatches: readonly PackThemeSwatch[]; iconUrl: string | null; kinds: readonly string[] };
 
-function kindGlyphPath(kinds: readonly string[]): string {
-  if (kinds.includes('Panel')) return PANEL_GLYPH_PATH;
-  if (kinds.some((kind) => kind.endsWith('theme') || kind.endsWith('themes'))) return THEME_GLYPH_PATH;
-  return TERMINAL_ICON_PATH;
-}
-
 function themeSwatch(swatch: PackThemeSwatch): HTMLElement {
   const half = el('span', 'packs-swatch');
   half.style.background = swatch.bg;
@@ -211,7 +203,7 @@ function installedCard(row: PackRow, status: NonNullable<ReturnType<typeof packs
   const panelIconUrl = status.panels.find((panel) => panel.pack === row.name && panel.iconUrl !== null)?.iconUrl ?? null;
   const hasPanel = status.panels.some((panel) => panel.pack === row.name);
   const originText = origin === null ? (row.isPlacedByHand ? 'Placed by hand' : null) : sourceLabel(origin.source);
-  const kinds = packKindLabels(row);
+  const kinds = packKindLabels({ ...row, communitySources: row.community?.sources ?? [] });
   const metaText = [...kinds, ...(originText === null ? [] : [originText])].join(' . ');
   const chipText = CHIP_TEXT_BY_STATE[row.state];
   const chip = chipText === null ? null : tag({ text: chipText, tone: row.state === 'invalid' ? 'failed' : 'warning', shape: 'pill' });

@@ -36,27 +36,95 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
-export function packGrants(row: PackRow): string[] {
+type PackGrantItem = { text: string; detail: string | null; sourceId: string | null };
+export type PackGrantSection = { title: string; items: PackGrantItem[] };
+
+function grantItem(text: string, detail: string | null = null, sourceId: string | null = null): PackGrantItem {
+  return { text, detail, sourceId };
+}
+
+function hostOf(url: string): string {
+  return URL.parse(url)?.host ?? url;
+}
+
+function namedCommands(row: PackRow): { commandRef: string; name: string }[] {
+  const named = [
+    ...(row.community?.sources ?? []).map((source) => ({ commandRef: `community-source:${source.id}`, id: source.id, name: `${source.label} source` })),
+    ...row.jobs.map((job) => ({ commandRef: `job:${job.id}`, id: job.id, name: `Job ${job.label}` })),
+  ];
+  const countByName = new Map<string, number>();
+  for (const command of named) countByName.set(command.name, (countByName.get(command.name) ?? 0) + 1);
+  return named.map((command) => ({ commandRef: command.commandRef, name: (countByName.get(command.name) ?? 0) > 1 ? `${command.name} (${command.id})` : command.name }));
+}
+
+function commandName(row: PackRow, commandRef: string): string {
+  return namedCommands(row).find((command) => command.commandRef === commandRef)?.name ?? `My PRs command ${commandRef.slice(commandRef.indexOf(':') + 1)}`;
+}
+
+function receiversText(row: PackRow, setting: PackRow['settings'][number]): string {
+  if (setting.kind === 'text' && setting.commands.length === 0) return 'passed to every command of the pack';
+  if (setting.commands.length === 0) return 'passed to no command yet';
+  return `passed to ${setting.commands.map((commandRef) => commandName(row, commandRef)).join(' and ')} only`;
+}
+
+function runsItems(row: PackRow): PackGrantItem[] {
   const prFlowCommandCount = row.prFlows?.pack?.commands.length ?? 0;
+  return [
+    ...(row.community?.sources ?? []).map((source) => grantItem(commandName(row, `community-source:${source.id}`), `on every Community poll${source.isJudged ? ', messages judged first' : ''}`, source.id)),
+    ...row.jobs.map((job) => grantItem(commandName(row, `job:${job.id}`), `on schedule ${job.schedule}`)),
+    ...row.launchers.map((launcher) => grantItem(`Launcher ${launcher.label}`, `starts ${launcher.agent} in ${launcher.project}${launcher.schedule === null ? '' : `, also on schedule ${launcher.schedule}`}`)),
+    ...row.hooks.map((hook) => grantItem(`Hook ${hook.id}`, `before ${hook.tools.join(' and ')} tool calls in every session`)),
+    ...(prFlowCommandCount === 0 ? [] : [grantItem(plural(prFlowCommandCount, 'My PRs command'), 'when you click them')]),
+  ];
+}
+
+function webItems(row: PackRow): PackGrantItem[] {
+  const docsDomains = row.community?.docsDomains ?? [];
+  return [
+    ...(docsDomains.length === 0 ? [] : [grantItem(docsDomains.join(', '), `research runs read docs there for ${row.community?.product ?? 'its'} questions`)]),
+    ...(row.statusUrls.length === 0 ? [] : [grantItem(row.statusUrls.map(hostOf).join(', '), 'status pages read every five minutes')]),
+    ...row.mcpServers.map((server) => grantItem(`MCP server ${server.name}`, `${hostOf(server.url)}, added to every session`)),
+  ];
+}
+
+function sessionItems(row: PackRow): PackGrantItem[] {
   const skillNames = (row.agent?.skills ?? []).map((skill) => skill.name);
   return [
-    ...row.panels.map((panel) => `panel ${panel.label}${panel.reads.length === 0 ? '' : ` reading ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : ` acting on ${panel.acts.join(', ')}`}`),
-    ...(row.themes.length === 0 ? [] : [plural(row.themes.length, 'theme')]),
-    ...row.launchers.map((launcher) => `launcher ${launcher.label} starting ${launcher.agent} in ${launcher.project}${launcher.schedule === null ? '' : ` on schedule ${launcher.schedule}`}`),
-    ...(row.sessions?.dangerouslySkipPermissions ? ['sessions without permission prompts'] : []),
-    ...(row.statusUrls.length === 0 ? [] : [`status pages ${row.statusUrls.join(', ')}`]),
-    ...(row.agent?.context ? [`context ${row.agent.context.path} for every session`] : []),
-    ...(skillNames.length === 0 ? [] : [`skills ${skillNames.join(', ')} for every session`]),
-    ...(row.mcpServers.length === 0 ? [] : [`MCP servers ${row.mcpServers.map((server) => server.name).join(', ')} for every session`]),
-    ...row.hooks.map((hook) => `hook ${hook.id} running ${JSON.stringify(hook.command)} before ${hook.tools.join(' and ')} tool calls in every session`),
-    ...(prFlowCommandCount === 0 ? [] : [plural(prFlowCommandCount, 'My PRs command')]),
-    ...(row.community?.sources ?? []).map((source) => `Community source ${source.label} running ${JSON.stringify(source.command)} on every Community poll${source.isJudged ? ', its messages judged first' : ''}`),
-    ...(row.community && row.community.docsDomains.length > 0 ? [`research runs fetching ${row.community.docsDomains.join(', ')} for ${row.community.product} questions`] : []),
-    ...row.jobs.map((job) => `job ${job.label} running ${JSON.stringify(job.command)} on schedule ${job.schedule}`),
-    ...row.settings.filter((setting) => setting.kind === 'secret').map((setting) => `secret ${setting.key} from your vault, handed to ${setting.commands.length === 0 ? 'no command' : setting.commands.join(', ')}`),
-    ...(row.settings.some((setting) => setting.kind === 'text' && setting.commands.length === 0) ? [`settings ${row.settings.filter((setting) => setting.kind === 'text' && setting.commands.length === 0).map((setting) => setting.key).join(', ')} for every command of the pack`] : []),
-    ...row.settings.filter((setting) => setting.kind === 'text' && setting.commands.length > 0).map((setting) => `setting ${setting.key} for ${setting.commands.join(', ')}`),
+    ...(row.sessions?.dangerouslySkipPermissions ? [grantItem('Sessions without permission prompts', 'for the sessions it starts')] : []),
+    ...(row.agent?.context ? [grantItem(`Context ${row.agent.context.path}`, 'read by every session')] : []),
+    ...(skillNames.length === 0 ? [] : [grantItem(`Skills ${skillNames.join(', ')}`, 'followed by every session')]),
   ];
+}
+
+function panelDetail(panel: PackRow['panels'][number]): string | null {
+  const parts = [...(panel.reads.length === 0 ? [] : [`reads ${panel.reads.join(', ')}`]), ...(panel.acts.length === 0 ? [] : [`acts on ${panel.acts.join(', ')}`])];
+  return parts.length === 0 ? null : parts.join('; ');
+}
+
+function dashboardItems(row: PackRow): PackGrantItem[] {
+  return [
+    ...row.panels.map((panel) => grantItem(`Panel ${panel.label}`, panelDetail(panel))),
+    ...(row.themes.length === 0 ? [] : [grantItem(plural(row.themes.length, 'theme'))]),
+  ];
+}
+
+export function packGrantSections(row: PackRow): PackGrantSection[] {
+  const secretSettings = row.settings.filter((setting) => setting.kind === 'secret');
+  const sections: PackGrantSection[] = [
+    { title: 'Runs on this machine', items: runsItems(row) },
+    { title: 'Gets from your vault', items: secretSettings.map((setting) => grantItem(`${setting.label} (${setting.key})`, receiversText(row, setting))) },
+    { title: 'Reaches the web', items: webItems(row) },
+    { title: 'Changes every session', items: sessionItems(row) },
+    { title: 'Adds to the dashboard', items: dashboardItems(row) },
+    { title: 'Asks you for', items: row.settings.filter((setting) => setting.kind === 'text').map((setting) => grantItem(`${setting.label} (${setting.key})`, receiversText(row, setting))) },
+  ];
+  return sections.filter((section) => section.items.length > 0);
+}
+
+export function packGrantsSentence(row: PackRow): string {
+  const sections = packGrantSections(row);
+  if (sections.length === 0) return 'it adds nothing yet';
+  return sections.map((section) => `${section.title}: ${section.items.map((item) => (item.detail === null ? item.text : `${item.text} (${item.detail})`)).join(', ')}`).join('. ');
 }
 
 type PackContents = {
@@ -67,6 +135,9 @@ type PackContents = {
   mcpServers: readonly unknown[];
   hooks: readonly unknown[];
   prFlows: unknown;
+  communitySources: readonly unknown[];
+  jobs: readonly unknown[];
+  settings: readonly unknown[];
 };
 
 export function packKindLabels(row: PackContents): string[] {
@@ -79,5 +150,8 @@ export function packKindLabels(row: PackContents): string[] {
     ...(row.mcpServers.length === 0 ? [] : ['MCP servers']),
     ...(row.hooks.length === 0 ? [] : ['Hooks']),
     ...(row.prFlows ? ['PR commands'] : []),
+    ...(row.communitySources.length === 0 ? [] : ['Community sources']),
+    ...(row.jobs.length === 0 ? [] : ['Jobs']),
+    ...(row.settings.length === 0 ? [] : ['Settings']),
   ];
 }

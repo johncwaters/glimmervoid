@@ -1,13 +1,15 @@
 import type { PackRow } from '#shared/contracts/control/pack-messages.ts';
 import { SESSIONS_ACT_GRANT_TEXT } from '#shared/contracts/pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from '#shared/contracts/reviews.ts';
-import { capitalized, packGrants } from '#shared/pack-approval.ts';
+import { packGrantSections, packKindLabels } from '#shared/pack-approval.ts';
+import type { PackGrantSection } from '#shared/pack-approval.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { approvalDetails } from '../github/my-prs-panel.ts';
 import { createModalOverlay } from '../session-card/modal.ts';
+import { COMMUNITY_ICON_PATH, createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
 import { openFirstPackPanel } from './pack-views.ts';
@@ -18,7 +20,17 @@ import './pack-approval-content.css';
 
 type PackApprovalControls = { close: () => void; repaint: () => void; settingsView?: (row: PackRow) => HTMLElement };
 
-const STATE_LABELS: Record<PackRow['state'], string> = { pending: 'Pending', approved: 'Approved', invalid: 'Not loaded' };
+const STATE_LABELS: Record<PackRow['state'], string> = { pending: 'Needs approval', approved: 'Approved', invalid: 'Not loaded' };
+const STATE_TONES = { pending: 'warning', approved: 'accent', invalid: 'failed' } as const;
+const THEME_GLYPH_PATH = 'M8 2.5a5.5 5.5 0 1 0 0 11z M8 2.5a5.5 5.5 0 0 1 0 11';
+const PANEL_GLYPH_PATH = 'M2.5 3.5h11v9h-11z M2.5 6h11 M6 6v6.5';
+
+export function kindGlyphPath(kinds: readonly string[]): string {
+  if (kinds.includes('Panel')) return PANEL_GLYPH_PATH;
+  if (kinds.some((kind) => kind.endsWith('theme') || kind.endsWith('themes'))) return THEME_GLYPH_PATH;
+  if (kinds.includes('Community sources')) return COMMUNITY_ICON_PATH;
+  return TERMINAL_ICON_PATH;
+}
 const approvalStatusByPackName = new Map<string, { tone: ActionStatusTone; text: string }>();
 
 function statusLine(packName: string): HTMLElement {
@@ -73,9 +85,33 @@ function dismiss(row: PackRow, controls: PackApprovalControls): Promise<boolean>
 }
 
 function packHeading(row: PackRow): HTMLElement {
-  const heading = el('div', 'settings-view-setting-heading');
-  heading.append(el('h2', 'settings-view-setting-title', row.version === null ? row.name : `${row.name} v${row.version}`), ' ', tag({ text: STATE_LABELS[row.state], shape: 'pill' }));
+  const heading = el('div', 'pack-approval-heading');
+  const glyph = el('span', 'pack-approval-glyph');
+  glyph.setAttribute('aria-hidden', 'true');
+  glyph.append(createLineIcon(kindGlyphPath(packKindLabels({ ...row, communitySources: row.community?.sources ?? [] })), '1.5'));
+  heading.append(glyph, el('h2', 'pack-approval-title', row.version === null ? row.name : `${row.name} v${row.version}`), tag({ text: STATE_LABELS[row.state], tone: STATE_TONES[row.state], shape: 'pill' }));
   return heading;
+}
+
+function grantSection(section: PackGrantSection): HTMLElement {
+  const block = el('section', 'pack-approval-section');
+  const list = el('ul', 'pack-approval-grants');
+  list.append(...section.items.map((item) => {
+    const line = el('li', 'pack-approval-grant', item.text);
+    if (item.detail !== null) line.append(' ', el('span', 'pack-approval-grant-detail', item.detail));
+    return line;
+  }));
+  block.append(el('h3', 'pack-approval-section-title', section.title), list);
+  return block;
+}
+
+function commandsText(row: PackRow): string | null {
+  const commandLines = [
+    ...(row.community?.sources ?? []).map((source) => `${source.label} source: ${source.command.join(' ')}`),
+    ...row.jobs.map((job) => `Job ${job.label}: ${job.command.join(' ')}`),
+    ...row.hooks.map((hook) => `Hook ${hook.id}: ${hook.command.join(' ')}`),
+  ];
+  return commandLines.length === 0 ? null : commandLines.join('\n');
 }
 
 function sessionsLine(sessions: PackRow['sessions']): string | null {
@@ -137,7 +173,6 @@ function mcpServerLines(row: PackRow): HTMLElement[] {
 function packLines(row: PackRow): HTMLElement[] {
   const sessionsText = sessionsLine(row.sessions);
   const lines = [
-    ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
     ...(row.statusUrls.length === 0 ? [] : [`Status pages it reads every five minutes for its panels: ${row.statusUrls.join(', ')}`]),
     ...(row.themes.length === 0 ? [] : [`Themes: ${row.themes.map((theme) => `${theme.label} (${theme.mode})`).join(', ')}`]),
@@ -145,7 +180,9 @@ function packLines(row: PackRow): HTMLElement[] {
     ...(row.needs.length === 0 ? [] : [`Needs: ${row.needs.join(', ')}`]),
     ...(row.missingRequires.length === 0 ? [] : [`Missing here: ${row.missingRequires.join(', ')}; the pack stays off until this machine has them`]),
   ];
+  const commands = commandsText(row);
   return [
+    ...(commands === null ? [] : [el('pre', 'settings-view-pack-prompt', commands)]),
     ...lines.map((line) => el('p', 'settings-view-setting-description', line)),
     ...panelLines(row),
     ...steeringWarning(row),
@@ -160,7 +197,7 @@ function packLines(row: PackRow): HTMLElement[] {
 
 function everythingItAdds(row: PackRow): HTMLElement {
   const details = el('details', 'pack-approval-details');
-  details.append(el('summary', 'pack-approval-details-summary', 'Show everything it adds'), ...packLines(row));
+  details.append(el('summary', 'pack-approval-details-summary', 'Exact commands and files'), ...packLines(row));
   return details;
 }
 
@@ -178,11 +215,12 @@ function pendingBody(row: PackRow, controls: PackApprovalControls): HTMLElement[
   const canApprove = fingerprint !== null && row.state === 'pending' && row.errors.length === 0 && !isBusy;
   const actions = el('div', 'pack-approval-actions');
   actions.append(
+    el('span', 'pack-approval-trust', 'Any change to its files asks again.'),
     button({ variant: 'secondary', size: 'small', label: 'Dismiss', disabled: isBusy, onClick: () => { void dismiss(row, controls); } }),
     button({ variant: 'primary', size: 'small', label: 'Approve', action: 'pack-approve', disabled: !canApprove, onClick: () => { if (fingerprint !== null) void approve(row, fingerprint, controls); } }),
   );
   return [
-    ...packGrants(row).map((grant) => el('p', 'pack-approval-grant', capitalized(grant))),
+    ...packGrantSections(row).map(grantSection),
     ...row.errors.map((error) => el('p', 'pack-approval-error', error)),
     everythingItAdds(row),
     statusLine(row.name),
