@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **pnpm 11 lockfiles it cannot read are skipped quietly again.** pnpm 11 writes its error code in brackets (`[ERR_PNPM_LOCKFILE_BREAKING_CHANGE]`), which Glimmervoid missed, so an old lockfile in a session worktree showed an install warning ending "To keep the existing lockfile, install the version of pnpm that generated it" instead of being skipped. Other pnpm 11 install failures now quote their error code too.
+
 ## [0.65.0] - 2026-11-25
 
 ### Added

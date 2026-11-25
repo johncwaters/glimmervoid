@@ -365,15 +365,16 @@ export function lastOutputLineOf(output: string): string {
 
 type InstallFailureOutput = { stdout: string; stderr: string; execError: string };
 
-const PNPM_ERROR_LINE = /^(?:Error: )?(ERR_PNPM_[A-Z_]+.*)$/;
+const PNPM_ERROR_LINE = /^(?:Error: )?\[?(?<code>ERR_PNPM_[A-Z0-9_]+)\]?(?<message>.*)$/;
 const PNPM_ERROR_DETAIL_PREFIX = /^\u2570\u2500\u25B6\s*/;
 const UNREADABLE_PNPM_LOCKFILE = /ERR_PNPM_LOCKFILE_BREAKING_CHANGE|ERR_PNPM_BROKEN_LOCKFILE.*lockfileVersion of \S+ is incompatible/;
 
 function pnpmErrorOf(output: string): string {
   const lines = output.split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
   const codeLineIndex = lines.findLastIndex((line) => PNPM_ERROR_LINE.test(line));
-  const codeLine = PNPM_ERROR_LINE.exec(lines[codeLineIndex] ?? '')?.[1];
-  if (!codeLine) return '';
+  const codeLineParts = PNPM_ERROR_LINE.exec(lines[codeLineIndex] ?? '')?.groups;
+  if (!codeLineParts) return '';
+  const codeLine = `${codeLineParts.code}${codeLineParts.message}`;
   const detailLine = lines.slice(codeLineIndex + 1).find((line) => PNPM_ERROR_DETAIL_PREFIX.test(line));
   if (!detailLine || codeLine.includes(' ')) return codeLine;
   return `${codeLine} ${detailLine.replace(PNPM_ERROR_DETAIL_PREFIX, '')}`;
