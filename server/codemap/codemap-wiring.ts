@@ -21,7 +21,7 @@ import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { Rect } from '../../shared/whiteboard-layout-core.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, matrixBoxIdOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, rowRedrawOrderOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, matrixBoxIdOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapArea, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -174,7 +174,6 @@ interface RepoMapState {
   drawnModel: CodemapModel | null;
   drawnStatusKey: string | null;
   drawnOverlayKey: string | null;
-  drawnOriginKey: string | null;
   drawRetryAtMs: number;
   startedCheckCount: number;
   appliedCheckNumber: number;
@@ -270,6 +269,8 @@ async function noDefaultBranch(): Promise<string | null> {
   return null;
 }
 
+type ShownPlace = Pick<MapArea, 'repoKey' | 'title' | 'origin' | 'isFolded'> & { width: number };
+
 type MapBoards = Pick<WhiteboardPort, 'handleAgent' | 'putWithoutReadCheck' | 'handleOperator' | 'readPlanBoard' | 'boxRectsOf'>;
 
 interface CodemapServiceOptions {
@@ -314,6 +315,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   const overlayByRepoDir = new Map<string, SessionOverlay>();
   const folderChoicesByRepoDir = new Map<string, Map<string, boolean>>();
   const operatorOpenedRepoDirs = new Set<string>();
+  const shownPlaceByRepoDir = new Map<string, ShownPlace>();
   const specPlanByRepoDir = new Map<string, SpecPlan>();
   let startedOverlayRefreshCount = 0;
   let boardDrawing: Promise<boolean> = Promise.resolve(true);
@@ -380,7 +382,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const drawnAreas = await Promise.all(listedRepos.map(async (listed) => {
       const map = await currentMap({ repoDir: listed.repoDir });
       const model = 'error' in map ? null : map.model;
-      const isFolded = isAreaFolded(listed.repoDir);
+      const isFolded = shownPlaceByRepoDir.get(listed.repoDir)?.isFolded ?? isAreaFolded(listed.repoDir);
       const boxChoices = model ? branchBoxChoicesOf(listed.repoKey, model, (repoPath) => drawnBoxIdOfPath(listed.repoKey, model, repoPath)).slice(0, CODEMAP_BOX_CHOICES_MAX) : [];
       const unbuiltError = model ? null : `the code map of ${listed.repoName} is not built yet`;
       const mapError = 'error' in map ? map.error : unbuiltError;
@@ -428,23 +430,20 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return !operatorOpenedRepoDirs.has(repoDir) && isAreaIdle(repoDir);
   }
 
-  async function areaPlaceOf(repoDir: string): Promise<Pick<MapArea, 'repoKey' | 'title' | 'origin' | 'isFolded'>> {
+  async function wantedRowOf(): Promise<Map<string, ShownPlace>> {
     await mapBoardStore.load();
-    const areaRepo = await areaRepoOf(repoDir);
     const listedRepos = await areas.repos();
     const shownWidthOf = (listed: MapAreaRepo) => (isAreaFolded(listed.repoDir) ? FOLDED_AREA_WIDTH : widthByRepoKey.get(listed.repoKey) ?? 0);
-    const origin = areaOriginsOf(listedRepos.map((listed) => ({ repoKey: listed.repoKey, width: shownWidthOf(listed) }))).get(areaRepo.repoKey) ?? { x: 0, y: 0 };
-    return { repoKey: areaRepo.repoKey, title: areaRepo.repoName, origin, isFolded: isAreaFolded(repoDir) };
+    const originByRepoKey = areaOriginsOf(listedRepos.map((listed) => ({ repoKey: listed.repoKey, width: shownWidthOf(listed) })));
+    return new Map(listedRepos.map((listed) => [listed.repoDir, { repoKey: listed.repoKey, title: listed.repoName, origin: originByRepoKey.get(listed.repoKey) ?? { x: 0, y: 0 }, width: shownWidthOf(listed), isFolded: isAreaFolded(listed.repoDir) }]));
   }
 
-  function noteBranchesChanged(): void {
-    redrawListedAreas(() => true);
+  function noteBranchesChanged(): Promise<boolean> {
+    return relayoutRow();
   }
 
   async function setAreaOpen(repoDir: string, isOpen: boolean): Promise<{ ok: true; isOpen: boolean } | { ok: false; error: string }> {
-    const unmappedRepoDirs = (await areas.repos()).map((listed) => listed.repoDir).filter((listedRepoDir) => stateOf(listedRepoDir).latestStatus === null);
-    await Promise.all(unmappedRepoDirs.map((unmappedRepoDir) => currentMap({ repoDir: unmappedRepoDir })));
-    const isDrawn = await redrawFoldChange(repoDir, () => {
+    const isDrawn = await relayoutRow(() => {
       if (isOpen) operatorOpenedRepoDirs.add(repoDir);
       if (!isOpen) operatorOpenedRepoDirs.delete(repoDir);
     });
@@ -452,64 +451,77 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, isOpen: !isAreaFolded(repoDir) };
   }
 
-  function redrawFoldChange(repoDir: string, applyFoldChoice: () => void): Promise<boolean> {
+  async function relayoutRow(applyRowChange: () => void = () => {}): Promise<boolean> {
+    const unmappedRepoDirs = (await areas.repos()).map((listed) => listed.repoDir).filter((listedRepoDir) => stateOf(listedRepoDir).latestStatus === null);
+    await Promise.allSettled(unmappedRepoDirs.map((unmappedRepoDir) => currentMap({ repoDir: unmappedRepoDir })));
     if (!whiteboards) {
-      applyFoldChoice();
-      return Promise.resolve(true);
+      applyRowChange();
+      return true;
     }
     const boards = whiteboards;
-    const drawing = boardDrawing.then(async () => {
-      const wasFolded = isAreaFolded(repoDir);
-      applyFoldChoice();
-      const isFolded = isAreaFolded(repoDir);
-      if (wasFolded === isFolded) return true;
-      const listedRepos = await areas.repos();
-      const changedIndex = listedRepos.findIndex((listed) => listed.repoDir === repoDir);
-      const laterRepoDirs = listedRepos.slice(changedIndex + 1).map((listed) => listed.repoDir);
-      const drawOrder = isFolded ? [repoDir, ...laterRepoDirs] : [...laterRepoDirs, repoDir];
-      for (const drawnRepoDir of drawOrder) await drawAreaInPlace(boards, drawnRepoDir);
-      return true;
+    const relayout = boardDrawing.then(async () => {
+      applyRowChange();
+      const wantedRow = await wantedRowOf();
+      const spanOf = (place: ShownPlace) => ({ left: place.origin.x, right: place.origin.x + place.width });
+      const shownSpanByRepoKey = new Map([...shownPlaceByRepoDir.values()].map((place) => [place.repoKey, spanOf(place)]));
+      const wantedSpanByRepoKey = new Map([...wantedRow.values()].map((place) => [place.repoKey, spanOf(place)]));
+      const repoDirByRepoKey = new Map([...wantedRow].map(([repoDir, place]) => [place.repoKey, repoDir]));
+      const unmovedSpans: { left: number; right: number }[] = [];
+      for (const repoKey of rowRedrawOrderOf(shownSpanByRepoKey, wantedSpanByRepoKey)) {
+        const movedRepoDir = repoDirByRepoKey.get(repoKey);
+        const wantedPlace = movedRepoDir === undefined ? undefined : wantedRow.get(movedRepoDir);
+        if (movedRepoDir === undefined || wantedPlace === undefined) continue;
+        const wantedSpan = spanOf(wantedPlace);
+        const shownSpan = shownSpanByRepoKey.get(repoKey);
+        const isBlocked = unmovedSpans.some((unmoved) => wantedSpan.left < unmoved.right && unmoved.left < wantedSpan.right);
+        const isDrawn = !isBlocked && await drawAreaAt(boards, movedRepoDir, wantedPlace).then(() => true, (error: unknown) => {
+          logger.warn(`[codemap] the map area of ${movedRepoDir} was not laid out: ${errorMessage(error)}`);
+          return false;
+        });
+        if (!isDrawn && shownSpan) unmovedSpans.push(shownSpan);
+      }
+      return unmovedSpans.length === 0;
     }).catch((error: unknown) => {
-      logger.warn(`[codemap] the map area of ${repoDir} was not ${isAreaFolded(repoDir) ? 'folded' : 'opened'}: ${errorMessage(error)}`);
+      logger.warn(`[codemap] the map areas were not laid out: ${errorMessage(error)}`);
       return false;
     });
-    boardDrawing = drawing;
-    return drawing;
+    boardDrawing = relayout;
+    return relayout;
   }
 
-  async function drawAreaInPlace(boards: MapBoards, repoDir: string): Promise<void> {
+  async function isRowCurrentFor(repoDir: string, state: RepoMapState): Promise<boolean> {
+    const shownPlace = shownPlaceByRepoDir.get(repoDir);
+    const wantedPlace = (await wantedRowOf()).get(repoDir);
+    if (shownPlace && JSON.stringify(shownPlace) === JSON.stringify(wantedPlace)) return true;
+    if (clock.nowMs() < state.drawRetryAtMs) return false;
+    if (await relayoutRow()) return true;
+    state.drawRetryAtMs = clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs;
+    return false;
+  }
+
+  async function drawAreaAt(boards: MapBoards, repoDir: string, place: ShownPlace): Promise<void> {
     const state = stateOf(repoDir);
     const status = state.latestStatus;
     if (!status) return;
     const overlay = overlayDrawingOf(state, repoDir);
-    const shownPlace = await areaPlaceOf(repoDir);
-    await drawMapBoard(boards, repoDir, state.model, status, overlay);
-    markAreaDrawn(state, status, overlay, JSON.stringify([shownPlace.origin, shownPlace.isFolded]));
+    await drawMapBoard(boards, repoDir, state.model, status, overlay, place);
+    shownPlaceByRepoDir.set(repoDir, place);
+    markAreaDrawn(state, status, overlay);
   }
 
-  function markAreaDrawn(state: RepoMapState, status: CodemapStatus, overlay: OverlayDrawing, originKey: string): void {
+  function markAreaDrawn(state: RepoMapState, status: CodemapStatus, overlay: OverlayDrawing): void {
     state.drawnModel = state.model ?? state.drawnModel;
     state.drawnStatusKey = JSON.stringify(status);
     state.drawnOverlayKey = overlay.key;
-    state.drawnOriginKey = originKey;
-  }
-
-  function redrawListedAreas(isRedrawn: (listedRepos: readonly MapAreaRepo[], listedIndex: number) => boolean): void {
-    areas.repos().then((listedRepos) => {
-      for (const [listedIndex, listed] of listedRepos.entries()) {
-        if (!isRedrawn(listedRepos, listedIndex)) continue;
-        currentMap({ repoDir: listed.repoDir }).catch((error: unknown) => logger.warn(`[codemap] the map area of ${listed.repoDir} was not moved: ${errorMessage(error)}`));
-      }
-    }).catch((error: unknown) => logger.warn(`[codemap] the Studio repo list could not be read, so no map area was moved: ${errorMessage(error)}`));
   }
 
   async function keepAreaWidth(repoDir: string, model: CodemapModel): Promise<void> {
-    const { repoKey } = await areaPlaceOf(repoDir);
+    const { repoKey } = await areaRepoOf(repoDir);
     const width = areaWidthOf(model);
     if (widthByRepoKey.get(repoKey) === width) return;
     widthByRepoKey.set(repoKey, width);
     await rememberMapBoard();
-    redrawListedAreas((listedRepos, listedIndex) => listedIndex > listedRepos.findIndex((listed) => listed.repoKey === repoKey));
+    await relayoutRow();
   }
 
   function hasRedWiresOutside(board: Pick<Board, 'elements'>, repoKey: string): boolean {
@@ -517,13 +529,12 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return [...board.elements.values()].some((element) => element.kind === 'wire' && element.tone === 'fail' && element.id.startsWith(CODEMAP_ID_PREFIXES.map) && !element.id.startsWith(ownMapPrefix));
   }
 
-  async function drawMapBoard(boards: MapBoards, repoDir: string, changedModel: CodemapModel | null, status: CodemapStatus, overlay: OverlayDrawing): Promise<void> {
+  async function drawMapBoard(boards: MapBoards, repoDir: string, changedModel: CodemapModel | null, status: CodemapStatus, overlay: OverlayDrawing, place: ShownPlace): Promise<void> {
     const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
     const boardId = await mapBoardIdOf(boards, repoDir);
     const read = await boards.readPlanBoard(caller, boardId);
     if (!read.ok) throw new Error(`the map board could not be read: ${JSON.stringify(read.reply.body)}`);
     const existingKindById = new Map([...read.board.elements].map(([id, element]) => [id, element.kind]));
-    const place = await areaPlaceOf(repoDir);
     const area: MapArea = { ...place, hasRedWiresElsewhere: hasRedWiresOutside(read.board, place.repoKey) };
     const specOps = changedModel ? specPlanOpsOf(changedModel, overlay.specPlan, existingKindById, area.repoKey) : { removals: [], writes: [] };
     const decorations = changedModel ? { ...overlay.decorations, matrixMedia: drawnMatrixMediaOf(changedModel, read.board, place.repoKey) ?? await matrixMediaOf(boards, repoDir, changedModel) } : overlay.decorations;
@@ -558,7 +569,10 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   function redrawMapBoard(repoDir: string, changedModel: CodemapModel | null, status: CodemapStatus, overlay: OverlayDrawing): Promise<boolean> {
     if (!whiteboards) return Promise.resolve(true);
     const boards = whiteboards;
-    const drawing = boardDrawing.then(() => drawMapBoard(boards, repoDir, changedModel, status, overlay)).then(() => true, (error: unknown) => {
+    const drawing = boardDrawing.then(async () => {
+      const place = shownPlaceByRepoDir.get(repoDir);
+      if (place) await drawMapBoard(boards, repoDir, changedModel, status, overlay, place);
+    }).then(() => true, (error: unknown) => {
       logger.warn(`[codemap] the map area of ${repoDir} was not redrawn: ${errorMessage(error)}`);
       return false;
     });
@@ -583,14 +597,12 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const isOverlayChanged = state.drawnOverlayKey !== overlay.key;
     if (!(await isStudioListed(repoDir))) return true;
     if (state.model) await keepAreaWidth(repoDir, state.model);
-    const shownPlace = await areaPlaceOf(repoDir);
-    const originKey = JSON.stringify([shownPlace.origin, shownPlace.isFolded]);
-    const isAreaMoved = state.drawnOriginKey !== originKey;
-    const changedModel = state.model && (state.drawnModel !== state.model || isOverlayChanged || isAreaMoved) ? state.model : null;
-    if (!changedModel && state.drawnStatusKey === statusKey && !isOverlayChanged && !isAreaMoved) return true;
+    if (!(await isRowCurrentFor(repoDir, state))) return false;
+    const changedModel = state.model && (state.drawnModel !== state.model || isOverlayChanged) ? state.model : null;
+    if (!changedModel && state.drawnStatusKey === statusKey && !isOverlayChanged) return true;
     if (clock.nowMs() < state.drawRetryAtMs) return false;
     if (await redrawMapBoard(repoDir, changedModel, status, overlay)) {
-      markAreaDrawn(state, status, overlay, originKey);
+      markAreaDrawn(state, status, overlay);
       return true;
     }
     state.drawRetryAtMs = clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs;
@@ -620,7 +632,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   function stateOf(repoDir: string): RepoMapState {
     const known = stateByRepoDir.get(repoDir);
     if (known) return known;
-    const created: RepoMapState = { model: null, modelLayoutKey: null, extractBase: null, failure: null, mainlineStructure: null, latestStatus: null, churnByModule: null, drawnModel: null, drawnStatusKey: null, drawnOverlayKey: null, drawnOriginKey: null, drawRetryAtMs: 0, startedCheckCount: 0, appliedCheckNumber: 0, refreshesInFlight: 0 };
+    const created: RepoMapState = { model: null, modelLayoutKey: null, extractBase: null, failure: null, mainlineStructure: null, latestStatus: null, churnByModule: null, drawnModel: null, drawnStatusKey: null, drawnOverlayKey: null, drawRetryAtMs: 0, startedCheckCount: 0, appliedCheckNumber: 0, refreshesInFlight: 0 };
     stateByRepoDir.set(repoDir, created);
     return created;
   }
@@ -992,8 +1004,9 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     overlayByRepoDir.delete(repoDir);
     specPlanByRepoDir.delete(repoDir);
     folderChoicesByRepoDir.delete(repoDir);
+    shownPlaceByRepoDir.delete(repoDir);
     await rememberMapBoard();
-    redrawListedAreas(() => true);
+    await relayoutRow();
     return { ok: true };
   }
 

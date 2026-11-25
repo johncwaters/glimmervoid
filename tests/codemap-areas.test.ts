@@ -137,7 +137,7 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
   const codemap = createCodemapService({ whiteboards: wiring, areas: createStudioReposStore({ filePath: serviceFiles.areasFilePath, logger: console }), mapBoardFilePath: serviceFiles.mapBoardFilePath, specsRoot: path.join(tmpDir, 'specs'), isAreaIdle: (repoDir) => !busyRepoDirs.has(repoDir) });
   const reader = { id: 'folds-reader', name: 'reader', project: firstRepoDir };
   const areaFrameOf = async (areaTitle: string) => {
-    const read = await wiring.readPlanBoard(reader, 'Code map');
+    const read = await wiring.readPlanBoard(reader, await codemap.mapBoardIdOfRepo(firstRepoDir) ?? 'Code map');
     assert.ok(read.ok);
     const areaFrame = [...read.board.elements.values()].find((element) => element.kind === 'frame' && element.title === areaTitle);
     assert.ok(areaFrame?.kind === 'frame');
@@ -146,7 +146,7 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
     return { id: areaFrame.id, isFolded: areaFrame.collapsed, cardTitle: firstBox?.kind === 'box' ? firstBox.title : null, left: firstBox?.kind === 'box' && typeof firstBox.place === 'object' && 'at' in firstBox.place ? firstBox.place.at.x : null, collapsedFolderCount };
   };
   const isAreaFolded = async (areaTitle: string): Promise<boolean | null> => {
-    const read = await wiring.readPlanBoard(reader, 'Code map');
+    const read = await wiring.readPlanBoard(reader, await codemap.mapBoardIdOfRepo(firstRepoDir) ?? 'Code map');
     if (!read.ok) return null;
     const areaFrame = [...read.board.elements.values()].find((element) => element.kind === 'frame' && element.title === areaTitle);
     return areaFrame?.kind === 'frame' ? areaFrame.collapsed : null;
@@ -166,10 +166,11 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
   assert.ok(foldedFirst.left !== null && foldedSecond.left !== null && foldedSecond.left - foldedFirst.left < 1000, 'folded areas sit side by side as cards');
 
   busyRepoDirs.add(firstRepoDir);
-  codemap.noteBranchesChanged();
-  const openedFirst = await untilFolded('first', false);
+  assert.equal(await codemap.noteBranchesChanged(), true);
+  const openedFirst = await areaFrameOf('first');
+  assert.equal(openedFirst.isFolded, false, 'an area opens when a branch starts there');
   assert.ok(openedFirst.collapsedFolderCount > 0, 'an open area folds its own folders again');
-  await waitFor(async () => ((await areaFrameOf('second')).left ?? 0) - (foldedFirst.left ?? 0) >= 1000, 'the area after an opened one moves right to make room', MAP_REDRAW_DEADLINE_MS);
+  assert.ok(((await areaFrameOf('second')).left ?? 0) - (foldedFirst.left ?? 0) >= 1000, 'the area after one a branch opened has moved by the time the relayout resolves');
   assert.equal((await areaFrameOf('second')).isFolded, true);
 
   assert.deepEqual(await codemap.setFolderOpen(secondRepoDir, foldedSecond.id, true), { ok: true, isOpen: true });
@@ -177,8 +178,9 @@ test('a repo with no branch agent folds to one card that keeps its place in the 
   assert.deepEqual(await codemap.setFolderOpen(secondRepoDir, foldedSecond.id, false), { ok: true, isOpen: false });
   assert.deepEqual(await codemap.setFolderOpen(firstRepoDir, foldedFirst.id, false), { ok: true, isOpen: true }, 'an area with a branch agent stays open when the board gathers it');
   busyRepoDirs.delete(firstRepoDir);
-  codemap.noteBranchesChanged();
-  assert.equal((await untilFolded('first', true)).isFolded, true, 'an area folds again when its last branch leaves');
+  assert.equal(await codemap.noteBranchesChanged(), true);
+  assert.equal((await areaFrameOf('first')).isFolded, true, 'an area folds again when its last branch leaves');
+  assert.equal((await areaFrameOf('second')).left, foldedSecond.left, 'the area after it is back in place by the time the relayout resolves');
 
   assert.deepEqual(await codemap.setFolderOpen(firstRepoDir, foldedFirst.id, true), { ok: true, isOpen: true });
   const [openFirstAtReply, movedSecondAtReply] = [await areaFrameOf('first'), await areaFrameOf('second')];

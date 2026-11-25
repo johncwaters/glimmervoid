@@ -686,6 +686,24 @@ function areaOriginsOf(areas: readonly { repoKey: RepoKey; width: number }[]): M
   return originByRepoKey;
 }
 
+interface AreaSpan {
+  left: number;
+  right: number;
+}
+
+function rowRedrawOrderOf(shownSpanByRepoKey: ReadonlyMap<RepoKey, AreaSpan>, wantedSpanByRepoKey: ReadonlyMap<RepoKey, AreaSpan>): RepoKey[] {
+  const movedRepoKeys = [...wantedSpanByRepoKey.keys()].filter((repoKey) => {
+    const shown = shownSpanByRepoKey.get(repoKey);
+    const wanted = wantedSpanByRepoKey.get(repoKey);
+    return !shown || !wanted || shown.left !== wanted.left || shown.right !== wanted.right;
+  });
+  const isGrowing = (repoKey: RepoKey) => (wantedSpanByRepoKey.get(repoKey)?.right ?? 0) > (shownSpanByRepoKey.get(repoKey)?.right ?? Number.NEGATIVE_INFINITY);
+  const leftOf = (repoKey: RepoKey) => wantedSpanByRepoKey.get(repoKey)?.left ?? 0;
+  const freeing = movedRepoKeys.filter((repoKey) => !isGrowing(repoKey)).sort((first, second) => leftOf(first) - leftOf(second));
+  const growing = movedRepoKeys.filter(isGrowing).sort((first, second) => leftOf(second) - leftOf(first));
+  return [...freeing, ...growing];
+}
+
 function folderMatrixCsvOf(model: CodemapModel): string {
   const layers = moduleLayersOf(model);
   const orderedFolders = foldersByLevelOf(layers).reverse().flat();
@@ -1165,5 +1183,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...tangleLines, ...shallowLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, repoBoxIdOfUnscopedBox, rootBoxIdOf, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, matrixBoxIdOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, FOLDED_AREA_WIDTH, repoBoxIdOfUnscopedBox, rootBoxIdOf, areaCardIdOf, areaFrameIdOf, folderCardIdOf, folderOf, areaOriginsOf, areaRemovalOpsOf, areaWidthOf, rowRedrawOrderOf, repoIdPrefixOf, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, matrixBoxIdOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapArea, MapDecorations, MapOverlay, SpecPlan };
