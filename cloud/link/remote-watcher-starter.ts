@@ -22,9 +22,10 @@ function originOf(watcherUrl: string): string {
   return URL.parse(watcherUrl)?.origin ?? watcherUrl;
 }
 
-function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async () => {}, statusCheckMs = STATUS_CHECK_MS, wakeRetryMs = WAKE_RETRY_MS, wakeStatusTimeoutMs = WAKE_STATUS_TIMEOUT_MS, fetchFn = fetch, now = clock.nowMs }: {
+function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async () => {}, whenDoormanStops = () => null, statusCheckMs = STATUS_CHECK_MS, wakeRetryMs = WAKE_RETRY_MS, wakeStatusTimeoutMs = WAKE_STATUS_TIMEOUT_MS, fetchFn = fetch, now = clock.nowMs }: {
   resolveWatcherUrl: () => Promise<string | null>;
   prepareWatcher?: () => Promise<void>;
+  whenDoormanStops?: () => Promise<void> | null;
   statusCheckMs?: number;
   wakeRetryMs?: number;
   wakeStatusTimeoutMs?: number;
@@ -40,6 +41,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
     let isCheckWantedNow = false;
     let lastPrepareProblem: string | null = null;
     let wokeAtMs: number | null = null;
+    let heardDoormanStop: Promise<void> | null = null;
 
     function isSettlingAfterWake(): boolean {
       return wokeAtMs !== null && now() - wokeAtMs < WAKE_SETTLE_MS;
@@ -81,6 +83,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
         answeringUrl = watcherUrl;
         unansweredCheckCount = 0;
         wokeAtMs = null;
+        listenForDoormanStop();
         onListening(watcherUrl);
         return;
       }
@@ -112,6 +115,17 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
       checkTimer.unref();
     }
 
+    function listenForDoormanStop(): void {
+      if (heardDoormanStop !== null) return;
+      const doormanStop = whenDoormanStops();
+      if (doormanStop === null) return;
+      heardDoormanStop = doormanStop.then(checkAtOnce, (stopWaitError: unknown) => {
+        log.warn(`[watcher] cannot hear the local doorman stop: ${stopWaitError instanceof Error ? stopWaitError.message : String(stopWaitError)}`);
+      }).finally(() => {
+        heardDoormanStop = null;
+      });
+    }
+
     function start(): void {
       scheduleCheck(0);
     }
@@ -119,6 +133,11 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
     function checkNow(): void {
       if (isStopped) return;
       wokeAtMs = now();
+      checkAtOnce();
+    }
+
+    function checkAtOnce(): void {
+      if (isStopped) return;
       if (checkTimer === null) {
         isCheckWantedNow = true;
         return;

@@ -54,7 +54,7 @@ import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { createCommitSigning, createUnsignedCommitNotices, followingGithubConnection } from '../commit-signing.ts';
 import { createHostReady } from '../ready-host.ts';
-import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
+import { ensureDoorman, localDoormanUrl, retireLocalDoorman, whenLocalDoormanStops } from '../../cloud/doorman/ensure-doorman.ts';
 import { clock, setOperatorTimezoneSource } from '../../shared/clock.ts';
 import { DEVICE_PAIRING_PATH, NUDGES_PATH, OWNER_LINK_PATH } from '../../shared/contracts/watcher-link.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
@@ -841,6 +841,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     startWatcher: createRemoteWatcherStarter({
       resolveWatcherUrl: async () => configuredDoormanUrl ?? localDoormanUrl(glimmervoidHomeDir(), port),
       prepareWatcher: prepareLocalDoorman,
+      whenDoormanStops: () => configuredDoormanUrl === null ? whenLocalDoormanStops(glimmervoidHomeDir(), port) : null,
     }),
     onGithubAppTokenChange: () => laneAssembly.restartServiceLanes(),
   });

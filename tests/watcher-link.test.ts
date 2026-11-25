@@ -14,7 +14,7 @@ import { createAuthkitVerifier } from '../cloud/doorman/edge-session.ts';
 import { createGcpHostAdapter } from '../cloud/doorman/gcp-host.ts';
 import { createGithubUserLink } from '../cloud/doorman/github-user.ts';
 import { createFileTenantRecordStore } from '../cloud/doorman/tenant-record-store.ts';
-import { ensureDoorman, localDoormanUrl } from '../cloud/doorman/ensure-doorman.ts';
+import { ensureDoorman, localDoormanUrl, whenLocalDoormanStops } from '../cloud/doorman/ensure-doorman.ts';
 import { loadOrCreateLinkSecret } from '../cloud/link/link-secret.ts';
 import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
 import { createWatcherLink } from '../cloud/link/watcher-link.ts';
@@ -213,7 +213,7 @@ test('a probe GitHub refuses by status or by a GraphQL error shows on its lane a
   await eventually(() => watcherProblems.at(-1) === null ? true : undefined);
 });
 
-test('with no GitHub read token the watcher runs no GitHub probe, the log says once why, and a token set later starts it', async (t) => {
+test('with no GitHub read token the watcher runs no GitHub probe, the log says once why, and a token set later starts it at once, the last of two quick changes winning', async (t) => {
   const logLines: string[] = [];
   const log = { log: (line: string) => logLines.push(line), warn: (line: string) => logLines.push(line) };
   const { github, linkCredentials, link, watcher, coveredProbeCounts } = await startLinkedWatcher(t, LIGHT_PROBE, { githubToken: null, log });
@@ -224,11 +224,24 @@ test('with no GitHub read token the watcher runs no GitHub probe, the log says o
   assert.deepEqual(github.requests, []);
   assert.deepEqual(logLines.filter((line) => line.includes('no GitHub read token')), ['[watcher] no GitHub read token: test-lane polls on its own timer until one is set in Settings']);
 
+  const runner = watcher.runner;
+  assert.ok(runner !== null);
+  const appliedTokens: (string | null)[] = [];
+  const applyCredentials = runner.applyCredentials;
+  runner.applyCredentials = (credentials) => {
+    appliedTokens.push(credentials.github);
+    return applyCredentials(credentials);
+  };
+  const changedAtMs = Date.now();
+  linkCredentials.github = 'first-token';
+  link.credentialsMayHaveChanged();
   linkCredentials.github = 'read-token';
   link.credentialsMayHaveChanged();
+  await eventually(() => appliedTokens.at(-1) === 'read-token' ? true : undefined);
+  assert.ok(Date.now() - changedAtMs < 1500, 'a credential change is delivered at once, never after a debounce');
+  assert.deepEqual(appliedTokens, ['first-token', 'read-token'], 'a change made while a delivery is in flight is delivered right after it');
   await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
   await eventually(() => github.requests.length >= 1 ? true : undefined);
-  assert.deepEqual(github.requests, ['Bearer read-token']);
 });
 
 test('a GraphQL rate limit answered with 200 waits for its reset even when the same token is delivered again or the probe request changes', async (t) => {
@@ -434,7 +447,7 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
   assert.deepEqual(stopReports, [{ outcome: 'stopping', sessions_with_expired_work: 1, expired_subagent_count: 1, expired_shell_count: 2 }]);
 });
 
-test('a server that wakes from a sleep longer than 30 s rechecks its remote watcher at once instead of waiting out the status timer, and a steady tick never does', async (t) => {
+test('a server rechecks its watcher at once when its local doorman stops or when it wakes from a sleep longer than 30 s, instead of waiting out the status timer, and a steady tick never does', async (t) => {
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-host-wake-'));
   const linkSecret = crypto.randomBytes(32);
   const home = createWatcherHome({ files: watcherFilesInFolder(watcherHome), credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
@@ -444,6 +457,8 @@ test('a server that wakes from a sleep longer than 30 s rechecks its remote watc
   await runner.start();
   const watcherPort = await watcherListener.listen(0);
   let statusCheckCount = 0;
+  let stopFirstDoorman: () => void = () => {};
+  const doormanStops = [new Promise<void>((resolve) => { stopFirstDoorman = resolve; })];
   const countingFetch: typeof fetch = (input, init) => {
     if (String(input).endsWith(STATUS_PATH)) statusCheckCount += 1;
     return fetch(input, init);
@@ -452,7 +467,7 @@ test('a server that wakes from a sleep longer than 30 s rechecks its remote watc
     linkSecret,
     log: QUIET_LOG,
     credentials: () => ({ github: null, posthog: null }),
-    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${watcherPort}`, fetchFn: countingFetch }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${watcherPort}`, fetchFn: countingFetch, whenDoormanStops: () => doormanStops.shift() ?? null }),
   });
   t.after(async () => {
     link.stop();
@@ -463,6 +478,8 @@ test('a server that wakes from a sleep longer than 30 s rechecks its remote watc
   });
   await link.start();
   await eventually(() => statusCheckCount === 1 ? true : undefined);
+  stopFirstDoorman();
+  await eventually(() => statusCheckCount === 2 ? true : undefined);
 
   t.mock.timers.enable({ apis: ['setInterval'] });
   const clock = { nowMs: 0 };
@@ -487,11 +504,11 @@ test('a server that wakes from a sleep longer than 30 s rechecks its remote watc
     t.mock.timers.tick(15_000);
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.deepEqual(sleptReports, []);
-    assert.equal(statusCheckCount, 1);
+    assert.equal(statusCheckCount, 2);
 
     clock.nowMs += 15_000 + 3 * 60 * 60_000;
     t.mock.timers.tick(15_000);
-    await eventually(() => statusCheckCount === 2 ? true : undefined);
+    await eventually(() => statusCheckCount === 3 ? true : undefined);
   } finally {
     idleStop.stop();
     t.mock.timers.reset();
@@ -1307,7 +1324,7 @@ test('a server sends the 100 percent awake-hours alert while the cap is still wi
   assert.equal(newlyCrossedAlert(usageAt(31 * hour, 40 * hour), notified, lookaheadMs)?.threshold, 75);
 });
 
-test('a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its whole home is deleted', async (t) => {
+test('a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and hears the doorman stop through its lock once its tenant table is deleted', async (t) => {
   const glimmervoidHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-local-doorman-'));
   const stateDir = path.join(glimmervoidHome, 'doorman', '4999');
   const tablePath = path.join(stateDir, 'tenants.json');
@@ -1338,6 +1355,10 @@ test('a server starts one local doorman found by its port file, replaces it when
   const replacementUrl = await eventually(async () => await listeningLineCount() === 2 ? answeringUrl() : undefined, 20_000);
   assert.match(await fsp.readFile(path.join(stateDir, 'doorman.log'), 'utf8'), /tenants\.json is gone, stopping/);
 
+  const replacementStop = whenLocalDoormanStops(glimmervoidHome, 4999);
+  assert.ok(replacementStop !== null);
+  await fsp.rm(tablePath);
+  await replacementStop;
   await fsp.rm(glimmervoidHome, { recursive: true, force: true });
   await eventually(async () => fetch(new URL(HEALTH_PATH, replacementUrl)).then(() => undefined, () => true), 20_000);
 });

@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A GitHub or PostHog read credential you change in Settings reaches the watcher at once.** It waited 2 seconds before, and a second change made while the first was still being delivered could be missed until something else changed.
+- **A stopped local doorman is replaced at once, and an outdated one is never left running.** The server now hears its local doorman exit and starts a new one, where it noticed only at its next check a minute later. When Glimmervoid's version changes, the server waits for the old doorman to stop and logs a warning naming its folder if it has not stopped within 15 seconds, where before it gave up after 5 seconds without a word and the old doorman kept running.
 - **The code map legend says what its red wires mean.** Red wires are imports going upward, against layer order, and the legend now labels them imports upward instead of failure path.
 - **Studio branch cards are titled by the box they work on.** A branch working on site shows site on its card, matching To site in the log, instead of the long session name.
 - **Studio agent cards stay off the code map.** A card now sits in the empty space just outside the map, beside its box's row and tied to it by its dashed line, instead of on the wires between boxes.

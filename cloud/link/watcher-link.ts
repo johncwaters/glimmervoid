@@ -138,6 +138,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   let deliveryTimer: NodeJS.Timeout | null = null;
   let recompileTimer: NodeJS.Timeout | null = null;
   let delivery: Promise<void> | null = null;
+  let isDeliveryWantedAgain = false;
   let watcherStartCount = 0;
   let statusReadCount = 0;
   let supervisor: ReturnType<WatcherStarter> | null = null;
@@ -544,10 +545,21 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   function deliver(): Promise<void> {
     if (deliveryTimer !== null) clearTimeout(deliveryTimer);
     deliveryTimer = null;
-    delivery ??= deliverOnce().finally(() => {
+    if (delivery !== null) {
+      isDeliveryWantedAgain = true;
+      return delivery;
+    }
+    delivery = deliverUntilCurrent().finally(() => {
       delivery = null;
     });
     return delivery;
+  }
+
+  async function deliverUntilCurrent(): Promise<void> {
+    do {
+      isDeliveryWantedAgain = false;
+      await deliverOnce();
+    } while (isDeliveryWantedAgain && deliveryTimer === null);
   }
 
   async function deliverOnce(): Promise<void> {
@@ -755,7 +767,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, answerDevicePairingRequest, answerOwnerLinkRequest, requestHostStop, nextAlarmDueAt, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
+  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: () => void deliver(), takeRollup, answerNudgeRequest, answerDevicePairingRequest, answerOwnerLinkRequest, requestHostStop, nextAlarmDueAt, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

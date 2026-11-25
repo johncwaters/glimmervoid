@@ -17,11 +17,11 @@ const TENANT_TABLE_FILE_NAME = 'tenants.json';
 const DOORMAN_LOG_FILE_NAME = 'doorman.log';
 const STARTED_BY_FILE_NAME = 'started-by';
 const LEGACY_WATCHER_HOME_NAME = 'watcher';
-const RETIRE_POLL_MS = 100;
-const RETIRE_POLL_LIMIT = 50;
+const RETIRE_TIMEOUT_MS = 15_000;
 const SERVER_ANSWER_TIMEOUT_MS = 1_000;
 const WILDCARD_HOSTS: ReadonlySet<string> = new Set(['0.0.0.0', '::']);
 const LOCAL_PORT_FOLDER_PATTERN = /^\d{1,5}$/;
+const doormanStopsByStateDir = new Map<string, Promise<void>>();
 
 function doormenDir(glimmervoidHome: string): string {
   return path.join(glimmervoidHome, DOORMAN_FOLDER_NAME);
@@ -102,12 +102,37 @@ async function isDoormanRunning(stateDir: string): Promise<boolean> {
   }
 }
 
+async function lockOnceReleased(stateDir: string): Promise<void> {
+  const locks = loadFileLocks();
+  if (locks === null) throw new Error('kernel file locks are unavailable, so a doorman stopping cannot be heard');
+  const lockFile = await fsp.open(path.join(stateDir, DOORMAN_LOCK_FILE_NAME), 'a');
+  try {
+    await locks.waitForLock(lockFile.fd);
+    locks.unlock(lockFile.fd);
+  } finally {
+    await lockFile.close();
+  }
+}
+
+function whenDoormanStops(stateDir: string): Promise<void> {
+  const pendingStop = doormanStopsByStateDir.get(stateDir);
+  if (pendingStop !== undefined) return pendingStop;
+  const doormanStop = lockOnceReleased(stateDir).finally(() => {
+    doormanStopsByStateDir.delete(stateDir);
+  });
+  doormanStopsByStateDir.set(stateDir, doormanStop);
+  return doormanStop;
+}
+
 async function retireDoorman(stateDir: string): Promise<void> {
   await fsp.rm(path.join(stateDir, TENANT_TABLE_FILE_NAME), { force: true });
-  for (let pollCount = 0; pollCount < RETIRE_POLL_LIMIT; pollCount += 1) {
-    if (!await isDoormanRunning(stateDir)) return;
-    await sleep(RETIRE_POLL_MS);
-  }
+  const retireTimeout = new AbortController();
+  const hasStopped = await Promise.race([
+    whenDoormanStops(stateDir).then(() => true),
+    sleep(RETIRE_TIMEOUT_MS, false, { signal: retireTimeout.signal }).catch(() => false),
+  ]);
+  retireTimeout.abort();
+  if (!hasStopped) throw new Error(`the outdated doorman in ${stateDir} did not stop within ${RETIRE_TIMEOUT_MS / 1000} s of its tenant table being removed`);
 }
 
 async function retireOutdatedDoorman(stateDir: string, startedBy: string): Promise<void> {
@@ -194,6 +219,11 @@ async function retireLocalDoorman(glimmervoidHome: string, localPort: number): P
   await fsp.rm(path.join(doormanStateDir(glimmervoidHome, localPort), TENANT_TABLE_FILE_NAME), { force: true });
 }
 
+function whenLocalDoormanStops(glimmervoidHome: string, localPort: number): Promise<void> | null {
+  if (loadFileLocks() === null) return null;
+  return whenDoormanStops(doormanStateDir(glimmervoidHome, localPort));
+}
+
 async function localDoormanUrl(glimmervoidHome: string, localPort: number): Promise<string | null> {
   const stateDir = doormanStateDir(glimmervoidHome, localPort);
   if (!await isDoormanRunning(stateDir).catch(() => false)) return null;
@@ -203,4 +233,4 @@ async function localDoormanUrl(glimmervoidHome: string, localPort: number): Prom
   return `http://127.0.0.1:${doormanPort}`;
 }
 
-export { ensureDoorman, localDoormanUrl, retireLocalDoorman };
+export { ensureDoorman, localDoormanUrl, retireLocalDoorman, whenLocalDoormanStops };

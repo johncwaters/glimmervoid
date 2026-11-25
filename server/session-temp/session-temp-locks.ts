@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { moveFolderToTrashSync } from '../trash-folder.ts';
 
-type FileLocks = Pick<typeof import('fs-native-extensions'), 'tryLock' | 'unlock' | 'waitForLockSync'>;
+type FileLocks = Pick<typeof import('fs-native-extensions'), 'tryLock' | 'unlock' | 'waitForLock' | 'waitForLockSync'>;
 
 interface UnheldSessionTrashOptions {
   keepWhenNoLockFiles: boolean;
