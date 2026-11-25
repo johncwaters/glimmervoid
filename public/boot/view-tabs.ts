@@ -118,7 +118,7 @@ function centerSessionInFocus(id: string) {
     openStudioTab();
     return;
   }
-  activateView('focus');
+  if (getActiveView() !== 'focus') activateView('focus');
   centerSessionQuietly(id);
 }
 

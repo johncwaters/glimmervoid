@@ -181,8 +181,10 @@ function attachChatListeners(targets: ChatListenerTargets): void {
 const TYPING_CONTROL_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
 
 function isOperatorTypingOutside(chatRoot: HTMLElement): boolean {
+  if (document.querySelector('.session-row[data-state="CONFIRM_REMOVE"]') !== null) return true;
   const focused = document.activeElement;
   if (!(focused instanceof HTMLElement) || chatRoot.contains(focused)) return false;
+  if (focused.closest('.session-row-confirm') !== null) return true;
   return focused.matches(TYPING_CONTROL_SELECTOR) && focused.closest('.xterm') === null;
 }
 

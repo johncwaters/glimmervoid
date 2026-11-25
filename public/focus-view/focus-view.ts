@@ -770,20 +770,27 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   const placeList = (rows: RosterRow[], listEl: GroupList, boardNodes: HTMLElement[]) => {
     const newKey = `${rows.map((r) => r.id).join(',')}|${boardNodes.map((node) => node.dataset.boardNode).join(',')}`;
     const orderUnchanged = listEl._lastOrderKey === newKey && listEl.childElementCount === rows.length + boardNodes.length;
+    const newIds = new Set<string>();
     for (const row of rows) {
       const { id } = row;
       seen.add(id);
-      let pill = pillById.get(id);
-      const isNewPill = !pill;
-      if (!pill) { pill = buildPill(id); pillById.set(id, pill); }
+      if (!pillById.has(id)) {
+        pillById.set(id, buildPill(id));
+        newIds.add(id);
+      }
+    }
+    if (!orderUnchanged) placeRowsInOrder(listEl, [...rows.flatMap(({ id }) => pillById.get(id)?._row ?? []), ...boardNodes]);
+    for (const row of rows) {
+      const { id } = row;
+      const pill = pillById.get(id);
+      if (!pill) continue;
       const attentionPosition = attentionPositionById.get(id) ?? null;
-      const isPaintNeeded = !dirtySessionIds || isNewPill || dirtySessionIds.has(id) || paintedAttentionPositionById.get(id) !== attentionPosition;
+      const isPaintNeeded = !dirtySessionIds || newIds.has(id) || dirtySessionIds.has(id) || paintedAttentionPositionById.get(id) !== attentionPosition;
       if (isPaintNeeded) paintPill(pill, row, attentionPosition);
       writeDataIfChanged(pill._row, 'viewed', String(id === getFocusedSessionId()));
       paintPillSplit(pill, id, boardTitleById);
       paintedAttentionPositionById.set(id, attentionPosition);
     }
-    if (!orderUnchanged) placeRowsInOrder(listEl, [...rows.flatMap(({ id }) => pillById.get(id)?._row ?? []), ...boardNodes]);
     listEl._lastOrderKey = newKey;
   };
 

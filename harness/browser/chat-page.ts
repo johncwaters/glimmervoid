@@ -790,10 +790,49 @@ async function verifyQuickSessionFocusesComposer(page: Page): Promise<void> {
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('chat-composer-input') ?? false), true, 'a session started from Settings opens with the chat message box focused');
 }
 
+async function verifyCloseConfirmStaysOpenInChat(page: Page): Promise<void> {
+  const focusedSessionId = await page.evaluate(() => document.querySelector<HTMLElement>('#focus-pane-terminal .session-card')?.dataset.id ?? null);
+  assert.ok(focusedSessionId, 'a session is focused in Chat before testing close confirmation');
+  const otherSessionId = await page.evaluate((currentId) => {
+    const rows = [...document.querySelectorAll<HTMLElement>('.focus-rail button.session-row[data-id]')];
+    return rows.map((row) => row.dataset.id).find((id) => id !== undefined && id !== currentId) ?? null;
+  }, focusedSessionId);
+  assert.ok(otherSessionId, 'a second session is listed in the rail');
+
+  await sendFromComposer(page, 'work');
+  await waitForTurnRunning(page, true);
+
+  const expectConfirmStaysOpen = async (sessionId: string, label: string) => {
+    const item = page.locator(`.focus-rail .session-row-item:has(> button.session-row[data-id="${sessionId}"])`);
+    await item.locator(':scope > [data-action="remove-session"]').click({ force: true });
+    const confirm = item.locator(':scope > .session-row-confirm');
+    await confirm.waitFor({ state: 'visible', timeout: CARD_TIMEOUT_MS });
+    await page.waitForTimeout(FOCUS_SETTLE_MS);
+    assert.equal(await confirm.isVisible(), true, `${label}: inline removal confirmation stays open while Chat is shown`);
+    assert.equal(await item.evaluate((rowItem) => rowItem.contains(document.activeElement)), true, `${label}: focus stays inside the armed confirmation row`);
+    return item;
+  };
+
+  const focusedItem = await expectConfirmStaysOpen(focusedSessionId, 'focused session');
+  await focusedItem.locator('[data-action="keep-session"]').click();
+  await focusedItem.locator(':scope > .session-row-confirm').waitFor({ state: 'hidden', timeout: CARD_TIMEOUT_MS });
+
+  await page.locator(`.focus-rail button.session-row[data-id="${otherSessionId}"]`).click();
+  await page.waitForFunction((id) => document.querySelector<HTMLElement>('#focus-pane-terminal .session-card')?.dataset.id === id, otherSessionId, { timeout: CARD_TIMEOUT_MS });
+  const nonFocusedItem = await expectConfirmStaysOpen(focusedSessionId, 'non-focused session');
+  await nonFocusedItem.locator('[data-action="confirm-remove-session"]').click();
+  await page.waitForFunction((id) => {
+    const item = document.querySelector(`.focus-rail .session-row-item:has(> button.session-row[data-id="${id}"])`);
+    return item?.hasAttribute('data-closing') === true;
+  }, focusedSessionId, { timeout: CARD_TIMEOUT_MS });
+  await nonFocusedItem.locator(':scope > [data-action="undo-remove"]').click();
+}
+
 export async function verifyChatStaysDefault(page: Page): Promise<void> {
   await openChat(page);
   await verifyComposerPassesDashboardShortcuts(page);
   await verifyQuickSessionFocusesComposer(page);
+  await verifyCloseConfirmStaysOpenInChat(page);
   await page.reload();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
   await page.waitForFunction(() => document.activeElement?.classList.contains('chat-composer-input') === true, undefined, { timeout: CARD_TIMEOUT_MS });
