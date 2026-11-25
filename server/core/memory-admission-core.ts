@@ -1,8 +1,91 @@
 const BYTES_PER_MEGABYTE = 1024 * 1024;
+const BYTES_PER_GIGABYTE = 1024 * BYTES_PER_MEGABYTE;
+const COMPACT_HOST_MAX_BYTES = 16 * BYTES_PER_GIGABYTE;
+const STANDARD_HOST_MAX_BYTES = 32 * BYTES_PER_GIGABYTE;
+const DEFAULT_HEADROOM_FLOOR_BYTES = 2 * BYTES_PER_GIGABYTE;
+const DEFAULT_PRETOOL_HOLD_MS = 25_000;
+const DEFAULT_HEAVY_LEASE_TTL_MS = 5 * 60 * 1000;
+const COMPACT_IDLE_HIBERNATE_MS = 10 * 60 * 1000;
+const STANDARD_IDLE_HIBERNATE_MS = 20 * 60 * 1000;
 
 export const MEMORY_RECHECK_MS = 5_000;
 const MEMORY_RESERVATION_SETTLE_MS = 30_000;
 export const DEFAULT_SESSION_MEMORY_RESERVE_MB = 600;
+
+type ResourceTier = 'compact' | 'standard' | 'workstation';
+
+export interface HostResourceProfile {
+  tier: ResourceTier;
+  heavyCommandSlots: number;
+  testConcurrency: number | null;
+  playwrightWorkers: number | null;
+  threadPoolSize: number | null;
+  idleHibernateMs: number | null;
+  headroomFloorBytes: number;
+  preToolHoldMs: number;
+  leaseTtlMs: number;
+}
+
+export function resolveHostResourceProfile(totalMemBytes: number): HostResourceProfile {
+  if (!Number.isFinite(totalMemBytes) || totalMemBytes <= COMPACT_HOST_MAX_BYTES) {
+    return {
+      tier: 'compact',
+      heavyCommandSlots: 1,
+      testConcurrency: 2,
+      playwrightWorkers: 1,
+      threadPoolSize: 4,
+      idleHibernateMs: COMPACT_IDLE_HIBERNATE_MS,
+      headroomFloorBytes: DEFAULT_HEADROOM_FLOOR_BYTES,
+      preToolHoldMs: DEFAULT_PRETOOL_HOLD_MS,
+      leaseTtlMs: DEFAULT_HEAVY_LEASE_TTL_MS,
+    };
+  }
+  if (totalMemBytes <= STANDARD_HOST_MAX_BYTES) {
+    return {
+      tier: 'standard',
+      heavyCommandSlots: 2,
+      testConcurrency: 4,
+      playwrightWorkers: 2,
+      threadPoolSize: 6,
+      idleHibernateMs: STANDARD_IDLE_HIBERNATE_MS,
+      headroomFloorBytes: DEFAULT_HEADROOM_FLOOR_BYTES,
+      preToolHoldMs: DEFAULT_PRETOOL_HOLD_MS,
+      leaseTtlMs: DEFAULT_HEAVY_LEASE_TTL_MS,
+    };
+  }
+  return {
+    tier: 'workstation',
+    heavyCommandSlots: 4,
+    testConcurrency: null,
+    playwrightWorkers: null,
+    threadPoolSize: null,
+    idleHibernateMs: null,
+    headroomFloorBytes: DEFAULT_HEADROOM_FLOOR_BYTES,
+    preToolHoldMs: DEFAULT_PRETOOL_HOLD_MS,
+    leaseTtlMs: DEFAULT_HEAVY_LEASE_TTL_MS,
+  };
+}
+
+export function runnerConcurrencyEnv(
+  profile: HostResourceProfile,
+  existingEnv: Record<string, string | undefined>,
+): Record<string, string> {
+  const existingKeys = new Set<string>();
+  for (const [existingKey, existingValue] of Object.entries(existingEnv)) {
+    if (existingValue !== undefined && existingValue !== '') existingKeys.add(existingKey.toUpperCase());
+  }
+  const defaults: Record<string, string> = {};
+  const assignIfUnset = (key: string, value: number | null) => {
+    if (value === null || existingKeys.has(key)) return;
+    defaults[key] = String(value);
+  };
+  assignIfUnset('PLAYWRIGHT_WORKERS', profile.playwrightWorkers);
+  assignIfUnset('UV_THREADPOOL_SIZE', profile.threadPoolSize);
+  assignIfUnset('RAYON_NUM_THREADS', profile.threadPoolSize);
+  assignIfUnset('GOMAXPROCS', profile.threadPoolSize);
+  assignIfUnset('GLIMMERVOID_TEST_CONCURRENCY', profile.testConcurrency);
+  return defaults;
+}
 
 export type MemoryStartKind = 'session';
 

@@ -5,6 +5,8 @@ import { MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX } from "../../server/core/mc
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from "./sane-yolo.ts";
 import { PACK_HOOK_FILES_ENV } from "./pack-hook-core.ts";
 import { ENV_SECRET_BINDINGS } from "../../server/core/config-secrets-core.ts";
+import { runnerConcurrencyEnv } from "../../server/core/memory-admission-core.ts";
+import type { HostResourceProfile } from "../../server/core/memory-admission-core.ts";
 
 const GLIMMERVOID_SECRET_KEYS = [...ENV_SECRET_BINDINGS.map((binding) => binding.environmentVariable), "GLIMMERVOID_CLAUDE_OAUTH_TOKEN"];
 const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", "GLIMMERVOID_SUPERVISOR", "GLIMMERVOID_MANAGED_BY", "INVOCATION_ID", "SYSTEMD_EXEC_PID", HOOK_URL_ENV, AGENT_URL_ENV, MCP_CREDENTIAL_ENV, SIGN_URL_ENV, GIT_CREDENTIAL_URL_ENV, SANE_YOLO_PATH_ENV, PACK_HOOK_FILES_ENV, ...GLIMMERVOID_SECRET_KEYS];
@@ -26,6 +28,7 @@ interface AgentEnvProfile {
 
 interface AgentEnvOptions {
   prependPathDirs?: readonly string[];
+  resourceProfile?: HostResourceProfile;
 }
 
 function normalizePathEntry(entry: string): string {
@@ -99,7 +102,7 @@ function buildAgentEnv(
   baseEnv: SpawnEnv,
   extraEnv: SpawnEnv | null | undefined,
   profile: AgentEnvProfile,
-  { prependPathDirs = [] }: AgentEnvOptions = {},
+  { prependPathDirs = [], resourceProfile }: AgentEnvOptions = {},
 ): SpawnEnv {
   const env: SpawnEnv = { ...baseEnv };
   for (const key of profile.scrub || []) delete env[key];
@@ -108,6 +111,7 @@ function buildAgentEnv(
   if (isSaneYoloGuarded(extraEnv)) scrubInheritedSafetyNetEnv(env);
   Object.assign(env, extraEnv || {});
   Object.assign(env, profile.set || {});
+  if (resourceProfile) Object.assign(env, runnerConcurrencyEnv(resourceProfile, env));
   const uniquePathDirs = prependPathDirs.filter((directory, index) =>
     prependPathDirs.findIndex((candidate) => normalizePathEntry(candidate) === normalizePathEntry(directory)) === index);
   for (const directory of uniquePathDirs.reverse()) prependPathDir(env, directory);

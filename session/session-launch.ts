@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { projectDirCandidates } from '../server/core/claude-config-paths-core.ts';
+import { resolveHostResourceProfile } from '../server/core/memory-admission-core.ts';
 import { launchSecretNames } from '../shared/agent-models-core.ts';
 import type { LaunchPlan } from '../shared/agent-models-core.ts';
 import { clock } from '../shared/clock.ts';
@@ -215,7 +216,7 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
     extraEnv?: Record<string, string> | null;
     prependPathDirs?: readonly string[];
   } = {}): SpawnEnv {
-    return adapter.buildEnv(process.env, extraEnv, options);
+    return adapter.buildEnv(process.env, extraEnv, { ...options, resourceProfile: resolveHostResourceProfile(os.totalmem()) });
   }
 
   async function resolveGitAndSigning(cwd: string, isSuperseded: () => boolean): Promise<boolean> {
