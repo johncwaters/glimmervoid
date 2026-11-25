@@ -1250,7 +1250,7 @@ test('the GCE host adapter resumes a suspended instance, starts a terminated one
   await assert.rejects(adapter.wake(tenant), /answered 403/);
 });
 
-test('the GCE host adapter starts a suspended instance fresh on the next machine type with room when its zone has no room to resume it, and never on a failure that is not a stockout', async () => {
+test('the GCE host adapter starts a suspended instance fresh on the next machine type with room when its zone has no room to resume it, and never on a failure that is not a stockout, awaiting each operation with zoneOperations.wait', async () => {
   const instanceUrl = 'https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/instances/tenant-vm';
   const operationUrl = 'https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/operations/operation-1';
   const instance = { status: 'SUSPENDED', machineType: 'n2d-standard-2' };
@@ -1262,7 +1262,11 @@ test('the GCE host adapter starts a suspended instance fresh on the next machine
     const url = String(input);
     if (url.startsWith('http://metadata.google.internal/')) return Response.json({ access_token: 'metadata-token', expires_in: 3599 });
     if (url === instanceUrl) return Response.json({ status: instance.status, machineType: `https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/machineTypes/${instance.machineType}` });
-    if (url === operationUrl) return Response.json({ status: 'DONE', selfLink: operationUrl, ...(pendingOperationErrorCode === null ? {} : { error: { errors: [{ code: pendingOperationErrorCode }] } }) });
+    assert.notEqual(url, operationUrl, 'an operation is awaited through zoneOperations.wait, never polled');
+    if (url === `${operationUrl}/wait`) {
+      assert.equal(init?.method, 'POST');
+      return Response.json({ status: 'DONE', selfLink: operationUrl, ...(pendingOperationErrorCode === null ? {} : { error: { errors: [{ code: pendingOperationErrorCode }] } }) });
+    }
     const action = url.slice(instanceUrl.length + 1);
     calls.push(action === 'setMachineType' ? `setMachineType ${JSON.parse(String(init?.body)).machineType}` : action);
     pendingOperationErrorCode = null;
@@ -1339,8 +1343,13 @@ test('a server starts one local doorman found by its port file, replaces it when
 });
 
 function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { personalRepositories = [], orgRepositories = ['site', 'glimmervoid'], orgInstallationReaches = orgRepositories }: { personalRepositories?: string[]; orgRepositories?: string[]; orgInstallationReaches?: string[] } = {}) {
-  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const privateKeyPem = privateKey.export({ type: 'pkcs1', format: 'pem' });
+  const appKey = { pem: '', publicKey: crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey };
+  function rotateKey() {
+    const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    appKey.pem = String(privateKey.export({ type: 'pkcs1', format: 'pem' }));
+    appKey.publicKey = publicKey;
+  }
+  rotateKey();
   const secretName = 'projects/glimmervoid-test/secrets/github-app-private-key';
   const mints: { claims: { iat: number; exp: number; iss: string }; body: { repositories?: string[]; permissions: Record<string, string> }; atMs: number }[] = [];
   const secretReads: string[] = [];
@@ -1362,7 +1371,7 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { p
     if (url.startsWith('https://secretmanager.googleapis.com/')) {
       assert.equal(headers.get('authorization'), 'Bearer metadata-token');
       secretReads.push(url);
-      return Response.json({ name: `${secretName}/versions/3`, payload: { data: Buffer.from(privateKeyPem).toString('base64') } });
+      return Response.json({ name: `${secretName}/versions/3`, payload: { data: Buffer.from(appKey.pem).toString('base64') } });
     }
     if (url === 'https://github.com/login/device/code') {
       assert.equal(new URLSearchParams(String(init?.body)).get('client_id'), 'Iv23liTestClient');
@@ -1402,7 +1411,7 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { p
     const mintedInstallation = /^https:\/\/api\.github\.com\/app\/installations\/(\d+)\/access_tokens$/.exec(url)?.[1] ?? '';
     assert.ok(mintedInstallations.includes(mintedInstallation), 'only an installation the user token reaches with at least one repository is minted');
     const [header, payload, signature] = (headers.get('authorization') ?? '').replace('Bearer ', '').split('.');
-    assert.ok(crypto.verify('sha256', Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, 'base64url')), 'the JWT is signed with the App key');
+    if (!crypto.verify('sha256', Buffer.from(`${header}.${payload}`), appKey.publicKey, Buffer.from(signature, 'base64url'))) return Response.json({ message: 'A JSON web token could not be decoded' }, { status: 401 });
     const mintBody = JSON.parse(String(init?.body));
     mints.push({ claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')), body: mintBody, atMs: clock.nowMs });
     if (mintBody.repositories === undefined) return Response.json({ token: 'ghs_listing', expires_at: new Date(clock.nowMs + 60 * 60_000).toISOString() }, { status: 201 });
@@ -1410,7 +1419,7 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { p
     const lifetimeMs = tokenLifetimesMs[mints.length - 1] ?? 60 * 60_000;
     return Response.json({ token: mintedInstallation === '5151' ? `ghs_personal${mints.length}` : `ghs_minted${mints.length}`, expires_at: new Date(clock.nowMs + lifetimeMs).toISOString() }, { status: 201 });
   };
-  return { appFetch, mints, secretReads, user, githubApp: { clientId: 'Iv23liTestClient', slug: 'glimmervoid-test', privateKeySecret: secretName } };
+  return { appFetch, mints, secretReads, user, rotateKey, githubApp: { clientId: 'Iv23liTestClient', slug: 'glimmervoid-test', privateKeySecret: secretName } };
 }
 
 async function signedWatcherCall(doormanPort: number, linkSecret: Buffer, method: 'GET' | 'POST', path: string, nowMs: number): Promise<GithubConnection> {
@@ -1476,7 +1485,8 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
     assert.equal(mint.claims.iss, 'Iv23liTestClient');
     assert.ok(mint.claims.iat <= Math.floor(mint.atMs / 1000) - 60 && mint.claims.exp - mint.claims.iat <= 600, 'the JWT is backdated a minute and lives at most ten');
   }
-  assert.deepEqual(app.secretReads, ['https://secretmanager.googleapis.com/v1/projects/glimmervoid-test/secrets/github-app-private-key/versions/current:access'], 'the key is read once and kept for ten minutes');
+  assert.deepEqual(app.secretReads, ['https://secretmanager.googleapis.com/v1/projects/glimmervoid-test/secrets/github-app-private-key/versions/current:access'], 'the key is read once and kept');
+  assert.ok(app.mints.length > 0, 'every mint so far was signed with the App key');
 
   clock.nowMs += 61_000;
   linkCredentials.github = 'operator-read-token';
@@ -1644,9 +1654,9 @@ test('a tenant whose GitHub user reaches repositories in two installations gets 
   assert.deepEqual(linkLogLines.filter((line) => line.includes('github:notifications:0')), ['[watcher] github:notifications:0 is not watched: a GitHub App grant reads only GraphQL'], 'the REST probe is left out of the probe set with one line, never reported failing each cycle');
 });
 
-test('a tenant record read that fails answers the server as a failed mint and retries, never as a tenant with no GitHub installation', async (t) => {
+test('a tenant record read that fails answers the server as a failed mint and retries, never as a tenant with no GitHub installation, and a rotated App key is reread the moment GitHub refuses the old one', async (t) => {
   const clock = { nowMs: Date.now() };
-  const app = fakeGithubApp(clock, []);
+  const app = fakeGithubApp(clock, [45 * 60_000, 45 * 60_000]);
   const { linkSecret, tenant } = await doormanTenant(t, 'flakytenant0001', 'http://127.0.0.1:9');
   const fileStore = createFileTenantRecordStore({ watcherHomeFor: () => tenant.watcherHome });
   const storeHealth = { isReadFailing: false };
@@ -1676,6 +1686,15 @@ test('a tenant record read that fails answers the server as a failed mint and re
   const answer = await askForToken();
   assert.equal(answer.status, 200);
   assert.match(GithubTokenAnswer.parse(await answer.json()).grants[0]?.token ?? '', /^ghs_minted\d$/);
+
+  const mintsBeforeRotation = app.mints.length;
+  app.rotateKey();
+  clock.nowMs += 6 * 60_000;
+  const afterRotation = await askForToken();
+  assert.equal(afterRotation.status, 200);
+  assert.equal(app.mints.length, mintsBeforeRotation + 1, 'a 401 on the old key rereads the key and mints at once');
+  assert.equal(GithubTokenAnswer.parse(await afterRotation.json()).grants[0]?.token, `ghs_minted${app.mints.length}`);
+  assert.equal(app.secretReads.length, 2, 'the key is reread once, on the refusal');
 });
 
 test('a stored repository the installation no longer reaches is dropped from the mint and named in the doorman log, so the tenant still gets its token', async (t) => {

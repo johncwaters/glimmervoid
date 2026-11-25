@@ -28,7 +28,7 @@ function isTransientFailure(error: unknown): boolean {
 
 function createGcpRest({ fetchFn = fetch }: { fetchFn?: typeof fetch } = {}) {
   function send(url: string, init: RequestInit): Promise<Response> {
-    return fetchFn(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    return fetchFn(url, { ...init, redirect: 'error', signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   }
 
   async function okResponse(url: string, init: RequestInit, what: string, passedStatuses: ReadonlySet<number> = new Set()): Promise<Response> {

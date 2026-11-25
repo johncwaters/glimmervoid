@@ -13,7 +13,7 @@ import { sanitizeOneLine } from '../../server/core/text-core.ts';
 
 type MintOutcome =
   | { kind: 'minted'; token: string; expiresAtMs: number; droppedRepositories: readonly string[] }
-  | { kind: 'failed'; failureKind: MintFailureKind; reason: string; retryAfterMs: number | null };
+  | { kind: 'failed'; failureKind: MintFailureKind; reason: string; retryAfterMs: number | null; refusedStatus: number | null };
 
 type MintFailureKind = Extract<DoormanFailureKind, 'github-token-refused' | 'github-token-mint-failed'>;
 
@@ -22,13 +22,13 @@ type TokenAttempt =
   | { kind: 'failed'; status: number; reason: string; retryAfterMs: number | null };
 
 const KEY_VERSION_ALIAS = 'current';
-const KEY_CACHE_MS = 10 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const GITHUB_API_VERSION = '2022-11-28';
 const USER_AGENT = 'glimmervoid-doorman';
 
 const MAX_REFUSAL_MESSAGE_CHARS = 200;
 const UNREACHABLE_REPOSITORY_STATUS = 422;
+const REFUSED_CREDENTIALS_STATUS = 401;
 const REACHABLE_PAGE_SIZE = 100;
 const MAX_REACHABLE_PAGES = 30;
 
@@ -49,14 +49,14 @@ function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = c
   fetchFn?: typeof fetch;
   now?: () => number;
 }) {
-  let cachedKey: { privateKey: crypto.KeyObject; readAtMs: number } | null = null;
+  let cachedKey: crypto.KeyObject | null = null;
 
   const google = createGcpRest({ fetchFn });
 
   async function readPrivateKey(): Promise<crypto.KeyObject> {
-    if (cachedKey !== null && now() - cachedKey.readAtMs < KEY_CACHE_MS) return cachedKey.privateKey;
+    if (cachedKey !== null) return cachedKey;
     const privateKey = crypto.createPrivateKey(await google.secretPayload(privateKeySecret, KEY_VERSION_ALIAS));
-    cachedKey = { privateKey, readAtMs: now() };
+    cachedKey = privateKey;
     return privateKey;
   }
 
@@ -113,7 +113,7 @@ function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = c
   }
 
   function failedOutcomeOf(attempt: Extract<TokenAttempt, { kind: 'failed' }>): MintOutcome {
-    return { kind: 'failed', failureKind: mintFailureKindOf(attempt.status), reason: attempt.reason, retryAfterMs: attempt.retryAfterMs };
+    return { kind: 'failed', failureKind: mintFailureKindOf(attempt.status), reason: attempt.reason, retryAfterMs: attempt.retryAfterMs, refusedStatus: attempt.status };
   }
 
   async function mintWithReachableRepositories(installation: GithubInstallationBinding, privateKey: crypto.KeyObject): Promise<MintOutcome> {
@@ -121,21 +121,29 @@ function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = c
     if (scoped.kind === 'minted') return { ...scoped, droppedRepositories: [] };
     if (scoped.status !== UNREACHABLE_REPOSITORY_STATUS) return failedOutcomeOf(scoped);
     const reachableNames = await reachableRepositoryNames(installation.installationId, privateKey).catch((listingError: unknown) => new Error(sanitizeOneLine(listingError instanceof Error ? listingError.message : String(listingError), MAX_REFUSAL_MESSAGE_CHARS)));
-    if (reachableNames instanceof Error) return { kind: 'failed', failureKind: mintFailureKindOf(scoped.status), reason: `${scoped.reason}; listing the repositories the installation reaches failed: ${reachableNames.message}`, retryAfterMs: scoped.retryAfterMs };
+    if (reachableNames instanceof Error) return { kind: 'failed', failureKind: mintFailureKindOf(scoped.status), reason: `${scoped.reason}; listing the repositories the installation reaches failed: ${reachableNames.message}`, retryAfterMs: scoped.retryAfterMs, refusedStatus: scoped.status };
     if (reachableNames === null) return failedOutcomeOf(scoped);
     const { kept, dropped } = reachableSubset(installation.repositories, reachableNames);
     if (dropped.length === 0) return failedOutcomeOf(scoped);
-    if (kept.length === 0) return { kind: 'failed', failureKind: mintFailureKindOf(scoped.status), reason: `${scoped.reason}; the installation reaches none of its ${dropped.length} bound repositories`, retryAfterMs: scoped.retryAfterMs };
+    if (kept.length === 0) return { kind: 'failed', failureKind: mintFailureKindOf(scoped.status), reason: `${scoped.reason}; the installation reaches none of its ${dropped.length} bound repositories`, retryAfterMs: scoped.retryAfterMs, refusedStatus: scoped.status };
     const retried = await requestToken(installation.installationId, installationTokenRequestBody(kept), privateKey);
     if (retried.kind === 'failed') return failedOutcomeOf(retried);
     return { ...retried, droppedRepositories: dropped };
   }
 
+  async function mintWithCurrentKey(installation: GithubInstallationBinding): Promise<MintOutcome> {
+    const keyUsed = await readPrivateKey();
+    const outcome = await mintWithReachableRepositories(installation, keyUsed);
+    if (outcome.kind !== 'failed' || outcome.refusedStatus !== REFUSED_CREDENTIALS_STATUS) return outcome;
+    if (cachedKey === keyUsed) cachedKey = null;
+    return mintWithReachableRepositories(installation, await readPrivateKey());
+  }
+
   async function mint(installation: GithubInstallationBinding): Promise<MintOutcome> {
     try {
-      return await mintWithReachableRepositories(installation, await readPrivateKey());
+      return await mintWithCurrentKey(installation);
     } catch (mintError) {
-      return { kind: 'failed', failureKind: 'github-token-mint-failed', reason: mintError instanceof Error ? mintError.message : String(mintError), retryAfterMs: null };
+      return { kind: 'failed', failureKind: 'github-token-mint-failed', reason: mintError instanceof Error ? mintError.message : String(mintError), retryAfterMs: null, refusedStatus: null };
     }
   }
 

@@ -12,6 +12,7 @@ type HostAction = 'resume' | 'start' | 'stop' | 'suspend' | 'setMachineType';
 const COMPUTE_ORIGIN = 'https://compute.googleapis.com';
 const SETTLE_POLL_MS = 2000;
 const OPERATION_TIMEOUT_MS = 120_000;
+const OPERATION_WAIT_REQUEST_TIMEOUT_MS = 150_000;
 const STOPPED_STATUSES: ReadonlySet<string> = new Set(['SUSPENDING', 'SUSPENDED', 'STOPPING', 'STOPPED', 'TERMINATED']);
 const SILENT_COLD_START_REPORT: ColdStartReport = Object.freeze({ onColdStart: () => {}, onStartedOn: () => {} });
 
@@ -40,8 +41,8 @@ function createGcpHostAdapter({ fetchFn = fetch, now = clock.nowMs, settleTimeou
 }): HostAdapter {
   const google = createGcpRest({ fetchFn });
 
-  function computeCall(method: 'GET' | 'POST', url: string, what: string, body?: object): Promise<unknown> {
-    if (body === undefined) return google.authorizedJson(url, { method }, what);
+  function computeCall(method: 'GET' | 'POST', url: string, what: string, body?: object, signal?: AbortSignal): Promise<unknown> {
+    if (body === undefined) return google.authorizedJson(url, { method, signal }, what);
     return google.authorizedJson(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, what);
   }
 
@@ -75,9 +76,10 @@ function createGcpHostAdapter({ fetchFn = fetch, now = clock.nowMs, settleTimeou
 
   async function operationUntil(selfLink: string, what: string, deadlineMs: number): Promise<GceOperation | null> {
     try {
-      return GceOperation.parse(await computeCall('GET', selfLink, `reading the ${what} operation`));
+      return GceOperation.parse(await computeCall('POST', `${selfLink}/wait`, `waiting on the ${what} operation`, undefined, AbortSignal.timeout(OPERATION_WAIT_REQUEST_TIMEOUT_MS)));
     } catch (readError) {
       if (!isRetryableRefusal(readError) || now() >= deadlineMs) throw readError;
+      await sleep(settlePollMs);
       return null;
     }
   }
@@ -88,8 +90,10 @@ function createGcpHostAdapter({ fetchFn = fetch, now = clock.nowMs, settleTimeou
     let operation = started;
     while (operation.status !== undefined && operation.status !== 'DONE' && selfLink !== undefined) {
       if (now() >= deadlineMs) throw new Error(`${what} did not finish within ${operationTimeoutMs} ms`);
-      await sleep(settlePollMs);
+      const waitStartedAtMs = now();
       operation = (await operationUntil(selfLink, what, deadlineMs)) ?? operation;
+      const didWaitReturnEarly = operation.status !== 'DONE' && now() - waitStartedAtMs < settlePollMs;
+      if (didWaitReturnEarly) await sleep(settlePollMs);
     }
     return operation;
   }
