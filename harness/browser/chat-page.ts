@@ -808,14 +808,22 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.locator('button[data-action="show-chat"]:visible').first().click();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('chat-composer-input') ?? false), false, 'opening Chat on a phone focuses nothing, so the keyboard stays down');
-  await page.locator('button[data-action="back-to-terminal"]:visible').click();
+  const chatBar = page.locator('.phone-page-chat').locator('xpath=..').locator('.phone-terminal-bar');
+  assert.equal(await chatBar.locator('.phone-terminal-badge').isVisible(), true, 'Chat shows the session bar with its state badge');
+  assert.equal(await chatBar.locator('button[data-action="show-chat"]').getAttribute('aria-pressed'), 'true', 'the Chat button reads pressed while Chat shows');
+  await chatBar.locator('button[data-action="back-to-board"]').click();
+  await page.locator('.phone-board-list button.session-row').first().click();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.goBack();
+  await page.locator('.phone-board-list button.session-row').first().click();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('button[data-action="show-terminal"]:visible').click();
+  await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  assert.equal(await page.locator('button[data-action="show-terminal"]:visible').getAttribute('aria-pressed'), 'true', 'the Terminal button reads pressed while the terminal shows');
   await page.locator('button[data-action="back-to-board"]:visible').click();
   await page.locator('.phone-board-list button.session-row').first().click();
-  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
-  await page.goBack();
-  await page.goBack();
-  await page.locator('.phone-board-list button.session-row').first().click();
-  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.phone-terminal .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await page.locator('.session-chat').count(), 0, 'after Terminal, the next session opens in the terminal');
 }
 
 export const DONE_MEANS_UNTRACKED_FILE = 'done-means.txt';

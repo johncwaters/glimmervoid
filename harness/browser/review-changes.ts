@@ -189,7 +189,6 @@ export async function verifyPhoneChanges(page: Page, projectDirectory: string): 
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
   await commitFile(worktreePath, REVIEWED_FILE_NAME, REVIEWED_FILE_CONTENT, 'test: read a file on the phone Changes screen');
   const changesScreen = page.locator('.phone-screen[data-screen="changes"]');
-  const terminalScreen = page.locator('.phone-screen[data-screen="terminal"]');
   const reader = changesScreen.locator('.review-reader');
   await page.locator('[data-action="show-changes"]').click();
   await reader.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"]`).waitFor({ timeout: READER_TIMEOUT_MS });
@@ -203,6 +202,6 @@ export async function verifyPhoneChanges(page: Page, projectDirectory: string): 
   assert.equal(await reader.getAttribute('data-level'), 'list', 'back closes the diff');
   assert.equal(await changesScreen.isVisible(), true, 'back from a diff stays on Changes');
   await page.evaluate(() => history.back());
-  await terminalScreen.waitFor();
-  assert.equal(await changesScreen.isVisible(), false, 'back from the list returns to the terminal');
+  await page.locator('.phone-screen[data-screen="board"]').waitFor();
+  assert.equal(await changesScreen.isVisible(), false, 'back from the list goes to the session list');
 }

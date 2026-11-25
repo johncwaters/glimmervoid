@@ -75,7 +75,7 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-:is(.phone-terminal-bar, .phone-page-bar) > button { flex: 0 0 auto; }
+.phone-terminal-bar > button { flex: 0 0 auto; }
 
 .phone-terminal-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .phone-terminal-identity[hidden] { display: none; }
@@ -193,8 +193,7 @@ html[data-arrow-pad] .phone-key-arrow { display: none; }
 .phone-page-screen,
 .phone-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-.phone-page-title { flex: 0 0 auto; font: 700 var(--type-meta) var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-head); }
-.phone-page-session { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-meta) var(--font-mono); color: var(--text-muted); }
+.phone-page-bar-slot { flex: 0 0 auto; }
 .phone-page-changes > .review-reader { flex: 1 1 auto; }
 .phone-page-changes .review-reader-body { grid-template-columns: minmax(0, 1fr); }
 .phone-page-changes .review-reader-files { border-right: 0; }

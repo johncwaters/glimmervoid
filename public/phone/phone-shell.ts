@@ -1,16 +1,15 @@
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
-import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { jumpTargetCount, pickStrongestAttention } from '../attention-core.ts';
 import { getRestorableSessionId, isSessionShown, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
-import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import { attentionTally, sessionUIs } from '../session-card/card-registry.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
 import type { SessionPage, SessionPageHost } from '../page-registry.ts';
 import { getSessionView } from '../ui-prefs.ts';
-import { canStepBackInSessionPage, closeSessionPage, isSessionPageOpen, onSessionPageChange, openSessionPage, releaseSessionPageHost, sessionPages, setSessionPageHost, stepBackInSessionPage } from '../page-registry.ts';
-import { BACK_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
+import { canStepBackInSessionPage, closeSessionPage, closeSessionPageAsOperator, isSessionPageOpen, onSessionPageChange, openSessionPage, releaseSessionPageHost, sessionPages, setSessionPageHost, stepBackInSessionPage } from '../page-registry.ts';
+import { createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { uiState } from '../ui-state-core.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
@@ -36,7 +35,7 @@ interface PhoneShellHooks {
 
 const NAV_SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
   { id: BOARD, label: 'Focus', iconPath: FOCUS_ICON_PATH },
-  { id: TERMINAL, label: 'Terminal', iconPath: TERMINAL_ICON_PATH },
+  { id: TERMINAL, label: 'Session', iconPath: TERMINAL_ICON_PATH },
 ]);
 let panels: PhonePanel<AdoptableElement>[] = [];
 const panelMountElById = new Map<string, HTMLDivElement>();
@@ -48,7 +47,7 @@ const screenAttentionById = new Map<string, string | boolean>();
 let boardScreen: ReturnType<typeof createBoardScreen> | null = null;
 let terminalScreen: ReturnType<typeof createTerminalScreen> | null = null;
 const pageMountElById = new Map<string, HTMLDivElement>();
-const pageSessionNameEls: HTMLSpanElement[] = [];
+const pageBarSlotById = new Map<string, HTMLElement>();
 let moreButtonEl: HTMLButtonElement | null = null;
 let moreMenuEl: HTMLDivElement | null = null;
 const menuButtonById = new Map<string, HTMLButtonElement>();
@@ -201,7 +200,7 @@ function build() {
   boardScreen = createBoardScreen({ onSelectSession: openSession, shownSessionId: () => terminalScreen?.getSessionId() ?? null });
   addActivityRenderer((ui, kind) => { if (active) boardScreen?.renderActivity(ui, kind); });
   registerSessionPages();
-  terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
+  terminalScreen = createTerminalScreen({ onBack: goBackFromSession, onShowTerminal: showTerminalView });
   onSessionPageChange(syncPhoneHistory);
 
   const screens = el('div', 'phone-screens');
@@ -242,19 +241,38 @@ function build() {
 
 function buildPageScreen(page: SessionPage) {
   const pageScreen = el('div', 'phone-page-screen');
-  const topBar = el('header', 'phone-topbar phone-page-bar');
-  const backButton = button({ variant: 'icon', label: 'Back', icon: createLineIcon(BACK_ICON_PATH), action: 'back-to-terminal', onClick: goBackFromPage });
-  const sessionNameEl = el('span', 'phone-page-session');
-  pageSessionNameEls.push(sessionNameEl);
+  const barSlot = el('div', 'phone-page-bar-slot');
+  pageBarSlotById.set(page.id, barSlot);
   const mountEl = el('div', `phone-page phone-page-${page.id}`);
   pageMountElById.set(page.id, mountEl);
-  topBar.append(backButton, el('span', 'phone-page-title', page.label), sessionNameEl);
-  pageScreen.append(topBar, mountEl);
+  pageScreen.append(barSlot, mountEl);
   return pageScreen;
 }
 
-function goBackFromPage() {
-  if (!stepBackInSessionPage()) showScreen(TERMINAL);
+function goBackFromSession() {
+  const currentScreenId = uiState.snapshot().phoneScreen;
+  if (currentScreenId && isPageScreen(currentScreenId) && canStepBackInSessionPage()) {
+    stepBackInSessionPage();
+    syncPhoneHistory();
+    return;
+  }
+  showScreen(BOARD);
+}
+
+function showTerminalView() {
+  closeSessionPageAsOperator();
+  showScreen(TERMINAL);
+}
+
+function placeSessionBar(screenId: string) {
+  if (!terminalScreen) return;
+  const pageBarSlot = pageBarSlotById.get(screenId);
+  if (pageBarSlot) {
+    if (terminalScreen.topBarEl.parentElement !== pageBarSlot) releaseElement(terminalScreen.topBarEl);
+    adoptElement(terminalScreen.topBarEl, pageBarSlot);
+  }
+  if (!pageBarSlot) releaseElement(terminalScreen.topBarEl);
+  terminalScreen.setTerminalViewShown(screenId === TERMINAL);
 }
 
 function isPageScreen(screenId: string) {
@@ -300,7 +318,7 @@ function rootScreenOf(screenId: string) {
 
 function historyStateFor(screenId: string, depth: number) {
   if (depth > 1) return { glimmervoidScreen: screenId, glimmervoidNested: true, glimmervoidDepth: depth };
-  return { glimmervoidScreen: rootScreenOf(screenId) };
+  return { glimmervoidScreen: screenId };
 }
 
 function screenIdFromHistoryState(state: unknown): string | null {
@@ -330,13 +348,11 @@ function goBackWithin(screenId: string) {
 
 function desiredHistoryDepth(screenId: string) {
   if (screenId === BOARD) return 0;
-  const screenDepth = isPageScreen(screenId) ? 2 : 1;
-  return canGoBackWithin(screenId) ? screenDepth + 1 : screenDepth;
+  return canGoBackWithin(screenId) ? 2 : 1;
 }
 
 function isCurrentHistoryStateFor(screenId: string, depth: number) {
-  const expectedScreenId = depth > 1 ? screenId : rootScreenOf(screenId);
-  return screenIdFromHistoryState(history.state) === expectedScreenId && historyDepthOf(history.state) === depth;
+  return screenIdFromHistoryState(history.state) === screenId && historyDepthOf(history.state) === depth;
 }
 
 export function syncPhoneHistory() {
@@ -410,7 +426,7 @@ function applyScreen(requestedScreenId: string) {
   if (screenId !== requestedScreenId) uiState.dispatch('setPhoneScreen', screenId);
   if (!isPageScreen(screenId)) closeSessionPage();
   setMoreMenuOpen(false);
-  paintPageSessionName();
+  placeSessionBar(screenId);
   for (const [id, section] of screenElById) {
     section.hidden = id !== screenId;
   }
@@ -433,16 +449,6 @@ function applyScreen(requestedScreenId: string) {
 
 function canShowScreen(screenId: string) {
   return screenElById.has(screenId) && !unavailableScreenIds.has(screenId);
-}
-
-function paintPageSessionName() {
-  if (!terminalScreen) return;
-  const shownSessionId = terminalScreen.getSessionId();
-  const shownSessionUi = shownSessionId ? sessionUIs.get(shownSessionId) : null;
-  const name = shownSessionUi ? sessionName(shownSessionUi) : '';
-  for (const sessionNameEl of pageSessionNameEls) {
-    sessionNameEl.textContent = name;
-  }
 }
 
 function showScreen(screenId: string) {
@@ -524,7 +530,6 @@ export function refreshPhoneBoard() {
   isBoardStale = visibleRootScreen !== BOARD;
   if (!isBoardStale) boardScreen.refresh();
   terminalScreen.refresh();
-  paintPageSessionName();
   const terminalSessionId = terminalScreen.getSessionId();
   const isTerminalSessionGone = !terminalSessionId || !isSessionShown(terminalSessionId);
   if (visibleRootScreen === TERMINAL && isTerminalSessionGone) showScreen(BOARD);

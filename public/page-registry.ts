@@ -112,6 +112,11 @@ export function closeSessionPage() {
   announceSessionPageChange(page.id, sessionId);
 }
 
+export function closeSessionPageAsOperator() {
+  openPage?.page.didCloseByOperator?.();
+  closeSessionPage();
+}
+
 export function canStepBackInSessionPage() {
   return openPage?.page.canStepBack() ?? false;
 }
@@ -157,8 +162,7 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     control.addEventListener('click', () => {
       if (!shownSessionId) return;
       if (isHeader && isSessionPageOpen(page.id, shownSessionId)) {
-        page.didCloseByOperator?.();
-        closeSessionPage();
+        closeSessionPageAsOperator();
         return;
       }
       openSessionPage(page.id, shownSessionId);
@@ -179,7 +183,7 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     const isAvailable = shownSessionId !== null && page.isAvailableFor(shownSessionId);
     pageButton.wrap.toggleAttribute('data-slot-held', !isAvailable);
     pageButton.dot.hidden = !isAvailable || !shownSessionId || !page.hasUnreadFor(shownSessionId);
-    if (style === 'header') pageButton.control.setAttribute('aria-pressed', String(shownSessionId !== null && isSessionPageOpen(page.id, shownSessionId)));
+    pageButton.control.setAttribute('aria-pressed', String(shownSessionId !== null && isSessionPageOpen(page.id, shownSessionId)));
   }
 
   function paintAll() {

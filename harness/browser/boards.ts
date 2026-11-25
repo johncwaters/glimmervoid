@@ -2363,7 +2363,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   await page.locator('#loading-screen').waitFor({ state: 'hidden' });
   if (layout === 'phone') {
     const navButtonLabels = await page.locator('.phone-nav > .phone-nav-item:not([hidden]) .phone-nav-label').allTextContents();
-    assert.deepEqual(navButtonLabels, ['Focus', 'Terminal', 'Boards', 'More']);
+    assert.deepEqual(navButtonLabels, ['Focus', 'Session', 'Boards', 'More']);
     assert.equal(await page.locator('.phone-nav-more-menu [data-screen="boards"]').count(), 0);
     const boardsNavButton = page.locator('.phone-nav > .phone-nav-item[data-screen="boards"]');
     await boardsNavButton.click();

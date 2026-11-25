@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **On a phone, Chat and the terminal share one bar.** Chat now shows the same top bar as the terminal: the session name, its state with elapsed time and the session's actions. A **Terminal** and a **Chat** button sit side by side, the one showing reads pressed, and Terminal switches this and later sessions back to the terminal. Back from Chat, and the phone's back gesture, now go to the session list instead of the terminal. The bottom tab that opens the shown session is now called **Session**, since it opens Chat or the terminal.
 - **The Studio director runs on Sonnet at low effort.** The model that decides which Studio turns reach you and writes their one-line digests now runs Sonnet at low effort instead of Haiku.
 - **A Wargames map you can read.** The map fills its panel instead of a small box in the middle, so on a Large map at a 1600px window unit counts read at about 17px. Zoom with Ctrl or Cmd and the wheel, a pinch, or the zoom and Fit buttons at the map's corner, and drag to pan once zoomed. Armies show their unit icons and counts in their seat color, one token per seat per tile, instead of dots. Each village keeps its income, garrison and control in fixed spots that never overlap, and routes end at the tile edge.
 - **Economy marks are always on.** Each village shows its grain and ore a turn with a thin bar filling toward its warehouse cap, and fields and quarries show what they add. The Economy switch is gone, and its legend is now in the Key.

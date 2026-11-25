@@ -16,13 +16,13 @@ import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
 import { createSessionPageButtons } from '../page-registry.ts';
-import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { BACK_ICON_PATH, createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { decideStripContext } from '../mobile-keys.ts';
 import type { TerminalTextAction } from '../mobile-keys.ts';
 import { createMobileKeyStrip } from './mobile-key-strip.ts';
 
-export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
+export function createTerminalScreen({ onBack, onShowTerminal }: { onBack?: () => void; onShowTerminal?: () => void }) {
   const screen = el('div', 'phone-terminal');
 
   const topBar = el('header', 'phone-topbar phone-terminal-bar');
@@ -47,6 +47,11 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   identity.append(taskTitleEl, badgeEl);
 
   const pageButtons = createSessionPageButtons({ style: 'phone' });
+  const terminalViewButton = button({ variant: 'icon', label: 'Terminal', icon: createLineIcon(TERMINAL_ICON_PATH), action: 'show-terminal', onClick: () => onShowTerminal?.() });
+  const terminalViewWrap = el('span', 'session-page-button');
+  terminalViewWrap.dataset.page = 'terminal';
+  terminalViewWrap.append(terminalViewButton);
+  pageButtons.element.prepend(terminalViewWrap);
 
   const actionSlot = el('div', 'phone-terminal-actions');
 
@@ -313,8 +318,14 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   paint();
 
+  function setTerminalViewShown(isShown: boolean) {
+    terminalViewButton.setAttribute('aria-pressed', String(isShown));
+  }
+
   return {
     el: screen,
+    topBarEl: topBar,
+    setTerminalViewShown,
     show,
     clear,
     refresh,

@@ -1263,7 +1263,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-chat-default-phone') {
       await verifyChatStaysDefaultOnPhone(viewer.page);
-      return passedOutcome('chat-default-phone', 'leaving Chat by the Back button or the system back gesture keeps Chat first on the next session opened');
+      return passedOutcome('chat-default-phone', 'Chat shows the session bar, Back and the system back gesture go to the list and keep Chat first, and Terminal switches back and stays first');
     }
     if (step.kind === 'assert-chat-default') {
       await verifyChatStaysDefault(viewer.page);
@@ -1299,7 +1299,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-phone-changes') {
       await verifyPhoneChanges(viewer.page, projectDirectory);
-      return passedOutcome('phone-changes-back', 'a tapped file opens its diff, back returns to the file list, back again returns to the terminal');
+      return passedOutcome('phone-changes-back', 'a tapped file opens its diff, back returns to the file list, back again goes to the session list');
     }
     if (step.kind === 'assert-key-strip-contexts') {
       return passedOutcome('key-strip-contexts', await verifyKeyStripContexts(viewer.page, async (command) => { await runType(viewer, command); }));
