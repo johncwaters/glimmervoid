@@ -1,4 +1,5 @@
 import { UsageLimit, type ConversationApproval } from '#shared/contracts/session.ts';
+import type { PlanGate } from '#shared/contracts/plan-gate.ts';
 import { API_KEY_PROMPT_KIND, LOGIN_COMMAND_BY_AGENT, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { agentLabel } from '../arena/lineup-core.ts';
@@ -9,11 +10,12 @@ import { sessionUIs } from '../session-card/card-registry.ts';
 import { closeSessionPage } from '../page-registry.ts';
 import { setSessionView } from '../ui-prefs.ts';
 import { holdCardKeys, keyTargetOf } from './chat-cards.ts';
-import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
+import type { ChatCard, ChatPart, PlanVerdict, SignInStage } from './chat-part.ts';
 import { NO_ARRIVING_PARTS, type createChatView } from './chat-view.ts';
 
 export type ChatWaitsView = Pick<ReturnType<typeof createChatView>, 'element' | 'upsert' | 'remove' | 'keepLogInPlace' | 'readDraft' | 'readAttachments'>;
 type SignInCard = Extract<ChatCard, { cardType: 'sign-in' }>;
+type PlanCard = Extract<ChatCard, { cardType: 'plan' }>;
 type TerminalCardState = 'hidden' | 'borrowed' | 'released';
 
 interface ShownApproval {
@@ -33,6 +35,7 @@ interface ChatWaitsOptions {
   root: HTMLElement;
   view: () => ChatWaitsView;
   getApproval: () => ConversationApproval | null;
+  getPlanGate: () => PlanGate | null;
   showFailure: (failureText: string | null) => void;
   sendOrFail: (message: Parameters<typeof sendControlMsg>[0]) => boolean;
 }
@@ -43,7 +46,7 @@ interface ChatWaits {
   sync(): void;
   releaseTerminal(): void;
   clearApproval(): void;
-  restoreSignIn(): void;
+  restoreCards(): void;
   answerCard(cardId: string, action: string, value: string): void;
   handleKeydown(event: KeyboardEvent): void;
 }
@@ -53,7 +56,9 @@ const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const SIGN_IN_REQUEST_TIMEOUT_MS = 10000;
 const SIGNED_IN_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
 
-const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'usage-limit', 'live-terminal'] as const;
+const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'plan', 'sign-in', 'usage-limit', 'live-terminal'] as const;
+const PLAN_VERDICT_BY_ACTION: Readonly<Record<string, PlanVerdict>> = { 'plan-approve': 'approve', 'plan-reject': 'reject' };
+const PLAN_VERDICT_BY_STATUS: Readonly<Record<PlanGate['status'], PlanVerdict | null>> = { pending: null, approved: 'approve', rejected: 'reject' };
 const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
 const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
@@ -160,7 +165,7 @@ function chatKeyTargetOf(root: HTMLElement, key: string): HTMLElement | null {
 }
 
 export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
-  const { sessionId, root, view, getApproval, showFailure, sendOrFail } = options;
+  const { sessionId, root, view, getApproval, getPlanGate, showFailure, sendOrFail } = options;
   let shownApproval: ShownApproval | null = null;
   let terminalCardState: TerminalCardState = 'hidden';
   let terminalCardSerial = 0;
@@ -168,6 +173,9 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
   let terminalHome: HTMLElement | null = null;
   let strayChildWatcher: MutationObserver | null = null;
   let signInCard: SignInCard | null = null;
+  let planCard: PlanCard | null = null;
+  let planCardSerial = 0;
+  let isAwaitingPlanDecisionEcho = false;
   let signInCardSerial = 0;
   let isSignInRequestPending = false;
   const cardIdsSettingLimitWake = new Set<string>();
@@ -295,6 +303,41 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
     shownApproval = null;
   };
 
+  const showPlanCard = (card: PlanCard, arrivingIds: ReadonlySet<string>) => {
+    planCard = card;
+    view().upsert([cardPartOf(card)], arrivingIds);
+  };
+
+  const syncPlanCard = (planGate: PlanGate | null) => {
+    if (planGate === null) {
+      if (planCard?.resolution === null) view().remove([planCard.cardId]);
+      planCard = null;
+      isAwaitingPlanDecisionEcho = false;
+      return;
+    }
+    const verdict = PLAN_VERDICT_BY_STATUS[planGate.status];
+    if (verdict !== null) {
+      isAwaitingPlanDecisionEcho = false;
+      if (planCard?.resolution !== null || planCard.data.planText !== planGate.planText) return;
+      showPlanCard({ ...planCard, resolution: { decision: verdict, feedback: planGate.feedback } }, NO_ARRIVING_PARTS);
+      return;
+    }
+    if (isAwaitingPlanDecisionEcho) return;
+    if (planCard?.resolution === null && planCard.data.planText === planGate.planText) return;
+    if (planCard?.resolution === null) view().remove([planCard.cardId]);
+    planCardSerial += 1;
+    const agent = sessionUIs.get(sessionId)?.agent ?? null;
+    const cardId = `plan-${planCardSerial}`;
+    showPlanCard({ cardType: 'plan', cardId, data: { agentName: agent === null ? 'The agent' : agentLabel(agent), planText: planGate.planText, isPlanTruncated: planGate.isPlanTruncated }, resolution: null }, new Set([cardId]));
+  };
+
+  const decidePlan = (cardId: string, verdict: PlanVerdict, feedback: string) => {
+    if (planCard?.cardId !== cardId || planCard.resolution !== null) return;
+    if (!sendOrFail({ type: 'plan-decision', id: sessionId, decision: verdict, ...(feedback.length > 0 ? { feedback } : {}) })) return;
+    isAwaitingPlanDecisionEcho = true;
+    showPlanCard({ ...planCard, resolution: { decision: verdict, feedback: feedback.length > 0 ? feedback : null } }, NO_ARRIVING_PARTS);
+  };
+
   const sync = () => {
     const approval = getApproval();
     if (shownApproval && shownApproval.approval.requestId !== approval?.requestId) settleShownApproval();
@@ -302,7 +345,10 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
       shownApproval = shownApprovalOf(approval);
       view().upsert(shownApproval.cards.map(cardPartOf), new Set(shownApproval.cards.map((card) => card.cardId)));
     }
-    const isAnswerableFromChat = shownApproval !== null && shownApproval.cards.length > 0;
+    const planGate = getPlanGate();
+    syncPlanCard(planGate);
+    const isPlanPending = planGate?.status === 'pending';
+    const isAnswerableFromChat = isPlanPending || (shownApproval !== null && shownApproval.cards.length > 0);
     const loginKind = isAnswerableFromChat ? null : loginKindOfSession();
     if (loginKind === null) settleSignInCard();
     if (loginKind !== null) {
@@ -363,6 +409,11 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
       startSignIn();
       return;
     }
+    const planVerdict = PLAN_VERDICT_BY_ACTION[action];
+    if (planVerdict !== undefined) {
+      decidePlan(cardId, planVerdict, value);
+      return;
+    }
     if (action === 'open-terminal') {
       setSessionView('terminal');
       closeSessionPage();
@@ -401,7 +452,7 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
     isTerminalBorrowed: () => terminalCardState === 'borrowed',
     pendingCardIds: () => {
       const openCardIds = shownApproval?.cards.filter((card) => card.resolution === null).map((card) => card.cardId) ?? [];
-      const terminalCardIds = [terminalCardId, signInCard?.cardId ?? null].filter((cardId): cardId is string => cardId !== null);
+      const terminalCardIds = [terminalCardId, signInCard?.cardId ?? null, planCard?.resolution === null ? planCard.cardId : null].filter((cardId): cardId is string => cardId !== null);
       return [...openCardIds, ...terminalCardIds];
     },
     sync,
@@ -409,8 +460,9 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
     clearApproval: () => {
       shownApproval = null;
     },
-    restoreSignIn: () => {
+    restoreCards: () => {
       if (signInCard) showSignInCard(signInCard);
+      if (planCard) showPlanCard(planCard, NO_ARRIVING_PARTS);
     },
     answerCard,
     handleKeydown,

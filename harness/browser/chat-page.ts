@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
-import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME, STACKED_ANSWERS_PREFIX } from './cases-core.ts';
+import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, STACKED_ANSWERS_PREFIX } from './cases-core.ts';
 import { PANEL_MIN_CHANGED_LINES } from '../../shared/contracts/verification.ts';
 import { DataClientMessage } from '../../shared/contracts/data-messages.ts';
 import { parseJsonOrNull } from '../../shared/coerce.ts';
@@ -662,6 +662,38 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   assert.ok(isTerminalHome, 'the terminal returns to its session card once the wait ends');
   assert.equal(await page.locator('.session-card > .session-attention-note').count(), 1, 'the note outlives the inline terminal');
   await verifyBoardCardKeepsPlace(page);
+}
+
+const PLAN_FEEDBACK_TEXT = 'Measure on the phone too';
+
+export async function verifyChatPlan(page: Page): Promise<void> {
+  await openChat(page);
+  await sendFromComposer(page, 'propose-plan');
+  const planCard = page.locator('.session-chat .chat-card[data-card-type="plan"]');
+  await planCard.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await planCard.locator('.chat-card-heading').innerText(), /proposes a plan$/, 'the plan card names the agent');
+  assert.match(await planCard.locator('.chat-card-plan').innerText(), new RegExp(PROPOSED_PLAN_HEADING), 'the plan card renders the proposed plan');
+  await page.waitForTimeout(INLINE_TERMINAL_STEADY_WATCH_MS);
+  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="live-terminal"]').count(), 0, 'a pending plan never lends the terminal to Chat');
+  assert.equal(await page.locator('.session-card > .plan-gate-panel').evaluateAll((panels) => panels.filter((panel) => panel.checkVisibility()).length), 0, 'Chat hides the session card plan panel so the plan shows once');
+  const composer = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await planCard.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await composer.focus();
+  await page.keyboard.press('2');
+  const openPlanCard = page.locator('.session-chat .chat-card[data-card-type="plan"][data-resolved="false"]');
+  await page.locator('.session-chat .chat-card[data-card-type="plan"][data-resolved="true"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await openPlanCard.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="plan"]').count(), 2, 'the same plan proposed again after Keep planning opens a new card');
+  await openPlanCard.locator('.chat-card-feedback').fill(PLAN_FEEDBACK_TEXT);
+  await openPlanCard.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await composer.focus();
+  await page.keyboard.press('1');
+  const reply = page.locator('.session-chat').getByText(PLAN_REPLY_PREFIX, { exact: false });
+  await reply.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await reply.innerText(), /"behavior":"allow"/, 'Approve releases the held plan with an allow');
+  const receipts = page.locator('.session-chat .chat-card[data-card-type="plan"] .chat-card-receipt');
+  await receipts.nth(1).waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.deepEqual(await receipts.allInnerTexts(), ['Kept planning', `Approved: ${PLAN_FEEDBACK_TEXT}`], 'each settled plan card keeps its own decision and feedback');
 }
 
 export async function verifyChatSignIn(page: Page): Promise<void> {

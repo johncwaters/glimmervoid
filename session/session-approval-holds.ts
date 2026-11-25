@@ -72,7 +72,7 @@ interface PlanHold {
 interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   readonly conversationApproval: ConversationApproval | null;
   readonly planGate: PlanGate | null;
-  holdPlan(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null;
+  holdPlan(payload: unknown, abandoned: AbortSignal, isPlanGateOn: boolean): Promise<ClaudeHookReply | null> | null;
   proposePlan(planText: string): void;
   decidePlan(decision: PlanDecision, feedback: string | null): { ok: true; isHeld: boolean } | { ok: false; reason: string };
   readonly latestManagerDecisionSeq: number;
@@ -114,8 +114,9 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     released.resolve(null);
   }
 
-  function holdPlan(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
+  function holdPlan(payload: unknown, abandoned: AbortSignal, isPlanGateOn: boolean): Promise<ClaudeHookReply | null> | null {
     if (agentId !== "claude-code") return null;
+    if (!isPlanGateOn && readChatApprovals() === "off") return null;
     const request = parseClaudePermissionRequest(payload);
     if (!request || !isExitPlanModeTool(request.toolName) || request.agentKey !== "") return null;
     releasePlanHold();

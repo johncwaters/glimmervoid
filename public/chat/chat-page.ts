@@ -1,4 +1,5 @@
 import { CHAT_SEND_MAX_ATTACHMENTS, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
+import type { PlanGate } from '#shared/contracts/plan-gate.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -353,6 +354,7 @@ function buildChat(sessionId: string): MountedChat {
     root,
     view: () => chatView,
     getApproval: () => sessionState.approval,
+    getPlanGate: () => sessionState.planGate,
     showFailure,
     sendOrFail,
   });
@@ -534,7 +536,7 @@ function buildChat(sessionId: string): MountedChat {
       boardChangeByCardId = new Map();
       feedPosition = 'unseeded';
       feed.whenCaughtUp(showBoardChangesOnceCaughtUp);
-      waits.restoreSignIn();
+      waits.restoreCards();
       showRail();
       waits.sync();
       chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
@@ -646,6 +648,15 @@ export function chatApprovalOf(sessionId: string): ConversationApproval | null {
 
 export function noteChatApproval(sessionId: string, approval: ConversationApproval | null): void {
   chatSessionStateOf(sessionId).approval = approval;
+}
+
+export function chatPlanGateOf(sessionId: string): PlanGate | null {
+  return chatSessionStateOf(sessionId).planGate;
+}
+
+export function noteChatPlanGate(sessionId: string, planGate: PlanGate | null): void {
+  chatSessionStateOf(sessionId).planGate = planGate;
+  applyChatSessionStatus(sessionId);
 }
 
 export function noteChatAgentDoneLines(sessionId: string, agentDoneLines: readonly AgentDoneLine[]): void {

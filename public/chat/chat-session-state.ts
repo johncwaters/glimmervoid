@@ -1,7 +1,9 @@
 import type { AgentDoneLine, ChatOutboxEntry, ConversationApproval } from '#shared/contracts/session.ts';
+import type { PlanGate } from '#shared/contracts/plan-gate.ts';
 
 interface ChatSessionState {
   approval: ConversationApproval | null;
+  planGate: PlanGate | null;
   draft: string;
   draftAttachments: string[];
   outbox: ChatOutboxEntry[];
@@ -13,7 +15,7 @@ const stateBySessionId = new Map<string, ChatSessionState>();
 const outboxListeners = new Set<(sessionId: string) => void>();
 
 function freshSessionState(): ChatSessionState {
-  return { approval: null, draft: '', draftAttachments: [], outbox: [], agentDoneLines: [], uploadingCount: 0 };
+  return { approval: null, planGate: null, draft: '', draftAttachments: [], outbox: [], agentDoneLines: [], uploadingCount: 0 };
 }
 
 export function chatSessionStateOf(sessionId: string): ChatSessionState {
@@ -37,6 +39,7 @@ export function onChatOutboxNoted(listener: (sessionId: string) => void): () => 
 export function clearChatSnapshotState(): void {
   for (const state of stateBySessionId.values()) {
     state.approval = null;
+    state.planGate = null;
     state.outbox = [];
     state.agentDoneLines = [];
   }

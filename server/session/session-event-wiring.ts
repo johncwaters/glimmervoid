@@ -377,7 +377,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('conversation-change', ({ conversationApproval }: { conversationApproval: ConversationApproval | null }) => noteStatus({ conversationApproval }));
     session.on('chat-outbox-change', ({ chatOutbox }: { chatOutbox: ChatOutboxEntry[] }) => noteStatus({ chatOutbox }));
     session.on('plan-proposed', ({ planText }: { planText: string }) => {
-      if (isPlanGateEnabled(dependencies.config.planGate)) session.proposePlan(planText);
+      if (isPlanGateEnabled(dependencies.config.planGate) || session.isChatApprovalsOn) session.proposePlan(planText);
     });
 
     session.on('merge-status', ({ mergeStatus, reason, parked }: {

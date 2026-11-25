@@ -12,7 +12,7 @@ import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, ve
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
 import { verifyBoardSession } from './board-session.ts';
-import { verifyChatApprovals, verifyChatAwayReply, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
+import { verifyChatApprovals, verifyChatAwayReply, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal, verifyChatPlan } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1272,6 +1272,10 @@ export async function runCase({
     if (step.kind === 'assert-chat-terminal') {
       await verifyChatTerminal(viewer.page);
       return passedOutcome('chat-terminal', 'a prompt Chat cannot answer shows the live terminal inline, and the terminal goes home once the wait ends');
+    }
+    if (step.kind === 'assert-chat-plan') {
+      await verifyChatPlan(viewer.page);
+      return passedOutcome('chat-plan', 'a proposed plan shows as a plan card in Chat with no inline terminal, and 1 in the empty composer approves it with the typed feedback');
     }
     if (step.kind === 'assert-board-session') {
       await verifyBoardSession(viewer.page, projectDirectory);

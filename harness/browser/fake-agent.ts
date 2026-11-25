@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML } from './cases-core.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -147,6 +147,12 @@ function answerPrompt(command: string, replyText: string): void {
   appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
   appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: replyText }] } });
 }
+
+const PLAN_REQUEST = {
+  hook_event_name: 'PermissionRequest',
+  tool_name: 'ExitPlanMode',
+  tool_input: { plan: `## ${PROPOSED_PLAN_HEADING}\n\n1. Move paint into board-paint.worker.ts\n2. Transfer the canvas on open\n3. Measure frame time before and after` },
+};
 
 const STACKED_QUESTION_REQUEST = {
   hook_event_name: 'PermissionRequest',
@@ -374,6 +380,17 @@ function dispatch(command: string): void {
     postHook('permissionrequest', questionRequest);
     void postHookAwaitingReply('permissionrequest-conversation', questionRequest).then((replyText) => {
       appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${STACKED_ANSWERS_PREFIX}${replyText}` }] } });
+      postHook('stop', { hook_event_name: 'Stop', stop_hook_active: false });
+      setTitle(IDLE_GLYPH, 'idle');
+    });
+    return;
+  }
+  if (command === 'propose-plan') {
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    postHook('permissionrequest', PLAN_REQUEST);
+    const proposeUntilDecided = (): Promise<string> => postHookAwaitingReply('permissionrequest-plangate', PLAN_REQUEST).then((replyText) => (replyText.includes('"behavior":"deny"') ? proposeUntilDecided() : replyText));
+    void proposeUntilDecided().then((replyText) => {
+      appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${PLAN_REPLY_PREFIX}${replyText}` }] } });
       postHook('stop', { hook_event_name: 'Stop', stop_hook_active: false });
       setTitle(IDLE_GLYPH, 'idle');
     });
