@@ -442,8 +442,8 @@ async function waitForLogAtNewest(page: Page, reason: string): Promise<void> {
     const log = document.querySelector<HTMLElement>('.board-session-view .bs-log');
     return log !== null && log.clientHeight > 0 && log.scrollHeight > log.clientHeight && log.scrollHeight - log.clientHeight - log.scrollTop <= 1;
   };
-  await page.waitForFunction(isAtNewest, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS }).catch(() => undefined);
-  assert.equal(await page.evaluate(isAtNewest), true, reason);
+  const reachedNewest = await page.waitForFunction(isAtNewest, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS }).then(() => true, () => false);
+  assert.equal(reachedNewest, true, reason);
 }
 
 async function verifyStudioChatOpensAtNewest(page: Page): Promise<void> {
@@ -486,12 +486,30 @@ async function verifyQueuedMessagesDeliveredOnceInOrder(page: Page, studioMainId
   const queuedRowOf = (text: string) => root.locator('.bs-row-queued', { hasText: text });
   const editSentBefore = await sentRowsOf('edit-shop').count();
   const longSentBefore = await sentRowsOf('long-shop').count();
+  await root.locator('.bs-log-queue').evaluate((queue, watchedTexts) => {
+    if (!(queue instanceof HTMLElement)) return;
+    const shownTexts = new Set<string>();
+    const noteQueuedRows = () => {
+      const queuedTexts = [...queue.querySelectorAll('.bs-row-queued')].map((row) => row.textContent ?? '');
+      for (const text of watchedTexts) {
+        const isShown = queuedTexts.some((queuedText) => queuedText.includes(text));
+        if (isShown) shownTexts.add(text);
+        if (!isShown && shownTexts.has(text)) queue.dataset.leftQueueEarly = text;
+      }
+    };
+    new MutationObserver(noteQueuedRows).observe(queue, { childList: true, subtree: true });
+  }, ['edit-shop', 'long-shop']);
   for (const queuedText of ['edit-shop', 'long-shop']) {
     await pillInput.fill(queuedText);
     await pillInput.press('Enter');
     await queuedRowOf(queuedText).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   }
-  await page.waitForFunction(() => [...document.querySelectorAll('.board-session-view .bs-row-queued .bs-queued-status')].every((status) => status.textContent === 'Queued'), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.waitForFunction(() => {
+    const queuedRows = [...document.querySelectorAll<HTMLElement>('.board-session-view .bs-row-queued')];
+    const isHeld = (text: string) => queuedRows.some((row) => row.dataset.state === 'held' && (row.textContent ?? '').includes(text));
+    return isHeld('edit-shop') && isHeld('long-shop') && queuedRows.every((row) => row.dataset.state !== 'pending');
+  }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-log-queue').getAttribute('data-left-queue-early'), null, 'a message sent mid-turn stays queued until the turn ends');
   assert.equal(await queuedRowOf('edit-shop').count(), 1, 'a message sent mid-turn shows once as queued');
   assert.equal(await sentRowsOf('edit-shop').count(), editSentBefore, 'a queued message shows no sent copy');
   await typeIntoAgent(page, studioMainId, 'stop');

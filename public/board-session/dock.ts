@@ -199,6 +199,7 @@ interface PendingSend {
   text: string;
   entryIdsAtDispatch: ReadonlySet<string> | null;
   isClaimed: boolean;
+  isAwaitingOutboxEcho: boolean;
 }
 
 function queuedRowOf(text: string, statusText: string, state: string, cancelButton: HTMLButtonElement): HTMLElement {
@@ -630,8 +631,15 @@ export function createDock(session: DockSession): Dock {
     pendingSends = pendingSends.filter((candidate) => candidate !== pending);
     paintQueue();
   };
+  const settlePendingSend = (pending: PendingSend) => {
+    if (pending.isAwaitingOutboxEcho && !pending.isClaimed) return;
+    dropPendingSend(pending);
+  };
   const stopFollowingOutbox = onChatOutboxNoted((sessionId) => {
-    if (sessionId === session.sessionId) paintQueue();
+    if (sessionId !== session.sessionId) return;
+    claimPendingSends(session.outbox());
+    pendingSends = pendingSends.filter((pending) => !pending.isAwaitingOutboxEcho);
+    paintQueue();
   });
   const stopFollowingBoardChanges = onAgentChange((sessionId, boardChange) => {
     if (boardChange.boardId === session.mapBoardId()) refreshBoardChangeRows(sessionId);
@@ -741,18 +749,21 @@ export function createDock(session: DockSession): Dock {
         });
     }
     if (sentAddress.kind === 'branch') return sendToAgent(sentAddress.sessionId, text);
-    const pending: PendingSend = { text, entryIdsAtDispatch: null, isClaimed: false };
+    const pending: PendingSend = { text, entryIdsAtDispatch: null, isClaimed: false, isAwaitingOutboxEcho: false };
     pendingSends = [...pendingSends, pending];
     paintQueue();
     const dispatchToMain = () => {
       pending.entryIdsAtDispatch = new Set(session.outbox().map((entry) => entry.entryId));
-      return sendToAgent(session.sessionId, text);
+      return sendToAgent(session.sessionId, text).then((failureText) => {
+        pending.isAwaitingOutboxEcho = failureText === null;
+        return failureText;
+      });
     };
     const mainSend = mainSendQueue.then(() => sendControlRequest('studio-progress-ask', { id: session.sessionId, text }, { timeoutMs: PROGRESS_ASK_TIMEOUT_MS })
       .then((reply) => reply.type === 'studio-progress-ask-result' && reply.isAnswered)
       .catch(() => false)
       .then((isAnswered) => isAnswered ? deliveredAs('progress', Promise.resolve(null)) : deliveredAs('talk', dispatchToMain())))
-      .finally(() => dropPendingSend(pending));
+      .finally(() => settlePendingSend(pending));
     mainSendQueue = mainSend.catch(() => null);
     return mainSend;
   };
