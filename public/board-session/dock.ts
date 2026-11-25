@@ -6,7 +6,7 @@ import { createComposer } from '../chat/composer.ts';
 import { listenForModelChange } from '../chat/model-picker.ts';
 import { canSwitchSessionModel } from '../session-card/card-model.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
-import { STAND_IN_UNRECORDED_MAX_MS, draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
+import { draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
 import { chatDraftOf, onChatOutboxNoted, saveChatDraft, scheduleChatDraftSave } from '../chat/chat-session-state.ts';
 import { queuedStatusOf } from '../chat/chat-view.ts';
 import { createOutboxEchoState, reconcileOutboxEcho, takeStandInsForPrompts } from '../chat/outbox-echo-core.ts';
@@ -493,13 +493,12 @@ export function createDock(session: DockSession): Dock {
 
   const outboxEcho = createOutboxEchoState();
   const shownPromptPartIds = new Set<string>();
-  const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
+  const entryIdsAwaitingPrompt = new Set<string>();
   let pendingSends: PendingSend[] = [];
   const removeStandIns = (entryIds: readonly string[]) => {
     for (const entryId of entryIds) {
       outboxEcho.standInByEntryId.delete(entryId);
-      clearTimeout(unrecordedTimerByEntryId.get(entryId));
-      unrecordedTimerByEntryId.delete(entryId);
+      entryIdsAwaitingPrompt.delete(entryId);
     }
   };
   const takeRecordedPrompts = (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean) => {
@@ -591,14 +590,12 @@ export function createDock(session: DockSession): Dock {
       .catch((reason: unknown) => showFailure(`Could not cancel the message: ${errorMessage(reason)}`));
   };
   const awaitPromptFor = (entryId: string) => {
-    if (unrecordedTimerByEntryId.has(entryId)) return;
-    unrecordedTimerByEntryId.set(entryId, setTimeout(() => {
-      mainFeed.whenCaughtUp(() => {
-        removeStandIns([entryId]);
-        paintQueue();
-      });
-      mainFeed.refresh();
-    }, STAND_IN_UNRECORDED_MAX_MS));
+    if (entryIdsAwaitingPrompt.has(entryId)) return;
+    entryIdsAwaitingPrompt.add(entryId);
+    mainFeed.whenCaughtUp(() => {
+      removeStandIns([entryId]);
+      paintQueue();
+    });
   };
   const claimPendingSends = (entries: readonly ChatOutboxEntry[]) => {
     const claimedEntryIds = new Set<string>();
@@ -896,7 +893,6 @@ export function createDock(session: DockSession): Dock {
       if (sessionUIs.has(session.sessionId)) saveChatDraft(session.sessionId, composer.readDraft());
       stopFollowingOutbox();
       stopFollowingBoardChanges();
-      for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
       modelPicker.close();
       dockListeners.abort();
       clearInterval(railTimer);

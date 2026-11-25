@@ -56,7 +56,7 @@ interface SessionEventDependencies {
   removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   director?: { onTurnEnd: (session: Session, finalReply: string | null) => void } | null;
-  traceWiring?: { attachSession: (session: Session) => void } | null;
+  traceWiring?: { attachSession: (session: Session) => void; drainSession: (sessionId: string) => Promise<void> } | null;
   verification?: { attachSession: (session: Session) => void } | null;
   loopGuard?: { attachSession: (session: Session) => void } | null;
   reactions?: { attachSession: (session: Session) => void } | null;
@@ -113,6 +113,11 @@ function persistSessionField(
 function createSessionEventWiring(dependencies: SessionEventDependencies): (session: Session) => void {
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
+    const settleUnrecordedChatPromptsOnceDrained = async (endedTurnEntryIds: string[]): Promise<void> => {
+      if (endedTurnEntryIds.length === 0) return;
+      await dependencies.traceWiring?.drainSession(session.id).catch((error: unknown) => dependencies.logger.warn(`[session ${session.id}] trace drain at turn end failed: ${errorMessage(error)}`));
+      session.settleUnrecordedChatPrompts(endedTurnEntryIds);
+    };
     dependencies.verification?.attachSession(session);
     dependencies.loopGuard?.attachSession(session);
     dependencies.reactions?.attachSession(session);
@@ -271,6 +276,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         dependencies.taskTitleRefiner?.onTurnEnd(session);
         dependencies.director?.onTurnEnd(session, turnFinalReply);
         turnFinalReply = null;
+        void settleUnrecordedChatPromptsOnceDrained(session.takenChatEntryIds());
       }
       if (event === 'spawn_success') {
         spawnedAtMs = clock.nowMs();

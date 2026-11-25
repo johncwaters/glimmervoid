@@ -221,7 +221,7 @@ test('Chat switches the model between turns, keeping the conversation and the se
   }
 });
 
-test('a Chat message waits for the Claude startup hook instead of typing into a startup screen, clears when a turn starts for it, and fails a message no turn takes, waiting as Check Terminal while holding the next', async (t) => {
+test('a Chat message waits for the Claude startup hook instead of typing into a startup screen, stays sent through its turn start until its prompt is recorded, and fails a message no turn takes, waiting as Check Terminal while holding the next', async (t) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-ready-by-hook-'));
   const writes: string[] = [];
   const session = new Session({ id: 'booting', name: 'booting', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty(writes) });
@@ -253,6 +253,9 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   assert.deepEqual(outboxOf(), ['Sent while the dialog is up:submitted']);
   await advance(10_000);
   session.transition('new_output');
+  await advance(20_000);
+  assert.deepEqual(outboxOf(), ['Sent while the dialog is up:submitted']);
+  session.noteChatPromptRecorded();
   assert.deepEqual(outboxOf(), []);
   session.transition('task_complete');
   session.transition('user_dismiss');
@@ -285,6 +288,7 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   session.deliver('Child report', { when: 'ready', submit: true });
   await advance(1_000);
   session.transition('new_output');
+  session.noteChatPromptRecorded();
   assert.deepEqual(outboxOf(), []);
 });
 
@@ -330,6 +334,8 @@ test('a Chat message reaches Claude once its turn ends with a background shell s
 
   session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 4, payload: { prompt: 'Is it stuck?' } });
   await advance(20_000);
+  assert.deepEqual(outboxOf(), ['Is it stuck?:submitted']);
+  session.noteChatPromptRecorded();
   assert.deepEqual(outboxOf(), []);
   assert.equal(session.state, 'RUNNING');
 
@@ -427,4 +433,56 @@ test('Sign in on the sign-in card has the server submit /login on its own, after
   await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS * 2 + 200));
   assert.deepEqual(writes.slice(writesBeforeSignIn), ['\x1b[200~hello\x1b[201~', '\r', '\x1b[200~/login\x1b[201~', '\r']);
   assert.deepEqual(connection.sent.at(-1), { type: 'sign-in-start-result', requestId: 'sign-in', id: session.id, ok: true });
+});
+
+test('a Chat message whose prompt never reaches the trace leaves once its turn ends and the trace drains, and a turn end with nothing unrecorded settles nothing later', async (t) => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-unrecorded-'));
+  const writes: string[] = [];
+  const session = new Session({ id: 'unrecorded', name: 'unrecorded', path: projectPath, ptySpawn: () => capturingPty(writes) });
+  const pendingDrains: (() => void)[] = [];
+  const config: GlimmervoidConfig = { projects: [] };
+  createSessionEventWiring({
+    configStore: { save: (mutate) => { mutate(config); return config; } }, config, recordLane: () => {},
+    usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+    broadcastControl: () => {},
+    telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+    notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
+    attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
+    logger: { error: () => {}, log: () => {}, warn: () => {} },
+    traceWiring: { attachSession: () => {}, drainSession: () => new Promise<void>((resolve) => { pendingDrains.push(resolve); }) },
+  })(session);
+  t.after(() => {
+    session.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  });
+  await session.start();
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const outboxOf = () => session.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`);
+  const advance = async (waitMs: number) => {
+    for (let elapsedMs = 0; elapsedMs < waitMs; elapsedMs += 250) {
+      t.mock.timers.tick(250);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+
+  session.transition('first_output');
+  session.queueChatMessage('Recorded');
+  await advance(2_000);
+  session.transition('new_output');
+  session.noteChatPromptRecorded();
+  session.queueChatMessage('Never recorded');
+  session.transition('task_complete');
+  await advance(2_000);
+  session.transition('new_output');
+  assert.deepEqual(outboxOf(), ['Never recorded:submitted']);
+  assert.equal(pendingDrains.length, 0);
+
+  session.transition('task_complete');
+  session.queueChatMessage('Held behind it');
+  await advance(2_000);
+  assert.deepEqual(outboxOf(), ['Never recorded:submitted', 'Held behind it:held']);
+  assert.equal(pendingDrains.length, 1);
+  pendingDrains[0]();
+  await advance(2_000);
+  assert.deepEqual(outboxOf(), ['Held behind it:submitted']);
 });

@@ -4,11 +4,12 @@ import { mock, test } from 'node:test';
 import { createChatOutbox } from '../session/chat-outbox.ts';
 import type { ChatOutboxEntry } from '../shared/contracts/session.ts';
 
-function outboxNotingTaken(nowMs: () => number) {
+function outboxNotingTaken(nowMs: () => number, recordsPrompts = true) {
   const takenNotes: { origin: ChatOutboxEntry['origin']; submittedAtMs: number }[] = [];
   const outbox = createChatOutbox({
     canTakeMessage: () => true,
     reportsTurnStarts: () => true,
+    recordsPrompts: () => recordsPrompts,
     isDeliveryInFlight: () => false,
     deliver: (_entry, onSettled) => {
       onSettled('submitted');
@@ -47,4 +48,29 @@ test('a board answer the agent takes is noted at the time it was submitted', () 
   outbox.noteTurnTaken();
   outbox.dispose();
   assert.deepEqual(takenNotes, [{ origin: 'board-answer', submittedAtMs: 5_000 }]);
+});
+
+test('a sent message stays submitted from turn start until its prompt is recorded, so Chat never drops it while slow prompt hooks run', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { outbox, takenNotes } = outboxNotingTaken(() => 5_000);
+    outbox.queue('Fix the chat', [], 'operator');
+    outbox.noteTurnStarted();
+    mock.timers.tick(60_000);
+    assert.deepEqual(outbox.entries().map((entry) => entry.state), ['submitted']);
+    assert.equal(takenNotes.length, 1);
+    outbox.noteTurnTaken();
+    assert.deepEqual(outbox.entries(), []);
+    assert.equal(takenNotes.length, 1);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a sent message to an agent that keeps no conversation trace leaves the outbox when its turn starts', () => {
+  const { outbox } = outboxNotingTaken(() => 5_000, false);
+  outbox.queue('Fix the chat', [], 'operator');
+  outbox.noteTurnStarted();
+  outbox.dispose();
+  assert.deepEqual(outbox.entries(), []);
 });

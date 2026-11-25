@@ -21,6 +21,7 @@ const NOT_TAKEN_TEXT = "The agent did not start a turn for this message. Open Te
 interface ChatOutboxPort {
   canTakeMessage(): boolean;
   reportsTurnStarts(): boolean;
+  recordsPrompts(): boolean;
   isDeliveryInFlight(): boolean;
   deliver(entry: ChatOutboxEntry, onSettled: (settlement: DeliverySettlement) => void): { ok: boolean; reason?: string };
   noteSubmitted(entry: ChatOutboxEntry): void;
@@ -39,7 +40,10 @@ interface ChatOutbox {
   cancel(entryId: string): ChatOutboxEntry[];
   sendNext(entryId: string): boolean;
   drain(): void;
+  noteTurnStarted(): void;
   noteTurnTaken(): void;
+  takenEntryIds(): string[];
+  settleUnrecordedPrompts(entryIds: readonly string[]): void;
   dispose(): void;
 }
 
@@ -88,11 +92,38 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     submittedAtByEntryId.delete(entry.entryId);
   }
 
-  function noteTurnTaken(): void {
+  function markSubmittedEntriesTaken(): ChatOutboxEntry[] {
     stopUnrecordedTimers();
-    const takenEntries = outboxEntries.filter((entry) => entry.state === "submitted");
+    const submittedEntries = outboxEntries.filter((entry) => entry.state === "submitted");
+    for (const submittedEntry of submittedEntries) {
+      if (submittedAtByEntryId.has(submittedEntry.entryId)) markTaken(submittedEntry);
+    }
+    return submittedEntries;
+  }
+
+  function noteTurnStarted(): void {
+    if (!port.recordsPrompts()) {
+      noteTurnTaken();
+      return;
+    }
+    markSubmittedEntriesTaken();
+  }
+
+  function takenEntryIds(): string[] {
+    return outboxEntries.filter((entry) => entry.state === "submitted" && !submittedAtByEntryId.has(entry.entryId)).map((entry) => entry.entryId);
+  }
+
+  function settleUnrecordedPrompts(entryIds: readonly string[]): void {
+    const settledEntryIds = new Set(entryIds);
+    const isSettled = (entry: ChatOutboxEntry) => entry.state === "submitted" && settledEntryIds.has(entry.entryId);
+    if (!outboxEntries.some(isSettled)) return;
+    publish(outboxEntries.filter((entry) => !isSettled(entry)));
+    drain();
+  }
+
+  function noteTurnTaken(): void {
+    const takenEntries = markSubmittedEntriesTaken();
     if (takenEntries.length === 0) return;
-    for (const takenEntry of takenEntries) markTaken(takenEntry);
     publish(outboxEntries.filter((entry) => entry.state !== "submitted"));
     drain();
   }
@@ -169,7 +200,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     submittedAtByEntryId.clear();
   }
 
-  return { entries: () => outboxEntries, queue, adopt, cancel, sendNext, drain, noteTurnTaken, dispose };
+  return { entries: () => outboxEntries, queue, adopt, cancel, sendNext, drain, noteTurnStarted, noteTurnTaken, takenEntryIds, settleUnrecordedPrompts, dispose };
 }
 
 export { createChatOutbox };

@@ -44,6 +44,7 @@ import { permitsHelpCommand } from "./core/session-routes.ts";
 import type { CommandHint, HintedCommand } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply, type AttentionNote, type AttentionOrigin } from "../shared/contracts/session.ts";
 import { PROPOSED_PLAN_TEXT_FIELD } from "../shared/contracts/plan-gate.ts";
+import { CatalogAgentId } from "../shared/contracts/agent-models.ts";
 import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { attentionNotesOf, attentionOwnerOf, createAttentionLanes, reduceAttention } from "./core/session-attention-core.ts";
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
@@ -578,6 +579,7 @@ class Session extends EventEmitter {
     this._chatOutbox = createChatOutbox({
       canTakeMessage: () => this.hasLivePty && this.isBetweenTurns() && this._isAgentReadyForChat(),
       reportsTurnStarts: () => this._hooksReportPrompts,
+      recordsPrompts: () => CatalogAgentId.safeParse(this.agentId).success,
       isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
       noteSubmitted: (entry) => {
@@ -593,7 +595,7 @@ class Session extends EventEmitter {
     });
     this._output.onDeliveryIdle(() => this._chatOutbox.drain());
     this.on("state-change", ({ from, to }: { from: SessionState; to: SessionState }) => {
-      if (startsTurn(from, to)) this._chatOutbox.noteTurnTaken();
+      if (startsTurn(from, to)) this._chatOutbox.noteTurnStarted();
       this._chatOutbox.drain();
     });
 
@@ -1107,7 +1109,7 @@ class Session extends EventEmitter {
       this.backgroundTracking.clearGateHeldReady();
       this.backgroundTracking.resetTurnEvidence();
       this.backgroundTracking.clearBgDeclared();
-      if (this.state === STATES.RUNNING) this._chatOutbox.noteTurnTaken();
+      if (this.state === STATES.RUNNING) this._chatOutbox.noteTurnStarted();
 
       const isSelfWake = isSelfWakePrompt(raw.payload?.prompt);
       if (!isSelfWake) this._dispatchAttention({ type: "operator_prompt" });
@@ -2369,6 +2371,8 @@ class Session extends EventEmitter {
 
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
   noteChatPromptRecorded() { this._chatOutbox.noteTurnTaken(); }
+  takenChatEntryIds(): string[] { return this._chatOutbox.takenEntryIds(); }
+  settleUnrecordedChatPrompts(entryIds: readonly string[]) { this._chatOutbox.settleUnrecordedPrompts(entryIds); }
 
   stopFromChat(sendNextEntryId?: string): void {
     const isTurnEndHeldForBackgroundWork = this._isTurnEndHeldForBackgroundWork();

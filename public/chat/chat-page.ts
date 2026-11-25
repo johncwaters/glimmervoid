@@ -44,7 +44,6 @@ const RUN_TIME_TICK_MS = 1000;
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
-export const STAND_IN_UNRECORDED_MAX_MS = 5000;
 
 interface MountedChat {
   sessionId: string;
@@ -312,23 +311,20 @@ function buildChat(sessionId: string): MountedChat {
   let chatView = createSeededView(chatDraftOf(sessionId), sessionState.draftAttachments);
   sessionState.draftAttachments = [];
   const outboxEcho = createOutboxEchoState();
-  const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
+  const entryIdsAwaitingPrompt = new Set<string>();
   const shownPromptPartIds = new Set<string>();
   const removeStandIns = (entryIds: readonly string[]) => {
     for (const entryId of entryIds) {
       const standIn = outboxEcho.standInByEntryId.get(entryId);
       if (standIn) chatView.remove([standIn.id]);
       outboxEcho.standInByEntryId.delete(entryId);
-      clearTimeout(unrecordedTimerByEntryId.get(entryId));
-      unrecordedTimerByEntryId.delete(entryId);
+      entryIdsAwaitingPrompt.delete(entryId);
     }
   };
   const awaitPromptFor = (entryId: string) => {
-    if (unrecordedTimerByEntryId.has(entryId)) return;
-    unrecordedTimerByEntryId.set(entryId, setTimeout(() => {
-      feed.whenCaughtUp(() => removeStandIns([entryId]));
-      feed.refresh();
-    }, STAND_IN_UNRECORDED_MAX_MS));
+    if (entryIdsAwaitingPrompt.has(entryId)) return;
+    entryIdsAwaitingPrompt.add(entryId);
+    feed.whenCaughtUp(() => removeStandIns([entryId]));
   };
   const takeNewPromptParts = (changedParts: readonly ChatPart[], droppedPartIds: readonly string[]) => {
     for (const droppedPartId of droppedPartIds) shownPromptPartIds.delete(droppedPartId);
@@ -588,7 +584,6 @@ function buildChat(sessionId: string): MountedChat {
       if (sessionUIs.has(sessionId)) saveChatDraft(sessionId, chatView.readDraft());
       sessionState.draftAttachments = chatView.readAttachments();
       waits.releaseTerminal();
-      for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
       feed.close();
     },
   };
