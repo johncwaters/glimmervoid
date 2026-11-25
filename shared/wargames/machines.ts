@@ -1,6 +1,5 @@
 import type {
   ArmyStatus,
-  ContractStatus,
   MatchStatus,
   RejectionCode,
   SeatStatus,
@@ -12,7 +11,6 @@ import type {
 type MatchEventKind = 'begin_seating' | 'all_seats_connected' | 'match_won' | 'tick_limit_reached' | 'abort_match';
 type TickEventKind = 'phase_complete' | 'resolution_complete' | 'next_tick';
 type SeatEventKind = 'seat_connect' | 'phase_start' | 'seat_submit' | 'phase_deadline' | 'seat_disconnect' | 'seat_eliminated';
-type ContractEventKind = 'contract_accept' | 'contract_reject' | 'contract_expire' | 'contract_fulfill' | 'contract_breach';
 type VillageEventKind = 'outer_ring_squeeze';
 type ArmyEventKind = 'army_depart' | 'army_arrive' | 'army_stand' | 'army_redeploy' | 'army_return' | 'army_reach_home' | 'army_destroy';
 
@@ -31,8 +29,7 @@ const MATCH_TRANSITIONS: TransitionTable<MatchStatus, MatchEventKind> = Object.f
 });
 
 const TICK_TRANSITIONS: TransitionTable<TickPhase, TickEventKind> = Object.freeze({
-  talk: { phase_complete: 'contracts' },
-  contracts: { phase_complete: 'orders' },
+  talk: { phase_complete: 'orders' },
   orders: { phase_complete: 'resolving' },
   resolving: { resolution_complete: 'reported' },
   reported: { next_tick: 'talk' },
@@ -45,15 +42,6 @@ const SEAT_TRANSITIONS: TransitionTable<SeatStatus, SeatEventKind> = Object.free
   submitted: { phase_start: 'acting', seat_disconnect: 'disconnected', seat_eliminated: 'eliminated' },
   timedOut: { phase_start: 'acting', seat_disconnect: 'disconnected', seat_eliminated: 'eliminated' },
   eliminated: {},
-});
-
-const CONTRACT_TRANSITIONS: TransitionTable<ContractStatus, ContractEventKind> = Object.freeze({
-  proposed: { contract_accept: 'active', contract_reject: 'rejected', contract_expire: 'expired' },
-  active: { contract_fulfill: 'fulfilled', contract_breach: 'breached' },
-  fulfilled: {},
-  breached: {},
-  rejected: {},
-  expired: {},
 });
 
 const VILLAGE_TRANSITIONS: TransitionTable<VillageProductionState, VillageEventKind> = Object.freeze({
@@ -93,10 +81,6 @@ export function transitionTick(state: TickPhase, event: TickEventKind): MachineR
 
 export function transitionSeat(state: SeatStatus, event: SeatEventKind): MachineResult<SeatStatus> {
   return runTransition(SEAT_TRANSITIONS, state, event, 'invalid_seat_state', 'seat');
-}
-
-export function transitionContract(state: ContractStatus, event: ContractEventKind): MachineResult<ContractStatus> {
-  return runTransition(CONTRACT_TRANSITIONS, state, event, 'invalid_contract_state', 'contract');
 }
 
 export function transitionVillage(state: VillageProductionState, event: VillageEventKind): MachineResult<VillageProductionState> {

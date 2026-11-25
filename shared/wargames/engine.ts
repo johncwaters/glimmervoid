@@ -17,9 +17,7 @@ import {
 import type {
   ArmyStatus,
   BuildingLevels,
-  ContractRecord,
   HexCoord,
-  LedgerBreachEntry,
   MatchStatus,
   MessageRecord,
   OrderItem,
@@ -29,31 +27,24 @@ import type {
   WargamesBalance,
   WargamesSeatCount,
   SeatStatus,
-  SignedReport,
-  SignedReportPayload,
   TickPhase,
   TroopCounts,
   VillageProductionState,
   WargamesEvent,
   WargamesMatchSpec,
   WargamesRejection,
+  WargamesReport,
   WargamesRolesRule,
   WargamesTerritoryRule,
 } from '../contracts/wargames.ts';
 import {
   transitionArmy,
-  transitionContract,
   transitionMatch,
   transitionSeat,
   transitionTick,
 } from './machines.ts';
 import { FOREST_DEFENSE_MULTIPLIER, generateClusteredTerrain, isPassable, marchCostOf, pickBeaconKeys, pickVillageKeys, tileKey } from './terrain.ts';
 import type { TerrainKind } from './terrain.ts';
-
-export interface ReportSigner {
-  sign(canonicalPayload: string): string;
-  verify(canonicalPayload: string, signature: string): boolean;
-}
 
 interface HexTile {
   index: number;
@@ -71,13 +62,6 @@ interface VillageState {
   buildings: BuildingLevels;
   troops: TroopCounts;
   isBeacon: boolean;
-  guests: StationedGuest[];
-}
-
-interface StationedGuest {
-  owner: SeatId;
-  originHexIndex: number;
-  troops: TroopCounts;
 }
 
 interface ArmyState {
@@ -89,9 +73,7 @@ interface ArmyState {
   targetHexIndex: number;
   troops: TroopCounts;
   departedTick: number;
-  intendedTargetOwner: SeatId | null;
   scoutedBy: SeatId[];
-  supporting?: SeatId;
 }
 
 interface TerritoryTile {
@@ -100,20 +82,13 @@ interface TerritoryTile {
   level: number;
 }
 
-interface ProjectedArmyView extends Omit<ArmyState, 'scoutedBy' | 'intendedTargetOwner'> {}
+interface ProjectedArmyView extends Omit<ArmyState, 'scoutedBy'> {}
 
 interface SeatRuntimeState {
   config: SeatConfig;
   status: SeatStatus;
   note: string;
   sealedOrders: OrderItem[];
-}
-
-interface VerificationLogEntry {
-  tick: number;
-  seatId: SeatId;
-  reportId: string;
-  valid: boolean;
 }
 
 export interface MatchState {
@@ -131,14 +106,11 @@ export interface MatchState {
   seats: SeatRuntimeState[];
   readySeatIds: SeatId[];
   armies: Map<string, ArmyState>;
-  contracts: Map<string, ContractRecord>;
   messages: MessageRecord[];
-  reportsBySeat: Record<SeatId, SignedReport[]>;
-  reportsById: Map<string, SignedReport>;
-  ledger: LedgerBreachEntry[];
+  reportsBySeat: Record<SeatId, WargamesReport[]>;
+  reportsById: Map<string, WargamesReport>;
   scoutedHexesBySeat: Record<SeatId, number[]>;
   ordersByTick: Record<number, Record<SeatId, OrderItem[]>>;
-  verifications: VerificationLogEntry[];
   nextArmyNumber: number;
   nextReportNumber: number;
   nextMessageNumber: number;
@@ -151,7 +123,7 @@ export interface MatchState {
 }
 
 interface EngineEffect {
-  kind: 'report_signed' | 'contract_breached' | 'village_captured' | 'match_finished';
+  kind: 'village_captured' | 'match_finished';
   detail: Record<string, unknown>;
 }
 
@@ -176,9 +148,6 @@ interface SeatStateView {
   visibleVillages: VillageState[];
   nearbyHexOwners: NearbyHexOwner[];
   visibleArmies: ProjectedArmyView[];
-  contracts: ContractRecord[];
-  ledger: LedgerBreachEntry[];
-  reputation: SeatReputation[];
   winnerSeatId: SeatId | null;
   terrain: { hexIndex: number; kind: TerrainKind }[];
   sites: { hexIndex: number; isBeacon: boolean }[];
@@ -211,12 +180,6 @@ interface TerritoryTileView {
   owner: SeatId;
   improvement: ImprovementKind | null;
   level: number;
-}
-
-interface SeatReputation {
-  seatId: SeatId;
-  kept: number;
-  broken: number;
 }
 
 const STARTING_GRAIN = 200;
@@ -414,19 +377,6 @@ function nextMulberry32(rngState: number): { value: number; nextState: number } 
   return { value, nextState };
 }
 
-function canonicalizeValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalizeValue);
-  if (typeof value !== 'object' || value === null) return value;
-  const entries = Object.entries(value as Record<string, unknown>)
-    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-    .map(([key, nested]) => [key, canonicalizeValue(nested)]);
-  return Object.fromEntries(entries);
-}
-
-export function canonicalReportString(payload: SignedReportPayload): string {
-  return JSON.stringify(canonicalizeValue(payload));
-}
-
 function utf8ByteLength(text: string): number {
   return TEXT_ENCODER.encode(text).length;
 }
@@ -450,12 +400,11 @@ function cloneVillage(village: VillageState | null): VillageState | null {
     buildings: { ...village.buildings },
     troops: { ...village.troops },
     isBeacon: village.isBeacon,
-    guests: village.guests.map((guest) => ({ ...guest, troops: { ...guest.troops } })),
   };
 }
 
 function cloneState(state: MatchState): MatchState {
-  const reportsBySeat = {} as Record<SeatId, SignedReport[]>;
+  const reportsBySeat = {} as Record<SeatId, WargamesReport[]>;
   const scoutedHexesBySeat = {} as Record<SeatId, number[]>;
   for (const seatId of matchSeatIds(state)) {
     reportsBySeat[seatId] = [...state.reportsBySeat[seatId]];
@@ -464,10 +413,6 @@ function cloneState(state: MatchState): MatchState {
   const armies = new Map<string, ArmyState>();
   for (const [armyId, army] of state.armies) {
     armies.set(armyId, { ...army, troops: { ...army.troops }, scoutedBy: [...army.scoutedBy] });
-  }
-  const contracts = new Map<string, ContractRecord>();
-  for (const [contractId, contract] of state.contracts) {
-    contracts.set(contractId, { ...contract });
   }
   const territory = new Map<number, TerritoryTile>();
   for (const [hexIndex, tile] of state.territory) territory.set(hexIndex, { ...tile });
@@ -483,14 +428,11 @@ function cloneState(state: MatchState): MatchState {
     seats: state.seats.map((seat) => ({ ...seat, sealedOrders: [...seat.sealedOrders] })),
     readySeatIds: [...state.readySeatIds],
     armies,
-    contracts,
     messages: [...state.messages],
     reportsBySeat,
     reportsById: new Map(state.reportsById),
-    ledger: [...state.ledger],
     scoutedHexesBySeat,
     ordersByTick,
-    verifications: [...state.verifications],
     victoryPointsBySeat: { ...state.victoryPointsBySeat },
     territory,
     villagesFoundedBySeat: { ...state.villagesFoundedBySeat },
@@ -678,7 +620,6 @@ export function createInitialMatchState(
         buildings: { farm: 1, mine: 1, wall: 0 },
         troops: { raider: 6, guard: 6, envoy: 1 },
         isBeacon: false,
-        guests: [],
       };
     }
   }
@@ -695,7 +636,6 @@ export function createInitialMatchState(
       buildings: { farm: 0, mine: 0, wall: 0 },
       troops: { raider: 0, guard: BEACON_GUARDS, envoy: 0 },
       isBeacon: true,
-      guests: [],
     };
   }
   for (const coord of sites.villageCoords) {
@@ -710,7 +650,6 @@ export function createInitialMatchState(
       buildings: { farm: 1, mine: 1, wall: 1 },
       troops: { raider: 3, guard: 4, envoy: 0 },
       isBeacon: false,
-      guests: [],
     };
   }
   const orderedSeats = seatIds.map((seatId) => {
@@ -722,7 +661,7 @@ export function createInitialMatchState(
       sealedOrders: [] as OrderItem[],
     };
   });
-  const reportsBySeat = {} as Record<SeatId, SignedReport[]>;
+  const reportsBySeat = {} as Record<SeatId, WargamesReport[]>;
   const scoutedHexesBySeat = {} as Record<SeatId, number[]>;
   for (const seatId of seatIds) {
     reportsBySeat[seatId] = [];
@@ -743,14 +682,11 @@ export function createInitialMatchState(
     seats: orderedSeats,
     readySeatIds: [],
     armies: new Map(),
-    contracts: new Map(),
     messages: [],
     reportsBySeat,
     reportsById: new Map(),
-    ledger: [],
     scoutedHexesBySeat,
     ordersByTick: {},
-    verifications: [],
     nextArmyNumber: 1,
     nextReportNumber: 1,
     nextMessageNumber: 1,
@@ -769,54 +705,6 @@ export function createInitialMatchState(
 
 function reject(code: WargamesRejection['code'], message: string): TransitionOutcome {
   return { ok: false, rejection: { code, message } };
-}
-
-function seatTotalResources(state: MatchState, seatId: SeatId): ResourceBundle {
-  let grain = 0;
-  let ore = 0;
-  for (const village of state.villages) {
-    if (!village || village.owner !== seatId) continue;
-    grain += village.resources.grain;
-    ore += village.resources.ore;
-  }
-  return { grain, ore };
-}
-
-function deductSeatResources(state: MatchState, seatId: SeatId, amount: ResourceBundle): boolean {
-  const available = seatTotalResources(state, seatId);
-  if (available.grain < amount.grain || available.ore < amount.ore) return false;
-  let remainingGrain = amount.grain;
-  let remainingOre = amount.ore;
-  for (const village of state.villages) {
-    if (!village || village.owner !== seatId) continue;
-    const takeGrain = Math.min(village.resources.grain, remainingGrain);
-    village.resources.grain -= takeGrain;
-    remainingGrain -= takeGrain;
-    const takeOre = Math.min(village.resources.ore, remainingOre);
-    village.resources.ore -= takeOre;
-    remainingOre -= takeOre;
-  }
-  return true;
-}
-
-function creditSeatResources(state: MatchState, seatId: SeatId, amount: ResourceBundle): void {
-  const owned = state.villages.filter((village): village is VillageState => village !== null && !village.isBeacon && village.owner === seatId);
-  if (owned.length === 0) return;
-  let remainingGrain = amount.grain;
-  let remainingOre = amount.ore;
-  for (const village of owned) {
-    const cap = warehouseCapOf(village);
-    const grainRoom = Math.max(0, cap - village.resources.grain);
-    const addGrain = Math.min(grainRoom, remainingGrain);
-    village.resources.grain += addGrain;
-    remainingGrain -= addGrain;
-    const oreRoom = Math.max(0, cap - village.resources.ore);
-    const addOre = Math.min(oreRoom, remainingOre);
-    village.resources.ore += addOre;
-    remainingOre -= addOre;
-  }
-  if (remainingGrain > 0) owned[0].resources.grain += remainingGrain;
-  if (remainingOre > 0) owned[0].resources.ore += remainingOre;
 }
 
 export function warehouseCapOf(village: Pick<VillageState, 'buildings'>): number {
@@ -941,22 +829,14 @@ function seatIncomeOf(state: MatchState, seatId: SeatId): number {
   return income;
 }
 
-export function guestTroopsOwnedBy(village: Pick<VillageState, 'guests'>, seatId: SeatId): TroopCounts {
-  return sumTroopCounts(village.guests.filter((guest) => guest.owner === seatId).map((guest) => guest.troops));
-}
-
 function defendingTroopsOf(village: VillageState): TroopCounts {
-  return sumTroopCounts([village.troops, ...village.guests.map((guest) => guest.troops)]);
+  return { ...village.troops };
 }
 
 function applyDefenderCasualties(village: VillageState, lossFraction: number): TroopCounts {
-  const hostOutcome = applyCasualties(village.troops, lossFraction);
-  village.troops = hostOutcome.surviving;
-  const guestOutcomes = village.guests.map((guest) => ({ guest, outcome: applyCasualties(guest.troops, lossFraction) }));
-  village.guests = guestOutcomes
-    .filter(({ outcome }) => totalTroops(outcome.surviving) > 0)
-    .map(({ guest, outcome }) => ({ ...guest, troops: outcome.surviving }));
-  return sumTroopCounts([hostOutcome.lost, ...guestOutcomes.map(({ outcome }) => outcome.lost)]);
+  const outcome = applyCasualties(village.troops, lossFraction);
+  village.troops = outcome.surviving;
+  return outcome.lost;
 }
 
 function troopCapOf(roles: WargamesRolesRule, village: VillageState): number {
@@ -1001,15 +881,6 @@ function addTroopsInto(into: TroopCounts, amount: TroopCounts): void {
   into.envoy += amount.envoy;
 }
 
-function stationGuests(village: VillageState, army: ArmyState, troops: TroopCounts): void {
-  const existing = village.guests.find((guest) => guest.owner === army.owner && guest.originHexIndex === army.originHexIndex);
-  if (existing) {
-    addTroopsInto(existing.troops, troops);
-    return;
-  }
-  village.guests.push({ owner: army.owner, originHexIndex: army.originHexIndex, troops: { ...troops } });
-}
-
 function settleArmyAfterEntry(army: ArmyState, leftover: TroopCounts): void {
   army.troops = leftover;
   const returning = transitionArmy(army.status, 'army_return');
@@ -1018,34 +889,6 @@ function settleArmyAfterEntry(army: ArmyState, leftover: TroopCounts): void {
   if (totalTroops(leftover) > 0) return;
   const home = transitionArmy(army.status, 'army_reach_home');
   if (home.ok) army.status = home.state;
-}
-
-function sendGuestsHome(state: MatchState): void {
-  for (const village of state.villages) {
-    if (!village || village.guests.length === 0) continue;
-    const staying: StationedGuest[] = [];
-    for (const guest of village.guests) {
-      if (village.owner !== null && hasActiveAlliance(state, guest.owner, village.owner)) {
-        staying.push(guest);
-        continue;
-      }
-      const armyId = `army-${state.nextArmyNumber}`;
-      state.nextArmyNumber += 1;
-      state.armies.set(armyId, {
-        id: armyId,
-        owner: guest.owner,
-        status: 'returning',
-        originHexIndex: guest.originHexIndex,
-        currentHexIndex: village.hexIndex,
-        targetHexIndex: village.hexIndex,
-        troops: { ...guest.troops },
-        departedTick: state.tick,
-        intendedTargetOwner: null,
-        scoutedBy: [],
-      });
-    }
-    village.guests = staying;
-  }
 }
 
 function rolesAttackOf(roles: WargamesRolesRule, troops: TroopCounts): number {
@@ -1187,19 +1030,8 @@ function spreadSeatLossesAcrossArmies(
   });
 }
 
-function makeSignedReport(
-  state: MatchState,
-  payload: SignedReportPayload,
-  signatures: Readonly<Record<string, string>>,
-  signer?: ReportSigner,
-): SignedReport {
-  const canonical = canonicalReportString(payload);
-  const signature = signatures[payload.reportId] ?? signer?.sign(canonical);
-  if (!signature) {
-    throw new Error(`Missing report signature for ${payload.reportId}: supply a ReportSigner or recorded signatures`);
-  }
-  const report: SignedReport = { payload, signature };
-  state.reportsById.set(payload.reportId, report);
+function recordReport(state: MatchState, report: WargamesReport): WargamesReport {
+  state.reportsById.set(report.reportId, report);
   return report;
 }
 
@@ -1254,116 +1086,12 @@ function garrisonArmyInVillage(state: MatchState, army: ArmyState, village: Vill
   settleArmyAfterEntry(army, subtractTroops(surviving, accepted));
 }
 
-export function isPactTerms(terms: ContractRecord['terms']): terms is Extract<ContractRecord['terms'], { kind: 'nap' | 'alliance' }> {
-  return terms.kind === 'nap' || terms.kind === 'alliance';
-}
-
-function isPairedWith(contract: ContractRecord, first: SeatId, second: SeatId): boolean {
-  return (contract.proposer === first && contract.counterparty === second)
-    || (contract.counterparty === first && contract.proposer === second);
-}
-
-function activePactsBetween(state: MatchState, first: SeatId, second: SeatId): ContractRecord[] {
-  return [...state.contracts.values()].filter((contract) => contract.status === 'active' && isPactTerms(contract.terms) && isPairedWith(contract, first, second));
-}
-
-function hasOpenAlliance(state: MatchState, first: SeatId, second: SeatId): boolean {
-  return [...state.contracts.values()].some((contract) => contract.terms.kind === 'alliance'
-    && (contract.status === 'proposed' || contract.status === 'active')
-    && isPairedWith(contract, first, second));
-}
-
-function hasActiveAlliance(state: MatchState, first: SeatId, second: SeatId): boolean {
-  return activePactsBetween(state, first, second).some((contract) => contract.terms.kind === 'alliance');
-}
-
-function breachPacts(state: MatchState, pacts: readonly ContractRecord[], breacher: SeatId, victim: SeatId, effects: EngineEffect[]): void {
-  for (const contract of pacts) {
-    if (!isPactTerms(contract.terms)) continue;
-    const breached = transitionContract(contract.status, 'contract_breach');
-    if (!breached.ok) continue;
-    contract.status = breached.state;
-    contract.breachedBy = breacher;
-    contract.breachedTick = state.tick;
-    const breacherStake = pactStakeOf(contract, breacher);
-    const victimStake = pactStakeOf(contract, victim);
-    creditSeatResources(state, victim, { grain: victimStake.grain + breacherStake.grain, ore: victimStake.ore + breacherStake.ore });
-    state.ledger.push({
-      tick: state.tick,
-      contractId: contract.id,
-      breacher,
-      victim,
-      collateralTransferred: { ...breacherStake },
-    });
-    state.victoryPointsBySeat[victim] += allianceVpEarnedBy(state, contract);
-    effects.push({ kind: 'contract_breached', detail: { contractId: contract.id, breacher, victim } });
-  }
-}
-
-function allianceVpEarnedBy(state: MatchState, contract: ContractRecord): number {
-  const diplomacy = state.balance.diplomacy;
-  if (contract.terms.kind !== 'alliance' || contract.activatedTick === null) return 0;
-  return Math.max(0, state.tick - contract.activatedTick) * diplomacy.allianceVpPerTurn;
-}
-
-function settleAllianceVictoryPoints(state: MatchState): void {
-  const diplomacy = state.balance.diplomacy;
-  if (!diplomacy) return;
-  for (const contract of state.contracts.values()) {
-    if (contract.terms.kind !== 'alliance' || contract.status !== 'active') continue;
-    state.victoryPointsBySeat[contract.proposer] += diplomacy.allianceVpPerTurn;
-    state.victoryPointsBySeat[contract.counterparty] += diplomacy.allianceVpPerTurn;
-  }
-}
-
-function pactStakeOf(contract: ContractRecord, seatId: SeatId): ResourceBundle {
-  const stated = isPactTerms(contract.terms) ? contract.terms.collateral : { grain: 0, ore: 0 };
-  if (!contract.lockedCollateral) return stated;
-  return seatId === contract.proposer ? contract.lockedCollateral.proposer : contract.lockedCollateral.counterparty;
-}
-
-export function seatReputationOf(state: MatchState, seatId: SeatId): SeatReputation {
-  return { seatId, kept: keptDealsOf(state, seatId), broken: brokenDealsOf(state, seatId) };
-}
-
-function brokenDealsOf(state: MatchState, seatId: SeatId): number {
-  return state.ledger.filter((entry) => entry.breacher === seatId).length;
-}
-
-function keptDealsOf(state: MatchState, seatId: SeatId): number {
-  return [...state.contracts.values()].filter((contract) => contract.status === 'fulfilled' && (contract.proposer === seatId || contract.counterparty === seatId)).length;
-}
-
-function requiredPactStake(state: MatchState, seatId: SeatId, stated: ResourceBundle): ResourceBundle {
-  const diplomacy = state.balance.diplomacy;
-  if (!diplomacy) return stated;
-  const multiplier = 1 + brokenDealsOf(state, seatId) * diplomacy.breachCollateralStep;
-  return { grain: Math.ceil(stated.grain * multiplier), ore: Math.ceil(stated.ore * multiplier) };
-}
-
-function hasResources(available: ResourceBundle, needed: ResourceBundle): boolean {
-  return available.grain >= needed.grain && available.ore >= needed.ore;
-}
-
-function supportArmiesFor(state: MatchState, waitingSupport: ArmyState[], supportedSeat: SeatId): ArmyState[] {
-  const joining = waitingSupport.filter((army) => army.supporting === supportedSeat && hasActiveAlliance(state, army.owner, supportedSeat));
-  for (const army of joining) waitingSupport.splice(waitingSupport.indexOf(army), 1);
-  return joining;
-}
-
 function returnArmyHome(army: ArmyState): void {
   const returning = transitionArmy(army.status, 'army_return');
   if (returning.ok) army.status = returning.state;
 }
 
-function resolveV2SimultaneousBattles(
-  state: MatchState,
-  hostileByHex: Map<number, ArmyState[]>,
-  supportByHex: Map<number, ArmyState[]>,
-  effects: EngineEffect[],
-  signatures: Readonly<Record<string, string>>,
-  signer?: ReportSigner,
-): void {
+function resolveVillageBattles(state: MatchState, hostileByHex: Map<number, ArmyState[]>, effects: EngineEffect[]): void {
   const orderedHexes = [...hostileByHex.keys()].sort((left, right) => left - right);
   for (const hexIndex of orderedHexes) {
     const targetVillage = state.villages[hexIndex];
@@ -1385,31 +1113,11 @@ function resolveV2SimultaneousBattles(
     const activeAttackerSeats: { seatId: SeatId; armies: ArmyState[]; combinedTroops: TroopCounts; attackPower: number; morale: number }[] = [];
     for (const attackerSeat of orderedAttackerSeats) {
       const seatArmies = armiesBySeat.get(attackerSeat) ?? [];
-      if (previousOwner !== null) {
-        const activePacts = activePactsBetween(state, attackerSeat, previousOwner);
-        const allUnintended = seatArmies.every((army) => army.intendedTargetOwner !== previousOwner);
-        if (allUnintended && activePacts.length > 0) {
-          for (const army of seatArmies) {
-            const returning = transitionArmy(army.status, 'army_return');
-            if (returning.ok) army.status = returning.state;
-          }
-          continue;
-        }
-        breachPacts(state, activePacts, attackerSeat, previousOwner, effects);
-      }
-      const supportingArmies = supportArmiesFor(state, supportByHex.get(hexIndex) ?? [], attackerSeat);
-      for (const supportArmy of supportingArmies) {
-        if (previousOwner !== null) breachPacts(state, activePactsBetween(state, supportArmy.owner, previousOwner), supportArmy.owner, previousOwner, effects);
-        seatArmies.push(supportArmy);
-      }
       const combinedTroops = sumTroopCounts(seatArmies.map((army) => army.troops));
       const attackPower = seatAttackPowerOf(state, seatArmies, targetVillage);
       activeAttackerSeats.push({ seatId: attackerSeat, armies: seatArmies, combinedTroops, attackPower, morale: moraleOf(state, attackerSeat, previousOwner) });
     }
-    if (activeAttackerSeats.length === 0) continue;
-
     const defenderBefore = defendingTroopsOf(targetVillage);
-    const guestOwnersBefore = new Set(targetVillage.guests.map((guest) => guest.owner));
     const loyaltyBefore = targetVillage.loyalty;
     const totalAttackPower = activeAttackerSeats.reduce((sum, entry) => sum + entry.attackPower, 0);
     const defensePower = villageDefensePowerOf(state, targetVillage);
@@ -1472,7 +1180,7 @@ function resolveV2SimultaneousBattles(
     for (const resolved of resolvedAttackers) {
       const reportId = `rep-${state.nextReportNumber}`;
       state.nextReportNumber += 1;
-      const report = makeSignedReport(state, {
+      const report = recordReport(state, {
         kind: 'battle',
         reportId,
         tick: state.tick,
@@ -1489,30 +1197,21 @@ function resolveV2SimultaneousBattles(
         wallBefore,
         wallAfter: targetVillage.buildings.wall,
         ...(resolved.entry.morale < 1 ? { morale: Math.round(resolved.entry.morale * 100) / 100 } : {}),
-      }, signatures, signer);
+      });
       state.reportsBySeat[resolved.entry.seatId].push(report);
       if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
-      const supporterSeats = new Set(resolved.entry.armies.map((army) => army.owner).filter((owner) => owner !== resolved.entry.seatId));
-      for (const supporterSeat of supporterSeats) state.reportsBySeat[supporterSeat].push(report);
-      for (const guestOwner of guestOwnersBefore) {
-        if (guestOwner !== previousOwner && guestOwner !== resolved.entry.seatId && !supporterSeats.has(guestOwner)) state.reportsBySeat[guestOwner].push(report);
-      }
-      effects.push({ kind: 'report_signed', detail: { reportId, seatId: resolved.entry.seatId, signature: report.signature } });
 
       const shouldGarrisonCapturedVillage = resolved.captured;
       for (let index = 0; index < resolved.entry.armies.length; index += 1) {
         const army = resolved.entry.armies[index];
         const surviving = resolved.survivingByArmy[index].surviving;
-        if (shouldGarrisonCapturedVillage && army.owner === resolved.entry.seatId) {
+        if (shouldGarrisonCapturedVillage) {
           garrisonArmyInVillage(state, army, targetVillage, surviving);
           continue;
         }
         finalizeArmyAfterCombat(army, surviving);
       }
     }
-  }
-  for (const waitingSupport of supportByHex.values()) {
-    for (const army of waitingSupport) returnArmyHome(army);
   }
 }
 
@@ -1588,7 +1287,6 @@ function foundVillage(state: MatchState, seatId: SeatId, hexIndex: number): bool
     buildings: { farm: 0, mine: 0, wall: 0 },
     troops: emptyTroops(),
     isBeacon: false,
-    guests: [],
   };
   state.villages[hexIndex] = village;
   grantUnownedRing(state, village);
@@ -1617,16 +1315,7 @@ function redeployStandingTroops(state: MatchState, seatId: SeatId, order: Extrac
     moving.status = redeployed.state;
     moving.targetHexIndex = order.toHexIndex;
     moving.departedTick = state.tick;
-    moving.intendedTargetOwner = intendedTargetOwnerAt(state, order.toHexIndex);
-    delete moving.supporting;
-    Object.assign(moving, supportFieldOf(seatId, order.support));
   }
-}
-
-function intendedTargetOwnerAt(state: MatchState, hexIndex: number): SeatId | null {
-  const village = state.villages[hexIndex];
-  if (village) return village.owner;
-  return standingArmiesAt(state, hexIndex)[0]?.owner ?? territoryOwnerAt(state, hexIndex);
 }
 
 function addArrivalTo(armiesByHex: Map<number, ArmyState[]>, army: ArmyState): void {
@@ -1636,14 +1325,6 @@ function addArrivalTo(armiesByHex: Map<number, ArmyState[]>, army: ArmyState): v
     return;
   }
   armiesByHex.set(army.targetHexIndex, [army]);
-}
-
-function shouldBounceOffPact(state: MatchState, seatId: SeatId, armies: readonly ArmyState[], owner: SeatId, effects: EngineEffect[]): boolean {
-  const pacts = activePactsBetween(state, seatId, owner);
-  if (pacts.length === 0) return false;
-  if (armies.every((army) => army.intendedTargetOwner !== owner)) return true;
-  breachPacts(state, pacts, seatId, owner, effects);
-  return false;
 }
 
 function tileDefenseMultiplierOf(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, holder: SeatId): number {
@@ -1660,7 +1341,7 @@ interface TileBattle {
   attackers: ArmyState[];
 }
 
-function fightOnTile(state: MatchState, rule: WargamesTerritoryRule, battle: TileBattle, effects: EngineEffect[], signatures: Readonly<Record<string, string>>, signer?: ReportSigner): void {
+function fightOnTile(state: MatchState, rule: WargamesTerritoryRule, battle: TileBattle): void {
   const roles = state.balance.roles;
   const attackPowerBySeat = new Map<SeatId, number>();
   for (const army of battle.attackers) {
@@ -1700,53 +1381,29 @@ function fightOnTile(state: MatchState, rule: WargamesTerritoryRule, battle: Til
     }
     const reportId = `rep-${state.nextReportNumber}`;
     state.nextReportNumber += 1;
-    const report = makeSignedReport(state, {
+    const report = recordReport(state, {
       kind: 'battle', reportId, tick: state.tick, hexIndex: battle.hexIndex, attacker: seatId, defender: battle.holder,
       attackerSent, attackerLost, defenderBefore, defenderLost, loyaltyBefore: 0, loyaltyAfter: 0, captured: false,
-    }, signatures, signer);
+    });
     state.reportsBySeat[seatId].push(report);
     state.reportsBySeat[battle.holder].push(report);
-    effects.push({ kind: 'report_signed', detail: { reportId, seatId, signature: report.signature } });
   }
 }
 
-function resolveTileArrivals(
-  state: MatchState,
-  rule: WargamesTerritoryRule,
-  arrivalsByHex: Map<number, ArmyState[]>,
-  effects: EngineEffect[],
-  signatures: Readonly<Record<string, string>>,
-  signer?: ReportSigner,
-): void {
+function resolveTileArrivals(state: MatchState, rule: WargamesTerritoryRule, arrivalsByHex: Map<number, ArmyState[]>): void {
   for (const hexIndex of [...arrivalsByHex.keys()].sort((left, right) => left - right)) {
     const standing = standingArmiesAt(state, hexIndex);
     const holder = standing[0]?.owner ?? null;
-    const arrivals: ArmyState[] = [];
-    for (const army of arrivalsByHex.get(hexIndex) ?? []) {
-      if (!isAlliedSupportOnTile(state, army, holder, arrivalsByHex.get(hexIndex) ?? [])) {
-        arrivals.push(army);
-        continue;
-      }
-      returnArmyHome(army);
-    }
+    const arrivals = arrivalsByHex.get(hexIndex) ?? [];
     const hostileSeats = [...new Set(arrivals.map((army) => army.owner).filter((owner) => owner !== holder))];
     if (hostileSeats.length === 0) continue;
     if (holder === null) {
       if (hostileSeats.length > 1) for (const army of arrivals) returnArmyHome(army);
       continue;
     }
-    const attackers: ArmyState[] = [];
-    for (const seatId of hostileSeats.sort((left, right) => seatIndexOf(left) - seatIndexOf(right))) {
-      const seatArmies = arrivals.filter((army) => army.owner === seatId);
-      if (shouldBounceOffPact(state, seatId, seatArmies, holder, effects)) {
-        for (const army of seatArmies) returnArmyHome(army);
-        continue;
-      }
-      attackers.push(...seatArmies);
-    }
-    if (attackers.length === 0) continue;
+    const attackers = arrivals.filter((army) => army.owner !== holder);
     const defenders = [...standing, ...arrivals.filter((army) => army.owner === holder)];
-    fightOnTile(state, rule, { hexIndex, holder, defenders, attackers }, effects, signatures, signer);
+    fightOnTile(state, rule, { hexIndex, holder, defenders, attackers });
   }
   for (const army of [...arrivalsByHex.values()].flat()) {
     const stood = transitionArmy(army.status, 'army_stand');
@@ -1754,32 +1411,16 @@ function resolveTileArrivals(
   }
 }
 
-function isAlliedSupportOnTile(state: MatchState, army: ArmyState, holder: SeatId | null, arrivals: readonly ArmyState[]): boolean {
-  const supported = army.supporting;
-  if (supported === undefined || !hasActiveAlliance(state, army.owner, supported)) return false;
-  if (holder !== null) return holder === supported;
-  return territoryOwnerAt(state, army.targetHexIndex) === supported || arrivals.some((other) => other.owner === supported);
-}
-
-interface LandReportContext {
-  effects: EngineEffect[];
-  signatures: Readonly<Record<string, string>>;
-  signer?: ReportSigner;
-}
-
-function reportLandChange(state: MatchState, hexIndex: number, claimer: SeatId, previousOwner: SeatId | null, context: LandReportContext): void {
+function reportLandChange(state: MatchState, hexIndex: number, claimer: SeatId, previousOwner: SeatId | null): void {
   const reportId = `rep-${state.nextReportNumber}`;
   state.nextReportNumber += 1;
-  const report = makeSignedReport(state, { kind: 'land', reportId, tick: state.tick, hexIndex, claimer, previousOwner }, context.signatures, context.signer);
-  for (const seatId of previousOwner === null ? [claimer] : [claimer, previousOwner]) {
-    state.reportsBySeat[seatId].push(report);
-    context.effects.push({ kind: 'report_signed', detail: { reportId, seatId, signature: report.signature } });
-  }
+  const report = recordReport(state, { kind: 'land', reportId, tick: state.tick, hexIndex, claimer, previousOwner });
+  for (const seatId of previousOwner === null ? [claimer] : [claimer, previousOwner]) state.reportsBySeat[seatId].push(report);
 }
 
-function takeTile(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, seatId: SeatId, context: LandReportContext): void {
+function takeTile(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, seatId: SeatId): void {
   const tile = state.territory.get(hexIndex);
-  reportLandChange(state, hexIndex, seatId, tile?.owner ?? null, context);
+  reportLandChange(state, hexIndex, seatId, tile?.owner ?? null);
   if (!tile) {
     state.territory.set(hexIndex, { owner: seatId, improvement: null, level: 0 });
     return;
@@ -1789,14 +1430,13 @@ function takeTile(state: MatchState, rule: WargamesTerritoryRule, hexIndex: numb
   if (tile.level === 0) tile.improvement = null;
 }
 
-function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, arrivedThisTurn: ReadonlySet<string>, context: LandReportContext): void {
-  const { effects } = context;
+function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, arrivedThisTurn: ReadonlySet<string>): void {
   const holdersByHex = new Map<number, ArmyState[]>();
   for (const army of state.armies.values()) {
     if (army.status !== 'standing' || state.villages[army.currentHexIndex] !== null) continue;
     holdersByHex.set(army.currentHexIndex, [...(holdersByHex.get(army.currentHexIndex) ?? []), army]);
   }
-  const claims: { hexIndex: number; seatId: SeatId; armies: ArmyState[]; tileOwner: SeatId | null }[] = [];
+  const claims: { hexIndex: number; seatId: SeatId }[] = [];
   for (const hexIndex of [...holdersByHex.keys()].sort((left, right) => left - right)) {
     const armies = holdersByHex.get(hexIndex) ?? [];
     const seatId = armies[0]?.owner;
@@ -1804,24 +1444,18 @@ function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, ar
     if (armies.every((army) => arrivedThisTurn.has(army.id))) continue;
     const tile = state.territory.get(hexIndex);
     if (tile?.owner === seatId || !touchesLandOf(state, seatId, hexIndex)) continue;
-    claims.push({ hexIndex, seatId, armies, tileOwner: tile?.owner ?? null });
+    claims.push({ hexIndex, seatId });
   }
   const claimsLeftBySeat = new Map<SeatId, number>();
   for (const claim of claims) {
     const claimsLeft = claimsLeftBySeat.get(claim.seatId) ?? villagesOwnedBy(state, claim.seatId) * rule.claimsPerVillagePerTurn;
     if (claimsLeft <= 0) continue;
-    if (claim.tileOwner !== null && shouldBounceOffPact(state, claim.seatId, claim.armies, claim.tileOwner, effects)) continue;
     claimsLeftBySeat.set(claim.seatId, claimsLeft - 1);
-    takeTile(state, rule, claim.hexIndex, claim.seatId, context);
+    takeTile(state, rule, claim.hexIndex, claim.seatId);
   }
 }
 
-function resolveTick(
-  state: MatchState,
-  signatures: Readonly<Record<string, string>>,
-  effects: EngineEffect[],
-  signer?: ReportSigner,
-): void {
+function resolveTick(state: MatchState, effects: EngineEffect[]): void {
   for (const seatId of matchSeatIds(state)) {
     state.scoutedHexesBySeat[seatId] = [];
   }
@@ -1921,9 +1555,7 @@ function resolveTick(
         targetHexIndex: order.toHexIndex,
         troops: { ...order.troops },
         departedTick: state.tick,
-        intendedTargetOwner: intendedTargetOwnerAt(state, order.toHexIndex),
         scoutedBy: [],
-        ...supportFieldOf(seat.config.seatId, order.support),
       });
     }
   }
@@ -1949,7 +1581,7 @@ function resolveTick(
       }
       const reportId = `rep-${state.nextReportNumber}`;
       state.nextReportNumber += 1;
-      const report = makeSignedReport(state, {
+      const report = recordReport(state, {
         kind: 'scout',
         reportId,
         tick: state.tick,
@@ -1962,9 +1594,8 @@ function resolveTick(
         troops: defendingTroopsOf(target),
         buildings: { ...target.buildings },
         spottedArmyIds,
-      }, signatures, signer);
+      });
       state.reportsBySeat[seat.config.seatId].push(report);
-      effects.push({ kind: 'report_signed', detail: { reportId, seatId: seat.config.seatId, signature: report.signature } });
     }
   }
 
@@ -1978,7 +1609,6 @@ function resolveTick(
     if (army.status === 'returning') returningBeforeCombat.add(army.id);
   }
   const hostileByHex = new Map<number, ArmyState[]>();
-  const supportByHex = new Map<number, ArmyState[]>();
   const tileArrivalsByHex = new Map<number, ArmyState[]>();
   for (const army of state.armies.values()) {
     if (army.status !== 'marching') continue;
@@ -1992,26 +1622,10 @@ function resolveTick(
       addArrivalTo(tileArrivalsByHex, army);
       continue;
     }
-    if (!targetVillage) {
-      const returning = transitionArmy(army.status, 'army_return');
-      if (returning.ok) army.status = returning.state;
-      continue;
-    }
-    const isAlliedGarrison = army.supporting !== undefined && targetVillage.owner === army.supporting && hasActiveAlliance(state, army.owner, army.supporting);
-    if (targetVillage.owner === army.owner || isAlliedGarrison) {
+    if (targetVillage.owner === army.owner) {
       const accepted = takeTroopsUpTo(army.troops, troopRoomAt(state, targetVillage));
-      if (isAlliedGarrison && totalTroops(accepted) > 0) stationGuests(targetVillage, army, accepted);
-      if (!isAlliedGarrison) addTroopsInto(targetVillage.troops, accepted);
+      addTroopsInto(targetVillage.troops, accepted);
       settleArmyAfterEntry(army, subtractTroops(army.troops, accepted));
-      continue;
-    }
-    if (army.supporting !== undefined) {
-      const waitingSupport = supportByHex.get(army.targetHexIndex);
-      if (waitingSupport) {
-        waitingSupport.push(army);
-        continue;
-      }
-      supportByHex.set(army.targetHexIndex, [army]);
       continue;
     }
     const list = hostileByHex.get(army.targetHexIndex);
@@ -2032,26 +1646,9 @@ function resolveTick(
     const home = transitionArmy(army.status, 'army_reach_home');
     if (home.ok) army.status = home.state;
   }
-  resolveV2SimultaneousBattles(state, hostileByHex, supportByHex, effects, signatures, signer);
-  resolveTileArrivals(state, state.balance.territory, tileArrivalsByHex, effects, signatures, signer);
-  settleStandingClaims(state, state.balance.territory, new Set([...tileArrivalsByHex.values()].flat().map((army) => army.id)), { effects, signatures, signer });
-
-  for (const contract of state.contracts.values()) {
-    if (contract.status === 'proposed' && contract.proposedTick < state.tick) {
-      const expired = transitionContract(contract.status, 'contract_expire');
-      if (expired.ok) contract.status = expired.state;
-      continue;
-    }
-    if (contract.status === 'active' && isPactTerms(contract.terms) && contract.endTick !== null && state.tick >= contract.endTick) {
-      const fulfilled = transitionContract(contract.status, 'contract_fulfill');
-      if (!fulfilled.ok) continue;
-      contract.status = fulfilled.state;
-      creditSeatResources(state, contract.proposer, pactStakeOf(contract, contract.proposer));
-      creditSeatResources(state, contract.counterparty, pactStakeOf(contract, contract.counterparty));
-    }
-  }
-
-  sendGuestsHome(state);
+  resolveVillageBattles(state, hostileByHex, effects);
+  resolveTileArrivals(state, state.balance.territory, tileArrivalsByHex);
+  settleStandingClaims(state, state.balance.territory, new Set([...tileArrivalsByHex.values()].flat().map((army) => army.id)));
 
   for (const seat of state.seats) {
     if (seat.status === 'eliminated') continue;
@@ -2116,25 +1713,8 @@ function determineWinnerAtLimit(state: MatchState): SeatId {
   return bestSeatByPoints(state, standing.length > 0 ? standing : matchSeatIds(state));
 }
 
-function supportFieldOf(owner: SeatId, support: SeatId | undefined): { supporting?: SeatId } {
-  if (support === undefined || support === owner) return {};
-  return { supporting: support };
-}
-
-function pactKindRejectionFor(kind: ContractRecord['terms']['kind']): TransitionOutcome | null {
-  if (kind === 'nap') return reject('invalid_order', 'the alliance contract replaces the NAP');
-  return null;
-}
-
 function seatsNamedAsTargets(event: WargamesEvent): SeatId[] {
   if (event.type === 'message_sent') return event.to === null ? [] : [event.to];
-  if (event.type === 'contract_proposed') return [event.terms.counterparty];
-  if (event.type === 'orders_submitted') {
-    return event.orders.flatMap((order) => {
-      if (order.kind === 'march' && order.support !== undefined) return [order.support];
-      return [];
-    });
-  }
   return [];
 }
 
@@ -2150,7 +1730,6 @@ function rejectSeatsOutsideMatch(state: MatchState, event: WargamesEvent): Trans
 export function applyEvent(
   currentState: MatchState,
   event: WargamesEvent,
-  signer?: ReportSigner,
 ): TransitionOutcome {
   if (event.type === 'match_created') {
     return reject('invalid_match_state', 'match_created initializes a match via createInitialMatchState only');
@@ -2195,7 +1774,7 @@ export function applyEvent(
       state.phase = 'talk';
       startActiveSeatsForPhase(state);
     }
-    if (state.status === 'running' && (state.phase === 'talk' || state.phase === 'contracts' || state.phase === 'orders')) {
+    if (state.status === 'running' && (state.phase === 'talk' || state.phase === 'orders')) {
       const acting = transitionSeat(seat.status, 'phase_start');
       if (acting.ok) seat.status = acting.state;
     }
@@ -2230,21 +1809,6 @@ export function applyEvent(
     return { ok: true, state, effects };
   }
 
-  if (event.type === 'report_verified') {
-    const seat = state.seats[seatIndexOf(event.seatId)];
-    if (seat.status === 'eliminated' || seat.status === 'disconnected') {
-      return reject('invalid_seat_state', `seat ${event.seatId} cannot verify reports while ${seat.status}`);
-    }
-    state.verifications.push({
-      tick: state.tick,
-      seatId: event.seatId,
-      reportId: event.reportId,
-      valid: event.valid,
-    });
-    state.lastSeq = event.seq;
-    return { ok: true, state, effects };
-  }
-
   if (event.type === 'message_sent') {
     if (state.phase !== 'talk') return reject('invalid_phase', `send_message allowed only in talk phase, got ${state.phase}`);
     const seat = state.seats[seatIndexOf(event.seatId)];
@@ -2261,106 +1825,13 @@ export function applyEvent(
       to: event.channel === 'dm' ? event.to : null,
       channel: event.channel,
       text: event.text,
-      attachedReport: event.attachedReport,
     });
-    state.lastSeq = event.seq;
-    return { ok: true, state, effects };
-  }
-
-  if (event.type === 'contract_proposed') {
-    if (state.phase !== 'contracts') return reject('invalid_phase', `propose_contract allowed only in contracts phase, got ${state.phase}`);
-    const seat = state.seats[seatIndexOf(event.seatId)];
-    if (seat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${seat.status}`);
-    if (event.terms.counterparty === event.seatId) return reject('invalid_target', 'cannot propose contract to self');
-    const pactKindRejection = pactKindRejectionFor(event.terms.kind);
-    if (pactKindRejection) return pactKindRejection;
-    if (event.terms.kind === 'alliance' && hasOpenAlliance(state, event.seatId, event.terms.counterparty)) {
-      return reject('invalid_contract_state', `an alliance between ${event.seatId} and ${event.terms.counterparty} is already proposed or active`);
-    }
-    if (state.contracts.has(event.contractId)) return reject('invalid_contract_state', `duplicate contract id ${event.contractId}`);
-    state.contracts.set(event.contractId, {
-      id: event.contractId,
-      proposer: event.seatId,
-      counterparty: event.terms.counterparty,
-      terms: event.terms,
-      status: 'proposed',
-      proposedTick: state.tick,
-      activatedTick: null,
-      endTick: null,
-      breachedBy: null,
-      breachedTick: null,
-    });
-    state.lastSeq = event.seq;
-    return { ok: true, state, effects };
-  }
-
-  if (event.type === 'contract_accepted') {
-    if (state.phase !== 'contracts') return reject('invalid_phase', `accept_contract allowed only in contracts phase, got ${state.phase}`);
-    const actingSeat = state.seats[seatIndexOf(event.seatId)];
-    if (actingSeat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${actingSeat.status}`);
-    const contract = state.contracts.get(event.contractId);
-    if (!contract) return reject('invalid_contract_state', `unknown contract ${event.contractId}`);
-    if (contract.counterparty !== event.seatId) return reject('unauthorized_seat', 'only the counterparty can accept a contract');
-    if (state.seats[seatIndexOf(contract.proposer)].status === 'eliminated') {
-      return reject('invalid_seat_state', `proposer ${contract.proposer} is eliminated`);
-    }
-    const activated = transitionContract(contract.status, 'contract_accept');
-    if (!activated.ok) return activated;
-    if (contract.terms.kind === 'escrow') {
-      const proposerResources = seatTotalResources(state, contract.proposer);
-      const counterResources = seatTotalResources(state, contract.counterparty);
-      if (proposerResources.grain < contract.terms.proposerGives.grain || proposerResources.ore < contract.terms.proposerGives.ore) {
-        return reject('insufficient_resources', 'proposer lacks escrow resources');
-      }
-      if (counterResources.grain < contract.terms.counterpartyGives.grain || counterResources.ore < contract.terms.counterpartyGives.ore) {
-        return reject('insufficient_resources', 'counterparty lacks escrow resources');
-      }
-      deductSeatResources(state, contract.proposer, contract.terms.proposerGives);
-      deductSeatResources(state, contract.counterparty, contract.terms.counterpartyGives);
-      creditSeatResources(state, contract.proposer, contract.terms.counterpartyGives);
-      creditSeatResources(state, contract.counterparty, contract.terms.proposerGives);
-      const fulfilled = transitionContract(activated.state, 'contract_fulfill');
-      if (!fulfilled.ok) return fulfilled;
-      contract.status = fulfilled.state;
-      contract.activatedTick = state.tick;
-      contract.endTick = state.tick;
-      state.lastSeq = event.seq;
-      return { ok: true, state, effects };
-    }
-    const proposerStake = requiredPactStake(state, contract.proposer, contract.terms.collateral);
-    const counterpartyStake = requiredPactStake(state, contract.counterparty, contract.terms.collateral);
-    if (!hasResources(seatTotalResources(state, contract.proposer), proposerStake)) {
-      return reject('insufficient_resources', 'proposer lacks pact collateral');
-    }
-    if (!hasResources(seatTotalResources(state, contract.counterparty), counterpartyStake)) {
-      return reject('insufficient_resources', 'counterparty lacks pact collateral');
-    }
-    deductSeatResources(state, contract.proposer, proposerStake);
-    deductSeatResources(state, contract.counterparty, counterpartyStake);
-    if (state.balance.diplomacy) contract.lockedCollateral = { proposer: proposerStake, counterparty: counterpartyStake };
-    contract.status = activated.state;
-    contract.activatedTick = state.tick;
-    contract.endTick = state.tick + contract.terms.durationTicks;
-    state.lastSeq = event.seq;
-    return { ok: true, state, effects };
-  }
-
-  if (event.type === 'contract_rejected') {
-    if (state.phase !== 'contracts') return reject('invalid_phase', `reject_contract allowed only in contracts phase, got ${state.phase}`);
-    const actingSeat = state.seats[seatIndexOf(event.seatId)];
-    if (actingSeat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${actingSeat.status}`);
-    const contract = state.contracts.get(event.contractId);
-    if (!contract) return reject('invalid_contract_state', `unknown contract ${event.contractId}`);
-    if (contract.counterparty !== event.seatId) return reject('unauthorized_seat', 'only the counterparty can reject a contract');
-    const rejected = transitionContract(contract.status, 'contract_reject');
-    if (!rejected.ok) return rejected;
-    contract.status = rejected.state;
     state.lastSeq = event.seq;
     return { ok: true, state, effects };
   }
 
   if (event.type === 'seat_ready') {
-    if (state.phase !== 'talk' && state.phase !== 'contracts') return reject('invalid_phase', `ready allowed only in talk or contracts, got ${state.phase}`);
+    if (state.phase !== 'talk') return reject('invalid_phase', `ready allowed only in talk, got ${state.phase}`);
     const seat = state.seats[seatIndexOf(event.seatId)];
     if (seat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${seat.status}`);
     if (!state.readySeatIds.includes(event.seatId)) state.readySeatIds.push(event.seatId);
@@ -2381,7 +1852,7 @@ export function applyEvent(
 
   if (event.type === 'phase_advanced') {
     if (event.reason === 'deadline') markUnsubmittedSeatsTimedOut(state);
-    if (state.phase === 'talk' || state.phase === 'contracts') {
+    if (state.phase === 'talk') {
       const nextPhase = transitionTick(state.phase, 'phase_complete');
       if (!nextPhase.ok) return nextPhase;
       state.phase = nextPhase.state;
@@ -2393,12 +1864,11 @@ export function applyEvent(
       const resolving = transitionTick(state.phase, 'phase_complete');
       if (!resolving.ok) return resolving;
       state.phase = resolving.state;
-      resolveTick(state, event.signatures, effects, signer);
+      resolveTick(state, effects);
       const reported = transitionTick(state.phase, 'resolution_complete');
       if (!reported.ok) return reported;
       state.phase = reported.state;
       settleBeaconsAndVictoryPoints(state);
-      settleAllianceVictoryPoints(state);
       const winSeat = goalWinnerAfterTurn(state);
       if (winSeat !== null) {
         const finished = transitionMatch(state.status, 'match_won');
@@ -2436,14 +1906,14 @@ export function applyEvent(
   return reject('invalid_order', 'unhandled event');
 }
 
-export function replayMatch(events: readonly WargamesEvent[], signer?: ReportSigner): MatchState {
+export function replayMatch(events: readonly WargamesEvent[]): MatchState {
   if (events.length === 0 || events[0].type !== 'match_created') {
     throw new Error('Wargames event log must start with match_created');
   }
   const first = events[0];
   let state = createInitialMatchState(first.matchId, first.createdAtMs, first.spec);
   for (let index = 1; index < events.length; index += 1) {
-    const outcome = applyEvent(state, events[index], signer);
+    const outcome = applyEvent(state, events[index]);
     if (!outcome.ok) {
       throw new Error(`Replay rejected event #${index} (${events[index].type}): ${outcome.rejection.message}`);
     }
@@ -2452,14 +1922,14 @@ export function replayMatch(events: readonly WargamesEvent[], signer?: ReportSig
   return state;
 }
 
-export function replayMatchAtTick(events: readonly WargamesEvent[], targetTick: number, signer?: ReportSigner): MatchState {
+export function replayMatchAtTick(events: readonly WargamesEvent[], targetTick: number): MatchState {
   if (events.length === 0 || events[0].type !== 'match_created') {
     throw new Error('Wargames event log must start with match_created');
   }
   const first = events[0];
   let state = createInitialMatchState(first.matchId, first.createdAtMs, first.spec);
   for (let index = 1; index < events.length; index += 1) {
-    const outcome = applyEvent(state, events[index], signer);
+    const outcome = applyEvent(state, events[index]);
     if (!outcome.ok) {
       throw new Error(`Replay rejected event #${index} (${events[index].type}): ${outcome.rejection.message}`);
     }
@@ -2475,10 +1945,7 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     .filter((village): village is VillageState => village !== null && village.owner === seatId)
     .map((village) => village.hexIndex);
   const scoutedSet = new Set(state.scoutedHexesBySeat[seatId]);
-  const hostedHexIndices = state.villages
-    .filter((village): village is VillageState => village !== null && village.guests.some((guest) => guest.owner === seatId))
-    .map((village) => village.hexIndex);
-  const fullIntelHexes = new Set<number>([...ownedHexIndices, ...scoutedSet, ...hostedHexIndices]);
+  const fullIntelHexes = new Set<number>([...ownedHexIndices, ...scoutedSet]);
   const nearbyHexIndices = new Set<number>();
   for (const ownedIdx of ownedHexIndices) {
     const ownedTile = state.hexes[ownedIdx];
@@ -2514,14 +1981,10 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
       targetHexIndex: army.targetHexIndex,
       troops: { ...army.troops },
       departedTick: army.departedTick,
-      ...(army.supporting === undefined ? {} : { supporting: army.supporting }),
     });
   }
   const seatStatuses = {} as Record<SeatId, SeatStatus>;
   for (const entry of state.seats) seatStatuses[entry.config.seatId] = entry.status;
-  const visibleContracts = [...state.contracts.values()].filter(
-    (contract) => contract.proposer === seatId || contract.counterparty === seatId,
-  );
   return {
     matchId: state.matchId,
     status: state.status,
@@ -2535,9 +1998,6 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     visibleVillages,
     nearbyHexOwners,
     visibleArmies,
-    contracts: visibleContracts,
-    ledger: [...state.ledger],
-    reputation: matchSeatIds(state).map((entrySeatId) => seatReputationOf(state, entrySeatId)),
     winnerSeatId: state.winnerSeatId,
     terrain: state.terrain.flatMap((kind, hexIndex) => (kind === 'plain' ? [] : [{ hexIndex, kind }])),
     sites: state.villages.flatMap((village) => (village === null ? [] : [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon }])),

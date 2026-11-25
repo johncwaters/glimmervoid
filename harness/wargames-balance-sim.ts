@@ -46,14 +46,13 @@ interface GameRecord {
   landFullTurn: number | null;
 }
 
-const signer = { sign: () => 'sim', verify: () => true };
 
 function hexDistance(first: { q: number; r: number }, second: { q: number; r: number }): number {
   return Math.max(Math.abs(first.q - second.q), Math.abs(first.r - second.r), Math.abs(first.q + first.r - second.q - second.r));
 }
 
 function step(state: MatchState, event: Record<string, unknown>): MatchState {
-  const outcome = applyEvent(state, { ...event, seq: state.lastSeq + 1 } as WargamesEvent, signer);
+  const outcome = applyEvent(state, { ...event, seq: state.lastSeq + 1 } as WargamesEvent);
   if (!outcome.ok) throw new Error(`${String(event.type)} rejected: ${outcome.rejection.message}`);
   return outcome.state;
 }
@@ -296,7 +295,6 @@ function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius:
   while (state.status === 'running') {
     const before = state.villages.map((village) => (village ? { owner: village.owner, buildings: { ...village.buildings } } : null));
     state = step(state, advance);
-    state = step(state, advance);
     for (const seat of state.seats) {
       if (seat.status !== 'acting') continue;
       const strategy = strategyBySeat.get(seat.config.seatId) ?? 'mixed';
@@ -474,10 +472,10 @@ function unitsWithin(budget: number, cost: { grain: number; ore: number }): numb
   return Math.max(0, Math.floor(budget / totalCostOf(cost)));
 }
 
-function marchingArmyAt(id: string, owner: SeatId, hexIndex: number, troops: TroopCounts, supporting?: SeatId): Parameters<MatchState['armies']['set']>[1] {
+function marchingArmyAt(id: string, owner: SeatId, hexIndex: number, troops: TroopCounts): Parameters<MatchState['armies']['set']>[1] {
   return {
     id, owner, status: 'marching', originHexIndex: hexIndex, currentHexIndex: hexIndex, targetHexIndex: hexIndex,
-    troops, departedTick: 0, intendedTargetOwner: 's3', scoutedBy: [], ...(supporting === undefined ? {} : { supporting }),
+    troops, departedTick: 0, scoutedBy: [],
   };
 }
 
@@ -521,19 +519,13 @@ function playCoalitionRaid(row: CoalitionRow, seed: number): boolean {
   state.armies.set('lead-clear', marchingArmyAt('lead-clear', 's1', target.hexIndex, { raider: leadRaiders, guard: 0, envoy: 0 }));
   state.armies.set('lead-wave', marchingArmyAt('lead-wave', 's1', target.hexIndex, { raider: 0, guard: 0, envoy: envoys }));
   if (row.allyBudgetShare !== null) {
-    state.contracts.set('ally', {
-      id: 'ally', proposer: 's1', counterparty: 's2',
-      terms: { kind: 'alliance', counterparty: 's2', durationTicks: 10, collateral: { grain: 0, ore: 0 } },
-      status: 'active', proposedTick: 0, activatedTick: 0, endTick: 10, breachedBy: null, breachedTick: null,
-    });
     const allyRaiders = unitsWithin(budget * row.allyBudgetShare, costs.raider);
-    state.armies.set('ally-clear', marchingArmyAt('ally-clear', 's2', target.hexIndex, { raider: allyRaiders, guard: 0, envoy: 0 }, 's1'));
+    state.armies.set('ally-clear', marchingArmyAt('ally-clear', 's2', target.hexIndex, { raider: allyRaiders, guard: 0, envoy: 0 }));
   }
   state = step(state, { type: 'seating_started' });
   for (const seat of state.seats) state = step(state, { type: 'seat_connected', seatId: seat.config.seatId });
-  state = step(state, { type: 'phase_advanced', reason: 'deadline', signatures: {} });
-  state = step(state, { type: 'phase_advanced', reason: 'deadline', signatures: {} });
-  state = step(state, { type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  state = step(state, { type: 'phase_advanced', reason: 'deadline' });
+  state = step(state, { type: 'phase_advanced', reason: 'all_submitted' });
   return state.villages[target.hexIndex]?.owner === 's1';
 }
 

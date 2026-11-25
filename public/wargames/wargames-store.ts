@@ -103,7 +103,7 @@ export function displayedMatchState(): MatchState | null {
 
 export function displayedMatchAnalytics(state: MatchState | null = displayedMatchState()): MatchAnalytics | null {
   if (!state) return null;
-  return analyzeMatch(events, state);
+  return analyzeMatch(state);
 }
 
 export function displayedNotes(): SeatNote[] {

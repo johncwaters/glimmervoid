@@ -43,14 +43,11 @@ function hasExactSeatIds(seats: readonly { seatId: SeatId }[]): boolean {
 export const MatchStatus = z.enum(['lobby', 'seating', 'running', 'finished', 'aborted']);
 export type MatchStatus = z.infer<typeof MatchStatus>;
 
-export const TickPhase = z.enum(['talk', 'contracts', 'orders', 'resolving', 'reported']);
+export const TickPhase = z.enum(['talk', 'orders', 'resolving', 'reported']);
 export type TickPhase = z.infer<typeof TickPhase>;
 
 export const SeatStatus = z.enum(['disconnected', 'connected', 'acting', 'submitted', 'timedOut', 'eliminated']);
 export type SeatStatus = z.infer<typeof SeatStatus>;
-
-export const ContractStatus = z.enum(['proposed', 'active', 'fulfilled', 'breached', 'rejected', 'expired']);
-export type ContractStatus = z.infer<typeof ContractStatus>;
 
 export const VillageProductionState = z.enum(['producing', 'barren']);
 export type VillageProductionState = z.infer<typeof VillageProductionState>;
@@ -184,11 +181,6 @@ export interface WargamesRolesRule {
   readonly moraleMinAttackerPoints: number;
 }
 
-interface WargamesDiplomacyRule {
-  readonly breachCollateralStep: number;
-  readonly allianceVpPerTurn: number;
-}
-
 export interface WargamesBalance {
   readonly capturedLoyalty: number;
   readonly loyaltyRegenPerTurn: number;
@@ -199,7 +191,6 @@ export interface WargamesBalance {
   readonly victory: WargamesVictoryRule;
   readonly sparseSites: WargamesSparseSites;
   readonly clusteredTerrain: WargamesTerrainRule;
-  readonly diplomacy: WargamesDiplomacyRule;
   readonly roles: WargamesRolesRule;
   readonly territory: WargamesTerritoryRule;
 }
@@ -238,7 +229,6 @@ export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
     forestPatchSizes: Object.freeze([3, 4, 4, 5]),
     bonusChance: 0.05,
   }),
-  diplomacy: Object.freeze({ breachCollateralStep: 1, allianceVpPerTurn: 2 }),
   roles: Object.freeze({
     units: Object.freeze({
       raider: Object.freeze({ attack: 12, defense: 3, cost: Object.freeze({ grain: 12, ore: 8 }) }),
@@ -294,45 +284,6 @@ export function valueForRadius<Value>(valueByRadius: Readonly<Record<number, Val
   return valueByRadius[closestRadius];
 }
 
-const EscrowTerms = z.strictObject({
-  kind: z.literal('escrow'),
-  counterparty: SeatId,
-  proposerGives: ResourceBundle,
-  counterpartyGives: ResourceBundle,
-});
-
-const NapTerms = z.strictObject({
-  kind: z.literal('nap'),
-  counterparty: SeatId,
-  durationTicks: z.number().int().min(1).max(40),
-  collateral: ResourceBundle,
-});
-
-const AllianceTerms = z.strictObject({
-  kind: z.literal('alliance'),
-  counterparty: SeatId,
-  durationTicks: z.number().int().min(1).max(40),
-  collateral: ResourceBundle,
-});
-
-export const ContractTerms = z.discriminatedUnion('kind', [EscrowTerms, NapTerms, AllianceTerms]);
-export type ContractTerms = z.infer<typeof ContractTerms>;
-
-export const ContractRecord = z.strictObject({
-  id: z.string().min(1).max(64),
-  proposer: SeatId,
-  counterparty: SeatId,
-  terms: ContractTerms,
-  status: ContractStatus,
-  proposedTick: z.number().int().min(0),
-  activatedTick: z.number().int().min(0).nullable(),
-  endTick: z.number().int().min(0).nullable(),
-  breachedBy: SeatId.nullable(),
-  breachedTick: z.number().int().min(0).nullable(),
-  lockedCollateral: z.strictObject({ proposer: ResourceBundle, counterparty: ResourceBundle }).optional(),
-});
-export type ContractRecord = z.infer<typeof ContractRecord>;
-
 const BuildOrder = z.strictObject({
   kind: z.literal('build'),
   hexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
@@ -356,7 +307,6 @@ const MarchOrder = z.strictObject({
   fromHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
   toHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
   troops: TroopCounts,
-  support: SeatId.optional(),
 });
 
 const ScoutOrder = z.strictObject({
@@ -374,7 +324,7 @@ export const OrderItem = z.discriminatedUnion('kind', [
 ]);
 export type OrderItem = z.infer<typeof OrderItem>;
 
-export const SignedReportPayload = z.discriminatedUnion('kind', [
+export const WargamesReport = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('battle'),
     reportId: z.string().min(1).max(64),
@@ -416,13 +366,7 @@ export const SignedReportPayload = z.discriminatedUnion('kind', [
     previousOwner: SeatId.nullable(),
   }),
 ]);
-export type SignedReportPayload = z.infer<typeof SignedReportPayload>;
-
-export const SignedReport = z.strictObject({
-  payload: SignedReportPayload,
-  signature: z.string().min(1).max(128),
-});
-export type SignedReport = z.infer<typeof SignedReport>;
+export type WargamesReport = z.infer<typeof WargamesReport>;
 
 export const MessageChannel = z.enum(['dm', 'public']);
 export type MessageChannel = z.infer<typeof MessageChannel>;
@@ -434,24 +378,13 @@ export const MessageRecord = z.strictObject({
   to: SeatId.nullable(),
   channel: MessageChannel,
   text: z.string().min(1).max(2000),
-  attachedReport: SignedReport.nullable().default(null),
 });
 export type MessageRecord = z.infer<typeof MessageRecord>;
-
-export const LedgerBreachEntry = z.strictObject({
-  tick: z.number().int().min(1),
-  contractId: z.string().min(1).max(64),
-  breacher: SeatId,
-  victim: SeatId,
-  collateralTransferred: ResourceBundle,
-});
-export type LedgerBreachEntry = z.infer<typeof LedgerBreachEntry>;
 
 export const RejectionCode = z.enum([
   'invalid_match_state',
   'invalid_phase',
   'invalid_seat_state',
-  'invalid_contract_state',
   'invalid_village_state',
   'invalid_army_state',
   'message_limit_exceeded',
@@ -498,27 +431,7 @@ export const WargamesEvent = z.discriminatedUnion('type', [
     to: SeatId.nullable(),
     channel: MessageChannel,
     text: z.string().min(1).max(2000),
-    attachedReport: SignedReport.nullable().default(null),
-  }),
-  z.strictObject({
-    seq: z.number().int().min(1),
-    type: z.literal('contract_proposed'),
-    seatId: SeatId,
-    contractId: z.string().min(1).max(64),
-    terms: ContractTerms,
-  }),
-  z.strictObject({
-    seq: z.number().int().min(1),
-    type: z.literal('contract_accepted'),
-    seatId: SeatId,
-    contractId: z.string().min(1).max(64),
-  }),
-  z.strictObject({
-    seq: z.number().int().min(1),
-    type: z.literal('contract_rejected'),
-    seatId: SeatId,
-    contractId: z.string().min(1).max(64),
-  }),
+    }),
   z.strictObject({
     seq: z.number().int().min(1),
     type: z.literal('seat_ready'),
@@ -538,16 +451,8 @@ export const WargamesEvent = z.discriminatedUnion('type', [
   }),
   z.strictObject({
     seq: z.number().int().min(1),
-    type: z.literal('report_verified'),
-    seatId: SeatId,
-    reportId: z.string().min(1).max(64),
-    valid: z.boolean(),
-  }),
-  z.strictObject({
-    seq: z.number().int().min(1),
     type: z.literal('phase_advanced'),
     reason: z.enum(['all_submitted', 'deadline']),
-    signatures: z.record(z.string(), z.string()).default({}),
   }),
   z.strictObject({
     seq: z.number().int().min(1),
@@ -563,7 +468,7 @@ export const WargamesPhaseClock = z.strictObject({
 });
 export type WargamesPhaseClock = z.infer<typeof WargamesPhaseClock>;
 
-const DramaKind = z.enum(['contract_breach', 'ally_attack', 'forged_report']);
+const DramaKind = z.enum(['betrayal']);
 
 export const DramaHighlight = z.strictObject({
   id: z.string().min(1).max(80),
@@ -574,7 +479,6 @@ export const DramaHighlight = z.strictObject({
   summary: z.string().min(1).max(300),
   relatedDmText: z.string().max(2000).nullable(),
   relatedOrderText: z.string().max(400).nullable(),
-  detected: z.boolean().nullable(),
 });
 export type DramaHighlight = z.infer<typeof DramaHighlight>;
 
@@ -582,11 +486,10 @@ export const SeatMetrics = z.strictObject({
   seatId: SeatId,
   modelDisplay: z.string().min(1).max(120),
   villagesHeld: z.number().int().min(0),
-  promisesKeptTalkRate: z.number().min(0).max(1).nullable(),
-  promisesKeptContractRate: z.number().min(0).max(1).nullable(),
+  messagesSent: z.number().int().min(0),
+  publicMessages: z.number().int().min(0),
+  betrayals: z.number().int().min(0),
   firstBetrayalTick: z.number().int().min(1).nullable(),
-  forgedReportsSent: z.number().int().min(0),
-  forgedReportsDetected: z.number().int().min(0),
   tokensPerTurn: z.number().min(0).nullable(),
 });
 export type SeatMetrics = z.infer<typeof SeatMetrics>;
@@ -594,9 +497,6 @@ export type SeatMetrics = z.infer<typeof SeatMetrics>;
 export const MatchAnalytics = z.strictObject({
   highlights: z.array(DramaHighlight),
   seats: z.array(SeatMetrics),
-  avgCoalitionLifetimeTicks: z.number().min(0).nullable(),
-  forgedReportDetectionRate: z.number().min(0).max(1).nullable(),
-  sameModelCollusionRate: z.number().min(0).max(1).nullable(),
 });
 export type MatchAnalytics = z.infer<typeof MatchAnalytics>;
 
@@ -606,7 +506,6 @@ export const ModelEloRow = z.strictObject({
   matchesPlayed: z.number().int().min(0),
   wins: z.number().int().min(0),
   avgVillages: z.number().min(0),
-  breaches: z.number().int().min(0),
 });
 export type ModelEloRow = z.infer<typeof ModelEloRow>;
 
@@ -624,7 +523,6 @@ export const WargamesMatchSummary = z.strictObject({
   phase: TickPhase,
   winnerSeatId: SeatId.nullable(),
   winnerModelDisplay: z.string().nullable(),
-  breachCount: z.number().int().min(0),
   eventCount: z.number().int().min(0),
   seats: z.array(z.strictObject({
     seatId: SeatId,
@@ -633,7 +531,6 @@ export const WargamesMatchSummary = z.strictObject({
     status: SeatStatus,
     villagesHeld: z.number().int().min(0),
     victoryPoints: z.number().int().min(0).default(0),
-    breaches: z.number().int().min(0).default(0),
   })),
 });
 export type WargamesMatchSummary = z.infer<typeof WargamesMatchSummary>;

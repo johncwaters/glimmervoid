@@ -148,11 +148,11 @@ function unitLines(): string[] {
     unitLine('Raider', 'raider', 'Attacks; weak when it has to defend.'),
     unitLine('Guard', 'guard', 'Defends; weak in an attack.'),
     unitLine('Envoy', 'envoy', 'Never attacks; adds its defense in a garrison; captures villages (see Loyalty).'),
-    '- Attack power is the attack of every troop you send. Defense power is (the defense of every troop in the village, allied guests included, plus the Wall) times the Wall bonus and any terrain or last-village multiplier. The stronger side wins.',
+    '- Attack power is the attack of every troop you send. Defense power is (the defense of every troop in the village plus the Wall) times the Wall bonus and any terrain multiplier. The stronger side wins.',
     MOVEMENT_LINE,
     `- Morale: when you attack a seat with fewer VP than you, your troops fight at the square root of (their VP / your VP), never below ${floorPercent}%. Morale is full while you have under ${roles.moraleMinAttackerPoints} VP and against Barbarians.`,
-    `- Troop cap: a village holds at most ${roles.troopCapBase} + ${roles.troopCapPerFarmLevel} per Farm level troops, counting its own troops, allied guests and its troops out on the march. Training stops at the cap; troops arriving past it march back home.`,
-    `- Joint attacks: per grain and ore spent, a Guard buys about ${defensePerAttack(roles, costs)}x the defense that a Raider buys in attack, and the Wall adds more, so one seat alone cannot break a guarded village it matched in spending. Two allies can: in the same tick both march on the same hex, one with a plain march and the other with support: <that seat>. To lend Guards to an ally, march them to the ally's village with support: <ally>.`,
+    `- Troop cap: a village holds at most ${roles.troopCapBase} + ${roles.troopCapPerFarmLevel} per Farm level troops, counting its own troops and its troops out on the march. Training stops at the cap; troops arriving past it march back home.`,
+    `- Per grain and ore spent, a Guard buys about ${defensePerAttack(roles, costs)}x the defense that a Raider buys in attack, so one seat alone breaks a guarded village only by outspending it. Seats that attack one hex in the same tick fight each other too: only the strongest can take it. Losses stick, so seats can take turns: one clears the defenders one tick, another captures the next.`,
   ];
 }
 
@@ -166,7 +166,7 @@ function captureLines(): string[] {
   const balance = WARGAMES_BALANCE;
   const roles = balance.roles;
   return [
-    '- Every village starts at 100 Loyalty. Capture is a separate wave: an army of only Envoys never fights, and Envoys drain Loyalty only once the village\'s defense is beaten this tick (your attack, or an ally supporting it, beat its troops and Wall), or it has no troops and no Wall.',
+    '- Every village starts at 100 Loyalty. Capture is a separate wave: an army of only Envoys never fights, and Envoys drain Loyalty only once the village\'s defense is beaten this tick (an attack beat its troops and Wall), or it has no troops and no Wall.',
     `- Each surviving Envoy drains a random ${roles.captureDrainMin} to ${roles.captureDrainMax} Loyalty. Envoys marching with Raiders die with them in proportion; an Envoy-only army arriving at a defended village, or with a side that lost, is wiped.`,
   ];
 }
@@ -225,7 +225,7 @@ function landLines(spec: WargamesMatchSpecType): string[] {
     'Land, Improvements & Founding (get_state territory lists every land hex with its owner, improvement and level):',
     `- Standing armies: an army that marches to an open hex (no village or Beacon, not Mountain or Lake) stays there, holding it, until you order it on. Order it with a march whose fromHexIndex is that hex; send it to one of your villages to bring it home. It still counts against its home village's troop cap. get_state visibleArmies shows standing armies with status "${ArmyStatus.enum.standing}".`,
     `- Claiming: an army that has held an open hex through the end of a whole tick after the one it arrived in makes that hex your land, if the hex touches land you already hold (one of your villages or your land hexes) and no other seat stands there. Each tick a seat claims at most ${territory.claimsPerVillagePerTurn} new hex per village it holds. When two seats arrive at an empty hex in the same tick, both turn back.`,
-    '- Fighting on land: an army that marches onto a hex where another seat\'s army stands attacks it (your attack against their defense times any Forest bonus, no Wall). If the defenders fall, your strongest seat\'s survivors stand there; if not, your army is wiped. Attacking or taking land from a seat you hold a NAP or alliance with breaks the pact, like an attack on a village.',
+    '- Fighting on land: an army that marches onto a hex where another seat\'s army stands attacks it (your attack against their defense times any Forest bonus, no Wall). If the defenders fall, your strongest seat\'s survivors stand there; if not, your army is wiped.',
     `- Land VP: every tick you score 1 VP per ${territory.tilesPerPoint} land hexes you hold. Land produces nothing by itself; improvements do.`,
     `- Improvements: each land hex holds one, built with a build order on that hex (building: ${ImprovementKind.options.map((kind) => `"${kind}"`).join(', ')}). Your nearest village pays from its own stock. Repeat the order to raise the level. One build per hex per tick.`,
     `  - Field (${costText(field.cost)}, up to level ${field.maxLevel}): +${field.yieldPerLevel} grain per tick per level to your nearest village, only while that village is next to the Field, +${territory.tileBonusPerLevel} more per level on a Fertile hex.`,
@@ -237,33 +237,11 @@ function landLines(spec: WargamesMatchSpecType): string[] {
   ];
 }
 
-function supportLine(): string {
-  const attackSupport = '- Support: a march order may name support: <seat>. If that seat is your active ally and attacks the same target hex that tick, your troops fight on its side: one combined attack power against the defender, the ally takes the village if it captures, losses are shared in proportion, and your survivors march home.';
-  const unsupported = 'With no active alliance, or no ally attack there, the support march turns back without fighting. Two seats that attack one hex without support fight each other too: only the strongest can take it, and the others are wiped.';
-  const garrison = 'Sent to the ally\'s own village, your troops stay yours as guests: they defend it with its Wall, count against its troop cap, share its losses, and march home on their own when the alliance ends or breaks.';
-  return `${attackSupport} ${garrison} ${unsupported}`;
-}
-
 function diplomacyLines(): string[] {
-  const shared = [
-    '- Scouting: Up to 2 scouts per tick to reveal enemy garrisons, buildings, and marching armies. Orders are sealed and resolve simultaneously, so no seat sees another seat\'s orders before they resolve.',
-  ];
-  const diplomacy = WARGAMES_BALANCE.diplomacy;
-  if (!diplomacy) {
-    return [
-      '- Messages: Send direct messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',
-      '- Contracts: Propose a Resource Escrow (atomic grain/ore swap) or a Non-Aggression Pact (NAP), where both seats lock collateral resources for N ticks. Attacking your NAP partner breaches the pact, forfeits your collateral to the victim, and records the breach on the public ledger.',
-      ...shared,
-    ];
-  }
   return [
-    '- Messages: Send direct or public messages during Talk; every seat reads the public channel. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report. Talk binds nothing; only contracts are enforced.',
-    '- Escrow: an atomic grain/ore swap that settles the moment it is accepted.',
-    `- Alliance VP: at the end of every turn an alliance is in force, each partner scores ${diplomacy.allianceVpPerTurn} VP. If one partner breaks it, the victim also scores the breaker's alliance VP for every turn the alliance stood (${diplomacy.allianceVpPerTurn} VP per turn).`,
-    '- Alliance: two seats may hold one alliance at a time (one proposed or active). Both seats lock the stated collateral for N ticks. While it is active neither may attack the other, and each may support the other. When it runs its full term both get their collateral back. If one attacks the other, the alliance breaks: the victim takes the attacker\'s collateral and its own back, and the breach goes on the public ledger.',
-    supportLine(),
-    `- Reputation: get_state shows every seat's record of deals kept (pacts that ran their term, settled escrows) and deals broken (breaches). A seat with B broken deals locks ${diplomacy.breachCollateralStep === 1 ? '(1 + B)' : `(1 + ${diplomacy.breachCollateralStep} x B)`} times the stated collateral to enter any new alliance.`,
-    ...shared,
+    '- Messages: Send direct or public messages during Talk; every seat reads the public channel.',
+    '- Agreements are words only: nothing in the engine enforces a promise, and any seat may attack any other at any time.',
+    '- Scouting: Up to 2 scouts per tick to reveal enemy garrisons, buildings, and marching armies. Orders are sealed and resolve simultaneously, so no seat sees another seat\'s orders before they resolve.',
   ];
 }
 
@@ -284,15 +262,15 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     ...landLines(spec),
     ...terrainLines(spec),
     '',
-    'Diplomacy & Contracts:',
+    'Diplomacy:',
     ...diplomacyLines(),
     '',
     'Private Notes:',
     '- Every tick, record your private thoughts, threat read, and alliance or betrayal plans with write_note (private to your seat; never visible to other seats).',
     '',
     'Turn Loop & Pacing:',
-    '- Act ONLY through your 10 Wargames MCP tools. Start immediately by calling get_state() to connect your seat, then loop through Talk, Contracts, and Orders until the match finishes.',
-    '- When finished with Talk or Contracts, call get_state({ ready: true, wait_for_change: true }) to fast-advance and wait cleanly for the next phase without polling.',
+    '- Act ONLY through your 7 Wargames MCP tools. Start immediately by calling get_state() to connect your seat, then loop through Talk and Orders until the match finishes.',
+    '- When finished with Talk, call get_state({ ready: true, wait_for_change: true }) to fast-advance and wait cleanly for the next phase without polling.',
   ];
   const strategy = seat.setup.instructions.trim();
   if (strategy.length > 0) {

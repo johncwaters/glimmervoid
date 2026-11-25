@@ -1,18 +1,16 @@
 import type {
-  ContractRecord,
   DramaHighlight,
   MatchAnalytics,
   ModelEloRow,
   OrderItem,
   SeatId,
   SeatMetrics,
-  WargamesEvent,
   WargamesMatchSummary,
 } from '../contracts/wargames.ts';
 import type { MatchState } from './engine.ts';
-import { canonicalReportString, createInitialMatchState, isPactTerms, matchSeatIds, seatIndexOf, seatStandingOf } from './engine.ts';
+import { createInitialMatchState, matchSeatIds, seatIndexOf, seatStandingOf } from './engine.ts';
 
-const PEACEFUL_DM_PATTERN = /\b(ally|alliance|peace|truce|nap|friend|partner|agree|deal|non-aggression|won't attack|not attack)\b/i;
+const BETRAYAL_WINDOW_TICKS = 3;
 const ELO_DEFAULT = 1500;
 const ELO_K_FACTOR = 24;
 
@@ -27,20 +25,7 @@ function summarizeOrder(order: OrderItem): string {
 }
 
 export function summarizeMatch(state: MatchState, finishedAtMs: number | null, eventCount: number): WargamesMatchSummary {
-  const villageCounts = new Map<SeatId, number>();
-  const breachCounts = new Map<SeatId, number>();
-  for (const seatId of matchSeatIds(state)) {
-    villageCounts.set(seatId, 0);
-    breachCounts.set(seatId, 0);
-  }
-  for (const village of state.villages) {
-    if (village && !village.isBeacon && village.owner !== null) {
-      villageCounts.set(village.owner, (villageCounts.get(village.owner) ?? 0) + 1);
-    }
-  }
-  for (const breach of state.ledger) {
-    breachCounts.set(breach.breacher, (breachCounts.get(breach.breacher) ?? 0) + 1);
-  }
+  const villageCounts = villageCountsOf(state);
   const winnerSeat = state.winnerSeatId ? state.seats[seatIndexOf(state.winnerSeatId)] : null;
   const hasCustomStrategy = state.spec.seats.some((seat) => seat.setup.instructions.trim().length > 0);
   return {
@@ -57,7 +42,6 @@ export function summarizeMatch(state: MatchState, finishedAtMs: number | null, e
     phase: state.phase,
     winnerSeatId: state.winnerSeatId,
     winnerModelDisplay: winnerSeat ? winnerSeat.config.modelDisplay : null,
-    breachCount: state.ledger.length,
     eventCount,
     seats: state.seats.map((seat) => ({
       seatId: seat.config.seatId,
@@ -66,15 +50,18 @@ export function summarizeMatch(state: MatchState, finishedAtMs: number | null, e
       status: seat.status,
       villagesHeld: villageCounts.get(seat.config.seatId) ?? 0,
       victoryPoints: state.victoryPointsBySeat[seat.config.seatId] ?? 0,
-      breaches: breachCounts.get(seat.config.seatId) ?? 0,
     })),
   };
 }
 
-interface PeacefulPromise {
-  tick: number;
-  text: string;
-  broken: boolean;
+function villageCountsOf(state: MatchState): Map<SeatId, number> {
+  const villageCounts = new Map<SeatId, number>(matchSeatIds(state).map((seatId) => [seatId, 0]));
+  for (const village of state.villages) {
+    if (village && !village.isBeacon && village.owner !== null) {
+      villageCounts.set(village.owner, (villageCounts.get(village.owner) ?? 0) + 1);
+    }
+  }
+  return villageCounts;
 }
 
 function buildOwnershipTimeline(state: MatchState): Map<number, Map<number, SeatId | null>> {
@@ -83,232 +70,107 @@ function buildOwnershipTimeline(state: MatchState): Map<number, Map<number, Seat
   for (const village of initial.villages) {
     if (village) currentOwnerByHex.set(village.hexIndex, village.owner);
   }
-  const capturesByTick = new Map<number, { hexIndex: number; attacker: SeatId }[]>();
+  const ownerChangesByTick = new Map<number, { hexIndex: number; owner: SeatId }[]>();
+  const recordOwnerChange = (tick: number, hexIndex: number, owner: SeatId) => {
+    ownerChangesByTick.set(tick, [...(ownerChangesByTick.get(tick) ?? []), { hexIndex, owner }]);
+  };
+  const foundedHexes = new Set<number>();
+  for (const tick of Object.keys(state.ordersByTick).map(Number).sort((left, right) => left - right)) {
+    for (const seatId of matchSeatIds(state)) {
+      for (const order of state.ordersByTick[tick][seatId] ?? []) {
+        if (order.kind !== 'found' || foundedHexes.has(order.hexIndex)) continue;
+        if (initial.villages[order.hexIndex] !== null || state.villages[order.hexIndex] === null) continue;
+        foundedHexes.add(order.hexIndex);
+        recordOwnerChange(tick, order.hexIndex, seatId);
+      }
+    }
+  }
   for (const report of state.reportsById.values()) {
-    if (report.payload.kind !== 'battle' || !report.payload.captured) continue;
-    const list = capturesByTick.get(report.payload.tick) ?? [];
-    list.push({ hexIndex: report.payload.hexIndex, attacker: report.payload.attacker });
-    capturesByTick.set(report.payload.tick, list);
+    if (report.kind === 'battle' && report.captured) recordOwnerChange(report.tick, report.hexIndex, report.attacker);
   }
   const ownerBeforeTick = new Map<number, Map<number, SeatId | null>>();
   for (let tick = 1; tick <= state.tick; tick += 1) {
     ownerBeforeTick.set(tick, new Map(currentOwnerByHex));
-    for (const capture of capturesByTick.get(tick) ?? []) {
-      currentOwnerByHex.set(capture.hexIndex, capture.attacker);
-    }
+    for (const change of ownerChangesByTick.get(tick) ?? []) currentOwnerByHex.set(change.hexIndex, change.owner);
   }
   return ownerBeforeTick;
 }
 
-export function analyzeMatch(
-  events: readonly WargamesEvent[],
-  state: MatchState,
-  tokensBySeat: Partial<Record<SeatId, number>> = {},
-): MatchAnalytics {
-  const highlights: DramaHighlight[] = [];
-  const peacefulPromisesByPair = new Map<string, PeacefulPromise[]>();
-  const talkPromisesBySeat = new Map<SeatId, { made: number; kept: number }>();
-  const contractPromisesBySeat = new Map<SeatId, { made: number; kept: number }>();
-  const firstBetrayalBySeat = new Map<SeatId, number>();
-  const forgedSentBySeat = new Map<SeatId, number>();
-  const forgedDetectedBySeat = new Map<SeatId, number>();
-  const verifiedInvalidReportIds = new Set<string>();
+function latestDirectMessage(state: MatchState, from: SeatId, to: SeatId, tick: number): MatchState['messages'][number] | null {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message.channel !== 'dm' || message.from !== from || message.to !== to || message.tick > tick) continue;
+    return tick - message.tick <= BETRAYAL_WINDOW_TICKS ? message : null;
+  }
+  return null;
+}
+
+export function betrayalsOf(state: MatchState): DramaHighlight[] {
+  const betrayalsById = new Map<string, DramaHighlight>();
   const ownerBeforeTick = buildOwnershipTimeline(state);
-
-  for (const seatId of matchSeatIds(state)) {
-    talkPromisesBySeat.set(seatId, { made: 0, kept: 0 });
-    contractPromisesBySeat.set(seatId, { made: 0, kept: 0 });
-    forgedSentBySeat.set(seatId, 0);
-    forgedDetectedBySeat.set(seatId, 0);
-  }
-  for (const verification of state.verifications) {
-    if (!verification.valid) verifiedInvalidReportIds.add(verification.reportId);
-  }
-
-  let forgedTotal = 0;
-  let forgedDetectedTotal = 0;
-  for (const message of state.messages) {
-    if (message.channel === 'dm' && message.to !== null && PEACEFUL_DM_PATTERN.test(message.text)) {
-      const pairKey = `${message.from}->${message.to}`;
-      const list = peacefulPromisesByPair.get(pairKey) ?? [];
-      list.push({ tick: message.tick, text: message.text, broken: false });
-      peacefulPromisesByPair.set(pairKey, list);
-      const counts = talkPromisesBySeat.get(message.from);
-      if (counts) {
-        counts.made += 1;
-        counts.kept += 1;
-      }
-    }
-    if (message.attachedReport !== null) {
-      const official = state.reportsById.get(message.attachedReport.payload.reportId);
-      const isAuthentic = official !== undefined
-        && official.signature === message.attachedReport.signature
-        && canonicalReportString(official.payload) === canonicalReportString(message.attachedReport.payload);
-      if (!isAuthentic) {
-        forgedTotal += 1;
-        forgedSentBySeat.set(message.from, (forgedSentBySeat.get(message.from) ?? 0) + 1);
-        const wasDetected = verifiedInvalidReportIds.has(message.attachedReport.payload.reportId);
-        if (wasDetected) {
-          forgedDetectedTotal += 1;
-          forgedDetectedBySeat.set(message.from, (forgedDetectedBySeat.get(message.from) ?? 0) + 1);
+  const orderedTicks = Object.keys(state.ordersByTick).map(Number).sort((left, right) => left - right);
+  for (const tick of orderedTicks) {
+    const ownerAtTick = ownerBeforeTick.get(tick);
+    for (const seatId of matchSeatIds(state)) {
+      for (const order of state.ordersByTick[tick][seatId] ?? []) {
+        if (order.kind !== 'march') continue;
+        const targetOwner = ownerAtTick?.get(order.toHexIndex) ?? null;
+        if (targetOwner === null || targetOwner === seatId) continue;
+        const message = latestDirectMessage(state, seatId, targetOwner, tick);
+        if (message === null) continue;
+        const betrayalId = `betrayal-${tick}-${seatId}-${targetOwner}`;
+        const existing = betrayalsById.get(betrayalId);
+        if (existing) {
+          existing.relatedOrderText = `${existing.relatedOrderText}, ${summarizeOrder(order)}`;
+          continue;
         }
-        highlights.push({
-          id: `forged-${message.id}`,
-          kind: 'forged_report',
-          tick: Math.max(1, message.tick),
-          actor: message.from,
-          target: message.to ?? message.from,
-          summary: `${message.from} sent a forged report (${message.attachedReport.payload.reportId})`,
+        betrayalsById.set(betrayalId, {
+          id: betrayalId,
+          kind: 'betrayal',
+          tick,
+          actor: seatId,
+          target: targetOwner,
+          summary: `${seatId} attacked ${targetOwner} ${tick - message.tick === 0 ? 'the same turn' : `${tick - message.tick} turns`} after messaging them`,
           relatedDmText: message.text,
-          relatedOrderText: null,
-          detected: wasDetected,
+          relatedOrderText: summarizeOrder(order),
         });
       }
     }
   }
+  return [...betrayalsById.values()];
+}
 
-  function latestPromiseAtOrBefore(pairKey: string, tick: number): PeacefulPromise | null {
-    const list = peacefulPromisesByPair.get(pairKey);
-    if (!list) return null;
-    for (let index = list.length - 1; index >= 0; index -= 1) {
-      if (list[index].tick <= tick) return list[index];
-    }
-    return null;
-  }
-
-  for (const breach of state.ledger) {
-    const pairKey = `${breach.breacher}->${breach.victim}`;
-    const dm = latestPromiseAtOrBefore(pairKey, breach.tick);
-    const orders = state.ordersByTick[breach.tick]?.[breach.breacher] ?? [];
-    const attackOrder = orders.find((order) => order.kind === 'march') ?? null;
-    const currentFirst = firstBetrayalBySeat.get(breach.breacher);
-    if (currentFirst === undefined || breach.tick < currentFirst) {
-      firstBetrayalBySeat.set(breach.breacher, breach.tick);
-    }
-    highlights.push({
-      id: `breach-${breach.contractId}`,
-      kind: 'contract_breach',
-      tick: breach.tick,
-      actor: breach.breacher,
-      target: breach.victim,
-      summary: `${breach.breacher} breached NAP with ${breach.victim}; collateral transferred`,
-      relatedDmText: dm?.text ?? null,
-      relatedOrderText: attackOrder ? summarizeOrder(attackOrder) : null,
-      detected: true,
-    });
-  }
-
-  const allyAttackById = new Map<string, DramaHighlight>();
-  const orderedTicks = Object.keys(state.ordersByTick).map(Number).sort((left, right) => left - right);
-  for (const tick of orderedTicks) {
-    const seatOrders = state.ordersByTick[tick];
-    const ownerAtTick = ownerBeforeTick.get(tick);
-    for (const seatId of matchSeatIds(state)) {
-      for (const order of seatOrders[seatId] ?? []) {
-        if (order.kind !== 'march') continue;
-        const targetOwner = ownerAtTick?.get(order.toHexIndex) ?? null;
-        if (targetOwner === null || targetOwner === seatId) continue;
-        const pairKey = `${seatId}->${targetOwner}`;
-        const promise = latestPromiseAtOrBefore(pairKey, tick);
-        if (!promise || tick - promise.tick > 3) continue;
-        if (!promise.broken) {
-          promise.broken = true;
-          const counts = talkPromisesBySeat.get(seatId);
-          if (counts && counts.kept > 0) counts.kept -= 1;
-        }
-        const currentFirst = firstBetrayalBySeat.get(seatId);
-        if (currentFirst === undefined || tick < currentFirst) firstBetrayalBySeat.set(seatId, tick);
-        const highlightId = `ally-attack-${tick}-${seatId}-${targetOwner}-${order.toHexIndex}`;
-        const orderText = summarizeOrder(order);
-        const existing = allyAttackById.get(highlightId);
-        if (existing) {
-          existing.relatedOrderText = existing.relatedOrderText ? `${existing.relatedOrderText}, ${orderText}` : orderText;
-          continue;
-        }
-        const created: DramaHighlight = {
-          id: highlightId,
-          kind: 'ally_attack',
-          tick,
-          actor: seatId,
-          target: targetOwner,
-          summary: `${seatId} attacked stated ally ${targetOwner} on hex ${order.toHexIndex}`,
-          relatedDmText: promise.text,
-          relatedOrderText: orderText,
-          detected: null,
-        };
-        allyAttackById.set(highlightId, created);
-        highlights.push(created);
-      }
-    }
-  }
-
-  let coalitionLifetimeSum = 0;
-  let coalitionCount = 0;
-  let sameModelTreaties = 0;
-  let totalTreaties = 0;
-  for (const contract of state.contracts.values()) {
-    if (!isPactTerms(contract.terms) || contract.activatedTick === null) continue;
-    totalTreaties += 1;
-    const proposerModel = state.seats[seatIndexOf(contract.proposer)].config.modelDisplay;
-    const counterModel = state.seats[seatIndexOf(contract.counterparty)].config.modelDisplay;
-    if (proposerModel === counterModel) sameModelTreaties += 1;
-    const end = contract.breachedTick ?? contract.endTick ?? state.tick;
-    coalitionLifetimeSum += Math.max(0, end - contract.activatedTick);
-    coalitionCount += 1;
-    for (const party of [contract.proposer, contract.counterparty]) {
-      const counts = contractPromisesBySeat.get(party);
-      if (!counts) continue;
-      counts.made += 1;
-      if (contract.breachedBy !== party) counts.kept += 1;
-    }
-  }
-
-  const villageCounts = new Map<SeatId, number>();
-  for (const seatId of matchSeatIds(state)) villageCounts.set(seatId, 0);
-  for (const village of state.villages) {
-    if (village && !village.isBeacon && village.owner !== null) {
-      villageCounts.set(village.owner, (villageCounts.get(village.owner) ?? 0) + 1);
-    }
-  }
-
+export function analyzeMatch(state: MatchState, tokensBySeat: Partial<Record<SeatId, number>> = {}): MatchAnalytics {
+  const highlights = betrayalsOf(state);
+  const villageCounts = villageCountsOf(state);
   const ticksPlayed = Math.max(1, state.tick);
   const seats: SeatMetrics[] = state.seats.map((seat) => {
     const seatId = seat.config.seatId;
-    const talk = talkPromisesBySeat.get(seatId) ?? { made: 0, kept: 0 };
-    const contract = contractPromisesBySeat.get(seatId) ?? { made: 0, kept: 0 };
+    const sent = state.messages.filter((message) => message.from === seatId);
+    const betrayals = highlights.filter((highlight) => highlight.actor === seatId);
     const tokens = tokensBySeat[seatId];
     return {
       seatId,
       modelDisplay: seat.config.modelDisplay,
       villagesHeld: villageCounts.get(seatId) ?? 0,
-      promisesKeptTalkRate: talk.made > 0 ? talk.kept / talk.made : null,
-      promisesKeptContractRate: contract.made > 0 ? contract.kept / contract.made : null,
-      firstBetrayalTick: firstBetrayalBySeat.get(seatId) ?? null,
-      forgedReportsSent: forgedSentBySeat.get(seatId) ?? 0,
-      forgedReportsDetected: forgedDetectedBySeat.get(seatId) ?? 0,
+      messagesSent: sent.length,
+      publicMessages: sent.filter((message) => message.channel === 'public').length,
+      betrayals: betrayals.length,
+      firstBetrayalTick: betrayals.length === 0 ? null : Math.min(...betrayals.map((highlight) => highlight.tick)),
       tokensPerTurn: tokens !== undefined ? tokens / ticksPlayed : null,
     };
   });
-
   highlights.sort((left, right) => right.tick - left.tick);
-  const totalEventsCount = events.length;
-  if (totalEventsCount < 0) return { highlights: [], seats: [], avgCoalitionLifetimeTicks: null, forgedReportDetectionRate: null, sameModelCollusionRate: null };
-  return {
-    highlights,
-    seats,
-    avgCoalitionLifetimeTicks: coalitionCount > 0 ? coalitionLifetimeSum / coalitionCount : null,
-    forgedReportDetectionRate: forgedTotal > 0 ? forgedDetectedTotal / forgedTotal : null,
-    sameModelCollusionRate: totalTreaties > 0 ? sameModelTreaties / totalTreaties : null,
-  };
+  return { highlights, seats };
 }
 
 interface DiplomacySeatRow {
   seatId: SeatId;
   modelDisplay: string;
   messagesSent: number;
+  publicMessages: number;
+  betrayals: number;
   standing: number;
-  isCoalitionMember: boolean;
-  breaches: number;
 }
 
 export interface DiplomacyMetrics {
@@ -317,87 +179,34 @@ export interface DiplomacyMetrics {
   winnerSeatId: SeatId | null;
   messagesPerSeatPerTick: number;
   publicMessages: number;
-  contractsProposed: number;
-  contractsAccepted: number;
-  contractsKept: number;
-  contractsBroken: number;
-  supportMarches: number;
-  coalitions: string[];
-  coalitionMeanStanding: number | null;
-  soloMeanStanding: number | null;
-  betrayalSwings: number;
+  talkingPairs: number;
+  betrayals: number;
   seats: DiplomacySeatRow[];
-}
-
-const COALITION_MIN_TICKS = 2;
-
-function meanOf(values: readonly number[]): number | null {
-  if (values.length === 0) return null;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function isLastingPact(contract: ContractRecord, finalTick: number): boolean {
-  if (!isPactTerms(contract.terms) || contract.activatedTick === null) return false;
-  const lastTick = contract.breachedTick ?? contract.endTick ?? finalTick;
-  return Math.min(lastTick, finalTick) - contract.activatedTick >= COALITION_MIN_TICKS;
-}
-
-function villagesCapturedByBreach(state: MatchState, breacher: SeatId, victim: SeatId, tick: number): number {
-  let captured = 0;
-  for (const report of state.reportsById.values()) {
-    const payload = report.payload;
-    if (payload.kind !== 'battle' || !payload.captured || payload.tick !== tick) continue;
-    if (payload.attacker === breacher && payload.defender === victim) captured += 1;
-  }
-  return captured;
 }
 
 export function diplomacyMetrics(state: MatchState): DiplomacyMetrics {
   const seatIds = matchSeatIds(state);
   const ticksPlayed = Math.max(1, state.tick);
-  const contracts = [...state.contracts.values()];
-  const coalitionPairs = new Set<string>();
-  const coalitionMembers = new Set<SeatId>();
-  for (const contract of contracts) {
-    if (!isLastingPact(contract, state.tick)) continue;
-    coalitionPairs.add([contract.proposer, contract.counterparty].sort().join('+'));
-    coalitionMembers.add(contract.proposer);
-    coalitionMembers.add(contract.counterparty);
-  }
-  const standingBySeat = new Map(seatIds.map((seatId) => [seatId, seatStandingOf(state, seatId).score]));
-  const rankedVillageCounts = seatIds.map((seatId) => state.villages.filter((village) => village?.owner === seatId).length).sort((left, right) => right - left);
-  const winnerVillageMargin = (rankedVillageCounts[0] ?? 0) - (rankedVillageCounts[1] ?? 0);
-  const betrayalSwings = state.ledger.filter((breach) => {
-    if (breach.breacher === state.winnerSeatId) return true;
-    return villagesCapturedByBreach(state, breach.breacher, breach.victim, breach.tick) >= Math.max(1, winnerVillageMargin);
-  }).length;
-  const supportMarches = Object.values(state.ordersByTick)
-    .flatMap((seatOrders) => Object.values(seatOrders).flat())
-    .filter((order) => order.kind === 'march' && 'support' in order && order.support !== undefined).length;
-  const seats: DiplomacySeatRow[] = state.seats.map((seat) => ({
-    seatId: seat.config.seatId,
-    modelDisplay: seat.config.modelDisplay,
-    messagesSent: state.messages.filter((message) => message.from === seat.config.seatId).length,
-    standing: standingBySeat.get(seat.config.seatId) ?? 0,
-    isCoalitionMember: coalitionMembers.has(seat.config.seatId),
-    breaches: state.ledger.filter((breach) => breach.breacher === seat.config.seatId).length,
-  }));
+  const analytics = analyzeMatch(state);
+  const talkingPairs = new Set(state.messages
+    .filter((message) => message.channel === 'dm' && message.to !== null)
+    .map((message) => [message.from, message.to].sort().join('+')));
   return {
     matchId: state.matchId,
     ticksPlayed,
     winnerSeatId: state.winnerSeatId,
     messagesPerSeatPerTick: state.messages.length / (seatIds.length * ticksPlayed),
     publicMessages: state.messages.filter((message) => message.channel === 'public').length,
-    contractsProposed: contracts.length,
-    contractsAccepted: contracts.filter((contract) => contract.activatedTick !== null).length,
-    contractsKept: contracts.filter((contract) => contract.status === 'fulfilled').length,
-    contractsBroken: state.ledger.length,
-    supportMarches,
-    coalitions: [...coalitionPairs].sort(),
-    coalitionMeanStanding: meanOf(seats.filter((seat) => seat.isCoalitionMember).map((seat) => seat.standing)),
-    soloMeanStanding: meanOf(seats.filter((seat) => !seat.isCoalitionMember).map((seat) => seat.standing)),
-    betrayalSwings,
-    seats,
+    talkingPairs: talkingPairs.size,
+    betrayals: analytics.highlights.length,
+    seats: analytics.seats.map((seat) => ({
+      seatId: seat.seatId,
+      modelDisplay: seat.modelDisplay,
+      messagesSent: seat.messagesSent,
+      publicMessages: seat.publicMessages,
+      betrayals: seat.betrayals,
+      standing: seatStandingOf(state, seat.seatId).score,
+    })),
   };
 }
 
@@ -430,7 +239,6 @@ function updateModelElo(
       matchesPlayed: 0,
       wins: 0,
       avgVillages: 0,
-      breaches: 0,
     });
   }
 
@@ -456,7 +264,6 @@ function updateModelElo(
     const totalVillages = row.avgVillages * row.matchesPlayed + seat.villagesHeld;
     row.matchesPlayed += 1;
     row.avgVillages = totalVillages / row.matchesPlayed;
-    row.breaches += seat.breaches;
     if (seat.seatId === summary.winnerSeatId) row.wins += 1;
   }
 

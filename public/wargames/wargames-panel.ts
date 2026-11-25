@@ -18,8 +18,9 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { improvementYieldPerLevelOn, matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
+import { improvementYieldPerLevelOn, matchSeatIds, projectSeatState, seatStandingOf, victoryPointTargetOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
+import { betrayalsOf } from '#shared/wargames/analytics.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -50,18 +51,15 @@ import { createWargamesInspector } from './wargames-inspector.ts';
 import { ACTING_PHASE_GLYPHS, WARGAMES_GLYPH_PATHS } from './wargames-glyphs.ts';
 import {
   BEACON_GLYPH_PATH,
-  BREACH_WARNING_PATH,
   BUILDING_GLYPH_PATHS,
   IMPROVEMENT_GLYPH_PATHS,
   CONTROL_FLAG_PATH,
   controlToneColor,
   createWargamesMap,
   isMatchOver,
-  PACT_SCROLL_PATH,
   SCOUT_EYE_PATH,
   SEAT_COLORS,
   seatLabelOf,
-  SUPPORT_DASH,
   TERRAIN_GLYPHS,
   THOUGHT_CLOUD_PATH,
   UNIT_GLYPH_PATHS,
@@ -198,12 +196,6 @@ const SEAT_STATUS_LABELS: Readonly<Record<SeatStatus, string>> = Object.freeze({
   submitted: 'Locked in',
   timedOut: 'Timed out',
   eliminated: 'Eliminated',
-});
-
-const CONTRACT_KIND_LABELS: Readonly<Record<'escrow' | 'nap' | 'alliance', string>> = Object.freeze({
-  escrow: 'Escrow deal',
-  nap: 'Non-aggression pact',
-  alliance: 'Alliance',
 });
 
 const MESSAGE_AUDIENCE_LABELS: Readonly<Record<MessageChannel, string>> = Object.freeze({
@@ -638,21 +630,9 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops), buildResourceReadout(tally.grain, tally.ore));
 
     banner.append(head, modelLine, track, stats);
-    banner.append(buildReputationReadout(seatReputationOf(state, seatId)));
     strip.append(banner);
   }
   return strip;
-}
-
-function buildReputationReadout(reputation: { kept: number; broken: number }): HTMLElement {
-  const readout = el('div', 'wg-faction-sub wg-legend-item');
-  readout.append(
-    createWargamesGlyph(PACT_SCROLL_PATH, 12, 'var(--state-running)', 'Deals kept'),
-    el('span', '', String(reputation.kept)),
-    createWargamesGlyph(BREACH_WARNING_PATH, 12, 'var(--state-failed)', 'Deals broken'),
-    el('span', '', String(reputation.broken)),
-  );
-  return readout;
 }
 
 function hexRouteElements(fromHexIndex: number, toHexIndex: number): HTMLElement[] {
@@ -661,7 +641,7 @@ function hexRouteElements(fromHexIndex: number, toHexIndex: number): HTMLElement
   return [el('span', '', `#${fromHexIndex}`), arrow, el('span', '', `#${toHexIndex}`)];
 }
 
-function buildOrderElement(order: OrderItem, labelOf: (seatId: SeatId) => string): HTMLElement {
+function buildOrderElement(order: OrderItem): HTMLElement {
   const item = el('span', 'wg-legend-item');
   switch (order.kind) {
     case 'build': {
@@ -687,7 +667,7 @@ function buildOrderElement(order: OrderItem, labelOf: (seatId: SeatId) => string
       return item;
     }
     case 'march': {
-      item.append(el('span', '', order.support === undefined ? 'March' : `Support ${labelOf(order.support)}`), ...hexRouteElements(order.fromHexIndex, order.toHexIndex));
+      item.append(el('span', '', 'March'), ...hexRouteElements(order.fromHexIndex, order.toHexIndex));
       for (const unit of UNIT_GLYPH_PATHS) {
         if (order.troops[unit.key] <= 0) continue;
         item.append(createWargamesGlyph(unit.path, 13, unit.color, unit.label), el('span', '', String(order.troops[unit.key])));
@@ -753,30 +733,15 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
 
   const tickOrders = state.ordersByTick[state.tick] ?? state.ordersByTick[Math.max(1, state.tick - 1)];
   const orders = seat.sealedOrders.length > 0 ? seat.sealedOrders : (tickOrders?.[seatId] ?? []);
-  const activeContracts = [...state.contracts.values()]
-    .filter((contract) => contract.status === 'active' && (contract.proposer === seatId || contract.counterparty === seatId))
-    .map((contract) => {
-      const other = contract.proposer === seatId ? contract.counterparty : contract.proposer;
-      const turnsLeft = contract.endTick === null ? '' : ` (${Math.max(0, contract.endTick - state.tick)} turns left)`;
-      return `${CONTRACT_KIND_LABELS[contract.terms.kind]} with ${labelOf(other)}${turnsLeft}`;
-    });
   const ordersList = el('div', 'wg-dm-text wg-hex-intel-group');
   for (const order of orders) {
-    ordersList.append(buildOrderElement(order, labelOf));
+    ordersList.append(buildOrderElement(order));
   }
-  if (activeContracts.length > 0) {
-    const pactLine = el('span', 'wg-legend-item');
-    pactLine.append(
-      createWargamesGlyph(PACT_SCROLL_PATH, 13, 'var(--state-running)', 'Pacts'),
-      el('span', 'wg-card-meta', `Pacts: ${activeContracts.join(', ')}`),
-    );
-    ordersList.append(pactLine);
-  }
-  if (orders.length === 0 && activeContracts.length === 0) {
+  if (orders.length === 0) {
     ordersList.append(el('span', '', 'Holding position'));
   }
   const ordersCol = el('div', 'wg-dm-box');
-  ordersCol.append(el('div', 'wg-dm-label', 'Orders & contracts'), ordersList);
+  ordersCol.append(el('div', 'wg-dm-label', 'Orders'), ordersList);
 
   const grid = el('div', 'wg-spotlight-grid');
   grid.append(noteCol, saidCol, ordersCol);
@@ -793,14 +758,14 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   const winnerColor = state.winnerSeatId ? SEAT_COLORS[state.winnerSeatId] : 'var(--border-hover)';
   card.style.borderColor = winnerColor;
 
-  const breachesBySeat = new Map<SeatId, number>();
+  const betrayalsBySeat = new Map<SeatId, number>();
   const messagesBySeat = new Map<SeatId, number>();
   for (const seatId of matchSeatIds(state)) {
-    breachesBySeat.set(seatId, 0);
+    betrayalsBySeat.set(seatId, 0);
     messagesBySeat.set(seatId, 0);
   }
-  for (const entry of state.ledger) {
-    breachesBySeat.set(entry.breacher, (breachesBySeat.get(entry.breacher) ?? 0) + 1);
+  for (const betrayal of betrayalsOf(state)) {
+    betrayalsBySeat.set(betrayal.actor, (betrayalsBySeat.get(betrayal.actor) ?? 0) + 1);
   }
   for (const message of state.messages) {
     messagesBySeat.set(message.from, (messagesBySeat.get(message.from) ?? 0) + 1);
@@ -925,11 +890,11 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   }
 
   const backstabber = [...state.seats].sort((left, right) => (
-    (breachesBySeat.get(right.config.seatId) ?? 0) - (breachesBySeat.get(left.config.seatId) ?? 0)
+    (betrayalsBySeat.get(right.config.seatId) ?? 0) - (betrayalsBySeat.get(left.config.seatId) ?? 0)
   ))[0];
-  if (backstabber && (breachesBySeat.get(backstabber.config.seatId) ?? 0) > 0) {
-    const count = breachesBySeat.get(backstabber.config.seatId) ?? 0;
-    addAward(WARGAMES_GLYPH_PATHS.breach, 'var(--state-waiting)', 'Backstabber', backstabber.config.label, count === 1 ? '1 breach' : `${count} breaches`, SEAT_COLORS[backstabber.config.seatId]);
+  if (backstabber && (betrayalsBySeat.get(backstabber.config.seatId) ?? 0) > 0) {
+    const count = betrayalsBySeat.get(backstabber.config.seatId) ?? 0;
+    addAward(WARGAMES_GLYPH_PATHS.breach, 'var(--state-waiting)', 'Backstabber', backstabber.config.label, pluralized(count, 'betrayal'), SEAT_COLORS[backstabber.config.seatId]);
   }
 
   const diplomat = [...state.seats].sort((left, right) => (
@@ -949,7 +914,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     el('th', '', 'Model'),
     el('th', '', 'Territory'),
     el('th', '', 'Army'),
-    el('th', 'wg-num', 'Breaches'),
+    el('th', 'wg-num', 'Betrayals'),
     el('th', 'wg-num', 'State'),
   );
   thead.append(headRow);
@@ -959,7 +924,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     const seat = ranked[index];
     const seatId = seat.config.seatId;
     const tally = tallies.get(seatId) ?? { villages: 0, troops: { raider: 0, guard: 0, envoy: 0 }, totalUnits: 0, grain: 0, ore: 0 };
-    const breaches = breachesBySeat.get(seatId) ?? 0;
+    const betrayals = betrayalsBySeat.get(seatId) ?? 0;
     const tr = el('tr', 'wg-leaderboard-row');
     if (seat.status === 'eliminated') tr.dataset.eliminated = 'true';
 
@@ -987,12 +952,12 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     armyCell.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops));
 
     const breachCell = el('td', 'wg-num');
-    if (breaches > 0) {
+    if (betrayals > 0) {
       const breachChip = el('span', 'wg-legend-item');
-      breachChip.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.breach, 12, 'var(--state-waiting)', 'Breaches'), el('span', '', String(breaches)));
+      breachChip.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.breach, 12, 'var(--state-waiting)', 'Betrayals'), el('span', '', String(betrayals)));
       breachCell.append(breachChip);
     }
-    if (breaches === 0) {
+    if (betrayals === 0) {
       breachCell.textContent = '-';
     }
 
@@ -1071,7 +1036,6 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
   const right = el('div', 'wg-hex-intel-group');
   right.append(
     buildGlyphChips(UNIT_GLYPH_PATHS, village.troops, { hideZero: true }),
-    ...village.guests.map((guest) => buildGuestChips(state, guest)),
     ...buildingAndLoadChips(state, village),
     buildResourceReadout(village.resources.grain, village.resources.ore),
   );
@@ -1132,19 +1096,6 @@ function buildLandIntel(bar: HTMLElement, state: MatchState, hexIndex: number, l
   bar.append(left, right);
   if (armies.length > 0) bar.append(buildTileArmyGroup(state, armies));
   return bar;
-}
-
-function buildGuestChips(state: MatchState, guest: NonNullable<MatchState['villages'][number]>['guests'][number]): HTMLElement {
-  const group = el('span', 'wg-hex-intel-guests');
-  group.style.setProperty('--wg-seat-color', SEAT_COLORS[guest.owner]);
-  group.append(el('span', 'wg-hex-intel-guest-owner', seatLabelOf(state, guest.owner)));
-  for (const unit of UNIT_GLYPH_PATHS) {
-    if (guest.troops[unit.key] <= 0) continue;
-    const chip = el('span', 'wg-legend-item');
-    chip.append(createWargamesGlyph(unit.path, 13, SEAT_COLORS[guest.owner], `${unit.label} lent by ${seatLabelOf(state, guest.owner)}`), el('span', '', String(guest.troops[unit.key])));
-    group.append(chip);
-  }
-  return group;
 }
 
 function buildingAndLoadChips(state: MatchState, village: NonNullable<MatchState['villages'][number]>): HTMLElement[] {
@@ -1221,7 +1172,6 @@ function unitLegendRows(): { title: string; rows: LegendRow[] } {
     title: 'Units attack/defense',
     rows: [
       ...unitRows,
-      { glyphPath: UNIT_GLYPH_PATHS[1].path, color: SEAT_COLORS.s2, label: 'Ally guests' },
       { glyphPath: WALL_GLYPH.path, color: WALL_GLYPH.color, label: `Wall up to ${WALL_MAX_LEVEL}` },
     ],
   };
@@ -1256,14 +1206,11 @@ function buildMapLegend(): HTMLElement {
     legendGroup('Moves', [
       legendItem(arrowSwatchIcon('4 2'), 'Army marching'),
       legendItem(arrowSwatchIcon('2 3'), 'Planned order (seat view or selected hex)'),
-      legendItem(arrowSwatchIcon(SUPPORT_DASH), 'Support'),
       legendItem(createWargamesGlyph(SCOUT_EYE_PATH, 14, 'var(--text-head)'), 'Scout'),
     ]),
     legendGroup('Diplomacy', [
       legendItem(createWargamesGlyph(CHAT_ICON_PATH, 14, 'var(--text-head)'), 'Message'),
       legendItem(createWargamesGlyph(THOUGHT_CLOUD_PATH, 14, 'var(--text-head)'), 'Private thought'),
-      legendItem(createWargamesGlyph(PACT_SCROLL_PATH, 14, 'var(--state-running)'), 'Pact'),
-      legendItem(createWargamesGlyph(BREACH_WARNING_PATH, 14, 'var(--state-failed)'), 'Breach'),
     ]),
   );
   return legend;
@@ -1301,7 +1248,7 @@ function buildHistorySection(): HTMLElement {
   if (eloRows.length > 0) {
     const table = el('table', 'wg-table');
     const headRow = el('tr');
-    headRow.append(el('th', '', 'Model'), el('th', 'wg-num', 'Elo'), el('th', 'wg-num', 'Wins'), el('th', 'wg-num', 'Matches'), el('th', 'wg-num', 'Breaches'));
+    headRow.append(el('th', '', 'Model'), el('th', 'wg-num', 'Elo'), el('th', 'wg-num', 'Wins'), el('th', 'wg-num', 'Matches'));
     table.append(el('thead', '', ''), el('tbody'));
     table.tHead?.append(headRow);
     const tbody = table.tBodies[0];
@@ -1312,7 +1259,6 @@ function buildHistorySection(): HTMLElement {
         el('td', 'wg-num', String(row.elo)),
         el('td', 'wg-num', String(row.wins)),
         el('td', 'wg-num', String(row.matchesPlayed)),
-        el('td', 'wg-num', String(row.breaches)),
       );
       tbody.append(tr);
     }
@@ -1331,7 +1277,7 @@ function buildHistorySection(): HTMLElement {
     const strategyTag = match.hasCustomStrategy ? ' · Custom strategy' : '';
     matchMeta.append(
       el('div', 'wg-card-title', `${match.title} (${match.matchId})`),
-      el('div', 'wg-card-meta', `${match.status} · Turn ${match.tick}/${match.maxTicks} · Winner: ${match.winnerModelDisplay ?? '-'} · Breaches: ${match.breachCount}${strategyTag}`),
+      el('div', 'wg-card-meta', `${match.status} · Turn ${match.tick}/${match.maxTicks} · Winner: ${match.winnerModelDisplay ?? '-'}${strategyTag}`),
     );
     const watchBtn = button({
       variant: 'secondary',
@@ -1431,7 +1377,7 @@ function updateLiveShell(state: MatchState): HTMLElement {
     const endgameChildren: HTMLElement[] = [buildEndgameCard(state)];
     if (postgameReportMode === 'expanded' && inspectorView) {
       const analytics = displayedMatchAnalytics(state);
-      inspectorView.update(state, analytics, spotlightSeatId);
+      inspectorView.update(analytics, spotlightSeatId);
       endgameChildren.push(inspectorView.element);
     }
     shell.endgameSlot.replaceChildren(...endgameChildren);

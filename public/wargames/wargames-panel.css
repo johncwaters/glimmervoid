@@ -70,11 +70,6 @@
   letter-spacing: 0.08em;
 }
 
-.wg-badge[data-tone="breach"] {
-  border-color: var(--state-failed);
-  color: var(--state-failed);
-}
-
 .wg-badge[data-tone="warn"] {
   border-color: var(--state-waiting);
   color: var(--state-waiting);
@@ -497,20 +492,6 @@
   position: absolute;
   left: 14px;
   bottom: 12px;
-}
-
-.wg-hex-intel-guests {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, var(--wg-seat-color) 55%, var(--border));
-  background: color-mix(in srgb, var(--wg-seat-color) 10%, var(--bg-surface));
-}
-
-.wg-hex-intel-guest-owner {
-  color: var(--wg-seat-color);
-  font-weight: 700;
 }
 
 .wg-map-legend {

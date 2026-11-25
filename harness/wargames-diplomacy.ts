@@ -40,14 +40,15 @@ function formatNumber(value: number | null): string {
 }
 
 function tableRows(metricsList: readonly DiplomacyMetrics[]): string[] {
-  const header = '| match | ticks | msgs/seat/tick | public | proposed | accepted | kept | broken | support | coalitions | coalition mean | solo mean | betrayal swings | winner |';
-  const divider = `|${'---|'.repeat(14)}`;
+  const header = '| match | ticks | msgs/seat/tick | public | talking pairs | betrayals | winner |';
+  const divider = `|${'---|'.repeat(7)}`;
   const rows = metricsList.map((metrics) => {
     const winner = metrics.seats.find((seat) => seat.seatId === metrics.winnerSeatId);
-    const winnerText = winner ? `${winner.seatId} ${winner.modelDisplay}${winner.isCoalitionMember ? ' (coalition)' : ''}` : '-';
-    return `| ${metrics.matchId} | ${metrics.ticksPlayed} | ${formatNumber(metrics.messagesPerSeatPerTick)} | ${metrics.publicMessages} | ${metrics.contractsProposed} | ${metrics.contractsAccepted} | ${metrics.contractsKept} | ${metrics.contractsBroken} | ${metrics.supportMarches} | ${metrics.coalitions.join(' ') || '-'} | ${formatNumber(metrics.coalitionMeanStanding)} | ${formatNumber(metrics.soloMeanStanding)} | ${metrics.betrayalSwings} | ${winnerText} |`;
+    const winnerText = winner ? `${winner.seatId} ${winner.modelDisplay}` : '-';
+    return `| ${metrics.matchId} | ${metrics.ticksPlayed} | ${formatNumber(metrics.messagesPerSeatPerTick)} | ${metrics.publicMessages} | ${metrics.talkingPairs} | ${metrics.betrayals} | ${winnerText} |`;
   });
-  return [header, divider, ...rows];
+  const seatRows = metricsList.flatMap((metrics) => metrics.seats.map((seat) => `| ${metrics.matchId} ${seat.seatId} ${seat.modelDisplay} | messages ${seat.messagesSent} (${seat.publicMessages} public) | betrayals ${seat.betrayals} | VP ${seat.standing} |`));
+  return [header, divider, ...rows, '', ...seatRows];
 }
 
 const LAND_CHECK_TICK = 8;
@@ -60,7 +61,7 @@ function landRows(events: readonly WargamesEvent[]): string[] {
     const orders = Object.values(state.ordersByTick).flatMap((ordersBySeat) => ordersBySeat[seatId] ?? []);
     const openMarches = orders.filter((order) => order.kind === 'march' && state.villages[order.toHexIndex] === null).length;
     const improvementBuilds = orders.filter((order) => order.kind === 'build' && ImprovementKind.safeParse(order.building).success).length;
-    const claimTicks = state.reportsBySeat[seatId].flatMap((report) => (report.payload.kind === 'land' && report.payload.claimer === seatId ? [report.payload.tick] : []));
+    const claimTicks = state.reportsBySeat[seatId].flatMap((report) => (report.kind === 'land' && report.claimer === seatId ? [report.tick] : []));
     const improvementLevels = [...state.territory.values()].filter((tile) => tile.owner === seatId).reduce((sum, tile) => sum + tile.level, 0);
     const landAtCheck = atCheck === null ? '-' : String(territoryCountOf(atCheck, seatId));
     return `| ${seatId} ${modelDisplay} | ${openMarches} | ${improvementBuilds} | ${claimTicks.length === 0 ? '-' : Math.min(...claimTicks)} | ${landAtCheck} | ${territoryCountOf(state, seatId)} | ${improvementLevels} |`;

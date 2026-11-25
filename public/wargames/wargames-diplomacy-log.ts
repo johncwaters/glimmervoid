@@ -5,29 +5,12 @@ import { outlineIconButton } from '../ui/button.ts';
 import { sectionHeading } from '../ui/section-heading.ts';
 import { diplomacyEntriesOf } from './diplomacy-log-core.ts';
 import type { DiplomacyEntry, DiplomacyEntryKind, SeatNote } from './diplomacy-log-core.ts';
-import { BREACH_WARNING_PATH, PACT_SCROLL_PATH, SEAT_COLORS, seatLabelOf, THOUGHT_CLOUD_PATH } from './wargames-map.ts';
+import { SEAT_COLORS, seatLabelOf, THOUGHT_CLOUD_PATH } from './wargames-map.ts';
 import type { WargamesPov } from './wargames-store.ts';
-
-const CONTRACT_NAMES: Readonly<Record<NonNullable<DiplomacyEntry['contractKind']>, string>> = Object.freeze({
-  escrow: 'Escrow',
-  nap: 'Pact',
-  alliance: 'Alliance',
-});
-
-const CONTRACT_VERBS: Readonly<Record<Exclude<DiplomacyEntryKind, 'message' | 'note'>, string>> = Object.freeze({
-  proposed: 'proposed',
-  accepted: 'accepted',
-  breached: 'broken',
-  expired: 'expired',
-});
 
 const ENTRY_GLYPHS: Readonly<Record<DiplomacyEntryKind, { path: string; color: string }>> = Object.freeze({
   message: { path: CHAT_ICON_PATH, color: 'var(--text-dim)' },
   note: { path: THOUGHT_CLOUD_PATH, color: 'var(--text-muted)' },
-  proposed: { path: PACT_SCROLL_PATH, color: 'var(--text-dim)' },
-  accepted: { path: PACT_SCROLL_PATH, color: 'var(--state-running)' },
-  breached: { path: BREACH_WARNING_PATH, color: 'var(--state-failed)' },
-  expired: { path: PACT_SCROLL_PATH, color: 'var(--text-muted)' },
 });
 
 function speakerTextOf(state: MatchState, entry: DiplomacyEntry): string {
@@ -35,12 +18,6 @@ function speakerTextOf(state: MatchState, entry: DiplomacyEntry): string {
   if (entry.to !== null) return `${speaker} to ${seatLabelOf(state, entry.to)}`;
   if (entry.channel === 'public') return `${speaker} to everyone`;
   return speaker;
-}
-
-function entryTextOf(entry: DiplomacyEntry): string {
-  if (entry.kind === 'message' || entry.kind === 'note') return entry.text;
-  const contractName = entry.contractKind ? CONTRACT_NAMES[entry.contractKind] : 'Contract';
-  return `${contractName} ${CONTRACT_VERBS[entry.kind]}`;
 }
 
 function buildRow(state: MatchState, entry: DiplomacyEntry): HTMLElement {
@@ -57,7 +34,7 @@ function buildRow(state: MatchState, entry: DiplomacyEntry): HTMLElement {
     swatch,
     el('span', 'wg-dip-who', speakerTextOf(state, entry)),
     glyph,
-    el('span', 'wg-dip-text', entryTextOf(entry)),
+    el('span', 'wg-dip-text', entry.text),
   );
   return row;
 }
@@ -79,7 +56,7 @@ export function createDiplomacyLog(readNotes: () => SeatNote[]): { element: HTML
   });
   const heading = sectionHeading({ title: 'Diplomacy', level: 3, actions: [notesToggle.element] });
   const list = el('ol', 'wg-dip-list');
-  const empty = el('p', 'wg-empty-copy', 'No messages or contracts yet.');
+  const empty = el('p', 'wg-empty-copy', 'No messages yet.');
   element.append(heading.element, list, empty);
 
   function draw(state: MatchState, pov: WargamesPov): void {

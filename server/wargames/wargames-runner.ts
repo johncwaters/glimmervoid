@@ -1,15 +1,9 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 import type { WargamesSeatBinding, WargamesSeatPort, WargamesToolName, WargamesToolReply } from '../../mcp/wargames-tools.ts';
 import { clock } from '../../shared/clock.ts';
 import type { AgentModelCatalog } from '../../shared/contracts/agent-models.ts';
-import {
-  ContractTerms,
-  MessageChannel,
-  OrderItem,
-  SeatId,
-  SignedReport,
-} from '../../shared/contracts/wargames.ts';
+import { MessageChannel, OrderItem, SeatId } from '../../shared/contracts/wargames.ts';
 import type {
   MatchStatus,
   ModelEloRow,
@@ -27,13 +21,12 @@ import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 import { computeEloFromSummaries, summarizeMatch } from '../../shared/wargames/analytics.ts';
 import {
   applyEvent,
-  canonicalReportString,
   createInitialMatchState,
   projectSeatState,
   matchSeatIds,
   seatIndexOf,
 } from '../../shared/wargames/engine.ts';
-import type { MatchState, ReportSigner } from '../../shared/wargames/engine.ts';
+import type { MatchState } from '../../shared/wargames/engine.ts';
 import { currentAgentModelCatalog } from '../agent-models/agent-models.ts';
 import { createAwakeTimeoutFn } from '../awake-timer.ts';
 import type { WargamesStore } from './wargames-store.ts';
@@ -55,15 +48,12 @@ interface WargamesMatchHooks {
 }
 
 const MAX_NOTE_WRITES_PER_TICK = 8;
-const MAX_CONTRACT_PROPOSALS_PER_TICK = 6;
-const MAX_VERIFICATIONS_PER_TICK = 16;
+const TIMED_PHASES_PER_TICK = 2;
 const MAX_WAIT_FOR_CHANGE_MS = 30_000;
 
 interface LiveMatch {
   state: MatchState;
-  signer: ReportSigner;
   eventCount: number;
-  nextContractNumber: number;
   deadlineTimer: NodeJS.Timeout | null;
   phaseDeadline: { deadlineAtMs: number; lengthMs: number } | null;
   sessionIds: string[];
@@ -118,19 +108,6 @@ function resolveSeatModelDisplay(seat: SeatConfig, catalog: AgentModelCatalog): 
   }
   const defaultModel = entry.models.find((model) => model.isDefault);
   return normalizeModelDisplay(defaultModel?.label, seat.modelDisplay);
-}
-
-function createHmacSigner(secretKey: Buffer): ReportSigner {
-  const sign = (canonicalPayload: string) => createHmac('sha256', secretKey).update(canonicalPayload).digest('hex');
-  return {
-    sign,
-    verify: (canonicalPayload, signature) => {
-      const expected = Buffer.from(sign(canonicalPayload), 'utf8');
-      const presented = Buffer.from(signature, 'utf8');
-      if (expected.length !== presented.length) return false;
-      return timingSafeEqual(expected, presented);
-    },
-  };
 }
 
 function rejectionReply(code: WargamesRejection['code'], message: string): WargamesToolReply {
@@ -208,7 +185,7 @@ export function createWargamesRunner({
     if (live.state.status !== 'running') return;
     const expectedTick = live.state.tick;
     const expectedPhase: TickPhase = live.state.phase;
-    const phaseMs = Math.max(1000, Math.floor((live.state.spec.tickDeadlineSeconds * 1000) / 3));
+    const phaseMs = Math.max(1000, Math.floor((live.state.spec.tickDeadlineSeconds * 1000) / TIMED_PHASES_PER_TICK));
     live.phaseDeadline = { deadlineAtMs: now() + phaseMs, lengthMs: phaseMs };
     if (hasWatchers(live.state.matchId)) {
       broadcast({ type: 'wargames-events', matchId: live.state.matchId, events: [], reset: false, phaseClock: phaseClockOf(live) });
@@ -233,26 +210,16 @@ export function createWargamesRunner({
     live: LiveMatch,
     rawEvent: WargamesEvent,
   ): Promise<{ ok: true; state: MatchState; event: WargamesEvent } | { ok: false; rejection: WargamesRejection }> {
-    const outcome = applyEvent(live.state, rawEvent, live.signer);
+    const outcome = applyEvent(live.state, rawEvent);
     if (!outcome.ok) return outcome;
-    let persistedEvent = rawEvent;
-    if (rawEvent.type === 'phase_advanced') {
-      const signatures: Record<string, string> = {};
-      for (const effect of outcome.effects) {
-        if (effect.kind === 'report_signed' && typeof effect.detail.reportId === 'string' && typeof effect.detail.signature === 'string') {
-          signatures[effect.detail.reportId] = effect.detail.signature;
-        }
-      }
-      persistedEvent = { ...rawEvent, signatures };
-    }
-    await store.appendEvent(live.state.matchId, persistedEvent);
+    await store.appendEvent(live.state.matchId, rawEvent);
     live.state = outcome.state;
     live.eventCount += 1;
     const finishedAtMs = live.state.status === 'finished' || live.state.status === 'aborted' ? now() : null;
     const summary = summarizeMatch(live.state, finishedAtMs, live.eventCount);
     await store.saveSummary(summary);
     if (hasWatchers(live.state.matchId)) {
-      broadcast({ type: 'wargames-events', matchId: live.state.matchId, events: [persistedEvent], reset: false, phaseClock: phaseClockOf(live) });
+      broadcast({ type: 'wargames-events', matchId: live.state.matchId, events: [rawEvent], reset: false, phaseClock: phaseClockOf(live) });
     }
     if (live.state.status === 'finished') {
       clearDeadline(live);
@@ -269,7 +236,7 @@ export function createWargamesRunner({
       live.hooks?.onMatchEnded?.(live.state.matchId, [...live.sessionIds]);
     }
     broadcast(statusFrame());
-    return { ok: true, state: live.state, event: persistedEvent };
+    return { ok: true, state: live.state, event: rawEvent };
   }
 
   function isMatchTerminal(live: LiveMatch): boolean {
@@ -297,7 +264,6 @@ export function createWargamesRunner({
       seq: live.state.lastSeq + 1,
       type: 'phase_advanced',
       reason,
-      signatures: {},
     });
     if (!stepped.ok) return;
     if (live.state.status !== 'running') return;
@@ -306,7 +272,6 @@ export function createWargamesRunner({
         seq: live.state.lastSeq + 1,
         type: 'phase_advanced',
         reason: 'all_submitted',
-        signatures: {},
       });
       live.tickToolCounts.clear();
     }
@@ -333,12 +298,9 @@ export function createWargamesRunner({
     };
     const matchId = `wg-${createdAtMs.toString(36)}-${randomBytes(3).toString('hex')}`;
     const initialState = createInitialMatchState(matchId, createdAtMs, pinnedSpec);
-    const signer = createHmacSigner(randomBytes(32));
     const live: LiveMatch = {
       state: initialState,
-      signer,
       eventCount: 1,
-      nextContractNumber: 1,
       deadlineTimer: null,
       phaseDeadline: null,
       sessionIds: [],
@@ -460,7 +422,7 @@ export function createWargamesRunner({
   }
 
   function waitForPhaseChange(live: LiveMatch): Promise<void> {
-    const phaseMs = Math.max(1000, Math.floor((live.state.spec.tickDeadlineSeconds * 1000) / 3));
+    const phaseMs = Math.max(1000, Math.floor((live.state.spec.tickDeadlineSeconds * 1000) / TIMED_PHASES_PER_TICK));
     const waitMs = Math.min(phaseMs, MAX_WAIT_FOR_CHANGE_MS);
     return new Promise((resolve) => {
       const done = () => {
@@ -502,7 +464,7 @@ export function createWargamesRunner({
         const startStatus = live.state.status;
         await ensureSeatConnectedSerialized(live, seatId);
         const canReady = live.state.status === 'running'
-          && (live.state.phase === 'talk' || live.state.phase === 'contracts')
+          && live.state.phase === 'talk'
           && live.state.seats[seatIndexOf(seatId)].status === 'acting'
           && !live.state.readySeatIds.includes(seatId);
         if (readyFlag && canReady) {
@@ -525,26 +487,8 @@ export function createWargamesRunner({
       await ensureSeatConnectedSerialized(live, seatId);
       if (toolName === 'get_reports') {
         const sinceTick = typeof args.since_tick === 'number' ? args.since_tick : 0;
-        const reports = live.state.reportsBySeat[seatId].filter((report) => report.payload.tick >= sinceTick);
+        const reports = live.state.reportsBySeat[seatId].filter((report) => report.tick >= sinceTick);
         return { ok: true, payload: { reports } };
-      }
-      if (toolName === 'verify_report') {
-        if (!takeTickQuota(live, seatId, 'verify_report', MAX_VERIFICATIONS_PER_TICK)) {
-          return rejectionReply('message_limit_exceeded', `at most ${MAX_VERIFICATIONS_PER_TICK} report verifications per tick`);
-        }
-        const parsed = SignedReport.safeParse(args.report);
-        if (!parsed.success) return rejectionReply('invalid_order', 'invalid report shape');
-        const canonical = canonicalReportString(parsed.data.payload);
-        const valid = live.signer.verify(canonical, parsed.data.signature);
-        const committed = await commitEventSerialized(live, {
-          seq: live.state.lastSeq + 1,
-          type: 'report_verified',
-          seatId,
-          reportId: parsed.data.payload.reportId,
-          valid,
-        });
-        if (!committed.ok) return committed;
-        return { ok: true, payload: { valid, reportId: parsed.data.payload.reportId } };
       }
       if (toolName === 'read_messages') {
         const sinceTick = typeof args.since_tick === 'number' ? args.since_tick : 0;
@@ -573,8 +517,6 @@ export function createWargamesRunner({
         if (!channel.success || (to !== null && !to.success) || typeof args.text !== 'string') {
           return rejectionReply('invalid_order', 'invalid message arguments');
         }
-        const attached = args.attachedReport ? SignedReport.safeParse(args.attachedReport) : null;
-        if (attached && !attached.success) return rejectionReply('invalid_order', 'invalid attached report');
         const committed = await commitEventSerialized(live, {
           seq: live.state.lastSeq + 1,
           type: 'message_sent',
@@ -582,39 +524,9 @@ export function createWargamesRunner({
           channel: channel.data,
           to: to ? to.data : null,
           text: args.text,
-          attachedReport: attached ? attached.data : null,
         });
         if (!committed.ok) return committed;
         return { ok: true, payload: { sent: true } };
-      }
-      if (toolName === 'propose_contract') {
-        if (!takeTickQuota(live, seatId, 'propose_contract', MAX_CONTRACT_PROPOSALS_PER_TICK)) {
-          return rejectionReply('message_limit_exceeded', `at most ${MAX_CONTRACT_PROPOSALS_PER_TICK} contract proposals per tick`);
-        }
-        const terms = ContractTerms.safeParse(args.terms);
-        if (!terms.success) return rejectionReply('invalid_order', 'invalid contract terms');
-        const contractId = `ctr-${live.nextContractNumber}`;
-        live.nextContractNumber += 1;
-        const committed = await commitEventSerialized(live, {
-          seq: live.state.lastSeq + 1,
-          type: 'contract_proposed',
-          seatId,
-          contractId,
-          terms: terms.data,
-        });
-        if (!committed.ok) return committed;
-        return { ok: true, payload: { contractId } };
-      }
-      if (toolName === 'accept_contract') {
-        const contractId = typeof args.id === 'string' ? args.id : '';
-        const committed = await commitEventSerialized(live, {
-          seq: live.state.lastSeq + 1,
-          type: 'contract_accepted',
-          seatId,
-          contractId,
-        });
-        if (!committed.ok) return committed;
-        return { ok: true, payload: { contractId, status: live.state.contracts.get(contractId)?.status ?? 'active' } };
       }
       if (toolName === 'submit_orders') {
         const parsedOrders = OrderItem.array().max(64).safeParse(args.orders);

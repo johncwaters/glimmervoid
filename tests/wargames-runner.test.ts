@@ -73,7 +73,7 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
     assert.equal(runner.isWargamesSession('sess-s1'), true);
     const seatServer = buildWargamesSeatServer(matchId, 's1', runner);
     assert.ok(seatServer);
-    assert.equal(WARGAMES_TOOL_NAMES.length, 10);
+    assert.equal(WARGAMES_TOOL_NAMES.length, 7);
 
     await Promise.all(WARGAMES_SEAT_IDS.map((seatId) => runner.callTool(matchId, seatId, 'get_state', {})));
 
@@ -92,16 +92,6 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
     if (!wrongPhase.ok) assert.equal(wrongPhase.rejection.code, 'invalid_phase');
 
     scheduled.pop()?.();
-    const propose = await runner.callTool(matchId, 's1', 'propose_contract', {
-      terms: { kind: 'escrow', counterparty: 's2', proposerGives: { grain: 20, ore: 0 }, counterpartyGives: { grain: 0, ore: 20 } },
-    });
-    assert.equal(propose.ok, true);
-    if (propose.ok) {
-      const accept = await runner.callTool(matchId, 's2', 'accept_contract', { id: String(propose.payload.contractId) });
-      assert.equal(accept.ok, true);
-    }
-
-    scheduled.pop()?.();
     const s1Home = hexIndexAt(2, -1);
     const s2Home = hexIndexAt(1, -2);
     const submitReplies = await Promise.all(
@@ -114,16 +104,8 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
     const reportsReply = await runner.callTool(matchId, 's1', 'get_reports', { since_tick: 1 });
     assert.equal(reportsReply.ok, true);
     if (reportsReply.ok) {
-      const reports = reportsReply.payload.reports as { payload: Record<string, unknown>; signature: string }[];
-      assert.equal(reports.length, 1);
-      const verified = await runner.callTool(matchId, 's1', 'verify_report', { report: reports[0] });
-      assert.equal(verified.ok, true);
-      if (verified.ok) assert.equal(verified.payload.valid, true);
-      const forged = await runner.callTool(matchId, 's1', 'verify_report', {
-        report: { payload: reports[0].payload, signature: 'tampered_signature' },
-      });
-      assert.equal(forged.ok, true);
-      if (forged.ok) assert.equal(forged.payload.valid, false);
+      const reports = reportsReply.payload.reports as { kind: string }[];
+      assert.deepEqual(reports.map((report) => report.kind), ['scout']);
     }
 
     const watched = await runner.watchMatch(matchId, 'watcher-1');
@@ -152,7 +134,7 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
   }
 });
 
-test('wargames runner fast-advances talk and contracts when all seats pass ready, logs each lock-in, lets a ready seat keep talking, sends the phase clock, and invokes lifecycle hooks', async () => {
+test('wargames runner fast-advances talk when all seats pass ready, logs each lock-in, lets a ready seat keep talking, sends the phase clock, and invokes lifecycle hooks', async () => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-runner-ready-'));
   try {
     const store = createWargamesStore({ directory: tempDir, log: { warn: () => {} } });
@@ -184,9 +166,11 @@ test('wargames runner fast-advances talk and contracts when all seats pass ready
     assert.deepEqual(phaseEvents, ['1:talk']);
     const watched = await runner.watchMatch(matchId, 'watcher-1');
     assert.equal(watched.ok, true);
-    if (watched.ok) assert.deepEqual(watched.phaseClock, { remainingMs: 20_000, lengthMs: 20_000 });
+    if (watched.ok) assert.deepEqual(watched.phaseClock, { remainingMs: 30_000, lengthMs: 30_000 });
 
     const waitingSeat = runner.callTool(matchId, 's1', 'get_state', { ready: true, wait_for_change: true });
+    const readySeatMessage = await runner.callTool(matchId, 's1', 'send_message', { channel: 'public', to: null, text: 'Still talking' });
+    assert.equal(readySeatMessage.ok, true);
     for (const seatId of ['s2', 's3', 's4', 's5', 's6'] as const) {
       await runner.callTool(matchId, seatId, 'get_state', { ready: true });
     }
@@ -195,19 +179,11 @@ test('wargames runner fast-advances talk and contracts when all seats pass ready
     if (woke.ok) {
       const state = woke.payload.state as { tick: number; phase: string };
       assert.equal(state.tick, 1);
-      assert.equal(state.phase, 'contracts');
+      assert.equal(state.phase, 'orders');
     }
-    assert.deepEqual(phaseEvents, ['1:talk', '1:contracts']);
-
-    await runner.callTool(matchId, 's1', 'get_state', { ready: true });
-    const readySeatProposal = await runner.callTool(matchId, 's1', 'propose_contract', { terms: { kind: 'alliance', counterparty: 's2', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
-    assert.equal(readySeatProposal.ok, true);
-    for (const seatId of WARGAMES_SEAT_IDS) {
-      await runner.callTool(matchId, seatId, 'get_state', { ready: true });
-    }
-    assert.deepEqual(phaseEvents, ['1:talk', '1:contracts', '1:orders']);
+    assert.deepEqual(phaseEvents, ['1:talk', '1:orders']);
     const loggedEvents = await store.readEvents(matchId);
-    assert.equal(loggedEvents.filter((event) => event.type === 'seat_ready').length, 12);
+    assert.equal(loggedEvents.filter((event) => event.type === 'seat_ready').length, 6);
     assert.equal(replayMatch(loggedEvents).phase, 'orders');
 
     await runner.abortMatch(matchId, 'finished check');

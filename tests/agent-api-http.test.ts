@@ -878,7 +878,6 @@ test('wargames agent verb starts, lists, inspects, aborts, and reads history wit
           phase: 'talk',
           winnerSeatId: null,
           winnerModelDisplay: null,
-          breachCount: 0,
           eventCount: 2,
           seats: spec.seats.map((seat) => ({
             seatId: seat.seatId,
@@ -886,7 +885,6 @@ test('wargames agent verb starts, lists, inspects, aborts, and reads history wit
             modelDisplay: seat.modelDisplay,
             status: 'disconnected',
             villagesHeld: 3,
-            breaches: 0,
           })),
         }));
         return { ok: true, matchId: 'wg-match-1', error: null };

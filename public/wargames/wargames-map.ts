@@ -1,5 +1,5 @@
 import { ImprovementKind, WARGAMES_MAX_HEX_RADIUS, WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
-import type { OrderItem, SeatId, SignedReportPayload, TroopCounts } from '#shared/contracts/wargames.ts';
+import type { OrderItem, SeatId, TroopCounts, WargamesReport } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, hexIndexAt, marchRouteOf, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { TERRAIN_MIN_RADIUS, isPassable } from '#shared/wargames/terrain.ts';
@@ -31,7 +31,6 @@ function cloneVillage(village: VillageState | null): VillageState | null {
     resources: { ...village.resources },
     troops: { ...village.troops },
     buildings: { ...village.buildings },
-    guests: village.guests.map((guest) => ({ ...guest, troops: { ...guest.troops } })),
   };
 }
 
@@ -69,8 +68,6 @@ const BATTLE_LABEL_MAX_CHARS = 24;
 const NEUTRAL_COLOR = 'var(--text-dim)';
 const DIPLOMACY_MESSAGE_BEAT_MS = 2600;
 const DIPLOMACY_THOUGHT_BEAT_MS = 2400;
-const DIPLOMACY_PACT_BEAT_MS = 2000;
-const DIPLOMACY_BREACH_BEAT_MS = 2400;
 const DIPLOMACY_MAX_PENDING_BEATS = 10;
 
 type UnitKey = 'raider' | 'guard' | 'envoy';
@@ -102,23 +99,18 @@ const WALL_GLYPH = BUILDING_GLYPH_PATHS.find((building) => building.key === 'wal
 export const SCOUT_EYE_PATH = 'M 2 8 C 4.2 4.5 11.8 4.5 14 8 C 11.8 11.5 4.2 11.5 2 8 Z M 8 6.5 A 1.5 1.5 0 1 0 8 9.5 A 1.5 1.5 0 1 0 8 6.5';
 export const CONTROL_FLAG_PATH = 'M 4 14 V 2.5 M 4 3 H 12.5 L 10.5 5.75 L 12.5 8.5 H 4';
 export const PACT_SCROLL_PATH = 'M 4 3 H 12 V 13 H 4 Z M 6 6 H 10 M 6 9 H 9';
-export const SUPPORT_DASH = '8 3 1.5 3';
-const SUPPORT_STROKE_WIDTH = '2.8';
-const PREVIEW_MID_ICONS: Readonly<Record<'march' | 'support' | 'scout', string | undefined>> = Object.freeze({
+const PREVIEW_MID_ICONS: Readonly<Record<'march' | 'scout', string | undefined>> = Object.freeze({
   march: undefined,
-  support: PACT_SCROLL_PATH,
   scout: SCOUT_EYE_PATH,
 });
 
-const PREVIEW_STROKE_WIDTHS: Readonly<Record<'march' | 'support' | 'scout', string>> = Object.freeze({
+const PREVIEW_STROKE_WIDTHS: Readonly<Record<'march' | 'scout', string>> = Object.freeze({
   march: '1.8',
-  support: SUPPORT_STROKE_WIDTH,
   scout: '1.4',
 });
 
-function previewDashOf(kind: 'march' | 'support' | 'scout', isFriendlyReinforce: boolean): string {
+function previewDashOf(kind: 'march' | 'scout', isFriendlyReinforce: boolean): string {
   if (kind === 'scout') return '1 3';
-  if (kind === 'support') return SUPPORT_DASH;
   if (isFriendlyReinforce) return '2 4';
   return '5 4';
 }
@@ -507,26 +499,6 @@ function renderHexUnitTokens(container: SVGElement, centerX: number, centerY: nu
   renderHexUnitRow(container, centerX, centerY + 11, tokens.slice(2));
 }
 
-const GUEST_PIP_SPACING = 15;
-
-function renderGuestPips(container: SVGElement, centerX: number, centerY: number, guests: VillageState['guests']): void {
-  const guardPath = UNIT_GLYPH_PATHS[1].path;
-  guests.forEach((guest, index) => {
-    const pipX = centerX + 10 + index * GUEST_PIP_SPACING;
-    const pipY = centerY - 15;
-    container.append(createMapStrokeGlyph(guardPath, pipX, pipY, 8, SEAT_COLORS[guest.owner], '2'));
-    if (guests.length > 2) return;
-    appendBoardText(container, String(troopCountOf(guest.troops)), {
-      x: pipX + 5,
-      y: pipY + 3,
-      anchor: 'start',
-      fontSize: '7',
-      fill: SEAT_COLORS[guest.owner],
-      className: 'wg-army-pill-text',
-    });
-  });
-}
-
 function renderControlBadge(container: SVGElement, centerX: number, centerY: number, loyalty: number, owner: SeatId | null): void {
   container.replaceChildren();
   const controlPercent = Math.max(0, Math.min(100, Math.round(loyalty)));
@@ -849,18 +821,18 @@ function appendGlidingArmy(
   return wrapper;
 }
 
-type BattleReportPayload = Extract<SignedReportPayload, { kind: 'battle' }>;
+type BattleReportPayload = Extract<WargamesReport, { kind: 'battle' }>;
 
 function battleReportsForHex(state: MatchState, pov: WargamesPov, tick: number, hexIndex: number): BattleReportPayload[] {
   const source = pov === 'god' ? [...state.reportsById.values()] : state.reportsBySeat[pov];
   const matched: BattleReportPayload[] = [];
   const seenIds = new Set<string>();
   for (const report of source) {
-    if (report.payload.kind !== 'battle') continue;
-    if (report.payload.tick !== tick || report.payload.hexIndex !== hexIndex) continue;
-    if (seenIds.has(report.payload.reportId)) continue;
-    seenIds.add(report.payload.reportId);
-    matched.push(report.payload);
+    if (report.kind !== 'battle') continue;
+    if (report.tick !== tick || report.hexIndex !== hexIndex) continue;
+    if (seenIds.has(report.reportId)) continue;
+    seenIds.add(report.reportId);
+    matched.push(report);
   }
   return matched;
 }
@@ -1105,7 +1077,6 @@ interface RouteStroke {
   hexIndices: number[];
   dash: string;
   lineClass: string;
-  isSupport: boolean;
 }
 
 function troopTotalOf(troops: TroopCounts): number {
@@ -1244,7 +1215,7 @@ function cleanupNodes(nodes: readonly (SVGElement | (() => void) | null)[]): () 
   };
 }
 
-type BoardCaptionTone = 'message' | 'thought' | 'pact' | 'breach';
+type BoardCaptionTone = 'message' | 'thought';
 
 interface BoardCaptionLine {
   readonly color: string;
@@ -1351,8 +1322,6 @@ export function createWargamesMap(
   let displayedVillages: (VillageState | null)[] = ALL_HEXES.map(() => null);
   let lastArmySnapshots = new Map<string, ArmySnapshot>();
   let lastMessageCount = 0;
-  let lastActiveContractIds = new Set<string>();
-  let lastLedgerCount = 0;
   let lastNoteBySeat = new Map<SeatId, string>();
 
   const diplomacyQueue = createBoardAnimationQueue({
@@ -1374,10 +1343,6 @@ export function createWargamesMap(
 
   function syncDiplomacyTracking(state: MatchState): void {
     lastMessageCount = state.messages.length;
-    lastActiveContractIds = new Set(
-      [...state.contracts.values()].filter((contract) => contract.status === 'active').map((contract) => contract.id),
-    );
-    lastLedgerCount = state.ledger.length;
     lastNoteBySeat = new Map(state.seats.map((seat) => [seat.config.seatId, seat.note]));
   }
 
@@ -1390,11 +1355,7 @@ export function createWargamesMap(
 
   function emitLiveDiplomacyFx(state: MatchState, pov: WargamesPov): void {
     const firstNewMessageNumber = lastMessageCount;
-    const firstNewBreachNumber = lastLedgerCount;
     const newMessages = state.messages.slice(lastMessageCount);
-    const activeContracts = [...state.contracts.values()].filter((contract) => contract.status === 'active');
-    const newlyAccepted = activeContracts.filter((contract) => !lastActiveContractIds.has(contract.id));
-    const newBreaches = state.ledger.slice(lastLedgerCount);
     const updatedNotes: { seatId: SeatId; note: string }[] = [];
     for (const seat of state.seats) {
       const seatId = seat.config.seatId;
@@ -1470,57 +1431,6 @@ export function createWargamesMap(
         ]),
       });
     }
-    for (const contract of newlyAccepted) {
-      if (pov !== 'god' && contract.proposer !== pov && contract.counterparty !== pov) continue;
-      const proposerSlot = seatAnchorSlot(state, pov, contract.proposer);
-      const counterpartySlot = seatAnchorSlot(state, pov, contract.counterparty);
-      if (!proposerSlot || !counterpartySlot) continue;
-      beats.push({
-        id: `pact-${contract.id}`,
-        durationMs: DIPLOMACY_PACT_BEAT_MS,
-        start: (durationMs) => cleanupNodes([
-          appendDiplomacyArc(commsLayer, proposerSlot, counterpartySlot, {
-            stroke: 'var(--state-running)',
-            dasharray: 'none',
-            glyphPath: PACT_SCROLL_PATH,
-            label: 'Pact',
-            markerId: null,
-            durationMs,
-          }),
-          showCaption({
-            color: 'var(--state-running)',
-            speaker: `${seatLabelOf(state, contract.proposer)} and ${seatLabelOf(state, contract.counterparty)}`,
-            text: 'signed a pact',
-            tone: 'pact',
-          }),
-        ]),
-      });
-    }
-    for (const [offset, breach] of newBreaches.entries()) {
-      const breacherSlot = seatAnchorSlot(state, pov, breach.breacher);
-      const victimSlot = seatAnchorSlot(state, pov, breach.victim);
-      if (!breacherSlot || !victimSlot) continue;
-      beats.push({
-        id: `breach-${firstNewBreachNumber + offset}`,
-        durationMs: DIPLOMACY_BREACH_BEAT_MS,
-        start: (durationMs) => cleanupNodes([
-          appendDiplomacyArc(commsLayer, breacherSlot, victimSlot, {
-            stroke: 'var(--state-failed)',
-            dasharray: '6 3',
-            glyphPath: BREACH_WARNING_PATH,
-            label: 'Breach',
-            markerId: 'wg-arrow-breach',
-            durationMs,
-          }),
-          showCaption({
-            color: 'var(--state-failed)',
-            speaker: seatLabelOf(state, breach.breacher),
-            text: `broke its pact with ${seatLabelOf(state, breach.victim)}`,
-            tone: 'breach',
-          }),
-        ]),
-      });
-    }
     diplomacyQueue.appendBeats(beats);
   }
 
@@ -1572,7 +1482,6 @@ export function createWargamesMap(
       slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
       if (isBarren) slot.unitGroup.replaceChildren();
       if (!isBarren) renderHexUnitTokens(slot.unitGroup, slot.centerX, slot.centerY, village.troops);
-      if (!isBarren) renderGuestPips(slot.unitGroup, slot.centerX, slot.centerY, village.guests);
       renderControlBadge(slot.controlGroup, slot.centerX, slot.centerY, village.loyalty, village.owner);
 
       const isQuietBarbarian = isDenseMap && village.owner === null && !isSelected;
@@ -1702,7 +1611,7 @@ export function createWargamesMap(
           x2: (toSlot.centerX - direction.x * endTrim + offsetX).toFixed(1),
           y2: (toSlot.centerY - direction.y * endTrim + offsetY).toFixed(1),
           stroke: SEAT_COLORS[style.stroke.owner],
-          'stroke-width': style.stroke.isSupport ? SUPPORT_STROKE_WIDTH : routeWidthFor(troopTotal),
+          'stroke-width': routeWidthFor(troopTotal),
           'stroke-dasharray': style.stroke.dash,
           'stroke-linecap': 'round',
           ...(endsAtTarget ? { 'marker-end': `url(#wg-arrow-${style.stroke.owner})` } : {}),
@@ -1808,17 +1717,15 @@ export function createWargamesMap(
       const fromSlot = slots[leg.fromHexIndex];
       const toSlot = slots[leg.toHexIndex];
       if (!fromSlot || !toSlot) continue;
-      const isSupportMarch = army.supporting !== undefined;
-      routeStrokes.push({ owner: army.owner, troopTotal: troopTotalOf(army.troops), hexIndices: marchRouteOf(state, leg.fromHexIndex, leg.toHexIndex).hexIndices, dash: isSupportMarch ? SUPPORT_DASH : '6 3', lineClass: 'wg-army-line', isSupport: isSupportMarch });
+      routeStrokes.push({ owner: army.owner, troopTotal: troopTotalOf(army.troops), hexIndices: marchRouteOf(state, leg.fromHexIndex, leg.toHexIndex).hexIndices, dash: '6 3', lineClass: 'wg-army-line' });
       const hasTileToken = tokenTroopsByTile.has(`${army.currentHexIndex}:${army.owner}`);
       renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
         drawsPath: false,
         showPill: !hasTileToken,
-        strokeDasharray: isSupportMarch ? SUPPORT_DASH : '6 3',
-        strokeWidth: isSupportMarch ? SUPPORT_STROKE_WIDTH : '2.4',
+        strokeDasharray: '6 3',
+        strokeWidth: '2.4',
         groupClass: 'wg-army-arrow',
         lineClass: 'wg-army-line',
-        midIconPath: isSupportMarch ? PACT_SCROLL_PATH : undefined,
         placeMarker: placeMarkerClear,
         route: routePointsFor(state, leg.fromHexIndex, leg.toHexIndex, labeledArmyTargets),
       });
@@ -1919,7 +1826,7 @@ export function createWargamesMap(
       fromHexIndex: number;
       toHexIndex: number;
       troops: TroopCounts;
-      kind: 'march' | 'support' | 'scout';
+      kind: 'march' | 'scout';
     }[] = [];
     const hexBadges = new Map<number, { seatId: SeatId; tokens: PreviewGlyphToken[] }>();
 
@@ -1937,7 +1844,7 @@ export function createWargamesMap(
       if (latestPov !== 'god' && seatId !== latestPov) continue;
       for (const order of seat.sealedOrders) {
         if (order.kind === 'march') {
-          previewVectors.push({ seatId, fromHexIndex: order.fromHexIndex, toHexIndex: order.toHexIndex, troops: order.troops, kind: order.support === undefined ? 'march' : 'support' });
+          previewVectors.push({ seatId, fromHexIndex: order.fromHexIndex, toHexIndex: order.toHexIndex, troops: order.troops, kind: 'march' });
           continue;
         }
         if (order.kind === 'scout') {
@@ -1977,7 +1884,7 @@ export function createWargamesMap(
       const toSlot = slots[entry.toHexIndex];
       if (!fromSlot || !toSlot) continue;
       const isFriendlyReinforce = entry.kind === 'march' && latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
-      previewStrokes.push({ owner: entry.seatId, troopTotal: troopTotalOf(entry.troops), hexIndices: marchRouteOf(latestState, entry.fromHexIndex, entry.toHexIndex).hexIndices, dash: previewDashOf(entry.kind, isFriendlyReinforce), lineClass: 'wg-preview-line', isSupport: entry.kind === 'support' });
+      previewStrokes.push({ owner: entry.seatId, troopTotal: troopTotalOf(entry.troops), hexIndices: marchRouteOf(latestState, entry.fromHexIndex, entry.toHexIndex).hexIndices, dash: previewDashOf(entry.kind, isFriendlyReinforce), lineClass: 'wg-preview-line' });
       renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
         drawsPath: false,
         strokeDasharray: previewDashOf(entry.kind, isFriendlyReinforce),
@@ -2039,8 +1946,6 @@ export function createWargamesMap(
       lastRenderedPov = null;
       lastResolvedTick = null;
       lastMessageCount = 0;
-      lastActiveContractIds = new Set();
-      lastLedgerCount = 0;
       lastNoteBySeat = new Map();
       lastVillageSnapshots = slots.map(() => null);
       displayedVillages = slots.map(() => null);
@@ -2322,7 +2227,6 @@ export function createWargamesMap(
                   loyalty: delta.targetVillage.loyalty,
                   resources: { ...delta.targetVillage.resources },
                   buildings: { ...delta.targetVillage.buildings },
-                  guests: delta.targetVillage.guests.map((guest) => ({ ...guest, troops: { ...guest.troops } })),
                 };
                 if (latestState) {
                   paintHexSlot(hexIndex, displayedVillages[hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);

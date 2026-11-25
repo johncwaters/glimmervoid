@@ -1,5 +1,5 @@
 import type { SeatId, TroopCounts, WargamesEvent } from '#shared/contracts/wargames.ts';
-import { applyEvent, createInitialMatchState, guestTroopsOwnedBy, territoryCountOf, villageIncomeOf, warehouseCapOf } from '#shared/wargames/engine.ts';
+import { applyEvent, createInitialMatchState, territoryCountOf, villageIncomeOf, warehouseCapOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 
 export type GrowthMode = 'build' | 'capture' | 'mixed' | 'none';
@@ -103,10 +103,6 @@ function summarizeTurn(state: MatchState, growthBySeat: ReadonlyMap<SeatId, { bu
     const troops: TroopCounts = { raider: 0, guard: 0, envoy: 0 };
     for (const village of state.villages) {
       if (!village) continue;
-      const lentTroops = guestTroopsOwnedBy(village, seatId);
-      troops.raider += lentTroops.raider;
-      troops.guard += lentTroops.guard;
-      troops.envoy += lentTroops.envoy;
       if (village.isBeacon || village.owner !== seatId) continue;
       totals.villages += 1;
       totals.grain += village.resources.grain;

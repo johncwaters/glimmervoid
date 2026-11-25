@@ -1,26 +1,16 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
-import {
-  ContractTerms,
-  MessageChannel,
-  OrderItem,
-  SeatId,
-  SignedReport,
-  WARGAMES_NOTE_MAX_BYTES,
-} from '../shared/contracts/wargames.ts';
+import { MessageChannel, OrderItem, SeatId, WARGAMES_NOTE_MAX_BYTES } from '../shared/contracts/wargames.ts';
 import { ImprovementKind } from '../shared/contracts/wargames.ts';
 import type { WargamesRejection } from '../shared/contracts/wargames.ts';
 
 export const WARGAMES_TOOL_NAMES = [
   'get_state',
   'get_reports',
-  'verify_report',
   'read_messages',
   'read_notes',
   'send_message',
-  'propose_contract',
-  'accept_contract',
   'submit_orders',
   'write_note',
 ] as const;
@@ -77,7 +67,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('get_state', {
     title: 'Get Match State',
-    description: 'Read your fog-of-war view of the current tick, phase, visible villages, armies, contracts, and breach ledger. Where the rules have land, yourLand lists your land count, land VP per tick, hexes you can claim next, and ready-made claim and build orders. Pass ready: true during talk or contracts when finished so the phase can advance early, and wait_for_change: true to block until the tick, phase, or match status changes.',
+    description: 'Read your fog-of-war view of the current tick, phase, visible villages and armies. yourLand lists your land count, land VP per tick, hexes you can claim next, and ready-made claim and build orders. Pass ready: true during talk when finished so the phase can advance early, and wait_for_change: true to block until the tick, phase, or match status changes.',
     inputSchema: z.strictObject({
       ready: z.boolean().optional(),
       wait_for_change: z.boolean().optional(),
@@ -85,16 +75,10 @@ export function buildWargamesSeatServer(
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'get_state', args)));
 
   server.registerTool('get_reports', {
-    title: 'Get Signed Reports',
-    description: 'Read engine-signed battle, scout, and land (a hex you claimed or lost) reports received since a given tick.',
+    title: 'Get Reports',
+    description: 'Read the battle, scout, and land (a hex you claimed or lost) reports received since a given tick.',
     inputSchema: z.strictObject({ since_tick: z.number().int().min(0).default(0) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'get_reports', args)));
-
-  server.registerTool('verify_report', {
-    title: 'Verify Signed Report',
-    description: 'Check whether a battle or scout report carries a valid engine signature.',
-    inputSchema: z.strictObject({ report: SignedReport }),
-  }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'verify_report', args)));
 
   server.registerTool('read_messages', {
     title: 'Read Messages',
@@ -110,30 +94,17 @@ export function buildWargamesSeatServer(
 
   server.registerTool('send_message', {
     title: 'Send Message',
-    description: 'Send a direct or public (every seat reads it) message during the talk phase. Optionally attach a signed or modified report.',
+    description: 'Send a direct or public (every seat reads it) message during the talk phase. Nothing enforces what anyone says.',
     inputSchema: z.strictObject({
       channel: MessageChannel.default('dm'),
       to: SeatId.nullable().default(null),
       text: z.string().min(1).max(2000),
-      attachedReport: SignedReport.nullable().default(null),
     }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'send_message', args)));
 
-  server.registerTool('propose_contract', {
-    title: 'Propose Contract',
-    description: 'Propose an engine-enforced contract during the contracts phase: a resource escrow, or a collateral-backed pact (an alliance from rules v7, a Non-Aggression Pact before it).',
-    inputSchema: z.strictObject({ terms: ContractTerms }),
-  }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'propose_contract', args)));
-
-  server.registerTool('accept_contract', {
-    title: 'Accept Contract',
-    description: 'Accept a pending contract proposed to you during the contracts phase.',
-    inputSchema: z.strictObject({ id: z.string().min(1).max(64) }),
-  }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'accept_contract', args)));
-
   server.registerTool('submit_orders', {
     title: 'Submit Sealed Orders',
-    description: `Seal your orders (build, found, train, march, scout) for simultaneous resolution during the orders phase. A march may name support: an allied seat, to join that seat's attack on the target or its garrison there. Where the rules have land, a march to an open hex leaves the army standing there (holding it next to your land claims it), a march may start from a hex where your army stands, build takes ${ImprovementKind.options.join(', ')} on your land hex, and found turns your land hex into a village.`,
+    description: `Seal your orders (build, found, train, march, scout) for simultaneous resolution during the orders phase. A march to an open hex leaves the army standing there (holding it next to your land claims it), a march may start from a hex where your army stands, build takes ${ImprovementKind.options.join(', ')} on your land hex, and found turns your land hex into a village.`,
     inputSchema: z.strictObject({ orders: z.array(OrderItem).max(64) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'submit_orders', args)));
 

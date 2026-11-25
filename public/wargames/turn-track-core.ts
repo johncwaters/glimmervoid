@@ -4,16 +4,15 @@ import type { ReplaySpeed } from './replay-core.ts';
 type TurnTrackMode = 'seating' | 'live' | 'finished' | 'aborted' | 'replay';
 type TurnPipState = 'played' | 'current' | 'recorded' | 'ahead';
 type SeatDotState = 'lit' | 'waiting' | 'late' | 'out' | 'dim';
-export type TrackPhase = 'talk' | 'contracts' | 'orders' | 'resolving';
+export type TrackPhase = 'talk' | 'orders' | 'resolving';
 type ClockTone = 'calm' | 'low';
 type TransportReach = 'none' | 'rewind' | 'full';
 type TrackTagTone = 'accent' | 'muted' | 'neutral';
 
-export const TRACK_PHASES: readonly TrackPhase[] = ['talk', 'contracts', 'orders', 'resolving'];
+export const TRACK_PHASES: readonly TrackPhase[] = ['talk', 'orders', 'resolving'];
 
 export const PHASE_NAMES: Readonly<Record<TrackPhase, string>> = Object.freeze({
   talk: 'Talk',
-  contracts: 'Negotiate',
   orders: 'Orders',
   resolving: 'Resolve',
 });
