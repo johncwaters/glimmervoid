@@ -314,17 +314,20 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
       }
       const request: ControlRequest = parsedMessage.data;
       if (!Object.hasOwn(merged.handlers, request.type)) return;
-      if (typeof request.requestId === 'string' && replyLedger.admit(request.requestId, ws, ResentRequest.safeParse(request).success) !== 'run') return;
-
+      const ledgerRequestId = typeof request.requestId === 'string' ? request.requestId : null;
+      if (ledgerRequestId !== null && replyLedger.admit(ledgerRequestId, ws, ResentRequest.safeParse(request).success) !== 'run') return;
       const result = dispatchControlRequest(request, ws);
-      if (result instanceof Promise) {
-        return result.catch((err: unknown) => {
-          if (typeof request.requestId === 'string') replyLedger.release(request.requestId);
-          console.warn(`[control] ${request.type} handler failed: ${errorMessage(err)}`);
-          deps.telemetry?.captureException(err, { handled: true });
-        });
+      if (!(result instanceof Promise)) {
+        if (ledgerRequestId !== null) replyLedger.noteHandlerReturned(ledgerRequestId);
+        return undefined;
       }
-      return undefined;
+      return result.then(() => {
+        if (ledgerRequestId !== null) replyLedger.noteHandlerReturned(ledgerRequestId);
+      }, (err: unknown) => {
+        if (ledgerRequestId !== null) replyLedger.release(ledgerRequestId);
+        console.warn(`[control] ${request.type} handler failed: ${errorMessage(err)}`);
+        deps.telemetry?.captureException(err, { handled: true });
+      });
     });
   });
 

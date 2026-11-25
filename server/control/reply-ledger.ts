@@ -1,8 +1,8 @@
 import type { ControlSocket } from '../backend/backend-websockets.ts';
 
 type LedgerEntry =
-  | { state: 'in-flight'; answeringSocket: ControlSocket; askedOnSocket: ControlSocket; storedAtMs: number }
-  | { state: 'settled'; frame: string; storedAtMs: number };
+  | { state: 'in-flight'; answeringSocket: ControlSocket; askedOnSocket: ControlSocket; expiresAtMs: number }
+  | { state: 'settled'; frame: string; expiresAtMs: number };
 
 type Admission = 'run' | 'replayed' | 'rerouted';
 
@@ -37,10 +37,9 @@ function createReplyLedger({ nowMs, keepMs, maxEntries }: ReplyLedgerOptions) {
   }
 
   function sweepExpired(): void {
-    const oldestKeptAtMs = nowMs() - keepMs;
+    const sweptAtMs = nowMs();
     for (const [requestId, entry] of entryByRequestId) {
-      if (entry.storedAtMs > oldestKeptAtMs) return;
-      dropEntry(requestId);
+      if (entry.expiresAtMs <= sweptAtMs) dropEntry(requestId);
     }
   }
 
@@ -74,7 +73,7 @@ function createReplyLedger({ nowMs, keepMs, maxEntries }: ReplyLedgerOptions) {
     }
     forgetInFlight(requestId, askedOnSocket);
     entryByRequestId.delete(requestId);
-    entryByRequestId.set(requestId, { state: 'settled', frame, storedAtMs: nowMs() });
+    entryByRequestId.set(requestId, { state: 'settled', frame, expiresAtMs: nowMs() + keepMs });
     const answeringSocket = entry.answeringSocket.readyState === OPEN_READY_STATE ? entry.answeringSocket : askedOnSocket;
     sendThroughRealSend(answeringSocket, frame, callback);
   }
@@ -104,7 +103,7 @@ function createReplyLedger({ nowMs, keepMs, maxEntries }: ReplyLedgerOptions) {
       return 'rerouted';
     }
     trimToCapacity();
-    entryByRequestId.set(requestId, { state: 'in-flight', answeringSocket: socket, askedOnSocket: socket, storedAtMs: nowMs() });
+    entryByRequestId.set(requestId, { state: 'in-flight', answeringSocket: socket, askedOnSocket: socket, expiresAtMs: Number.POSITIVE_INFINITY });
     const inFlightRequestIds = inFlightRequestIdsBySocket.get(socket) ?? new Set<string>();
     inFlightRequestIds.add(requestId);
     inFlightRequestIdsBySocket.set(socket, inFlightRequestIds);
@@ -115,10 +114,12 @@ function createReplyLedger({ nowMs, keepMs, maxEntries }: ReplyLedgerOptions) {
     if (entryByRequestId.get(requestId)?.state === 'in-flight') dropEntry(requestId);
   }
 
-  return { watch, admit, release };
+  function noteHandlerReturned(requestId: string): void {
+    const entry = entryByRequestId.get(requestId);
+    if (entry?.state === 'in-flight') entry.expiresAtMs = nowMs() + keepMs;
+  }
+
+  return { watch, admit, release, noteHandlerReturned };
 }
 
-type ReplyLedger = ReturnType<typeof createReplyLedger>;
-
 export { createReplyLedger };
-export type { ReplyLedger };

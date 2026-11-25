@@ -18,9 +18,16 @@ type UnreadableServerMessageListener = () => void;
 export const UNREADABLE_SERVER_MESSAGE_TEXT = 'The server sent a message this dashboard could not read. Reload the page to pick up the current version.';
 
 interface PendingRequest {
+  type: string;
+  requestId: string;
+  payload: Record<string, unknown> | undefined;
+  timeoutMs: number;
+  socketWaitLeftMs: number;
+  socketWaitStartedAtMs: number | null;
+  delivery: 'unsent' | 'sent';
   resolve: (message: ServerMessage) => void;
   reject: (reason: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 interface ControlClientOptions {
@@ -64,21 +71,54 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     return true;
   }
 
+  function clearRequestTimer(pending: PendingRequest) {
+    if (pending.timer !== null) clearTimeout(pending.timer);
+    pending.timer = null;
+    if (pending.socketWaitStartedAtMs === null) return;
+    pending.socketWaitLeftMs = Math.max(0, pending.socketWaitLeftMs - (performance.now() - pending.socketWaitStartedAtMs));
+    pending.socketWaitStartedAtMs = null;
+  }
+
+  function failRequest(requestId: string, reasonText: string) {
+    const pending = pendingRequests.get(requestId);
+    if (!pending) return;
+    clearRequestTimer(pending);
+    pendingRequests.delete(requestId);
+    pending.reject(new Error(reasonText));
+  }
+
+  function carryRequest(pending: PendingRequest, socket: WebSocket) {
+    clearRequestTimer(pending);
+    const resentMarker = pending.delivery === 'sent' ? { resent: true } : {};
+    socket.send(JSON.stringify({ type: pending.type, requestId: pending.requestId, ...pending.payload, ...resentMarker }));
+    pending.delivery = 'sent';
+    pending.timer = setTimeout(() => failRequest(pending.requestId, REQUEST_TIMED_OUT_TEXT), pending.timeoutMs);
+  }
+
+  function awaitSocketFor(pending: PendingRequest) {
+    clearRequestTimer(pending);
+    pending.socketWaitStartedAtMs = performance.now();
+    pending.timer = setTimeout(() => failRequest(pending.requestId, NOT_CONNECTED_TEXT), pending.socketWaitLeftMs);
+  }
+
+  function holdPendingRequests() {
+    for (const pending of pendingRequests.values()) awaitSocketFor(pending);
+  }
+
+  function resendPendingRequests(socket: WebSocket) {
+    for (const pending of pendingRequests.values()) carryRequest(pending, socket);
+  }
+
   function request(type: string, payload?: Record<string, unknown>, { timeoutMs = 5000 }: { timeoutMs?: number } = {}): Promise<ServerMessage> {
     const requestId = nextRequestId(type);
     return new Promise<ServerMessage>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingRequests.delete(requestId);
-        reject(new Error(REQUEST_TIMED_OUT_TEXT));
-      }, timeoutMs);
-      pendingRequests.set(requestId, { resolve, reject, timer });
-      if (controlWs?.readyState !== WebSocket.OPEN) {
-        clearTimeout(timer);
-        pendingRequests.delete(requestId);
-        reject(new Error(NOT_CONNECTED_TEXT));
+      const pending: PendingRequest = { type, requestId, payload, timeoutMs, socketWaitLeftMs: timeoutMs, socketWaitStartedAtMs: null, delivery: 'unsent', resolve, reject, timer: null };
+      pendingRequests.set(requestId, pending);
+      if (controlWs?.readyState === WebSocket.OPEN) {
+        carryRequest(pending, controlWs);
         return;
       }
-      controlWs.send(JSON.stringify({ type, requestId, ...payload }));
+      awaitSocketFor(pending);
     });
   }
 
@@ -86,19 +126,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     if (typeof rawMessage !== 'object' || rawMessage === null || !('requestId' in rawMessage)) return;
     const requestId = rawMessage.requestId;
     if (typeof requestId !== 'string') return;
-    const pending = pendingRequests.get(requestId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    pendingRequests.delete(requestId);
-    pending.reject(new Error(UNREADABLE_SERVER_MESSAGE_TEXT));
-  }
-
-  function rejectPendingRequests(reason: string) {
-    for (const pending of pendingRequests.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error(reason));
-    }
-    pendingRequests.clear();
+    failRequest(requestId, UNREADABLE_SERVER_MESSAGE_TEXT);
   }
 
   function clearControlRetryTimer() {
@@ -112,7 +140,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     isAbandoned = true;
     clearControlRetryTimer();
     handshakeRace.closeAll();
-    rejectPendingRequests(NOT_CONNECTED_TEXT);
+    holdPendingRequests();
     options.onStateChange?.('disconnected', 'Reconnecting');
     abandonedSocket?.close();
   }
@@ -156,7 +184,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
     const pending = requestId ? pendingRequests.get(requestId) : undefined;
     if (pending) {
-      clearTimeout(pending.timer);
+      clearRequestTimer(pending);
       pendingRequests.delete(requestId);
       pending.resolve(msg);
       return;
@@ -193,6 +221,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
       controlWs = ws;
       hasEverOpened = true;
       controlRetryAttempt = 0;
+      resendPendingRequests(ws);
       options.onStateChange?.('connected', 'Connected');
       options.onOpened?.({ handshakeMs: performance.now() - startedAtMs, attempts });
       options.onSocketChange?.('opened');
@@ -205,7 +234,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
       if (wasRacing && handshakeRace.drop(ws) > 0) return;
       if (!wasRacing && controlWs !== ws) return;
       controlWs = null;
-      rejectPendingRequests(NOT_CONNECTED_TEXT);
+      holdPendingRequests();
 
       if (!hasEverOpened) clearPageToken();
       options.onStateChange?.('disconnected', 'Reconnecting');
