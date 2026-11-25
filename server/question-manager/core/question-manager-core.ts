@@ -3,6 +3,7 @@ import { DEFAULT_QUESTION_RULES, MULTI_SELECT_SEPARATOR, ManagerLaneResult, RECO
 import type { ManagerAnswer, ManagerVerdict, QuestionManagerSettings, QuestionMatchRule, QuestionRecommendedRule, QuestionRule } from '../../../shared/contracts/question-manager.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
+import { answeredQuestionsText, managerAnswerReason, operatorAnswerReason } from '../../../shared/question-answer-text.ts';
 
 const MANAGER_PROMPT_FILENAME = 'manager-prompt.txt';
 const MANAGER_RESULT_FILENAME = 'manager-result.json';
@@ -173,16 +174,12 @@ export {
   MANAGER_BOOTSTRAP_PROMPT, MANAGER_ITEM_CHARS, MANAGER_PROMPT_FILENAME, MANAGER_RESULT_FILENAME, MANAGER_TIMEOUT_MS, MANAGER_UNTRUSTED_SOURCE, NO_RULE_REASON,
 };
 
-function answeredQuestionsText(answers: Readonly<Record<string, string>>): string {
-  return Object.entries(answers).map(([question, answer]) => `${question}: ${answer}`).join('; ');
-}
-
 export function questionToolDenyReason(verdict: ManagerAnswer): string {
-  return `The operator's question manager answered: ${answeredQuestionsText(verdict.answers)}. Treat this as the operator's choice and continue without asking again.`;
+  return managerAnswerReason(verdict.answers);
 }
 
 export function operatorAnswerDenyReason(answers: Readonly<Record<string, string>>): string {
-  return `The operator answered in Glimmervoid: ${answeredQuestionsText(answers)}. Treat this as the operator's choice and continue without asking again.`;
+  return operatorAnswerReason(answers);
 }
 
 export function answeredSummary(verdict: ManagerAnswer): string {

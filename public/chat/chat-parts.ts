@@ -202,6 +202,38 @@ function renderCallImages(imageFileNames: readonly string[], uploadUrlOf: Upload
   return images;
 }
 
+function renderAnsweredQuestions(answeredQuestions: Extract<TurnSegment, { kind: 'answers' }>['answeredQuestions']): HTMLElement {
+  const list = el('div', 'chat-turn-answers');
+  for (const answered of answeredQuestions) {
+    const item = el('div', 'chat-turn-answer');
+    const options = el('div', 'chat-turn-answer-options');
+    const shownOptions = answered.options.length > 0 ? answered.options : answered.chosen;
+    for (const option of shownOptions) {
+      const pill = el('span', 'chat-turn-answer-option', option);
+      pill.toggleAttribute('data-chosen', answered.chosen.includes(option));
+      options.append(pill);
+    }
+    for (const typed of answered.chosen.filter((chosen) => !shownOptions.includes(chosen))) {
+      const pill = el('span', 'chat-turn-answer-option', typed);
+      pill.toggleAttribute('data-chosen', true);
+      options.append(pill);
+    }
+    item.append(el('div', 'chat-turn-answer-question', answered.question), options);
+    list.append(item);
+  }
+  return list;
+}
+
+function renderPlanSegment(planText: string): HTMLElement {
+  const plan = el('div', 'chat-turn-plan');
+  plan.append(renderPlanBlocks(parsePlanMarkdown(planText), { fileRefs: CHAT_FILE_REFS }));
+  return plan;
+}
+
+function renderShownSegment(segment: Extract<TurnSegment, { kind: 'answers' | 'plan' }>): HTMLElement {
+  return segment.kind === 'plan' ? renderPlanSegment(segment.planText) : renderAnsweredQuestions(segment.answeredQuestions);
+}
+
 function renderCallRow(call: ToolCallEntry, uploadUrlOf: UploadUrlOf): HTMLDetailsElement {
   const row = el('details', 'chat-turn-call');
   row.dataset.state = call.state;
@@ -287,7 +319,7 @@ function workElementOf(entry: WorkEntry): HTMLElement | null {
 
 function workEntryOf(segment: TurnSegment, index: number, part: TurnPart, replyIndex: number, uploadUrlOf: UploadUrlOf): WorkEntry {
   if (segment.kind === 'tools') return { kind: 'calls', block: createCallsBlock(uploadUrlOf) };
-  const isShownText = part.isOver && index !== replyIndex;
+  const isShownText = segment.kind === 'text' && part.isOver && index !== replyIndex;
   return { kind: 'text', element: isShownText ? renderTextSegment(segment.text) : null };
 }
 
@@ -395,7 +427,7 @@ function syncBodySegments(view: TurnView, segments: readonly TurnSegment[], isAr
       view.bodySegments.items.push({ entry: null, signature: segment.kind });
       continue;
     }
-    const textElement = renderTextSegment(segment.text);
+    const textElement = segment.kind === 'text' ? renderTextSegment(segment.text) : renderShownSegment(segment);
     view.body.append(textElement);
     view.bodySegments.items.push({ entry: textElement, signature: segment.kind });
     if (!isArriving) continue;
@@ -455,9 +487,10 @@ function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: 
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
   view.bodySegments.items.forEach(({ entry: textElement }, index) => {
     const segment = part.segments[index];
+    const isText = segment?.kind === 'text';
     textElement?.toggleAttribute('data-interim', segment?.kind === 'text' && isInterimReply(segment.text));
-    textElement?.toggleAttribute('data-before-final', index < finalTextIndex);
-    textElement?.toggleAttribute('data-final', index === finalTextIndex);
+    textElement?.toggleAttribute('data-before-final', isText && index < finalTextIndex);
+    textElement?.toggleAttribute('data-final', isText && index === finalTextIndex);
   });
   view.part = part;
   view.element.toggleAttribute('data-over', part.isOver);

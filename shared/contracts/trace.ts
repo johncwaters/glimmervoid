@@ -5,6 +5,17 @@ export const MAX_RAW_LINE_CHARS = 4000;
 export const CONVERSATION_EVENTS_HOOK_EVENT = 'ConversationEvents';
 export const MAX_RECORD_IMAGES = 8;
 
+export const MAX_ANSWERED_QUESTIONS = 8;
+export const MAX_ANSWERED_QUESTION_OPTIONS = 20;
+export const ANSWERED_QUESTION_TEXT_MAX_CHARS = 1000;
+
+export const AnsweredQuestion = z.strictObject({
+  question: z.string().max(ANSWERED_QUESTION_TEXT_MAX_CHARS),
+  options: z.array(z.string().max(ANSWERED_QUESTION_TEXT_MAX_CHARS)).max(MAX_ANSWERED_QUESTION_OPTIONS),
+  chosen: z.array(z.string().max(ANSWERED_QUESTION_TEXT_MAX_CHARS)).max(MAX_ANSWERED_QUESTION_OPTIONS),
+});
+export type AnsweredQuestion = z.infer<typeof AnsweredQuestion>;
+
 export const TraceImage = z.strictObject({
   fileName: UploadFileName,
   mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
@@ -82,6 +93,7 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     backgroundTaskName: z.string().min(1).optional(),
     backgroundTaskSummary: z.string().min(1).optional(),
     images: z.array(TraceImage).min(1).max(MAX_RECORD_IMAGES).optional(),
+    answeredQuestions: z.array(AnsweredQuestion).min(1).max(MAX_ANSWERED_QUESTIONS).optional(),
   }),
   TraceRecordBase.extend({ kind: z.literal('subagent'), ...SubagentSignalFields }),
   TraceRecordBase.extend({ kind: z.literal('background-task'), ...BackgroundTaskSignalFields }),

@@ -1,4 +1,6 @@
-import type { TraceRecord } from '#shared/contracts/trace.ts';
+import { type AnsweredQuestion, MAX_ANSWERED_QUESTIONS, MAX_ANSWERED_QUESTION_OPTIONS, type TraceRecord } from '#shared/contracts/trace.ts';
+import { parseJsonOrNull } from '#shared/coerce.ts';
+import { answersInReason } from '#shared/question-answer-text.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
 import type { AgentEventPart, BackgroundTaskPart, ChatCard, ChatPart, CommandPart, TurnPart } from './chat-part.ts';
@@ -167,11 +169,50 @@ function tallyFileEdits(turn: ChatTurn, edits: readonly FileEdit[]): void {
   turn.fileEdits.fileCount = turn.editedPaths.size;
 }
 
+const PLAN_TOOL_NAMES: ReadonlySet<string> = new Set(['exitplanmode']);
+
+function planTextOf(record: Extract<TraceRecord, { kind: 'tool_call' }>): string | null {
+  if (!PLAN_TOOL_NAMES.has(record.name.toLowerCase())) return null;
+  return textFieldOf(record.input, 'plan');
+}
+
+type AskedQuestion = { question: string; options: string[] };
+
+const askedQuestionsByCall = new WeakMap<ToolCallEntry, AskedQuestion[]>();
+const ASK_QUESTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ask_question']);
+const ANSWER_LINE_PATTERN = /^A(\d+): (.*)$/gm;
+
+function askedQuestionsOf(record: Extract<TraceRecord, { kind: 'tool_call' }>): AskedQuestion[] {
+  if (!ASK_QUESTION_TOOL_NAMES.has(record.name)) return [];
+  const questionsText = textFieldOf(record.input, 'questions');
+  const parsed: unknown = questionsText === null ? null : parseJsonOrNull(questionsText);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((entry: unknown) => {
+    const question = textFieldOf(entry, 'question');
+    const options: unknown = typeof entry === 'object' && entry !== null ? Reflect.get(entry, 'options') : null;
+    if (question === null || !Array.isArray(options)) return [];
+    return [{ question, options: options.filter((option): option is string => typeof option === 'string') }];
+  });
+}
+
+function answeredQuestionsFromResultText(asked: readonly AskedQuestion[], resultText: string): AnsweredQuestion[] {
+  const answerByNumber = new Map([...resultText.matchAll(ANSWER_LINE_PATTERN)].map((match) => [Number(match[1]), (match[2] ?? '').trim()]));
+  const answerByQuestion = answersInReason(resultText, asked.map((askedQuestion) => askedQuestion.question));
+  return asked.slice(0, MAX_ANSWERED_QUESTIONS).map((askedQuestion, index) => {
+    const answer = answerByNumber.get(index + 1) ?? answerByQuestion.get(askedQuestion.question)?.trim() ?? '';
+    const parts = answer.split(', ');
+    const chosen = answer === '' ? [] : askedQuestion.options.includes(answer) || !parts.every((part) => askedQuestion.options.includes(part)) ? [answer] : parts;
+    return { question: askedQuestion.question, options: askedQuestion.options.slice(0, MAX_ANSWERED_QUESTION_OPTIONS), chosen };
+  });
+}
+
 function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): void {
   const { turn } = state;
   turn.toolCount += 1;
   const call: ToolCallEntry = { toolUseId: record.toolUseId, label: toolLabelOf(record.name, record.input, state.workingDirectory), state: 'running', startedAt: record.ts, durationMs: null, outputHead: null, imageFileNames: [] };
   turn.callByToolUseId.set(call.toolUseId, call);
+  const askedQuestions = askedQuestionsOf(record);
+  if (askedQuestions.length > 0) askedQuestionsByCall.set(call, askedQuestions);
   const lastSegment = turn.segments.at(-1);
   if (lastSegment?.kind === 'tools') {
     lastSegment.calls.push(call);
@@ -179,6 +220,8 @@ function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind
     lastSegment.callCount += 1;
   }
   if (lastSegment?.kind !== 'tools') pushSegment(turn, { kind: 'tools', calls: [call], callCount: 1, settledCount: 0 });
+  const planText = planTextOf(record);
+  if (planText !== null) pushSegment(turn, { kind: 'plan', planText });
   if (!isEditingTool(record.name)) return;
   keepFilePatches(turn, record.truncated === true ? [] : filePatchesOf(record.input, state.workingDirectory));
   tallyFileEdits(turn, record.truncated === true ? truncatedFileEditsOf(record.input, state.workingDirectory) : fileEditsOf(record.input, state.workingDirectory));
@@ -199,6 +242,9 @@ function settleToolCall(turn: ChatTurn, record: Extract<TraceRecord, { kind: 'to
   call.durationMs = record.ts > call.startedAt ? record.ts - call.startedAt : null;
   call.outputHead = outputHeadOf(record.content);
   call.imageFileNames = (record.images ?? []).map((image) => image.fileName);
+  const askedQuestions = askedQuestionsByCall.get(call);
+  const answeredQuestions = record.answeredQuestions ?? (askedQuestions === undefined ? [] : answeredQuestionsFromResultText(askedQuestions, record.content).filter((answered) => answered.chosen.length > 0));
+  if (answeredQuestions.length > 0) pushSegment(turn, { kind: 'answers', answeredQuestions });
   if (record.isError) turn.failedCount += 1;
   markSegmentChanged(turn, call);
   return true;

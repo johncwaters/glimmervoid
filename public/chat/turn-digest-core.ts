@@ -1,3 +1,4 @@
+import type { AnsweredQuestion } from '#shared/contracts/trace.ts';
 import { isShellTool } from './chat-activity-core.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import type { PlanInline } from '../plan/plan-markdown-core.ts';
@@ -16,7 +17,11 @@ export interface ToolCallEntry {
   imageFileNames: readonly string[];
 }
 
-export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; calls: ToolCallEntry[]; callCount: number; settledCount: number };
+export type TurnSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'tools'; calls: ToolCallEntry[]; callCount: number; settledCount: number }
+  | { kind: 'answers'; answeredQuestions: readonly AnsweredQuestion[] }
+  | { kind: 'plan'; planText: string };
 
 export interface FileEditTally {
   fileCount: number;

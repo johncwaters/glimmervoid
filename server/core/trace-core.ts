@@ -1,6 +1,7 @@
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { isImageBlock, pastedImagesRecordOf, traceImagesField, traceImagesIn } from '../trace/core/trace-image-core.ts';
-import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
+import { ANSWERED_QUESTION_TEXT_MAX_CHARS, AnsweredQuestion, MAX_ANSWERED_QUESTIONS, MAX_ANSWERED_QUESTION_OPTIONS, MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
+import { z } from 'zod';
 import { parseJsonRecord } from './json-core.ts';
 import { rawTextOr, textOr } from '../../shared/coerce.ts';
 import { withoutTerminalEscapes } from '../../shared/terminal-text.ts';
@@ -297,6 +298,33 @@ function isTaskNotificationLine(line: TranscriptLine): boolean {
   return line.origin?.kind === 'task-notification' || turnOriginKind === 'task_notification';
 }
 
+const AskedQuestions = z.object({
+  questions: z.array(z.object({ question: z.string(), options: z.array(z.object({ label: z.string() })).default([]) })).min(1),
+  answers: z.record(z.string(), z.string()),
+});
+
+function chosenLabelsOf(answer: string, labels: readonly string[]): string[] {
+  if (labels.includes(answer)) return [answer];
+  const parts = answer.split(', ');
+  return parts.every((part) => labels.includes(part)) ? parts : [answer];
+}
+
+function answeredQuestionsField(toolUseResult: unknown): { answeredQuestions?: AnsweredQuestion[] } {
+  const asked = AskedQuestions.safeParse(toolUseResult);
+  if (!asked.success) return {};
+  const { questions, answers } = asked.data;
+  const answeredQuestions = questions.slice(0, MAX_ANSWERED_QUESTIONS).map(({ question, options }) => {
+    const labels = options.map((option) => option.label);
+    const answer = Object.hasOwn(answers, question) ? answers[question] ?? '' : '';
+    return {
+      question: question.slice(0, ANSWERED_QUESTION_TEXT_MAX_CHARS),
+      options: labels.slice(0, MAX_ANSWERED_QUESTION_OPTIONS).map((label) => label.slice(0, ANSWERED_QUESTION_TEXT_MAX_CHARS)),
+      chosen: (answer ? chosenLabelsOf(answer, labels) : []).slice(0, MAX_ANSWERED_QUESTION_OPTIONS).map((label) => label.slice(0, ANSWERED_QUESTION_TEXT_MAX_CHARS)),
+    };
+  });
+  return AnsweredQuestion.array().safeParse(answeredQuestions).success ? { answeredQuestions } : {};
+}
+
 function launchedSubagentField(toolUseResult: unknown): { subagentId?: string } {
   if (typeof toolUseResult !== 'object' || toolUseResult === null) return {};
   const subagentId = 'agentId' in toolUseResult ? toolUseResult.agentId : null;
@@ -349,6 +377,7 @@ function mapUserLine(
       ...traceImagesField(toolResult.content, base.ts),
       ...launchedSubagentField(line.toolUseResult),
       ...launchedBackgroundTaskField(line.toolUseResult),
+      ...answeredQuestionsField(line.toolUseResult),
     }];
   }
 

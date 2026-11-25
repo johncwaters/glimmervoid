@@ -9,6 +9,8 @@ import { pathToFileURL } from 'node:url';
 
 import { STATES } from '../shared/states.ts';
 import { TraceRecord } from '../shared/contracts/trace.ts';
+import { appendChatRecords, createChatPartsState } from '../public/chat/chat-parts-core.ts';
+import type { TurnSegment } from '../public/chat/turn-digest-core.ts';
 import { parseAntigravityUsageLine } from '../server/usage/core/usage-antigravity-core.ts';
 import { createCodexUsageState, parseCodexUsageLine } from '../server/usage/core/usage-codex-core.ts';
 import { parseUsageLine } from '../server/usage/core/usage-entry-core.ts';
@@ -24,6 +26,7 @@ import { chatApprovalModeFor, permissionReplyFor } from '../session/core/claude-
 import { buildHookSettings } from '../detection/settings-injector.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
+import { operatorAnswerDenyReason } from '../server/question-manager/core/question-manager-core.ts';
 import { openCodePluginFiles } from '../session/core/opencode-plugin-core.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT } from '../shared/contracts/session.ts';
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../shared/contracts/question-manager.ts';
@@ -533,6 +536,70 @@ for (const agent of FIRST_CLASS_AGENTS) {
     const hookMessages = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record)).filter((record) => record.kind === 'hook-message');
     assert.deepEqual(hookMessages.map((record) => [record.hookEvent, record.toolName, record.isError]), [['Stop', null, false], ['PostToolUse', 'Edit', true], ['Stop', null, true]]);
     assert.ok(hookMessages.every((record) => record.text.length > 0), `${agent} dropped a hook message text`);
+  });
+}
+
+const ANSWERED_QUESTION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-answers-plans.jsonl', vendorSessionId: '0869e86e-9a03-45e6-86bd-65c543883d8a' },
+  codex: { unproducible: 'Codex asks through request_user_input_async, a function_call whose output is only {"accepted":true}; the answer returns later as an ordinary user message, so no rollout line pairs a question with its answer' },
+  kimi: { unproducible: 'No Kimi Code session exists on the capture host, so no answered AskUserQuestion result exists to capture' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed question tool result exists to capture' },
+  pi: { unproducible: 'pi has no built-in question tool; an extension prompt carries only a title, so no question with options reaches its session file' },
+  antigravity: { file: 'antigravity-question.jsonl', vendorSessionId: '84296d7c-f2dd-441a-8bdb-a98f46d67505' },
+};
+
+function chatTurnSegmentsOf(records: readonly TraceRecord[]): TurnSegment[] {
+  const { parts } = appendChatRecords(createChatPartsState(), records);
+  return parts.flatMap((part) => (part.kind === 'turn' ? [...part.segments] : []));
+}
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = ANSWERED_QUESTION_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`answered questions in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`answered questions in Chat on ${agent}`, () => {
+    const segments = chatTurnSegmentsOf(convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record)));
+    const answered = segments.flatMap((segment) => (segment.kind === 'answers' ? segment.answeredQuestions : []));
+    assert.ok(answered.length > 0, `${agent} showed no answered question`);
+    assert.ok(answered.every((question) => question.chosen.length > 0 && question.chosen.every((chosen) => question.options.includes(chosen))), `${agent} lost which option was chosen`);
+  });
+}
+
+test('an Antigravity question answered from Glimmervoid shows the operator choice in Chat', () => {
+  const fixture = ANSWERED_QUESTION_FIXTURE_BY_AGENT.antigravity;
+  assert.ok(!('unproducible' in fixture));
+  const deniedLines = fs.readFileSync(path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file), 'utf8').split('\n').filter((line) => line.length > 0).map((line) => {
+    const step = JSON.parse(line);
+    if (step.type !== 'GENERIC') return line;
+    return JSON.stringify({ ...step, status: 'ERROR', content: operatorAnswerDenyReason({ 'Do you prefer red or blue?': 'Blue' }) });
+  });
+  const source = transcriptSourceOf('antigravity');
+  assert.ok(source);
+  const records = deniedLines.flatMap((line) => source.recordsFromLine(line, { vendorSessionId: fixture.vendorSessionId, now: 0 })).map((record) => TraceRecord.parse(record));
+  const answered = chatTurnSegmentsOf(records).flatMap((segment) => (segment.kind === 'answers' ? segment.answeredQuestions : []));
+  assert.deepEqual(answered.map((question) => question.chosen), [['Blue']]);
+});
+
+const PLAN_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-answers-plans.jsonl', vendorSessionId: '46110dc0-886a-4d0d-ba14-24fa6ee56690' },
+  codex: { unproducible: 'None of the 847 Codex rollouts on the capture host holds a proposed plan; the plan item name appears only in tool definitions' },
+  kimi: { unproducible: 'No Kimi Code session exists on the capture host, so no plan exists to capture' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed plan exists to capture' },
+  pi: { unproducible: 'pi has no plan mode; a plan is ordinary assistant text, which Chat already renders as markdown' },
+  antigravity: { unproducible: 'Antigravity writes its plan as ordinary planner response text, which Chat already renders as markdown' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = PLAN_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`plans in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`plans in Chat on ${agent}`, () => {
+    const segments = chatTurnSegmentsOf(convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record)));
+    assert.ok(segments.some((segment) => segment.kind === 'plan' && segment.planText.length > 0), `${agent} showed no plan`);
   });
 }
 
