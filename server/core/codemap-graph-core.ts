@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { CodemapAllowEntry, CodemapExportKind, CodemapExtract, CodemapModuleEdge, CodemapSetup, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_SETUP_VERSION, moduleImportAllowsOf, structureAllowsOf } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
@@ -570,6 +570,7 @@ const MATRIX_BOX_ID = generatedIdOf(CODEMAP_ID_PREFIXES.map, 'folder matrix', `m
 const MODULE_COLUMNS_PER_FOLDER = 6;
 const MATRIX_BOX_WIDTH = 640;
 const RED_WIRE = Object.freeze({ tone: 'fail', width: 'bold' });
+const RED_WIRE_LEGEND_ENTRY = Object.freeze({ tone: RED_WIRE.tone, dashed: false, label: 'imports upward' });
 
 function wireLabelOf(edge: WeightedEdge): string {
   const [onlyImport] = edge.fileImports;
@@ -633,7 +634,17 @@ function folderMatrixCsvOf(model: CodemapModel): string {
   return `${[header, ...rows].join('\n')}\n`;
 }
 
-function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, { churnByModule, overlaidModules, folderChoices, matrixMedia }: MapDecorations): Record<string, unknown>[] {
+function isRedWireLegendEntry(entry: Board['legend'][number]): boolean {
+  return entry.tone === RED_WIRE_LEGEND_ENTRY.tone && entry.dashed === RED_WIRE_LEGEND_ENTRY.dashed && entry.label === RED_WIRE_LEGEND_ENTRY.label;
+}
+
+function mapLegendOf(storedLegend: Board['legend'], hasRedWires: boolean): Board['legend'] {
+  const othersLegend = storedLegend.filter((entry) => !isRedWireLegendEntry(entry));
+  if (!hasRedWires) return othersLegend;
+  return [...othersLegend.slice(0, WHITEBOARD_LIMITS.legendEntries - 1), RED_WIRE_LEGEND_ENTRY];
+}
+
+function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, storedLegend: Board['legend'], { churnByModule, overlaidModules, folderChoices, matrixMedia }: MapDecorations): Record<string, unknown>[] {
   const layers = moduleLayersOf(model);
   const focusModules = focusModulesOf(layers, overlaidModules);
   const focusFolders = openFoldersOf(focusModules, folderChoices);
@@ -686,16 +697,24 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     if (!existingKindById.has(element.id)) return { op: 'add', element };
     return { op: 'set', id: element.id, fields: generatedFieldsOf(element) };
   };
+  const hasRedWires = wires.some((wire) => wire.tone === RED_WIRE.tone);
   return [
     ...staleRemovalsOfKind((kind) => kind === 'wire'), ...staleRemovalsOfKind((kind) => kind === 'frame'), ...staleRemovalsOfKind((kind) => kind !== 'wire' && kind !== 'frame'),
     ...boxes.map(refreshOf), ...frames.map(refreshOf), ...wires.map(refreshOf),
+    { op: 'board', legend: mapLegendOf(storedLegend, hasRedWires) },
   ];
 }
 
-function withoutUnchangedSets(ops: readonly Op[], elementById: ReadonlyMap<string, Element>): Op[] {
+function isUnchangedLegendOp(op: Op, storedLegend: Board['legend']): boolean {
+  if (op.op !== 'board') return false;
+  return Object.keys(op).every((field) => field === 'op' || field === 'legend') && JSON.stringify(op.legend) === JSON.stringify(storedLegend);
+}
+
+function withoutUnchangedSets(ops: readonly Op[], board: Pick<Board, 'elements' | 'legend'>): Op[] {
   return ops.filter((op) => {
+    if (isUnchangedLegendOp(op, board.legend)) return false;
     if (op.op !== 'set') return true;
-    const stored = elementById.get(op.id);
+    const stored = board.elements.get(op.id);
     if (!stored) return true;
     const refreshed = Element.safeParse({ ...stored, ...op.fields });
     return !refreshed.success || JSON.stringify(refreshed.data) !== JSON.stringify(stored);

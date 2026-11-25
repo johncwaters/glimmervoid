@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The code map legend says what its red wires mean.** Red wires are imports going upward, against layer order, and the legend now labels them imports upward instead of failure path.
+- **Studio branch cards are titled by the box they work on.** A branch working on site shows site on its card, matching To site in the log, instead of the long session name.
+- **Studio agent cards stay off the code map.** A card now sits in the empty space just outside the map, beside its box's row and tied to it by its dashed line, instead of on the wires between boxes.
 - **Wargames armies stay on the map while a turn resolves.** Before, every army disappeared at the start of the resolve animation and came back only when it ended. Now each army slides along its route to its new tile, and armies heading home are drawn too.
 - **The Studio chat sits above the map.** Agent faces and cards near the bottom of the map no longer draw over the Studio chat, and map lines and boxes no longer show through it. File change previews and the diff panel still open above the chat.
 - **Wargames seats now play the land rules.** In live matches models never claimed land, so the VP target was out of reach and matches ran to the turn limit. Every village now starts owning the open hexes around it, and a captured or founded village brings its unowned ones. get_state shows each seat its land count, land VP per tick, the hexes it can claim next and what each suits, plus a claim march and a build order it can submit as written, and each turn's reminder points at that claim order. The rulebook opens with what land is worth, and a seat gets a land report when it claims a hex or loses one. The 4-seat VP targets drop by a fifth (Large 668 to 534), so a 4-seat Large match ends on its target inside 40 turns even when seats ignore land.

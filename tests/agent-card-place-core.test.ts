@@ -20,3 +20,11 @@ test('an agent card moves off the code map box right of its own box', () => {
   const spot = cardSpotOf(agentBox, card, cardPlacementAreaOf(mapRects, view), []);
   assert.equal(coversAny(spot, mapRects), false);
 });
+
+test('an agent card sits outside the code map bounds beside its box row, off the wire runs between boxes', () => {
+  const rowBoxes = [agentBox, { x: 560, y: 400, width: 220, height: 100 }];
+  const rowsAboveAndBelow = [{ x: 40, y: 100, width: 740, height: 100 }, { x: 40, y: 700, width: 740, height: 100 }];
+  const mapRects = [...rowBoxes, ...rowsAboveAndBelow];
+  const spot = cardSpotOf(agentBox, card, cardPlacementAreaOf(mapRects, view), []);
+  assert.deepEqual(spot, { x: 828, y: 400, side: 'right' });
+});

@@ -326,8 +326,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const existingKindById = new Map([...read.board.elements].map(([id, element]) => [id, element.kind]));
     const specOps = changedModel ? specPlanOpsOf(changedModel, overlay.specPlan, existingKindById) : { removals: [], writes: [] };
     const decorations = changedModel ? { ...overlay.decorations, matrixMedia: await matrixMediaOf(boards, repoDir, changedModel) } : overlay.decorations;
-    const rawOps = [...specOps.removals, ...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, decorations) : []), ...mapStampOpsOf(status, existingKindById), ...overlayOpsOf(overlay.stamp, existingKindById), ...specOps.writes];
-    for (const ops of chunkedBySize(withoutUnchangedSets(OpList.parse(rawOps), read.board.elements))) {
+    const rawOps = [...specOps.removals, ...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, read.board.legend, decorations) : []), ...mapStampOpsOf(status, existingKindById), ...overlayOpsOf(overlay.stamp, existingKindById), ...specOps.writes];
+    for (const ops of chunkedBySize(withoutUnchangedSets(OpList.parse(rawOps), read.board))) {
       const reply = await boards.putWithoutReadCheck(caller, boardId, ops);
       if (reply.status !== 200) throw new Error(`the map board refused the regeneration: ${JSON.stringify(reply.body)}`);
     }

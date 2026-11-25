@@ -439,7 +439,7 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
   watch.waits.sync();
   return {
     sessionId,
-    name: sessionId === shownSessionId ? ORCHESTRATOR_TEXT : sessionName(ui) || sessionId.slice(0, 8),
+    name: sessionId === shownSessionId ? ORCHESTRATOR_TEXT : ui.parent?.box?.title ?? (sessionName(ui) || sessionId.slice(0, 8)),
     agentId: ui.agent ?? null,
     isMain: sessionId === shownSessionId,
     repoLabel: sessionId === shownSessionId ? shownRepoLabel() : null,

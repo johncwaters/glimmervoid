@@ -14,6 +14,7 @@ interface CardSpot {
 interface CardPlacementArea {
   mapRects: readonly Rect[];
   mapGrid: SpatialGrid;
+  mapBounds: Rect | null;
   view: Rect;
 }
 
@@ -49,6 +50,32 @@ function alignedSpotsOf(anchor: Rect, card: CardSize, side: CardSide): CardSpot[
   return cardLefts.map((cardLeft) => ({ x: cardLeft, y: cardTop, side }));
 }
 
+function outsideMapSpotsOf(anchor: Rect, card: CardSize, mapBounds: Rect | null): CardSpot[] {
+  if (mapBounds === null) return [];
+  const rightOfMap = mapBounds.x + mapBounds.width + SIDE_OFFSET_PX;
+  const leftOfMap = mapBounds.x - SIDE_OFFSET_PX - card.width;
+  return [
+    ...alignedSpotsOf(anchor, card, 'right').map((spot) => ({ ...spot, x: rightOfMap })),
+    ...alignedSpotsOf(anchor, card, 'left').map((spot) => ({ ...spot, x: leftOfMap })),
+  ];
+}
+
+function boundingRectOf(rects: readonly Rect[]): Rect | null {
+  const [firstRect, ...otherRects] = rects;
+  if (firstRect === undefined) return null;
+  let left = firstRect.x;
+  let top = firstRect.y;
+  let right = firstRect.x + firstRect.width;
+  let bottom = firstRect.y + firstRect.height;
+  for (const rect of otherRects) {
+    left = Math.min(left, rect.x);
+    top = Math.min(top, rect.y);
+    right = Math.max(right, rect.x + rect.width);
+    bottom = Math.max(bottom, rect.y + rect.height);
+  }
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
 function spotRectOf(spot: CardSpot, card: CardSize): Rect {
   return { x: spot.x, y: spot.y, width: card.width, height: card.height };
 }
@@ -74,6 +101,7 @@ function costOf(spot: CardSpot, anchor: Rect, card: CardSize, area: CardPlacemen
   const rect = spotRectOf(spot, card);
   const hardOverlap = hardObstacles.reduce((sum, obstacle) => sum + overlapAreaOf(rect, gappedRectOf(obstacle)), 0);
   const offViewArea = card.width * card.height - overlapAreaOf(rect, area.view);
+  const mapBoundsOverlap = area.mapBounds === null ? 0 : overlapAreaOf(rect, area.mapBounds);
   let mapOverlap = 0;
   forEachSlotTouching(area.mapGrid, rect, (slot) => {
     const mapRect = area.mapRects[slot];
@@ -81,7 +109,7 @@ function costOf(spot: CardSpot, anchor: Rect, card: CardSize, area: CardPlacemen
   });
   const gapAcross = Math.max(0, anchor.x - (rect.x + rect.width), rect.x - (anchor.x + anchor.width));
   const gapAlong = Math.max(0, anchor.y - (rect.y + rect.height), rect.y - (anchor.y + anchor.height));
-  return [hardOverlap + offViewArea, mapOverlap, Math.hypot(gapAcross, gapAlong)];
+  return [hardOverlap + offViewArea, mapOverlap, mapBoundsOverlap, Math.hypot(gapAcross, gapAlong)];
 }
 
 function isCheaper(candidateCost: readonly number[], bestCost: readonly number[]): boolean {
@@ -93,11 +121,11 @@ function isCheaper(candidateCost: readonly number[], bestCost: readonly number[]
 }
 
 export function cardPlacementAreaOf(mapRects: readonly Rect[], view: Rect): CardPlacementArea {
-  return { mapRects, mapGrid: gridOfRects(mapRects, GRID_CELL_PX), view };
+  return { mapRects, mapGrid: gridOfRects(mapRects, GRID_CELL_PX), mapBounds: boundingRectOf(mapRects), view };
 }
 
 export function cardSpotOf(anchor: Rect, card: CardSize, area: CardPlacementArea, hardObstacles: readonly Rect[]): CardSpot {
-  const alignedSpots = SIDES.flatMap((side) => alignedSpotsOf(anchor, card, side));
+  const alignedSpots = [...SIDES.flatMap((side) => alignedSpotsOf(anchor, card, side)), ...outsideMapSpotsOf(anchor, card, area.mapBounds)];
   const candidates = alignedSpots.flatMap((spot) => [spot, ...slidSpotsOf(spot, card, hardObstacles)]);
   let bestSpot: CardSpot = candidates[0] ?? { x: anchor.x + anchor.width + SIDE_OFFSET_PX, y: anchor.y, side: 'right' };
   let bestCost = costOf(bestSpot, anchor, card, area, hardObstacles);
