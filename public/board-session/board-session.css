@@ -117,6 +117,7 @@
 
   .bs-dock-slot {
     position: absolute;
+    z-index: 1;
     bottom: 12px;
     left: 50%;
     width: min(640px, calc(100% - 24px));
@@ -124,7 +125,7 @@
   }
 
   .bs-dock { position: relative; display: flex; flex-direction: column; gap: 8px; }
-  .bs-log-frame { position: relative; }
+  .bs-log-frame { position: relative; border-radius: var(--radius-lg); background: var(--bg-card); }
   .bs-log-content, .bs-log-rows, .bs-log-queue { display: flex; flex-direction: column; gap: 8px; }
   .bs-log-queue:empty { display: none; }
   .bs-row-queued .bs-bubble-you { background: transparent; outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -1px; color: var(--text); }
@@ -301,6 +302,7 @@
 
   .bs-changes {
     position: absolute;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -323,6 +325,7 @@
   .bs-changes-removed { color: var(--state-failed); }
   .bs-diff-panel {
     position: absolute;
+    z-index: 1;
     top: 12px;
     right: 12px;
     bottom: 12px;
