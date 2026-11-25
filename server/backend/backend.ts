@@ -97,6 +97,7 @@ import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createLandedBranches } from '../board-session/landed-branches.ts';
 import type { BranchWiring } from '../board-session/branch-wiring.ts';
 import { studioHomeDir } from '../board-session/studio-main.ts';
+import { moveStudioToOneOrchestrator } from '../board-session/studio-migration.ts';
 import { branchParentIdOf } from '../../shared/parent-link.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
 import { createDirector, isStudioSession } from '../board-session/director.ts';
@@ -382,7 +383,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     studioBoardIdOf: studioMapBoardIdOf,
   });
   const studioRepos = createStudioReposStore({ filePath: path.join(glimmervoidHomeDir(), 'studio-repos.json'), logger: console });
-  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), areas: studioRepos, isMappedDir: (repoDir) => repoDir !== studioHomeDir(), isAreaIdle: (repoDir) => !allLiveSessions().some((session) => branchParentIdOf(session.parent) !== null && session.path === repoDir && !session._destroyed), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
+  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardFilePath: configSiblingPath(configStore.configPath, 'codemap-board.json'), perRepoMapBoardsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), areas: studioRepos, isMappedDir: (repoDir) => repoDir !== studioHomeDir(), isAreaIdle: (repoDir) => !allLiveSessions().some((session) => branchParentIdOf(session.parent) !== null && session.path === repoDir && !session._destroyed), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
     changesOfSession: async (sessionId) => {
       const session = getSessionAny(sessionId);
       if (!session) return null;
@@ -737,6 +738,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     config,
     logger: console,
   });
+  moveStudioToOneOrchestrator({ config, configStore, studioHome: studioHomeDir(), studioReposFilePath: path.join(glimmervoidHomeDir(), 'studio-repos.json'), logger: console });
+  void codemap.removePerRepoMapBoards();
   sessionRegistry.initialize();
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 

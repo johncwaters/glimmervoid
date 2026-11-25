@@ -213,6 +213,7 @@ function extractBaseOf(extract: CodemapExtract): CodemapExtractBase {
   return { sha: extract.sha, paths: extract.paths, specifiersByIndex: extract.specifiersByIndex, typeOnlySpecifiersByIndex: extract.typeOnlySpecifiersByIndex, exportedNamesByIndex: extract.exportedNamesByIndex, declaredNamesByIndex: extract.declaredNamesByIndex };
 }
 
+const UnscopedMapBoardIds = z.record(z.string(), z.string());
 const MapBoardFile = z.strictObject({ boardId: z.string().min(1).nullable(), widthByRepoKey: z.record(z.string(), z.number().nonnegative()) });
 type MapBoardFile = z.infer<typeof MapBoardFile>;
 const MAP_BOARD_QUEUE_KEY = 'map board';
@@ -276,6 +277,7 @@ interface CodemapServiceOptions {
   detectDefaultBranch?: DefaultBranchDetector;
   whiteboards?: MapBoards | null;
   mapBoardFilePath?: string | null;
+  perRepoMapBoardsFilePath?: string | null;
   areas?: MapAreaList;
   isMappedDir?: (repoDir: string) => boolean;
   isAreaIdle?: (repoDir: string) => boolean;
@@ -308,7 +310,7 @@ function chunkedBySize(ops: readonly Op[]): Op[][] {
 
 const OpList = z.array(Op);
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardFilePath = null, areas = createMemoryAreaList(), isMappedDir = () => true, isAreaIdle = () => false, configuredMainlineBranch = () => null, homeDir = null, structureRunner = homeDir ? createStructureRunner({ homeDir, client }) : null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardFilePath = null, perRepoMapBoardsFilePath = null, areas = createMemoryAreaList(), isMappedDir = () => true, isAreaIdle = () => false, configuredMainlineBranch = () => null, homeDir = null, structureRunner = homeDir ? createStructureRunner({ homeDir, client }) : null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
   const overlayByRepoDir = new Map<string, SessionOverlay>();
   const folderChoicesByRepoDir = new Map<string, Map<string, boolean>>();
   const operatorOpenedRepoDirs = new Set<string>();
@@ -945,6 +947,32 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true };
   }
 
+  async function removePerRepoMapOf(boards: MapBoards, repoDir: string, boardId: string): Promise<void> {
+    const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
+    const read = await boards.readPlanBoard(caller, boardId);
+    if (!read.ok && read.reply.status === 404) return;
+    if (!read.ok) throw new Error(`the map board of ${path.basename(repoDir)} could not be read: ${JSON.stringify(read.reply.body)}`);
+    const isMapId = (id: string) => Object.values(CODEMAP_ID_PREFIXES).some((prefix) => id.startsWith(prefix));
+    const holdsOnlyItsMap = [...read.board.elements.keys()].every(isMapId);
+    if (!holdsOnlyItsMap) return logger.warn(`[codemap] the board that held the code map of ${path.basename(repoDir)} holds other things too, so it was kept as it is: delete it from Boards when nothing on it is needed`);
+    const removed = await boards.handleOperator.remove(boardId);
+    if (!removed.ok) throw new Error(`the map board of ${path.basename(repoDir)} was not deleted: ${removed.error ?? 'no reason given'}`);
+  }
+
+  async function removePerRepoMapBoards(): Promise<void> {
+    const boards = whiteboards;
+    if (!perRepoMapBoardsFilePath || !boards) return;
+    try {
+      const fileText = await fsp.readFile(perRepoMapBoardsFilePath, 'utf8').catch(() => null);
+      if (fileText === null) return;
+      const boardIdByRepoDir = UnscopedMapBoardIds.safeParse(JSON.parse(fileText)).data ?? {};
+      for (const [repoDir, boardId] of Object.entries(boardIdByRepoDir)) await removePerRepoMapOf(boards, repoDir, boardId);
+      await fsp.rm(perRepoMapBoardsFilePath, { force: true });
+    } catch (error) {
+      logger.warn(`[codemap] the per-repo map boards were not removed, and are tried again at the next start: ${errorMessage(error)}`);
+    }
+  }
+
   function noticeOf(repoDir: string): string | null {
     const state = stateByRepoDir.get(repoDir);
     if (state?.latestStatus) return codemapNoticeOf(path.basename(repoDir), state.latestStatus);
@@ -1033,7 +1061,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, boxRectsOf, branchTargetOf, setFolderOpen, mapBoardIdOfRepo, removeArea, openArea, repoOfBox, noteBranchesChanged, studioAreas, boxesOfStudioPaths, listedRepos: () => areas.repos() };
+  return { handle, attachSession, removePerRepoMapBoards, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, boxRectsOf, branchTargetOf, setFolderOpen, mapBoardIdOfRepo, removeArea, openArea, repoOfBox, noteBranchesChanged, studioAreas, boxesOfStudioPaths, listedRepos: () => areas.repos() };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

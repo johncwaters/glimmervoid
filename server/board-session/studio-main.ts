@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Session } from '../../session/sessions.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import type { ProjectEntry } from '../config-store.ts';
-import { ORCHESTRATOR_NAME, STUDIO_HOME_FOLDER_NAME, orchestratorStepOf } from '../core/studio-main-core.ts';
+import { ORCHESTRATOR_NAME, ORCHESTRATOR_RUN_SETTINGS, STUDIO_HOME_FOLDER_NAME, orchestratorStepOf } from '../core/studio-main-core.ts';
 
 type OrchestratorLaunch = Pick<ProjectEntry, 'agent' | 'dangerouslySkipPermissions' | 'saneYolo'> & { accountId?: string | null };
 
@@ -29,7 +29,7 @@ export function ensureOrchestrator(sessions: Iterable<Session>, createSession: C
   const wokenId = wakeOrchestrator(sessions);
   if (wokenId !== null) return { ok: true, orchestratorId: wokenId, isCreated: false };
   fs.mkdirSync(studioHomeDir(), { recursive: true });
-  const created = createSession({ ...launch, name: ORCHESTRATOR_NAME, path: studioHomeDir(), requireExistingPath: true, runSettings: { isStudioMain: true } });
+  const created = createSession({ ...launch, name: ORCHESTRATOR_NAME, path: studioHomeDir(), requireExistingPath: true, runSettings: { ...ORCHESTRATOR_RUN_SETTINGS } });
   if (!created.ok) return created;
   return { ok: true, orchestratorId: created.project.id, isCreated: true };
 }

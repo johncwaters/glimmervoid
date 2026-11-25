@@ -139,6 +139,7 @@ export const ProjectConfig = z.preprocess(legacyParentLinkOf, z.object({
   isStartPinned: z.boolean().optional(),
   parent: ParentLink.optional().catch(undefined),
   isStudioMain: z.boolean().optional().catch(undefined),
+  studioRole: z.literal('orchestrator').optional().catch(undefined),
   isDoneMeansOff: z.boolean().optional(),
   agentDoneLines: z.array(z.unknown()).transform(readablePersistedDoneLines).optional().catch(undefined),
 }).passthrough());

@@ -34,7 +34,7 @@ import { resolvePackageBin } from '../../runtime-paths.ts';
 import { studioHomeDir, wakeOrchestrator } from '../../board-session/studio-main.ts';
 import { isBranchWorkLanded } from '../../board-session/landed-branches.ts';
 import { branchParentIdOf } from '../../../shared/parent-link.ts';
-import { ORCHESTRATOR_NAME } from '../../core/studio-main-core.ts';
+import { ORCHESTRATOR_NAME, ORCHESTRATOR_RUN_SETTINGS } from '../../core/studio-main-core.ts';
 import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
@@ -184,7 +184,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       return;
     }
     fs.mkdirSync(studioHomeDir(), { recursive: true });
-    createAddedSession({ ...msg, path: studioHomeDir(), name: ORCHESTRATOR_NAME }, reply, { ...runSettings, isStudioMain: true });
+    createAddedSession({ ...msg, path: studioHomeDir(), name: ORCHESTRATOR_NAME }, reply, { ...runSettings, ...ORCHESTRATOR_RUN_SETTINGS });
   }
 
   function addSession(request: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): void {

@@ -14,6 +14,7 @@ type OrchestratorStep =
 
 export const ORCHESTRATOR_NAME = 'Orchestrator';
 export const STUDIO_HOME_FOLDER_NAME = 'studio-home';
+export const ORCHESTRATOR_RUN_SETTINGS = Object.freeze({ isStudioMain: true, studioRole: 'orchestrator' } as const);
 
 export function orchestratorStepOf(orchestrator: OrchestratorFact | null): OrchestratorStep {
   if (orchestrator === null) return { kind: 'create' };
