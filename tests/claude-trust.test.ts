@@ -13,6 +13,7 @@ import { CLAUDE_CONFIG_LOCK_STALE_MS } from '../session/core/claude-trust-core.t
 const REPOSITORY_ROOT = '/work/seeded-repo';
 const OTHER_ROOT = '/work/other-repo';
 const GRANTED_ENTRY_KEYS = { hasTrustDialogAccepted: true };
+const LSP_MENU_OFF = { lspRecommendationDisabled: true };
 
 async function prepareClaudeConfig(t: test.TestContext, configText: string | null, platform?: NodeJS.Platform, { holderKeepsLockFresh = false } = {}) {
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-claude-trust-'));
@@ -47,6 +48,7 @@ test('granting trust approves only the folder in one project entry, never its ex
   const writtenText = await fs.readFile(configPath, 'utf8');
   const expected = structuredClone(original);
   Object.assign(expected.projects[REPOSITORY_ROOT], GRANTED_ENTRY_KEYS);
+  Object.assign(expected, LSP_MENU_OFF);
   assert.equal(writtenText, JSON.stringify(expected, null, 2));
   assert.equal((await fs.stat(configPath)).mode & 0o777, 0o600);
   assert.deepEqual(await fs.readdir(configDir), ['.claude.json']);
@@ -64,16 +66,27 @@ test('a folder Claude Code has never seen gets an entry that approves only trust
   assert.ok(writtenText.endsWith('}\n'));
   assert.deepEqual(JSON.parse(writtenText), {
     userID: 'kept',
+    ...LSP_MENU_OFF,
     projects: { [REPOSITORY_ROOT]: { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [], ...GRANTED_ENTRY_KEYS } },
   });
 });
 
 test('a folder already trusted is left alone without approving its external CLAUDE.md imports', async (t) => {
-  const trustedText = JSON.stringify({ projects: { [REPOSITORY_ROOT]: { hasTrustDialogAccepted: true } } }, null, 2);
+  const trustedText = JSON.stringify({ ...LSP_MENU_OFF, projects: { [REPOSITORY_ROOT]: { hasTrustDialogAccepted: true } } }, null, 2);
   const { configPath, trust } = await prepareClaudeConfig(t, trustedText);
 
   assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'already-trusted');
   assert.equal(await fs.readFile(configPath, 'utf8'), trustedText);
+});
+
+test('a trusted folder whose config still lets Claude Code offer LSP plugins gets the recommendation turned off, so that menu never takes a Chat message', async (t) => {
+  const trustedEntry = { hasTrustDialogAccepted: true, lastCost: 0.25 };
+  const { configPath, trust } = await prepareClaudeConfig(t, JSON.stringify({ lspRecommendationIgnoredCount: 2, projects: { [REPOSITORY_ROOT]: trustedEntry } }, null, 2));
+
+  assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), { lspRecommendationIgnoredCount: 2, ...LSP_MENU_OFF, projects: { [REPOSITORY_ROOT]: trustedEntry } });
+
+  assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'already-trusted');
 });
 
 test('a folder where the operator declined external CLAUDE.md imports is trusted but keeps the decline', async (t) => {
@@ -81,7 +94,7 @@ test('a folder where the operator declined external CLAUDE.md imports is trusted
   const { configPath, trust } = await prepareClaudeConfig(t, JSON.stringify({ projects: { [REPOSITORY_ROOT]: declinedEntry } }, null, 2));
 
   assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
-  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: { ...declinedEntry, hasTrustDialogAccepted: true } } });
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), { ...LSP_MENU_OFF, projects: { [REPOSITORY_ROOT]: { ...declinedEntry, hasTrustDialogAccepted: true } } });
 
   assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'already-trusted');
 });
@@ -94,12 +107,12 @@ test('a legacy .config.json in the Claude config home is the file that gets the 
 
   assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
 
-  assert.deepEqual(JSON.parse(await fs.readFile(legacyConfigPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: GRANTED_ENTRY_KEYS } });
+  assert.deepEqual(JSON.parse(await fs.readFile(legacyConfigPath, 'utf8')), { ...LSP_MENU_OFF, projects: { [REPOSITORY_ROOT]: GRANTED_ENTRY_KEYS } });
   assert.equal(await fs.readFile(configPath, 'utf8'), untrustedText);
 });
 
 test('a Windows folder is looked up under the forward-slash key Claude Code stores it by', async (t) => {
-  const trustedText = JSON.stringify({ projects: { 'C:/work/seeded-repo': GRANTED_ENTRY_KEYS } }, null, 2);
+  const trustedText = JSON.stringify({ ...LSP_MENU_OFF, projects: { 'C:/work/seeded-repo': GRANTED_ENTRY_KEYS } }, null, 2);
   const { configPath, trust } = await prepareClaudeConfig(t, trustedText, 'win32');
 
   assert.equal(await trust.ensureTrusted('C:\\work\\seeded-repo'), 'already-trusted');
@@ -140,7 +153,7 @@ test('a config lock left behind by a Claude process that exited is waited out to
   assert.equal(await orphaned.trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
 
   assert.ok(orphaned.waits.reduce((total, waitMs) => total + waitMs, 0) > CLAUDE_CONFIG_LOCK_STALE_MS - 1_000);
-  assert.deepEqual(JSON.parse(await fs.readFile(orphaned.configPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [], ...GRANTED_ENTRY_KEYS } } });
+  assert.deepEqual(JSON.parse(await fs.readFile(orphaned.configPath, 'utf8')), { ...LSP_MENU_OFF, projects: { [REPOSITORY_ROOT]: { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [], ...GRANTED_ENTRY_KEYS } } });
   assert.deepEqual(await fs.readdir(orphaned.configDir), ['.claude.json']);
 });
 

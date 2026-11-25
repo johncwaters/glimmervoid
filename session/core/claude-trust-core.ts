@@ -38,9 +38,10 @@ function decideFolderTrust(configText: string, repositoryRoot: string, platform:
   if (!isPlainRecord(projects)) return { kind: 'unreadable', reason: 'its projects key is not an object' };
   const existingEntry = projects[projectKey];
   if (existingEntry !== undefined && !isPlainRecord(existingEntry)) return { kind: 'unreadable', reason: 'its entry for this folder is not an object' };
-  if (existingEntry?.hasTrustDialogAccepted === true) return { kind: 'trusted' };
-  const trustedEntry = { ...(existingEntry ?? newProjectEntry()), hasTrustDialogAccepted: true };
-  const nextConfigText = JSON.stringify({ ...config, projects: { ...projects, [projectKey]: trustedEntry } }, null, 2);
+  const isFolderTrusted = existingEntry?.hasTrustDialogAccepted === true;
+  if (isFolderTrusted && config.lspRecommendationDisabled === true) return { kind: 'trusted' };
+  const nextProjects = isFolderTrusted ? projects : { ...projects, [projectKey]: { ...(existingEntry ?? newProjectEntry()), hasTrustDialogAccepted: true } };
+  const nextConfigText = JSON.stringify({ ...config, lspRecommendationDisabled: true, projects: nextProjects }, null, 2);
   return { kind: 'grant', nextConfigText: configText.endsWith('\n') ? `${nextConfigText}\n` : nextConfigText };
 }
 
