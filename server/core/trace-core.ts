@@ -1,4 +1,5 @@
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
+import { isImageBlock, pastedImagesRecordOf, traceImagesField, traceImagesIn } from '../trace/core/trace-image-core.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
 import { parseJsonRecord } from './json-core.ts';
 import { rawTextOr, textOr } from '../../shared/coerce.ts';
@@ -197,7 +198,7 @@ function textContent(content: unknown): string {
     const serialized = JSON.stringify(content);
     return typeof serialized === 'string' ? serialized : String(content ?? '');
   }
-  return content.map((part) => {
+  return content.filter((part) => !isImageBlock(part)).map((part) => {
     if (typeof part === 'string') return part;
     if (part && typeof part === 'object') {
       const record = part as Record<string, unknown>;
@@ -331,6 +332,7 @@ function mapUserLine(
       content: bounded.text,
       isError: toolResult.is_error === true,
       truncated: bounded.truncated || unwrapped.isSpilled,
+      ...traceImagesField(toolResult.content, base.ts),
       ...launchedSubagentField(line.toolUseResult),
       ...launchedBackgroundTaskField(line.toolUseResult),
     }];
@@ -345,13 +347,17 @@ function mapUserLine(
     return [{ ...base, kind: 'expansion', toolUseId: sourceToolUseId, ...boundedTextFields(expansionText) }];
   }
   const text = typeof content === 'string' ? content : firstTextBlock(blocks);
+  const pastedImages = traceImagesIn(blocks, base.ts);
+  if (!text && pastedImages.length > 0) return [{ ...base, kind: 'prompt', text: '' }, pastedImagesRecordOf(base, pastedImages)];
   if (!text) return [rawRecord(rawLine, line, context)];
   if (isTaskNotificationLine(line)) return [{ ...base, kind: 'expansion', ...boundedTextFields(text) }];
   if (CLAUDE_INTERRUPT_MARKERS.has(text.trim())) return [{ ...base, kind: 'notice', text: 'Interrupted' }];
   if (typeof content === 'string' && /<command-name>[\s\S]*?<\/command-name>/.test(content)) {
     return [{ ...base, kind: 'expansion', ...boundedTextFields(content) }];
   }
-  return [{ ...base, kind: 'prompt', ...boundedTextFields(text) }];
+  const promptRecord: TraceRecord = { ...base, kind: 'prompt', ...boundedTextFields(text) };
+  if (pastedImages.length === 0) return [promptRecord];
+  return [promptRecord, pastedImagesRecordOf(base, pastedImages)];
 }
 
 function queuedCommandText(prompt: unknown): string | null {

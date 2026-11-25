@@ -132,7 +132,7 @@ function createTraceSubagentCapture(context: TraceWiringContext, drain: TraceTra
         partialLineBytes = isSkippingOversizedLine ? NO_BYTES : chunk.subarray(wholeLineBytes);
         committedOffset = readEnd - partialLineBytes.length;
         mappedLineCount += lines.length;
-        for (const line of lines) mapAndAppend(line, binding, context);
+        for (const line of lines) await mapAndAppend(line, binding, context);
         if (!isOversizedPartialLine(partialLineBytes)) continue;
         noteSkippedBytes(binding, subagentPath, partialLineBytes.length);
         partialLineBytes = NO_BYTES;

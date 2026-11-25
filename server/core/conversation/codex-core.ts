@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { traceImagesField } from '../../trace/core/trace-image-core.ts';
 
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS } from '../../../shared/contracts/trace.ts';
@@ -37,6 +38,7 @@ const McpToolCallItem = z.object({
   result: z.object({ content: z.array(TextPart).default([]) }).passthrough().nullish(),
   error: z.unknown(),
 });
+const ImageViewItem = z.object({ path: z.string().min(1) });
 const FileChangeItem = z.object({
   changes: z.record(z.string(), z.unknown()),
   status: z.string(),
@@ -92,13 +94,21 @@ function recordsOfItem(base: RecordBase, item: ItemCompleted['payload']['item'],
       if (!toolCall.success) return rawRecord(base, rawLine);
       const isError = toolCall.data.status !== 'completed' || toolCall.data.error != null;
       const output = isError && toolCall.data.error != null ? errorText(toolCall.data.error) : joinedText(toolCall.data.result?.content ?? []);
-      return toolCallAndResult(base, item.id, `mcp__${toolCall.data.server}__${toolCall.data.tool}`, toolCall.data.arguments ?? {}, output, isError);
+      const images = traceImagesField(toolCall.data.result?.content ?? [], base.ts);
+      return toolCallAndResult(base, item.id, `mcp__${toolCall.data.server}__${toolCall.data.tool}`, toolCall.data.arguments ?? {}, output, isError)
+        .map((record) => (record.kind === 'tool_result' ? { ...record, ...images } : record));
     }
     case 'FileChange': {
       const fileChange = FileChangeItem.safeParse(item);
       if (!fileChange.success) return rawRecord(base, rawLine);
       const isError = fileChange.data.status !== 'completed';
       return toolCallAndResult(base, item.id, 'apply_patch', { changes: fileChange.data.changes }, `${fileChange.data.stdout}${fileChange.data.stderr}`, isError);
+    }
+    case 'ImageView': {
+      const imageView = ImageViewItem.safeParse(item);
+      if (!imageView.success) return rawRecord(base, rawLine);
+      const viewedPath = imageView.data.path.replace(/^file:\/\//, '');
+      return toolCallAndResult(base, item.id, 'view_image', { path: viewedPath }, viewedPath, false);
     }
     case 'ContextCompaction':
       return [];

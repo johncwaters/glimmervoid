@@ -996,3 +996,11 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 .chat-turn .plan-paragraph { white-space: pre-line; }
 
 .chat-card-recommended { color: var(--text-muted); font-size: var(--type-meta); font-weight: 400; }
+
+.chat-turn-call-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px 20px; }
+
+.chat-turn-call-images .chat-prompt-thumbnail { width: 384px; max-width: 100%; height: auto; aspect-ratio: 16 / 10; }
+
+.chat-turn-call-images .chat-prompt-thumbnail-image { object-fit: contain; }
+
+.chat-turn-call-image-link { display: contents; cursor: zoom-in; }

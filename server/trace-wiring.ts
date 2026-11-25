@@ -4,6 +4,7 @@ import type { TraceRecord } from '../shared/contracts/trace.ts';
 import { MAX_REMEMBERED_SUBAGENTS } from './core/trace-tail-core.ts';
 import { createLaneLog } from './lanes/lane-log.ts';
 import { configSiblingPath } from './pairings-store.ts';
+import { sessionUploadsDirectory } from './uploads-wiring.ts';
 import { pruneAgedFiles } from './prune-files.ts';
 import { errorMessage } from '../shared/text.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
@@ -79,6 +80,7 @@ function createTraceWiring({
 
   const context: TraceWiringContext = {
     traceDirectory,
+    uploadsDirectoryOf: (glimmervoidSessionId) => sessionUploadsDirectory(configPath, glimmervoidSessionId),
     emitter,
     laneLog,
     nowFn,
