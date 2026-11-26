@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND } from '../../shared/contracts/pr-flows.ts';
-import { packSkillNameOf } from '../../shared/contracts/pack.ts';
+import { PACK_HOOK_AGENTS_TEXT, packSkillNameOf } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 import { expandPlaceholders, packApproval, packRuleErrors, prFlowsPacksOf, unknownPlaceholderMessage } from '../github/core/pr-flows-core.ts';
 import { panelReferenceErrors, packSectionErrors, undeclaredSubscriptionErrors } from './core/pack-core.ts';
@@ -19,7 +19,7 @@ function pageErrors(filesByPath: ReadonlyMap<string, Buffer>, header: { ui?: unk
 
 function hookReportLines(pack: PackOnDisk): string[] {
   if (!pack.hooks?.ok) return [];
-  return pack.hooks.value.map((hook) => `hook ${hook.id}, before ${hook.tools.join(' and ')} tool calls on every first-class agent: ${JSON.stringify(hook.command)}`);
+  return pack.hooks.value.map((hook) => `hook ${hook.id}, before ${hook.tools.join(' and ')} tool calls on ${PACK_HOOK_AGENTS_TEXT}: ${JSON.stringify(hook.command)}`);
 }
 
 function agentReportLines(pack: PackOnDisk): string[] {

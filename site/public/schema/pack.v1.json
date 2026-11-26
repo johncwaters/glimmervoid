@@ -797,7 +797,7 @@
       "additionalProperties": false
     },
     "hooks": {
-      "description": "Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it",
+      "description": "Checks a session's agent runs before a tool call once the operator approves the pack, on claude, codex, kimi, antigravity, opencode, pi; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it",
       "minItems": 1,
       "maxItems": 16,
       "type": "array",
@@ -818,7 +818,7 @@
           "event": {
             "type": "string",
             "const": "beforeTool",
-            "description": "beforeTool runs the hook before each tool call of a kind it watches, in every agent"
+            "description": "beforeTool runs the hook before each tool call of a kind it watches, on claude, codex, kimi, antigravity, opencode, pi"
           },
           "tools": {
             "default": [

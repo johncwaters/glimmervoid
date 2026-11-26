@@ -190,6 +190,7 @@ const PACK_HOOK_TIMEOUT_SECONDS_MAX = 60;
 
 export const PACK_HOOK_AGENTS = ['claude', 'codex', 'kimi', 'antigravity', 'opencode', 'pi'] as const;
 export type PackHookAgent = (typeof PACK_HOOK_AGENTS)[number];
+export const PACK_HOOK_AGENTS_TEXT = PACK_HOOK_AGENTS.join(', ');
 export const PACK_HOOK_INPUT_TEXT = `one JSON object on stdin: {"version":1,"event":"beforeTool","agent":"${PACK_HOOK_AGENTS.join('|')}","sessionId","cwd","tool":{"kind":"edit|shell|other","name","command","filePaths","input"}}`;
 
 const PackHookToolKind = z.enum(['edit', 'shell']).describe('edit: a tool that writes or edits files (Edit, Write, apply_patch and the like); shell: a tool that runs a shell command (Bash, shell and the like)');
@@ -197,7 +198,7 @@ const PackHookToolKind = z.enum(['edit', 'shell']).describe('edit: a tool that w
 export const PackHook = z.strictObject({
   id: PackItemId,
   description: z.string().trim().min(1).max(300).describe('What the hook checks, shown to the operator before approving'),
-  event: z.literal('beforeTool').describe('beforeTool runs the hook before each tool call of a kind it watches, in every agent'),
+  event: z.literal('beforeTool').describe(`beforeTool runs the hook before each tool call of a kind it watches, on ${PACK_HOOK_AGENTS_TEXT}`),
   tools: z.array(PackHookToolKind).min(1).max(2).default(['edit', 'shell']).describe('The tool kinds the hook watches'),
   command: z.array(z.string().min(1).max(1000)).min(1, { error: 'a hook command needs at least the program to run' }).max(32)
     .describe(`The program and its arguments, run without a shell in the session folder; an argument after the program may hold ${PACK_DIR_PLACEHOLDER}, the folder of the approved pack copy the session reads, whose files are not executable. It reads ${PACK_HOOK_INPUT_TEXT}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run`),
@@ -348,7 +349,7 @@ const PackManifestForSchema = PackHeader.extend({
   status: PackStatus.optional().describe('Status pages its panels read through the providers topic'),
   agent: PackAgent.optional().describe('Context and skills every session\'s agent gets once the operator approves the pack'),
   mcp: PackMcp.optional().describe('MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it'),
-  hooks: PackHooks.optional().describe('Checks every session\'s agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it'),
+  hooks: PackHooks.optional().describe(`Checks a session's agent runs before a tool call once the operator approves the pack, on ${PACK_HOOK_AGENTS_TEXT}; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it`),
   settings: PackSettings.optional().describe('Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
   community: PackCommunity.optional().describe('Question sources the Community tab polls once the pack is approved, and what the questions are about. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
   jobs: PackJobs.optional().describe('Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),

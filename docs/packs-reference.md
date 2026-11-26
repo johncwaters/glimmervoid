@@ -25,7 +25,7 @@ Published as the JSON Schema `https://glimmervoid.dev/schema/pack.v1.json`; poin
 | `status` | object |  |  | Status pages its panels read through the providers topic See below. |
 | `agent` | object |  |  | Context and skills every session's agent gets once the operator approves the pack See below. |
 | `mcp` | object |  |  | MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it See below. |
-| `hooks` | array of objects |  |  | Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it See below. |
+| `hooks` | array of objects |  |  | Checks a session's agent runs before a tool call once the operator approves the pack, on claude, codex, kimi, antigravity, opencode, pi; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it See below. |
 | `settings` | array of objects |  |  | Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
 | `jobs` | array of objects |  |  | Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
 | `community` | object |  |  | Question sources the Community tab polls once the pack is approved, and what the questions are about. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
@@ -166,7 +166,7 @@ MCP servers every session gets once the pack is approved. Glimmervoid releases a
 
 ### `hooks`
 
-Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it
+Checks a session's agent runs before a tool call once the operator approves the pack, on claude, codex, kimi, antigravity, opencode, pi; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it
 
 A list, min items 1, max items 16, of:
 
@@ -174,7 +174,7 @@ A list, min items 1, max items 16, of:
 |---|---|---|---|---|
 | `hooks[].id` | string, matches `^[a-z0-9][a-z0-9-]{0,39}$` | yes |  | Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack |
 | `hooks[].description` | string, min length 1, max length 300 | yes |  | What the hook checks, shown to the operator before approving |
-| `hooks[].event` | `"beforeTool"` | yes |  | beforeTool runs the hook before each tool call of a kind it watches, in every agent |
+| `hooks[].event` | `"beforeTool"` | yes |  | beforeTool runs the hook before each tool call of a kind it watches, on claude, codex, kimi, antigravity, opencode, pi |
 | `hooks[].tools` | array of one of `"edit"`, `"shell"`, min items 1, max items 2 |  | `["edit","shell"]` | The tool kinds the hook watches |
 | `hooks[].command` | array of string, min length 1, max length 1000, min items 1, max items 32 | yes |  | The program and its arguments, run without a shell in the session folder; an argument after the program may hold {packDir}, the folder of the approved pack copy the session reads, whose files are not executable. It reads one JSON object on stdin: {"version":1,"event":"beforeTool","agent":"claude\|codex\|kimi\|antigravity\|opencode\|pi","sessionId","cwd","tool":{"kind":"edit\|shell\|other","name","command","filePaths","input"}}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run |
 | `hooks[].timeoutSeconds` | integer, min 1, max 60 |  | `10` | A hook still running after this many seconds is stopped and the call runs |

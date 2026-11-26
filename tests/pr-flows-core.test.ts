@@ -21,7 +21,7 @@ import { checkPack, packCheckHasProblem, packReportText } from '../server/packs/
 import { once } from 'node:events';
 import { packDirsUnder, readPackDir } from '../server/packs/pack-files.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
-import { packJsonSchemaText } from '../shared/contracts/pack.ts';
+import { PACK_HOOK_AGENTS_TEXT, packJsonSchemaText } from '../shared/contracts/pack.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
@@ -815,7 +815,7 @@ test('the published pack JSON Schema matches the Zod contract, and packs check n
     fs.mkdirSync(path.join(brokenDir, 'hooks'));
     fs.writeFileSync(path.join(brokenDir, 'hooks', 'gate.mjs'), '');
     assert.equal(await check(brokenDir), 0);
-    assert.match(output.at(-1) ?? '', /^hook spec-gate, before edit tool calls on every first-class agent: \["node","\{packDir\}\/hooks\/gate\.mjs"\]$/m);
+    assert.match(output.at(-1) ?? '', new RegExp(`^hook spec-gate, before edit tool calls on ${PACK_HOOK_AGENTS_TEXT}: \\["node","\\{packDir\\}/hooks/gate\\.mjs"\\]$`, 'm'));
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'gates', version: 1, hooks: [specGate, { ...specGate, event: 'afterTool' }] }));
     assert.equal(await check(brokenDir), 1);
     assert.match(output.at(-1) ?? '', /error: pack\.json hooks\.1\.event: /);
