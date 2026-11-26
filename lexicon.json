@@ -1689,6 +1689,14 @@
     {
       "name": "tool call",
       "definition": "One call an agent makes to a tool within a turn, read from its transcript or hooks; Chat shows each as a tool row, and Wargames counts one as a sign the seat is alive"
+    },
+    {
+      "name": "pen",
+      "definition": "On a whiteboard, the Pen tool (P) that draws freehand ink strokes; elsewhere ordinary English"
+    },
+    {
+      "name": "style popover",
+      "definition": "The former whiteboard panel above the properties panel that styled selected elements; removed with the operator's board authoring tools"
     }
   ],
   "retired": [
@@ -1706,11 +1714,6 @@
       "name": "thread join",
       "definition": "The Codex app-server bridge attaching to the agent's live thread with thread/resume (idle, waiting, joining, joined or abandoned), moved only by decideThreadJoin in session/core/codex-app-server-core.ts",
       "because": "The Codex app-server bridge and codex-app-server-core are deleted with remote Coder sessions; nothing joins a thread any more"
-    },
-    {
-      "name": "style popover",
-      "definition": "The whiteboard panel above the properties panel that sets the fill tint, title size, wire tone and wire width of every selected element at once",
-      "because": "the style rows are deleted with the operator's board authoring tools"
     }
   ],
   "rejected": [
@@ -1725,10 +1728,6 @@
     {
       "concept": "thread join",
       "because": "The Codex app-server bridge and codex-app-server-core are deleted with remote Coder sessions; nothing joins a thread any more"
-    },
-    {
-      "concept": "style popover",
-      "because": "the style rows are deleted with the operator's board authoring tools"
     }
   ]
 }
