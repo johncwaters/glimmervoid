@@ -21,7 +21,7 @@ import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
-import { CLOSE_ICON_PATH, createLineIcon, MORE_ICON_PATH, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
+import { CLOSE_ICON_PATH, createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
 import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId, NUDGE_DIRECTION_BY_KEY, stacksByTopBoxIdOf } from './board-edit.ts';
 import { nextWiredBoxId } from './media-walk-core.ts';
@@ -32,7 +32,6 @@ import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import { rectAround } from './board-snap-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/contracts/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
-import { createBoardStyleRows } from './board-style-rows.ts';
 import { createBoardContextMenu } from './board-context-menu.ts';
 import { isArrayIndexKey } from '#shared/contracts/whiteboard-element-table.ts';
 import type { BoardContextMenu, ContextMenuGroup } from './board-context-menu.ts';
@@ -86,21 +85,12 @@ interface ToolDetails {
 
 const TOOL_DETAILS: Readonly<Record<BoardTool, ToolDetails>> = {
   select: { label: 'Select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },
-  box: { label: 'Box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click or drag on the board to place a box. Esc to cancel.' },
   note: { label: 'Note', key: 'S', iconPath: 'M2.5 2.5h11v7l-4 4h-7z M9.5 13.5v-4h4', hint: 'Click or drag on the board to place a note. Esc to cancel.' },
-  text: { label: 'Text', key: 'T', iconPath: 'M3 3.5h10 M8 3.5v9.5', hint: 'Click or drag on the board to place text. Esc to cancel.' },
-  wire: { label: 'Arrow', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from a box or empty canvas; let go on a box to bind the end. Esc to cancel.' },
-  line: { label: 'Line', key: 'L', iconPath: 'M2.5 13.5L13.5 2.5', hint: 'Drag to draw a line; let go on a box to bind the end. Esc to cancel.' },
   hand: { label: 'Hand', key: 'H', iconPath: 'M5.5 8V3.5a1 1 0 0 1 2 0V7.5 M7.5 7V2.5a1 1 0 0 1 2 0V7 M9.5 7V3.5a1 1 0 0 1 2 0V8 M11.5 8V5.5a1 1 0 0 1 2 0V10c0 2.5-2 4.5-4.5 4.5h-1c-1.6 0-2.6-.6-3.5-1.8L2.3 9.8a1 1 0 0 1 1.6-1.2L5.5 10', hint: 'Drag to pan the board. Esc to stop.' },
   pen: { label: 'Pen', key: 'P', iconPath: 'M2.5 13.5c2-1 3-4 5-4s2 3 4 3s2-3 2-5', hint: 'Drag on the board to draw. Esc to stop drawing.' },
-  ellipse: { label: 'Ellipse', key: 'O', iconPath: 'M8 3c3.6 0 6 2.2 6 5s-2.4 5-6 5s-6-2.2-6-5s2.4-5 6-5z', hint: 'Click or drag on the board to place an ellipse. Esc to cancel.' },
   eraser: { label: 'Eraser', key: 'E', iconPath: 'M6 13.5l-3.5-3.5l7-7l5 5l-5.5 5.5z M5.5 6.5l5 5 M6 13.5h7.5', hint: 'Drag across elements to erase them. Esc to stop.' },
-  decision: { label: 'Decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click or drag on the board to place a decision. Esc to cancel.' },
-  icon: { label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click or drag on the board to place an icon. Esc to cancel.' },
-  device: { label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click or drag on the board to place a device mockup. Esc to cancel.' },
 };
-const TOOLBAR_TOOLS: readonly BoardTool[] = ['hand', 'select', 'box', 'decision', 'ellipse', 'wire', 'line', 'pen', 'text', 'note', 'eraser'];
-const MORE_TOOLS: readonly BoardTool[] = ['icon', 'device'];
+const TOOLBAR_TOOLS: readonly BoardTool[] = ['hand', 'select', 'pen', 'note', 'eraser'];
 const TOOL_LOCK_ICON_PATH = 'M4.5 7.5h7v6h-7z M6 7.5V5.5a2 2 0 0 1 4 0v2';
 
 interface TextDialogOptions {
@@ -134,7 +124,6 @@ interface BoardsViewParts {
   buttons: Record<'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolLockButton: HTMLButtonElement;
-  moreTools: ReturnType<typeof buildMoreToolsMenu>;
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
   mediaLayer: BoardMediaLayer;
@@ -429,7 +418,7 @@ function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extra
 function paintToolbar(): void {
   if (!parts) return;
   const board = selectedBoard();
-  for (const button of [...parts.toolButtons.values(), parts.toolLockButton, parts.moreTools.trigger]) button.disabled = !board;
+  for (const button of [...parts.toolButtons.values(), parts.toolLockButton]) button.disabled = !board;
   for (const button of [parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
 }
@@ -477,38 +466,6 @@ function startTitleRename(): void {
     event.preventDefault();
     finish(event.key === 'Enter');
   });
-}
-
-function buildMoreToolsMenu() {
-  const menuRoot = el('div', 'session-overflow wb-more-tools');
-  const menu = el('div', 'popup-menu session-overflow-menu');
-  menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'More tools');
-  const trigger = createPressable('wb-tool');
-  labelIconPressable(trigger, 'More tools');
-  trigger.append(createLineIcon(MORE_ICON_PATH, '2'));
-  const itemsByTool = new Map(MORE_TOOLS.map((tool) => [tool, moreToolItem(tool)]));
-  menu.append(...itemsByTool.values());
-  menuRoot.append(trigger, menu);
-  popupMenu({ trigger, menu });
-  return { menuRoot, trigger, itemsByTool };
-}
-
-function moreToolItem(tool: BoardTool): HTMLButtonElement {
-  const { label, key, iconPath } = TOOL_DETAILS[tool];
-  const item = buildMenuItem(label, 'visible wb-more-tool');
-  item.setAttribute('role', 'menuitemradio');
-  item.setAttribute('aria-checked', 'false');
-  item.setAttribute('aria-keyshortcuts', key);
-  const keyHint = el('span', 'wb-more-tool-key', key);
-  keyHint.setAttribute('aria-hidden', 'true');
-  item.prepend(createLineIcon(iconPath, '1.5'));
-  item.append(keyHint);
-  item.addEventListener('click', () => {
-    editor?.setTool(tool);
-    editor?.focusCanvas();
-  });
-  return item;
 }
 
 function buildBoardMenu(onBoardSettings: () => void) {
@@ -1583,8 +1540,6 @@ function island(className: string, label: string, ...children: HTMLElement[]): H
 function paintActiveTool(activeTool: BoardTool): void {
   if (!parts) return;
   for (const [tool, button] of parts.toolButtons) button.setAttribute('aria-pressed', String(tool === activeTool));
-  for (const [tool, item] of parts.moreTools.itemsByTool) item.setAttribute('aria-checked', String(tool === activeTool));
-  parts.moreTools.trigger.dataset.active = String(MORE_TOOLS.includes(activeTool));
   const { hint } = TOOL_DETAILS[activeTool];
   parts.toolHint.textContent = hint ?? '';
   parts.toolHint.hidden = hint === null;
@@ -1708,8 +1663,7 @@ export function mountBoardHost(): HTMLElement {
   toolGroup.setAttribute('role', 'group');
   toolGroup.setAttribute('aria-label', 'Drawing tools');
   const lockButton = toolLockButton();
-  const moreTools = buildMoreToolsMenu();
-  toolGroup.append(lockButton, ...toolButtons.values(), moreTools.menuRoot);
+  toolGroup.append(lockButton, ...toolButtons.values());
   const buttons = {
     fit: iconButton('Fit', 'Shift+1', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
     present: iconButton('Present', undefined, PRESENT_ICON_PATH, 'present-board', () => void presentBoard()),
@@ -1770,7 +1724,7 @@ export function mountBoardHost(): HTMLElement {
   emptyBoardHint.append(emptyState({
     title: 'This board is empty.',
     text: [
-      el('span', 'wb-empty-board-keys', 'Pick box (R) and click the board to place one, or ask a session to draw here.'),
+      el('span', 'wb-empty-board-keys', 'Pick note (S) and click the board to place one, or ask a session to draw here.'),
       el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
     ],
     variant: 'centered',
@@ -1781,7 +1735,7 @@ export function mountBoardHost(): HTMLElement {
   empty.classList.add('wb-empty');
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, agentChangeIsland, agentChangeText, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, moreTools, toolHint, emptyBoardHint, mediaLayer, viewport, world };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, agentChangeIsland, agentChangeText, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, toolHint, emptyBoardHint, mediaLayer, viewport, world };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
@@ -1797,8 +1751,7 @@ export function mountBoardHost(): HTMLElement {
     },
   });
   renderer = boardRenderer;
-  const styleRows = createBoardStyleRows({ currentBoard: selectedBoard, sendOps });
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, styleRowsFor: styleRows.rowsFor, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,

@@ -1,4 +1,4 @@
-export const ICON_CATEGORIES = ['infra', 'interface', 'security', 'people', 'objects', 'signals', 'design'] as const;
+const ICON_CATEGORIES = ['infra', 'interface', 'security', 'people', 'objects', 'signals', 'design'] as const;
 
 export const ICON_NAMES = [
   'database', 'server', 'cloud', 'storage', 'cache', 'queue', 'network', 'router', 'api', 'webhook',
@@ -22,7 +22,6 @@ interface IconSpec {
 }
 
 export const ICON_VIEWBOX = '0 0 24 24';
-export const PLACED_ICON: IconName = 'component';
 export const ICON_BOX_GLYPH_SIZE = 48;
 export const ICON_BOX_GLYPH_GAP = 8;
 export const TITLE_ICON_CHARS = 2;

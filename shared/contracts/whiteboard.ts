@@ -55,9 +55,9 @@ export const BoxLine = z.object({
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Point' });
 
-export const WIRE_WIDTHS = ['thin', 'bold'] as const;
-export const WIRE_ARROWS = ['none', 'end', 'both'] as const;
-export const WIRE_ROUTES = ['elbow', 'sharp', 'curved'] as const;
+const WIRE_WIDTHS = ['thin', 'bold'] as const;
+const WIRE_ARROWS = ['none', 'end', 'both'] as const;
+const WIRE_ROUTES = ['elbow', 'sharp', 'curved'] as const;
 
 export const SIDES = ['left', 'right', 'top', 'bottom'] as const;
 const Side = z.enum(SIDES).meta({ id: 'Side' });

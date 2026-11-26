@@ -1,10 +1,8 @@
 import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG, DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
-import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, dialValuesOfBox, SIDES, STEP_STATUSES, WHITEBOARD_LIMITS, WIRE_TONES } from '#shared/contracts/whiteboard.ts';
 import { isBackdropMedia } from '#shared/contracts/whiteboard-tiles.ts';
-import { BOX_SHAPES, isBorderlessBox, SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import type { BoxShape } from '#shared/whiteboard-shapes.ts';
+import { isBorderlessBox, SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import { customLegendLabelByKey, defaultWireStyleLabel, wireStyleKey } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
@@ -14,7 +12,6 @@ import { button } from '../ui/button.ts';
 import { select } from '../ui/select.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { isLinkableMediaKind } from '#shared/contracts/whiteboard-link-core.ts';
-import { iconGlyph, iconPicker } from './board-icon-picker.ts';
 import { LINE_STYLE_LABELS, lineWithStyle } from './board-line-edit.ts';
 
 type LegendEntry = Board['legend'][number];
@@ -30,7 +27,6 @@ interface BoardInspectorOptions {
   layout: () => BoardLayout | null;
   sendOps: (ops: Op[]) => Promise<boolean>;
   codeSessionChoices: () => readonly Choice[];
-  styleRowsFor: (selectedIds: ReadonlySet<string>) => HTMLElement[];
   openRef: (ref: string) => void;
   worthALookReasonOf: (ref: string) => string | null;
   linkStateOf: (boxId: string) => LinkStateOfBox | null;
@@ -55,7 +51,7 @@ interface WireStyle {
 }
 
 const NEW_REF = 'README.md';
-export const WIRE_TONE_LABELS: Readonly<Record<Wire['tone'], string>> = { plain: 'Plain', fail: 'Failure', join: 'Join' };
+const WIRE_TONE_LABELS: Readonly<Record<Wire['tone'], string>> = { plain: 'Plain', fail: 'Failure', join: 'Join' };
 const CHANGE_LABELS: Readonly<Record<Box['change'], string>> = { none: 'Unchanged', added: 'Added', removed: 'Removed', relabeled: 'Renamed' };
 const STEP_CHOICE_LABELS: Readonly<Record<StepChoice, string>> = { none: 'Not a step', planned: 'Planned', building: 'Building', landed: 'Landed' };
 const SIDE_LABELS: Readonly<Record<Side | 'auto', string>> = { auto: 'Auto', left: 'Left', right: 'Right', top: 'Top', bottom: 'Bottom' };
@@ -132,7 +128,7 @@ function checkboxField(field: string, label: string, checked: boolean, commit: (
   return row;
 }
 
-export function actionButton(field: string, label: string, onClick: () => void, accessibleName?: string): HTMLButtonElement {
+function actionButton(field: string, label: string, onClick: () => void, accessibleName?: string): HTMLButtonElement {
   const inspectButton = button({ variant: 'quiet', size: 'small', label, action: label.toLowerCase().replaceAll(' ', '-'), onClick });
   inspectButton.dataset.field = field;
   if (accessibleName) inspectButton.setAttribute('aria-label', accessibleName);
@@ -143,23 +139,6 @@ function removeButton(field: string, accessibleName: string, onClick: () => void
   const remove = button({ variant: 'icon', size: 'small', label: accessibleName, icon: createLineIcon(CLOSE_ICON_PATH, '1.5'), action: 'remove', onClick });
   remove.dataset.field = field;
   return remove;
-}
-
-export function pickButton(field: string, label: string, icon: SVGElement, isPressed: boolean, onPick: () => void): HTMLButtonElement {
-  const pick = button({ variant: 'icon', size: 'small', label, icon, action: field, onClick: () => {
-    if (!isPressed) onPick();
-  } });
-  pick.dataset.field = field;
-  pick.setAttribute('aria-pressed', String(isPressed));
-  return pick;
-}
-
-export function pickGroup(label: string, className: string, picks: HTMLElement[]): HTMLElement {
-  const group = el('div', `wb-inspect-picks ${className}`);
-  group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', label);
-  group.append(...picks);
-  return group;
 }
 
 function listSection(title: string, rows: HTMLElement[], addButton: HTMLButtonElement): HTMLElement {
@@ -285,24 +264,13 @@ function linkableMediaOf(box: Box | null): BoxMedia | null {
   return media && isLinkableMediaKind(media.kind) ? media : null;
 }
 
-function shapeRow(shape: BoxShape, commitShape: (shape: BoxShape) => void): HTMLElement {
-  return pickGroup('Shape', 'wb-inspect-shapes', BOX_SHAPES.map((choice) => (
-    pickButton(`shape-${choice}`, SHAPE_TRAITS[choice].label, iconGlyph(SHAPE_TRAITS[choice].pickerIcon), choice === shape, () => commitShape(choice))
-  )));
-}
-
-function titleRow(box: Box, set: FieldCommit): HTMLElement {
-  const title = textField('title', box.title, WHITEBOARD_LIMITS.title, (text) => {
+function titleField(box: Box, set: FieldCommit): HTMLElement {
+  return textField('title', box.title, WHITEBOARD_LIMITS.title, (text) => {
     if (text.trim()) set({ title: text.trim() });
   }, 'Title');
-  const picker = iconPicker({ field: 'icon', icon: box.icon, isRequired: box.shape === 'icon', accessibleName: 'Box icon', commit: (icon) => set({ icon }) });
-  const row = el('div', 'wb-inspect-row wb-inspect-title-row');
-  row.append(picker, title);
-  return row;
 }
 
 interface PanelParts {
-  styleRows: HTMLElement[];
   reviewSection: HTMLElement;
 }
 
@@ -317,17 +285,6 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     const laidOut = layout?.elements.find((element) => element.id === box.id);
     if (!layout || laidOut?.kind !== 'box') return null;
     return { x: laidOut.x, y: laidOut.y - layout.pinnedOffsetY };
-  };
-  const commitShape = (shape: BoxShape) => {
-    if (shape === 'icon') {
-      set({ shape, icon: latestBox()?.icon ?? PLACED_ICON });
-      return;
-    }
-    if (shape === 'device') {
-      set({ shape, device: PLACED_DEVICE });
-      return;
-    }
-    set({ shape });
   };
   const commitStep = (choice: string) => {
     const status = STEP_STATUSES.find((known) => known === choice);
@@ -372,10 +329,8 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     parts.reviewSection,
   ];
   return [
-    shapeRow(box.shape, commitShape),
-    titleRow(box, set),
+    titleField(box, set),
     ...(box.shape === 'device' ? [fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device ?? PLACED_DEVICE, (device) => set({ device })))] : []),
-    ...parts.styleRows,
     moreDisclosure(moreFields),
   ];
 }
@@ -434,7 +389,6 @@ function wireSections(wire: Wire, parts: PanelParts, set: FieldCommit): HTMLElem
   return [
     heading('Wire'),
     fieldRow('Label', textField('label', wire.label ?? '', WHITEBOARD_LIMITS.wireLabel, (label) => set({ label: label.trim() || null }))),
-    ...parts.styleRows,
     moreDisclosure([...moreFields, parts.reviewSection]),
   ];
 }
@@ -556,8 +510,7 @@ function openInReviewSection(board: Board, element: BoardElement, options: Revie
 function isTypingIn(container: HTMLElement): boolean {
   const active = document.activeElement;
   if (!active || !container.contains(active)) return false;
-  if (active instanceof HTMLInputElement && active.type === 'text') return true;
-  return active.closest('.wb-icon-popover') !== null;
+  return active instanceof HTMLInputElement && active.type === 'text';
 }
 
 export function createBoardInspector(options: BoardInspectorOptions) {
@@ -581,24 +534,12 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     reviewSection.replaceChildren(...openInReviewRows(board, element, options));
   }
 
-  function repaintStyleRowsWhileTyping(selectedIds: ReadonlySet<string>): void {
-    const shownStyleRows = container.querySelector<HTMLElement>('.wb-style-rows');
-    if (!shownStyleRows) return;
-    const [freshStyleRows] = options.styleRowsFor(selectedIds);
-    if (!freshStyleRows) {
-      shownStyleRows.remove();
-      return;
-    }
-    shownStyleRows.replaceWith(freshStyleRows);
-  }
-
   function sectionsFor(board: Board, selectedIds: ReadonlySet<string>): HTMLElement[] {
     const selected = [...selectedIds].flatMap((selectedId) => board.elements.get(selectedId) ?? []);
-    const styleRows = options.styleRowsFor(selectedIds);
-    if (selectedIds.size > 1) return [heading(`${selected.length} selected`), ...styleRows, selectionActionsRow(selected, options)];
+    if (selectedIds.size > 1) return [heading(`${selected.length} selected`), selectionActionsRow(selected, options)];
     const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
-    const parts: PanelParts = { styleRows, reviewSection: openInReviewSection(board, element, options) };
+    const parts: PanelParts = { reviewSection: openInReviewSection(board, element, options) };
     return [...elementSections(element, options.currentBoard, options.layout(), options.linkStateOf(element.id), parts, send), selectionActionsRow(selected, options)];
   }
 
@@ -610,7 +551,6 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     if (!board || container.hidden) return;
     if (isTypingIn(container)) {
       repaintReviewWhileTyping(board, selectedIds);
-      repaintStyleRowsWhileTyping(selectedIds);
       return;
     }
     const active = document.activeElement;

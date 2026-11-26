@@ -15,7 +15,7 @@ import type { FlowWire } from './board-flow-layer.ts';
 import type { BlockTile } from './board-tile-store.ts';
 import {
   BOX_LAYER,
-  boxPortCenters, decorationPart, resizeHandleRectsOf, sceneOf,
+  decorationPart, resizeHandleRectsOf, sceneOf,
 } from './board-gl-scene.ts';
 import type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
 import { FANNED_STACK_SPREAD, STACK_FAN_MS, STACK_MOTION_MS, easedProgress, movedBoxesAt, stackFrameOfTopCard, stackMovesBetween } from './stack-motion-core.ts';
@@ -37,7 +37,7 @@ interface ReviewMarks {
   agentChangedIds: ReadonlySet<string>;
 }
 
-type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media' | 'end' | 'bend' | 'rotate';
+type HitPart = 'body' | 'line' | 'emptyBody' | 'resize' | 'media' | 'end' | 'bend' | 'rotate';
 type WireEndName = 'from' | 'to';
 
 interface BoardHit {
@@ -45,7 +45,6 @@ interface BoardHit {
   kind: LaidOutElement['kind'];
   part: HitPart;
   lineIndex: number | null;
-  port: Point | null;
   media: { href: string; alt: string } | null;
   handle: ResizeHandle | null;
   end: WireEndName | null;
@@ -418,7 +417,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const rotateHandle = rotateHandleOf(current);
     const rotateReach = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
     if (rotateHandle && Math.hypot(rotateHandle.at.x - point.x, rotateHandle.at.y - point.y) <= rotateReach) {
-      return { id: rotateHandle.boxId, kind: 'box', part: 'rotate', lineIndex: null, port: null, media: null, handle: null, end: null, bend: null };
+      return { id: rotateHandle.boxId, kind: 'box', part: 'rotate', lineIndex: null, media: null, handle: null, end: null, bend: null };
     }
     const handleArea = selectionHandleArea(current);
     if (!handleArea) return null;
@@ -426,7 +425,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const { area, angle } = handleArea;
     const pointInAreaFrame = rotatedAbout(point, { x: area.x + area.width / 2, y: area.y + area.height / 2 }, -angle);
     const pressed = resizeHandleRectsOf(area).find(({ rect }) => isInside(pointInAreaFrame, rect, handleSlop));
-    return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle, end: null, bend: null } : null;
+    return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, media: null, handle: pressed.handle, end: null, bend: null } : null;
   }
 
   function linkedDecorationsOf(current: GlScene): Decoration[] {
@@ -456,7 +455,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     for (const wire of selectedWiresOf(current)) {
       const ends: [WireEndName, Point][] = [['from', wire.start], ['to', wire.end]];
       const pressed = ends.find(([, center]) => Math.hypot(center.x - point.x, center.y - point.y) <= reach);
-      if (pressed) return { id: wire.id, kind: 'wire', part: 'end', lineIndex: null, port: null, media: null, handle: null, end: pressed[0], bend: null };
+      if (pressed) return { id: wire.id, kind: 'wire', part: 'end', lineIndex: null, media: null, handle: null, end: pressed[0], bend: null };
     }
     return null;
   }
@@ -465,7 +464,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const reach = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
     for (const wire of selectedWiresOf(current)) {
       const pressed = wireHandlesOf(wire).find(({ at }) => Math.hypot(at.x - point.x, at.y - point.y) <= reach);
-      if (pressed) return { id: wire.id, kind: 'wire', part: 'bend', lineIndex: null, port: null, media: null, handle: null, end: null, bend: pressed };
+      if (pressed) return { id: wire.id, kind: 'wire', part: 'bend', lineIndex: null, media: null, handle: null, end: null, bend: pressed };
     }
     return null;
   }
@@ -486,9 +485,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     }
     const target = wireTargetId ? elementOf(current, wireTargetId) : undefined;
     if (target) listed.push({ kind: 'wire-target', element: target });
-    const isPhone = document.documentElement.dataset.layout === 'phone';
-    const hoveredBox = !isPhone && hoveredBoxId && !selectedIds.has(hoveredBoxId) ? elementOf(current, hoveredBoxId) : undefined;
-    if (hoveredBox?.kind === 'box') listed.push({ kind: 'hover-handles', box: hoveredBox });
     const handleArea = selectionHandleArea(current);
     if (handleArea) listed.push({ kind: 'resize-handles', area: handleArea.area, angle: handleArea.angle });
     const rotateHandle = rotateHandleOf(current);
@@ -866,7 +862,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
     const element = elementOf(current, geometry.id);
     if (!element) return null;
-    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null, handle: null, end: null, bend: null };
+    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, media: null, handle: null, end: null, bend: null };
     const shape = geometry.hitShape;
     const boxCenter = element.kind === 'box' ? { x: element.x + element.width / 2, y: element.y + element.height / 2 } : null;
     const boxAngle = element.kind === 'box' ? element.angle : 0;
@@ -884,12 +880,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       const edgeSlop = (FRAME_EDGE_TOLERANCE_PX / HIT_TOLERANCE_PX) * slop;
       const isNearEdge = isInside(point, shape.rect, edgeSlop) && !isInside({ x: point.x, y: point.y }, { x: shape.rect.x + edgeSlop, y: shape.rect.y + edgeSlop, width: shape.rect.width - edgeSlop * 2, height: shape.rect.height - edgeSlop * 2 });
       return isNearEdge ? hit : null;
-    }
-    const portSlop = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
-    const hasResizeHandles = selectedIds.has(element.id);
-    if (element.kind === 'box' && !hasResizeHandles) {
-      const port = boxPortCenters(element).find((center) => Math.hypot(center.x - localPoint.x, center.y - localPoint.y) <= portSlop);
-      if (port && boxCenter) return { ...hit, part: 'port', port: rotatedAbout(port, boxCenter, boxAngle) };
     }
     if (!isInside(localPoint, shape.rect)) return null;
     if (shape.mediaRect && element.kind === 'box' && element.media && isInside(localPoint, shape.mediaRect)) {
@@ -912,7 +902,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (wireEndHit) return wireEndHit;
     const wireBendHit = wireBendHitAt(current, point, slop);
     if (wireBendHit) return wireBendHit;
-    const portReach = PORT_RADIUS + slop;
     let best: BoardHit | null = null;
     let bestRank = -1;
     const considerHit = (geometry: ElementGeometry): void => {
@@ -922,7 +911,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       best = hit;
       bestRank = geometry.paintRank;
     };
-    forEachSlotTouching(current.grid, { x: point.x - portReach, y: point.y - portReach, width: portReach * 2, height: portReach * 2 }, (slot) => {
+    forEachSlotTouching(current.grid, { x: point.x - slop, y: point.y - slop, width: slop * 2, height: slop * 2 }, (slot) => {
       const geometry = current.geometries[slot];
       if (geometry && !preview?.hiddenIds.has(geometry.id)) considerHit(geometry);
     });

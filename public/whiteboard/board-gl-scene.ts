@@ -666,7 +666,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] }, flow: null };
 }
 
-type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'agent-changed'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'agent-changed'; element: LaidOutElement } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind !== 'box' || element.angle === 0) {
@@ -703,12 +703,6 @@ function outlineUnturned(part: PartBuilder, element: LaidOutElement, color: Rgba
   }
   const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire' | 'stroke'>, number> = { box: 8, frame: 12 };
   pushRect(part, element, radiusByKind[element.kind], [0, 0, 0, 0], color, width, ALWAYS);
-}
-
-function boxPortCenters(box: Rect): Point[] {
-  const midX = box.x + box.width / 2;
-  const midY = box.y + box.height / 2;
-  return [{ x: midX, y: box.y }, { x: box.x + box.width, y: midY }, { x: midX, y: box.y + box.height }, { x: box.x, y: midY }];
 }
 
 interface ResizeHandleRect {
@@ -754,10 +748,6 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
       outlineDecoration(part, decoration.element, palette.running, AGENT_CHANGED_OUTLINE_WIDTH);
       continue;
     }
-    if (decoration.kind === 'hover-handles') {
-      for (const center of boxPortCenters(decoration.box)) pushCircle(part, rotatedAbout(center, centerOfRect(decoration.box), decoration.box.angle), PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
-      continue;
-    }
     if (decoration.kind === 'resize-handles') {
       pushTurned(part, centerOfRect(decoration.area), decoration.angle, (turned) => {
         for (const { rect } of resizeHandleRectsOf(decoration.area)) pushRect(turned, rect, 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
@@ -796,6 +786,6 @@ function sceneOf(layout: BoardLayout, context: SceneContext, reuse: (element: La
 
 export {
   BOX_LAYER, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
-  boxPortCenters, decorationPart, resizeHandleRectsOf, sceneOf,
+  decorationPart, resizeHandleRectsOf, sceneOf,
 };
 export type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext, TextRun };

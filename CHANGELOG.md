@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Idle compaction no longer strands a session waiting on background work in RUNNING.** When Claude Code auto-compacted while a stopped turn was still held over a background shell task or subagent, Glimmervoid dropped the held turn-end gate and muted title signals, leaving the card in RUNNING even after the background task timed out. Glimmervoid now preserves and re-arms the held gate across idle compaction so the card settles once the background work finishes or expires.
 - **pnpm 11 lockfiles it cannot read are skipped quietly again.** pnpm 11 writes its error code in brackets (`[ERR_PNPM_LOCKFILE_BREAKING_CHANGE]`), which Glimmervoid missed, so an old lockfile in a session worktree showed an install warning ending "To keep the existing lockfile, install the version of pnpm that generated it" instead of being skipped. Other pnpm 11 install failures now quote their error code too.
 
+### Removed
+
+- **Board authoring tools.** Agents draw the board and you mark it up. The whiteboard toolbar now keeps five tools: Hand, Select, Pen, Note and Eraser. The Box, Decision, Ellipse, Text, Icon, Device, Arrow and Line tools are gone along with their shortcuts, port-drag wire drawing and the styling controls (shape picker, icon picker, style rows and inline line style menu). Every element kind still renders, selects and moves, and agents still create all of them.
+
 ## [0.65.0] - 2026-11-25
 
 ### Added

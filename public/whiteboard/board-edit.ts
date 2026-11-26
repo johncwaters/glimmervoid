@@ -1,13 +1,9 @@
-import { BOARD_CONTEXT_MOUSE_BUTTON, BOARD_MIDDLE_MOUSE_BUTTON, BOARD_MOUSE_PAN_BUTTONS, boxIdOfEnd, filledBox, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_CONTEXT_MOUSE_BUTTON, BOARD_MIDDLE_MOUSE_BUTTON, BOARD_MOUSE_PAN_BUTTONS, boxIdOfEnd, filledBox, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, Frame, Op, Wire, WireEnd } from '#shared/contracts/whiteboard.ts';
-import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
-import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import { BODY_LINE_HEIGHT } from '#shared/whiteboard-svg-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
-import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
-import { menuButton } from '../ui/button.ts';
-import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
+import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
 import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
 import { createDragPreview, handleSidesOf, isFullBleedBox, isInStepBand, laidOutBox, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, ResizeStretch } from '#shared/whiteboard-layout-core.ts';
@@ -38,8 +34,7 @@ const MAX_VIEW_WIDTH = 20000;
 export const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER: readonly BoardElement['kind'][] = ['stroke', 'wire', 'frame', 'box'];
 const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = {
-  v: 'select', 1: 'select', r: 'box', 2: 'box', d: 'decision', 3: 'decision', a: 'wire', 5: 'wire', l: 'line', 6: 'line', o: 'ellipse', 4: 'ellipse', p: 'pen', 7: 'pen', t: 'text', 8: 'text', e: 'eraser', 0: 'eraser',
-  h: 'hand', s: 'note', i: 'icon', m: 'device',
+  v: 'select', 1: 'select', p: 'pen', 7: 'pen', e: 'eraser', 0: 'eraser', h: 'hand', s: 'note',
 };
 const NUDGE_UNITS = 1;
 const SHIFTED_NUDGE_UNITS = 5;
@@ -47,13 +42,8 @@ export const NUDGE_DIRECTION_BY_KEY: Readonly<Record<string, ViewPoint>> = { Arr
 const KEY_ZOOM_STEP = 1.25;
 const ZOOM_FACTOR_BY_KEY: Readonly<Record<string, number>> = { '=': 1 / KEY_ZOOM_STEP, '+': 1 / KEY_ZOOM_STEP, '-': KEY_ZOOM_STEP, _: KEY_ZOOM_STEP };
 
-type BoardTool = 'select' | 'hand' | 'box' | 'decision' | 'ellipse' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'line' | 'pen' | 'eraser';
-type WireTool = Extract<BoardTool, 'wire' | 'line'>;
-type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'ellipse' | 'note' | 'text' | 'icon' | 'device'>;
-const NON_PLACEMENT_TOOLS: ReadonlySet<BoardTool> = new Set(['select', 'hand', 'wire', 'line', 'pen', 'eraser']);
-const WIRE_STYLE_BY_TOOL: Readonly<Record<WireTool, Pick<Wire, 'arrows' | 'route'>>> = { wire: { arrows: 'end', route: 'elbow' }, line: { arrows: 'none', route: 'sharp' } };
-const WIRE_LABEL_EDITOR_WIDTH = 160;
-const WIRE_LABEL_EDITOR_HEIGHT = 24;
+type BoardTool = 'select' | 'hand' | 'note' | 'pen' | 'eraser';
+type PlacementTool = Extract<BoardTool, 'note'>;
 
 interface ViewPoint {
   x: number;
@@ -143,7 +133,7 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 
 type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null; resize: { handle: ResizeHandle; keepsRatio: boolean; turnAngle: number; boxAngleById: ReadonlyMap<string, number> } | null }
-  | { kind: 'wire'; pointerId: number; fromBoxId: string | null; start: ViewPoint; pressedAt: ViewPoint; latest: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null; tool: WireTool; rewiring: { wireId: string; end: WireEndName } | null }
+  | { kind: 'rewire'; pointerId: number; fixedBoxId: string | null; start: ViewPoint; pressedAt: ViewPoint; latest: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null; wireId: string; end: WireEndName }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; pressedButton: PanButton; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
@@ -162,30 +152,14 @@ function isPhoneLayout(): boolean {
   return document.documentElement.dataset.layout === 'phone';
 }
 
-function isWireTool(tool: BoardTool): tool is WireTool {
-  return tool === 'wire' || tool === 'line';
-}
+const PLACED_NOTE: Partial<Box> = { shape: 'note', tone: 'yellow' };
 
 function isPlacementTool(tool: BoardTool): tool is PlacementTool {
-  return !NON_PLACEMENT_TOOLS.has(tool);
+  return tool === 'note';
 }
 
-const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', ellipse: 'Ellipse', note: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
-
-function placedShapeOf(tool: PlacementTool, media: BoxMedia | null): Partial<Box> {
-  switch (tool) {
-    case 'icon': return { shape: 'icon', icon: PLACED_ICON };
-    case 'device': return { shape: 'device', device: PLACED_DEVICE, media };
-    case 'note': return { shape: 'note', tone: 'yellow', media };
-    case 'text': return { shape: 'box', borderless: true };
-    case 'decision': return { shape: 'decision', media };
-    case 'ellipse': return { shape: 'ellipse', media };
-    case 'box': return { shape: 'box', media };
-  }
-}
-
-function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, tool: PlacementTool): Box {
-  return filledBox({ kind: 'box', id: newElementId('box'), title, place: { at }, ...placedShapeOf(tool, media) });
+function placedBox(at: ViewPoint, title: string, overrides: Partial<Box>): Box {
+  return filledBox({ kind: 'box', id: newElementId('box'), title, place: { at }, ...overrides });
 }
 
 interface BoxSize {
@@ -217,33 +191,6 @@ function clampedBoxRect(rect: Rect, side: { x: -1 | 0 | 1; y: -1 | 0 | 1 }): Rec
   return { x: keptStart(rect.x, rect.width, width, side.x), y: keptStart(rect.y, rect.height, height, side.y), width, height };
 }
 
-const BLANK_TEXT_LINE: BoxLine = { text: '', muted: false, style: 'text', key: null };
-
-function isTextBox(box: Box): boolean {
-  return box.shape === 'box' && box.borderless === true && !box.media;
-}
-
-function typedRowsOf(typedText: string): string[] {
-  const rows = typedText.replace(/\s+$/, '').split('\n');
-  const firstWrittenRow = rows.findIndex((row) => row.trim() !== '');
-  return firstWrittenRow === -1 ? [] : rows.slice(firstWrittenRow);
-}
-
-function fittedTextOf(typedText: string): string {
-  const rows = typedText.split('\n').slice(0, WHITEBOARD_LIMITS.linesPerBox + 1);
-  return rows.map((row, index) => row.slice(0, index === 0 ? WHITEBOARD_LIMITS.title : WHITEBOARD_LIMITS.line)).join('\n');
-}
-
-function textEditOps(openedBox: Box, liveBox: Box, typedText: string): Op[] {
-  const [titleRow, ...lineRows] = typedRowsOf(typedText);
-  const title = titleRow?.trim();
-  if (!title) return [{ op: 'remove', id: openedBox.id }];
-  const isLinesEdited = lineRows.length !== openedBox.lines.length || lineRows.some((row, index) => row !== openedBox.lines[index]?.text);
-  const lines = lineRows.map((row, index) => ({ ...(liveBox.lines[index] ?? BLANK_TEXT_LINE), text: row }));
-  const fields = { ...(title === openedBox.title ? {} : { title }), ...(isLinesEdited ? { lines } : {}) };
-  return Object.keys(fields).length === 0 ? [] : [{ op: 'set', id: openedBox.id, fields }];
-}
-
 function pressedImageOf(hit: BoardHit | null): PressedImage | null {
   if (hit?.part !== 'media' || !hit.media) return null;
   return { boxId: hit.id, href: hit.media.href, alt: hit.media.alt };
@@ -253,7 +200,7 @@ const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const INK_POINT_SPACING_PX = 2;
 const ERASER_SAMPLE_SPACING_PX = 4;
 const ERASER_TRAIL_POINTS = 24;
-const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in', end: 'move', bend: 'move', rotate: 'grab' };
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', resize: 'nwse-resize', media: 'zoom-in', end: 'move', bend: 'move', rotate: 'grab' };
 const MOVABLE_BOX_PARTS: ReadonlySet<BoardHit['part']> = new Set(['body', 'line', 'emptyBody']);
 const MIN_TITLE_EDITOR_WIDTH_PX = 160;
 const MIN_LINE_EDITOR_WIDTH_PX = 240;
@@ -812,7 +759,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function startPinch(): void {
-    if (gesture?.kind === 'wire') endWire(gesture, false);
+    if (gesture?.kind === 'rewire') endRewire(gesture, false);
     if (gesture?.kind === 'bend') endBend(gesture, false);
     if (gesture?.kind === 'rotate') endRotate(gesture, false);
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
@@ -967,7 +914,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       startBend(event.pointerId, hit.id, hit.bend, toViewPoint(event.clientX, event.clientY));
       return;
     }
-    if (hit && isCodemapOwnedId(hit.id) && !isWireTool(activeTool)) {
+    if (hit && isCodemapOwnedId(hit.id)) {
       gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: 'primary', tappedBoxId: hit.id, pressedImage: pressedImageOf(hit) };
       return;
     }
@@ -986,15 +933,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const start = turnAngle !== 0 && onlyBox ? onlyBox.start : rectAround(movingBoxes.map((movingBox) => rotatedBoundsOf({ ...movingBox.start, angle: boxAngleById.get(movingBox.boxId) ?? 0 })));
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
       gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start, movingBoxes, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: { handle: resizeHandle, keepsRatio: event.shiftKey, turnAngle, boxAngleById } };
-      return;
-    }
-    if (hit?.kind === 'box' && hit.port && !isPhoneLayout()) {
-      startWire(event.pointerId, hit.id, hit.port, toViewPoint(event.clientX, event.clientY), isWireTool(activeTool) ? activeTool : 'wire', null);
-      return;
-    }
-    if (isWireTool(activeTool)) {
-      const pressedPoint = hitBoxRect ? { x: hitBoxRect.x + hitBoxRect.width / 2, y: hitBoxRect.y + hitBoxRect.height / 2 } : toViewPoint(event.clientX, event.clientY);
-      startWire(event.pointerId, hitBoxRect && hit ? hit.id : null, pressedPoint, toViewPoint(event.clientX, event.clientY), activeTool, null);
       return;
     }
     const frameRect = hit?.kind === 'frame' ? renderer.boundsOf(hit.id) : null;
@@ -1030,11 +968,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     navigator.vibrate?.(10);
   }
 
-  async function placeElement(tool: PlacementTool, point: ViewPoint, size: BoxSize | null): Promise<void> {
+  async function placeNote(point: ViewPoint, size: BoxSize | null): Promise<void> {
     finishToolUse();
     if (!options.currentBoard()) return;
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const element = { ...placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, PLACED_TITLE_BY_TOOL[tool], null, tool), ...(size ?? {}) };
+    const element = { ...placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, 'Note', PLACED_NOTE), ...(size ?? {}) };
     pendingTitleEditId = element.id;
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (!isSent) pendingTitleEditId = null;
@@ -1047,7 +985,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (!board) return false;
     const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: camera.x + viewWidth() / 2, y: camera.y + (viewport.clientHeight || 1) / camera.scale / 2 };
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, 'box');
+    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, { shape: 'box', media });
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (isSent) setSelection(new Set([element.id]));
     return isSent;
@@ -1136,7 +1074,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     const pasted = pastedTextOf(text);
     if (!pasted) return false;
-    const element = { ...placedBox(place, pasted.title, null, pasted.isLink ? 'box' : 'text'), lines: pasted.lines };
+    const element = { ...placedBox(place, pasted.title, pasted.isLink ? { shape: 'box' } : { shape: 'box', borderless: true }), lines: pasted.lines };
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (isSent) setSelection(new Set([element.id]));
     if (isSent && pasted.isCut) options.onClipboardNotice('cut');
@@ -1150,20 +1088,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
     editTitle(elementId);
   }
 
-  function startWire(pointerId: number, fromBoxId: string | null, start: ViewPoint, pressedAt: ViewPoint, tool: WireTool, rewiring: { wireId: string; end: WireEndName } | null): void {
-    const draftLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    draftLine.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
-    draftLine.setAttribute('d', `M ${start.x} ${start.y} L ${start.x} ${start.y}`);
-    svg.append(draftLine);
-    gesture = { kind: 'wire', pointerId, fromBoxId, start, pressedAt, latest: pressedAt, draftLine, targetBoxId: null, tool, rewiring };
-  }
-
   function startRewire(pointerId: number, wireId: string, end: WireEndName, pressedAt: ViewPoint): void {
     const stored = options.currentBoard()?.elements.get(wireId);
     const laidOut = renderer.layout()?.elements.find((element) => element.id === wireId);
     if (stored?.kind !== 'wire' || laidOut?.kind !== 'wire') return;
-    const fixedEnd = end === 'to' ? stored.from : stored.to;
-    startWire(pointerId, boxIdOfEnd(fixedEnd), end === 'to' ? laidOut.start : laidOut.end, pressedAt, 'wire', { wireId, end });
+    const start = end === 'to' ? laidOut.start : laidOut.end;
+    const draftLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    draftLine.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
+    draftLine.setAttribute('d', `M ${start.x} ${start.y} L ${start.x} ${start.y}`);
+    svg.append(draftLine);
+    const fixedBoxId = boxIdOfEnd(end === 'to' ? stored.from : stored.to);
+    gesture = { kind: 'rewire', pointerId, fixedBoxId, start, pressedAt, latest: pressedAt, draftLine, targetBoxId: null, wireId, end };
   }
 
   function laidOutWireOf(wireId: string): Extract<LaidOutElement, { kind: 'wire' }> | null {
@@ -1236,44 +1171,27 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return { x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) };
   }
 
-  function isWireAlreadyDrawn(board: Board, fromBoxId: string, toBoxId: string): boolean {
-    return [...board.elements.valuesOfKind('wire')].some((wire) => wire.from === fromBoxId && wire.to === toBoxId);
-  }
-
-  function markWireTarget(wire: Extract<Gesture, { kind: 'wire' }>, targetBoxId: string | null): void {
-    wire.targetBoxId = targetBoxId;
+  function markRewireTarget(rewire: Extract<Gesture, { kind: 'rewire' }>, targetBoxId: string | null): void {
+    rewire.targetBoxId = targetBoxId;
     renderer.setWireTarget(targetBoxId);
   }
 
-  function moveWire(wire: Extract<Gesture, { kind: 'wire' }>, event: PointerEvent): void {
+  function moveRewire(rewire: Extract<Gesture, { kind: 'rewire' }>, event: PointerEvent): void {
     const point = toViewPoint(event.clientX, event.clientY);
-    wire.latest = point;
-    wire.draftLine.setAttribute('d', `M ${wire.start.x} ${wire.start.y} L ${point.x} ${point.y}`);
-    const targetBoxId = renderer.boxIdsAt(point).find((boxId) => boxId !== wire.fromBoxId) ?? null;
-    markWireTarget(wire, targetBoxId);
+    rewire.latest = point;
+    rewire.draftLine.setAttribute('d', `M ${rewire.start.x} ${rewire.start.y} L ${point.x} ${point.y}`);
+    const targetBoxId = renderer.boxIdsAt(point).find((boxId) => boxId !== rewire.fixedBoxId) ?? null;
+    markRewireTarget(rewire, targetBoxId);
   }
 
-  function endWire(wire: Extract<Gesture, { kind: 'wire' }>, shouldConnect: boolean): void {
-    const targetBoxId = wire.targetBoxId;
-    markWireTarget(wire, null);
-    wire.draftLine.remove();
-    const board = options.currentBoard();
-    const draggedPx = Math.hypot(wire.latest.x - wire.pressedAt.x, wire.latest.y - wire.pressedAt.y) * camera.scale;
-    const isClick = draggedPx < DRAG_THRESHOLD_PX;
-    if (!shouldConnect || !board || isClick) return;
-    const releasedEnd: WireEnd = targetBoxId ?? storedPointOf(wire.latest);
-    if (wire.rewiring) {
-      void options.sendOps([{ op: 'set', id: wire.rewiring.wireId, fields: { [wire.rewiring.end]: releasedEnd } }]);
-      return;
-    }
-    if (wire.fromBoxId && targetBoxId && isWireAlreadyDrawn(board, wire.fromBoxId, targetBoxId)) return;
-    void addWire(wire.fromBoxId ?? storedPointOf(wire.start), releasedEnd, wire.tool);
-  }
-
-  async function addWire(from: WireEnd, to: WireEnd, tool: WireTool): Promise<void> {
-    const element: Wire = { kind: 'wire', id: newElementId('wire'), from, to, dashed: false, flow: false, tone: 'plain', width: 'thin', ...WIRE_STYLE_BY_TOOL[tool], label: null, via: [], fromSide: null, toSide: null };
-    const isSent = await options.sendOps([{ op: 'add', element }]);
-    if (isSent) setSelection(new Set([element.id]));
+  function endRewire(rewire: Extract<Gesture, { kind: 'rewire' }>, shouldConnect: boolean): void {
+    const targetBoxId = rewire.targetBoxId;
+    markRewireTarget(rewire, null);
+    rewire.draftLine.remove();
+    const draggedPx = Math.hypot(rewire.latest.x - rewire.pressedAt.x, rewire.latest.y - rewire.pressedAt.y) * camera.scale;
+    if (!shouldConnect || !options.currentBoard() || draggedPx < DRAG_THRESHOLD_PX) return;
+    const releasedEnd: WireEnd = targetBoxId ?? storedPointOf(rewire.latest);
+    void options.sendOps([{ op: 'set', id: rewire.wireId, fields: { [rewire.end]: releasedEnd } }]);
   }
 
   function snapTargetsFor(drag: Extract<Gesture, { kind: 'drag' }>): SnapTargets {
@@ -1378,22 +1296,22 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function finishMarquee(marquee: Extract<Gesture, { kind: 'marquee' }>): void {
     marquee.outline.remove();
     if (marquee.placementTool) {
-      finishPlacement(marquee, marquee.placementTool);
+      finishPlacement(marquee);
       return;
     }
     if (marquee.hasMoved || marquee.isAdditive) return;
     setSelection(new Set());
   }
 
-  function finishPlacement(marquee: Extract<Gesture, { kind: 'marquee' }>, tool: PlacementTool): void {
+  function finishPlacement(marquee: Extract<Gesture, { kind: 'marquee' }>): void {
     if (!marquee.hasMoved) {
-      void placeElement(tool, marquee.origin, null);
+      void placeNote(marquee.origin, null);
       return;
     }
     const area = rectBetween(marquee.origin, marquee.latest);
     const width = Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, Math.round(area.width)));
     const height = Math.min(WHITEBOARD_LIMITS.boxHeightMax, Math.max(1, Math.round(area.height)));
-    void placeElement(tool, { x: area.x, y: area.y }, { width, height });
+    void placeNote({ x: area.x, y: area.y }, { width, height });
   }
 
   function cancelGesture(): boolean {
@@ -1402,7 +1320,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     gesture = null;
     activePointers.delete(cancelled.pointerId);
     if (cancelled.kind === 'marquee') cancelled.outline.remove();
-    if (cancelled.kind === 'wire') endWire(cancelled, false);
+    if (cancelled.kind === 'rewire') endRewire(cancelled, false);
     if (cancelled.kind === 'bend') endBend(cancelled, false);
     if (cancelled.kind === 'rotate') endRotate(cancelled, false);
     if (cancelled.kind === 'ink') cancelled.draftLine.remove();
@@ -1445,8 +1363,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       moveDrag(gesture, event);
       return;
     }
-    if (gesture?.kind === 'wire' && gesture.pointerId === event.pointerId) {
-      moveWire(gesture, event);
+    if (gesture?.kind === 'rewire' && gesture.pointerId === event.pointerId) {
+      moveRewire(gesture, event);
       return;
     }
     if (gesture?.kind === 'bend' && gesture.pointerId === event.pointerId) {
@@ -1572,9 +1490,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       void finishDrag(finished, event);
       return;
     }
-    if (finished?.kind === 'wire') {
-      endWire(finished, finished.pointerId === event.pointerId);
-      if (isWireTool(activeTool)) finishToolUse();
+    if (finished?.kind === 'rewire') {
+      endRewire(finished, finished.pointerId === event.pointerId);
       return;
     }
     if (finished?.kind === 'bend') {
@@ -1624,7 +1541,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onPointerCancel(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
     const wasDragging = gesture?.kind === 'drag';
-    if (gesture?.kind === 'wire') endWire(gesture, false);
+    if (gesture?.kind === 'rewire') endRewire(gesture, false);
     if (gesture?.kind === 'bend') endBend(gesture, false);
     if (gesture?.kind === 'rotate') endRotate(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
@@ -1688,10 +1605,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function editTitle(elementId: string): void {
     const titled = options.currentBoard()?.elements.get(elementId);
     if (titled?.kind !== 'box' || !renderer.boxTextRectsOf(elementId)) return;
-    if (isTextBox(titled)) {
-      editText(titled);
-      return;
-    }
     const input = markAsNotCredential(el('input', 'wb-title-input'));
     input.type = 'text';
     input.value = titled.title;
@@ -1716,75 +1629,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     input.addEventListener('blur', closeInlineEditor, { signal });
     input.focus();
     input.select();
-  }
-
-  function wireLabelRectOf(wireId: string): Rect | null {
-    const laidOut = renderer.layout()?.elements.find((element) => element.id === wireId);
-    if (laidOut?.kind !== 'wire') return null;
-    return { x: laidOut.labelAt.x - WIRE_LABEL_EDITOR_WIDTH / 2, y: laidOut.labelAt.y - WIRE_LABEL_EDITOR_HEIGHT * 0.7, width: WIRE_LABEL_EDITOR_WIDTH, height: WIRE_LABEL_EDITOR_HEIGHT };
-  }
-
-  function editWireLabel(wireId: string): void {
-    const labeled = options.currentBoard()?.elements.get(wireId);
-    if (labeled?.kind !== 'wire' || !wireLabelRectOf(wireId)) return;
-    const input = markAsNotCredential(el('input', 'wb-title-input wb-wire-label-input'));
-    input.type = 'text';
-    input.value = labeled.label ?? '';
-    input.maxLength = WHITEBOARD_LIMITS.wireLabel;
-    input.setAttribute('aria-label', 'Wire label');
-    const signal = openInlineEditor(input, () => wireLabelRectOf(wireId), WIRE_LABEL_EDITOR_WIDTH);
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeInlineEditor();
-        viewport.focus();
-        return;
-      }
-      if (event.key !== 'Enter') return;
-      event.preventDefault();
-      const label = input.value.trim() || null;
-      closeInlineEditor();
-      viewport.focus();
-      if (label === labeled.label) return;
-      void options.sendOps([{ op: 'set', id: wireId, fields: { label } }]);
-    }, { signal });
-    input.addEventListener('blur', closeInlineEditor, { signal });
-    input.focus();
-    input.select();
-  }
-
-  function editText(box: Box): void {
-    const textArea = el('textarea', 'wb-text-input');
-    textArea.value = [box.title, ...box.lines.map((line) => line.text)].join('\n');
-    textArea.rows = Math.max(2, box.lines.length + 1);
-    textArea.setAttribute('aria-label', 'Text');
-    const signal = openInlineEditor(textArea, () => renderer.boundsOf(box.id), MIN_TITLE_EDITOR_WIDTH_PX);
-    const commit = () => {
-      const typedText = textArea.value;
-      closeInlineEditor();
-      viewport.focus();
-      const liveBox = editedBox(box.id);
-      const editOps = liveBox ? textEditOps(box, liveBox, typedText) : [];
-      if (editOps.length > 0) void options.sendOps(editOps);
-    };
-    textArea.addEventListener('keydown', (event) => {
-      const isCommitKey = event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey));
-      if (!isCommitKey) return;
-      event.preventDefault();
-      commit();
-    }, { signal });
-    textArea.addEventListener('input', () => {
-      const fittedText = fittedTextOf(textArea.value);
-      if (fittedText !== textArea.value) {
-        const caret = Math.min(textArea.selectionStart, fittedText.length);
-        textArea.value = fittedText;
-        textArea.setSelectionRange(caret, caret);
-      }
-      textArea.rows = Math.max(2, textArea.value.split('\n').length);
-    }, { signal });
-    textArea.addEventListener('blur', commit, { signal });
-    textArea.focus();
-    textArea.select();
   }
 
   function editedBox(boxId: string): Box | null {
@@ -1854,41 +1698,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return lineAbove ? lineWithStyle({ ...EMPTY_LINE, muted: lineAbove.muted }, lineAbove.style) : EMPTY_LINE;
   }
 
-  function lineStyleMenu(chooseStyle: (style: BoxLine['style']) => void, toggleMuted: () => void, signal: AbortSignal) {
-    const menu = el('div', 'popup-menu wb-line-style-menu');
-    menu.setAttribute('aria-label', 'Line style');
-    const trigger = menuButton({ label: 'Line style', action: 'line-style' });
-    const { close } = popupMenu({ trigger, menu, signal });
-    const styleItems = LINE_STYLES.map((style) => {
-      const item = buildMenuItem(LINE_STYLE_LABELS[style], 'wb-line-style-item');
-      item.setAttribute('role', 'menuitemradio');
-      item.addEventListener('click', () => {
-        close();
-        chooseStyle(style);
-      }, { signal });
-      return { style, item };
-    });
-    const mutedItem = buildMenuItem('Muted', 'wb-line-style-item');
-    mutedItem.setAttribute('role', 'menuitemcheckbox');
-    mutedItem.addEventListener('click', () => {
-      close();
-      toggleMuted();
-    }, { signal });
-    menu.append(...styleItems.map(({ item }) => item), mutedItem);
-    const paint = (line: BoxLine) => {
-      for (const { style, item } of styleItems) item.setAttribute('aria-checked', String(style === line.style));
-      mutedItem.setAttribute('aria-checked', String(line.muted));
-    };
-    return { trigger, menu, paint };
-  }
-
   function editLine(editing: LineEditing): void {
     const box = editedBox(editing.boxId);
     if (!box || !lineSlotRect(editing)) {
       closeInlineEditor();
       return;
     }
-    let draftLine = draftLineOf(editing, box);
+    const draftLine = draftLineOf(editing, box);
     const storedText = draftLine.text;
     let shownKey = '';
     const editor = el('div', 'wb-line-editor');
@@ -1916,17 +1732,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       keyInput.hidden = draftLine.style !== 'kv';
       keyInput.value = draftLine.key ?? '';
       shownKey = keyInput.value;
-      styleMenu.paint(draftLine);
     };
-    const styleMenu = lineStyleMenu((style) => {
-      draftLine = lineWithStyle(typedLine(), style);
-      paintDraft();
-      textInput.focus();
-    }, () => {
-      draftLine = { ...typedLine(), muted: !draftLine.muted };
-      paintDraft();
-      textInput.focus();
-    }, signal);
     const onFieldKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -1955,7 +1761,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       if (event.relatedTarget instanceof Node && editor.contains(event.relatedTarget)) return;
       applyLineEdit({ kind: 'blur', draft: typedLine() });
     }, { signal });
-    editor.append(keyInput, textInput, styleMenu.trigger, styleMenu.menu);
+    editor.append(keyInput, textInput);
     paintDraft();
     textInput.focus();
   }
@@ -1979,24 +1785,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onDoubleClick(event: MouseEvent): void {
     if (isPhoneLayout()) return;
     const hit = hitAt(event.clientX, event.clientY);
-    if (!hit) {
-      void placeElement('text', toViewPoint(event.clientX, event.clientY), null);
-      return;
-    }
+    if (!hit) return;
     if (hit.part === 'bend' && hit.bend?.kind === 'bend') {
       removeBend(hit.id, hit.bend.index);
       return;
     }
-    if (hit.kind === 'wire') {
-      editWireLabel(hit.id);
-      return;
-    }
     const box = hit.kind === 'box' ? editedBox(hit.id) : null;
     if (!box) return;
-    if (isTextBox(box)) {
-      editText(box);
-      return;
-    }
     const lineCount = linesOfBox(box).length;
     const { lineIndex } = hit;
     if (hit.part === 'line' && lineIndex !== null && lineIndex < lineCount) {
