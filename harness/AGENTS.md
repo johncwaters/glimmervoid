@@ -29,6 +29,7 @@ Manual smoke tests and harnesses run directly with `node`, separate from the aut
 | `container/Dockerfile` | node:24-bookworm image for the Linux-only remote-mode suite (`npm run test:container`) |
 | `container/remote-mode.sh` | Remote-mode integration assertions: two listeners, pairing lifecycle, revocation, Origin policy |
 | `container/ws-check.js` | WebSocket probe used by that script (cookie/Origin headers, waits for a control snapshot) |
+| `acp-spike/` | Throwaway ACP client, scenarios and redacted recordings for Claude Code, Codex and Antigravity; hand-run and billed, needs `@agentclientprotocol/sdk` installed outside the repo (`docs/acp-spike-2026-11.md`, "Running it") |
 
 ## For AI Agents
 

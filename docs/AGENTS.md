@@ -19,6 +19,8 @@ Design documents, postmortems, and operator guides. Background reading for why t
 | `measurement-server-runtime.md` | 2026-11 profile of the live server and Node/Bun/allocator comparison; the cost is the usage scanner's full transcript rescan on every start, not the runtime |
 | `search-builds-the-view.md` | Unbuilt product outline: a search bar that composes UI from premade components with json-render and Jev; run `/specifying` on it before building |
 | `troubleshooting.md` | Install and startup failures: PATH, node-pty under npm 12's install-script policy, port and bind refusals, the legacy `github:` install |
+| `acp-spike-2026-11.md` | 2026-11 ACP spike verdict, results table and launch commands for Claude Code, Codex and Antigravity (`harness/acp-spike/`) |
+| `packs-gap-2026-11.md` | 2026-11 packs capability gap report for Community and Team Review against current pack APIs |
 
 ## For AI Agents
 
