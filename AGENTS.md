@@ -51,7 +51,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed, and types come from `z.infer`, never hand-duplicated.
 - Coherence reports are work, not backlog: anything a Coherence hook or `coherence query status` reports open (a requirement, an undefined recurring term, an entrance, a failing check) an operator session hands at once to one child session (`glimmervoid spawn`); a spawned child or subagent settles it itself, and a lane leaves it.
 
-### Frozen features
+### Feature freeze
 
 These areas stay on as today and take fixes for crashes, data loss and security only, with no feature work (Packs is not frozen). When asked to add to one, stop and tell the operator.
 
