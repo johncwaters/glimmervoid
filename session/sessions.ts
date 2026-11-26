@@ -4,10 +4,9 @@ import { createCompactionTracking, observeCompaction, finishCompaction, isCompac
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
 import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
-import { DEFAULT_TERMINAL_COLORS, scanTerminalColorQueries } from "./core/terminal-color-query.ts";
+import { DEFAULT_TERMINAL_COLORS } from "./core/terminal-color-query.ts";
 import type { TerminalColors } from "./core/terminal-color-query.ts";
-import { NO_INPUT_READY_SCAN, scanInputReady } from "./core/input-ready-core.ts";
-import type { InputReadyCondition, InputReadyScan } from "./core/input-ready-core.ts";
+import type { InputReadyCondition } from "./core/input-ready-core.ts";
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { isSelfWakePrompt } from "./core/task-title-core.ts";
@@ -24,16 +23,15 @@ import type { SessionTaskTitleController } from "./session-task-title.ts";
 import { createSessionPromptNotes } from "./session-prompt-notes.ts";
 import type { SessionPromptNotes } from "./session-prompt-notes.ts";
 import path from "node:path";
-import pty from "node-pty";
 import { EventEmitter } from "node:events";
-import { assertLaunchable, execFile } from "../server/child-process-safe.ts";
-import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
-import { requireRelayExecutable } from "../server/runtime-paths.ts";
+import { execFile } from "../server/child-process-safe.ts";
+import { createPtyDriver } from "./drivers/pty-driver.ts";
+import type { PtyDriver, PtySpawn, SessionPty } from "./drivers/pty-driver.ts";
+import type { DriverEvent } from "./drivers/driver.ts";
 import { probeGraphicalSession, resolveSessionScopeHost, stopSessionScope } from "./systemd-user.ts";
 import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts";
 import { randomBytes } from "node:crypto";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
-import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import { readProcessTreeResidentBytes } from "./process-tree-memory.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
@@ -85,7 +83,6 @@ import { promptWithDoneMeans } from "./core/done-means-prompt.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import { createSessionObservability } from "./session-observability.ts";
-import { createSessionOutput } from "./session-output.ts";
 import { createChatOutbox } from "./chat-outbox.ts";
 import type { ChatOutbox } from "./chat-outbox.ts";
 import type { ScreenSnapshot } from "./session-output.ts";
@@ -175,22 +172,6 @@ interface SessionRecorderPort {
   close(): void;
   maskDeliveredValues?(values: readonly string[]): void;
 }
-
-interface SessionPty {
-  readonly pid: number;
-  onData(listener: (data: string) => void): unknown;
-  onExit(listener: (event: { exitCode: number; signal?: number }) => void): unknown;
-  write(data: string): void;
-  resize(columns: number, rows: number): void;
-  _agent?: { inSocket?: { on: (event: string, listener: (error: Error) => void) => unknown } };
-  on?: (event: string, listener: (error: Error) => void) => unknown;
-}
-
-type PtySpawn = (
-  file: string,
-  args: string[],
-  options: pty.IPtyForkOptions | pty.IWindowsPtyForkOptions,
-) => SessionPty;
 
 interface SessionOptions {
   customTitle?: string;
@@ -288,7 +269,6 @@ function nonEmptyText(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-type PtyLifecycle = "idle" | "live" | "exited";
 type HookActivity = "unseen" | "seen";
 type PromptPhase = "awaiting-first-prompt" | "prompted";
 type TitleGate = "open" | "quiet";
@@ -304,9 +284,6 @@ class Session extends EventEmitter {
   name: string;
   path: string;
   dangerouslySkipPermissions: boolean;
-  ptyProcess: SessionPty | null;
-  _ptyScopeUnit: string | null;
-  _nodePtySpawn: PtySpawn;
   state: SessionState;
   stateSince: number;
   failureReason: string | null;
@@ -330,10 +307,9 @@ class Session extends EventEmitter {
   _inputReadyFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
   _teardown: Teardown;
-  _ptyLifecycle: PtyLifecycle;
   _recorder: SessionRecorderPort | null;
   _deliveredSecretValues: readonly string[] = [];
-  _output: ReturnType<typeof createSessionOutput>;
+  _driver: PtyDriver;
   _chatOutbox: ChatOutbox;
   _adapter: AgentAdapter;
   _observability: ReturnType<typeof createSessionObservability>;
@@ -384,17 +360,13 @@ class Session extends EventEmitter {
   _agentLiveChildren: number;
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
-  _ptySpawn: PtySpawn;
   _probeGraphicalSession: () => Promise<GraphicalSessionState>;
   _requiresWorktree: boolean;
   _platform: NodeJS.Platform;
   _startPending: Promise<void> | null;
   _startGeneration = 0;
-  _resizeSeq: number;
   _titleSource: ReturnType<typeof createOscTitleSource>;
   _getTerminalColors: () => TerminalColors;
-  _pendingColorQuery = "";
-  _inputReadyScan: InputReadyScan = NO_INPUT_READY_SCAN;
   _statusSource: ReturnType<typeof createStatusSource>;
 
   constructor({
@@ -545,8 +517,6 @@ class Session extends EventEmitter {
     this._prLinks = seedSessionPrLinks(prLinks);
     this.path = projectPath;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions === true;
-    this.ptyProcess = null;
-    this._ptyScopeUnit = null;
     this.state = STATES.DORMANT;
     this.stateSince = clock.nowMs();
     this.failureReason = null;
@@ -558,15 +528,25 @@ class Session extends EventEmitter {
     this._promptPhase = "awaiting-first-prompt";
     this._teardown = NO_TEARDOWN;
 
-    this._ptyLifecycle = "idle";
     this._recorder = null;
     this._lastOperatorInputAt = Number.NEGATIVE_INFINITY;
-    this._output = createSessionOutput({
+    this._driver = createPtyDriver({
+      sessionId: id,
+      spawn: ptySpawn,
+      platform: () => this._platform,
+      inputReadyCondition: () => this._inputReadyCondition(),
+      isInputReady: () => this._startupSignals.has("ready"),
+      noteInputReady: () => this._noteInputReady(),
+      noteOutput: (data) => this._noteOutput(data),
+      feedTitle: (data) => this._feedTitle(data),
+      terminalColors: () => this._getTerminalColors(),
+      signalsWindowChange: () => this._launch.hasActiveSandbox,
+      killTree: (pid) => this._reaper.kill(pid),
+      onSocketFailure: () => this.kill(),
       maxBytes: replayBufferKB * 1024,
       getState: () => this.state,
       isBetweenTurns: () => this.isBetweenTurns(),
       isDestroyed: () => this._destroyed,
-      hasLivePty: () => this.hasLivePty,
       lastOperatorInputAt: () => this._lastOperatorInputAt,
       write: (text) => this.write(text),
       start: () => { this.start(); },
@@ -576,6 +556,7 @@ class Session extends EventEmitter {
       screenKeeperFactory,
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
+    this._driver.subscribe((event) => this._onDriverEvent(event));
     this._chatOutbox = createChatOutbox({
       canTakeMessage: () => this.hasLivePty && this.isBetweenTurns() && this._isAgentReadyForChat(),
       reportsTurnStarts: () => this._hooksReportPrompts,
@@ -728,13 +709,6 @@ class Session extends EventEmitter {
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
     this._agentSpawnsInFlight = 0;
-    this._nodePtySpawn = (file, args, opts) => {
-      requireExecutableSpawnHelper();
-      requireRelayExecutable();
-      assertLaunchable(file);
-      return pty.spawn(file, args, opts);
-    };
-    this._ptySpawn = ptySpawn || this._nodePtySpawn;
     this._platform = platform;
     this._probeGraphicalSession = probeGraphicalSession;
     this._launch = createSessionLaunch({
@@ -778,7 +752,6 @@ class Session extends EventEmitter {
     });
 
     this._startPending = null;
-    this._resizeSeq = 0;
     this.worktreeLifecycle = createSessionWorktreeLifecycle({
       id: this.id,
       projectPath: this.path,
@@ -831,11 +804,31 @@ class Session extends EventEmitter {
   }
 
   get _ptyAlive(): boolean {
-    return this._ptyLifecycle === "live";
+    return this._driver.isMarkedLive;
   }
 
   set _ptyAlive(isAlive: boolean) {
-    this._ptyLifecycle = isAlive ? "live" : "exited";
+    this._driver.setLive(isAlive);
+  }
+
+  get ptyProcess(): SessionPty | null {
+    return this._driver.process;
+  }
+
+  set ptyProcess(process: SessionPty | null) {
+    this._driver.adoptProcess(process);
+  }
+
+  get _output(): PtyDriver["output"] {
+    return this._driver.output;
+  }
+
+  get _ptySpawn(): PtySpawn {
+    return this._driver.spawnFunction();
+  }
+
+  set _ptySpawn(spawn: PtySpawn) {
+    this._driver.useSpawnFunction(spawn);
   }
 
   get _hooksReportPrompts(): boolean {
@@ -1340,7 +1333,7 @@ class Session extends EventEmitter {
   }
 
   get pid(): number | null {
-    return this.ptyProcess ? this.ptyProcess.pid : null;
+    return this._driver.pid;
   }
 
   measureResidentBytes(): Promise<number | null> {
@@ -1516,7 +1509,7 @@ class Session extends EventEmitter {
   }
 
   get hasLivePty(): boolean {
-    return !this._destroyed && !!this.ptyProcess && !!this._ptyAlive;
+    return !this._destroyed && this._driver.isLive;
   }
 
   get _destroyed(): boolean {
@@ -1608,7 +1601,7 @@ class Session extends EventEmitter {
   pasteMergePrompt() { return this.worktreeLifecycle.pasteMergePrompt(); }
 
   deliver(text: string, options: DeliverOptions): DeliveryOutcome {
-    return this._output.deliver(cleanPastedText(text), {
+    return this._driver.send(cleanPastedText(text), {
       ...options,
       onSettled: (settlement) => {
         if (settlement === "submitted") this.emit("delivered-input");
@@ -1671,8 +1664,8 @@ class Session extends EventEmitter {
       state: this.state,
       destroyed: this._destroyed,
       pendingRestart: this.pendingRestart,
-      hasPty: this.ptyProcess !== null,
-      ptyPid: this.ptyProcess ? this.ptyProcess.pid : null,
+      hasPty: this._driver.process !== null,
+      ptyPid: this._driver.pid,
       outputBufferEntries: this._output.stats().entries,
       outputBufferBytes: this._output.stats().bytes,
       outputBufferTotal: this._output.stats().total,
@@ -1844,13 +1837,11 @@ class Session extends EventEmitter {
     if (this._destroyed) return;
     const startGeneration = ++this._startGeneration;
 
-    if (this.ptyProcess) {
+    const previousPty = this._driver.currentHandle();
+    if (previousPty) {
       console.warn(`[session:${this.name}] start() called while PTY exists - killing previous PTY first`);
-      const oldPid = this.ptyProcess.pid;
-
-      this._reaper.killReap = this._reaper.reapTreeOnce(oldPid, this._ptyScopeUnit);
-      this.ptyProcess = null;
-      this._ptyScopeUnit = null;
+      this._reaper.killReap = this._reaper.reapTreeOnce(previousPty.pid, previousPty.scopeUnit);
+      this._driver.forget();
     }
 
     const pendingReaps = this._reaper.awaitPendingReaps();
@@ -1918,12 +1909,11 @@ class Session extends EventEmitter {
       if (this.mergeStatus === "pending-review") this.worktreeLifecycle.scheduleCheck();
     }
     this._startupSignals.clear();
-    this._inputReadyScan = NO_INPUT_READY_SCAN;
     this._promptPhase = "awaiting-first-prompt";
     this._clearTimer("_inputReadyFallbackTimer");
 
     this._clearDetectionTracking();
-    this._output.reset();
+    this._driver.resetForStart();
 
     const rebaseline: RebaselineSignal = { startsNewConversation: this._restartStartsNewConversation };
     this._restartStartsNewConversation = false;
@@ -1993,8 +1983,7 @@ class Session extends EventEmitter {
       this._hooks.cleanup();
       return;
     }
-    const isNodePtySpawn = this._ptySpawn === this._nodePtySpawn;
-    const scopeHost = isNodePtySpawn ? await resolveSessionScopeHost() : null;
+    const scopeHost = this._driver.spawnsWithNodePty() ? await resolveSessionScopeHost() : null;
     if (isStartSuperseded()) {
       this._hooks.cleanup();
       return;
@@ -2007,30 +1996,17 @@ class Session extends EventEmitter {
     const sandboxedEnv = sandboxedCommand.env;
     const launch = scopeUnit === null ? { file, args, env: sandboxedEnv } : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file, args, env: sandboxedEnv });
 
-    const ptySize = this._output.ptySize();
+    const ptySize = this._driver.ptySize();
     try {
-      this.ptyProcess = this._ptySpawn(launch.file, launch.args, {
-        name: "xterm-256color",
-        cols: ptySize.cols,
-        rows: ptySize.rows,
-        cwd: this.effectiveCwd(),
-        env: launch.env,
-      });
-      this._ptyScopeUnit = scopeUnit;
+      this._driver.start({ file: launch.file, args: launch.args, cwd: this.effectiveCwd(), env: launch.env, scopeUnit });
     } catch (err) {
       this._abandonSpawn(err);
       return;
     }
-    this._ptyLifecycle = "live";
-    this._guardPtyInputSocket();
-    this._guardUnixPtySocket();
 
     const spawnCwdExists = fs.existsSync(this.effectiveCwd());
     if (spawnCwdExists) this._hooks.confirmSaneYoloActive();
     if (!this.transition("spawn_success", { spawnCwdExists })) {
-      this.ptyProcess.onExit(({ exitCode, signal }) =>
-        this._handleSpawnedPtyExit(exitCode, signal),
-      );
       this._hooks.deactivateSaneYolo();
       this._hooks.cleanup();
       this.transition("spawn_fail", { reason: "spawn_cwd_missing" });
@@ -2057,10 +2033,7 @@ class Session extends EventEmitter {
       });
     }
 
-    this.ptyProcess.onData((data) => this._handlePtyData(data));
-    this.ptyProcess.onExit(({ exitCode, signal }) =>
-      this._handleSpawnedPtyExit(exitCode, signal),
-    );
+    this._driver.streamOutput();
     this._deliverPtyInitialPrompt(launchPrompt);
     this._armResumeNoteFallback();
     this._armPromptSupervisionLine();
@@ -2089,13 +2062,6 @@ class Session extends EventEmitter {
     this._clearTimer("_inputReadyFallbackTimer");
     if (this.state === STATES.STARTING) this.transition("first_output");
     this._chatOutbox.drain();
-  }
-
-  _scanForInputReady(data: string): void {
-    if (this._startupSignals.has("ready")) return;
-    const { isReady, scan } = scanInputReady(this._inputReadyCondition(), this._inputReadyScan, data);
-    this._inputReadyScan = scan;
-    if (isReady) this._noteInputReady();
   }
 
   _armInputReadyFallback(): void {
@@ -2205,36 +2171,6 @@ class Session extends EventEmitter {
     this.emit("error", cause);
   }
 
-  _guardPtyInputSocket(): void {
-    try {
-      this.ptyProcess?._agent?.inSocket?.on("error", (err) => {
-        console.warn(`[session ${this.id}] pty input socket error (ignored): ${err.message}`);
-      });
-    } catch {
-
-    }
-  }
-
-  _guardUnixPtySocket(): void {
-    if (this._platform === "win32") return;
-    try {
-      this.ptyProcess?.on?.("error", (err) => this._handlePtySocketError(err));
-    } catch {
-
-    }
-  }
-
-  _handlePtySocketError(err: unknown): void {
-    const errorCode = err && typeof err === "object" && "code" in err ? (err as { code: unknown }).code : "";
-    const code = String(errorCode || "");
-    if (code.includes("EAGAIN")) return;
-    if (code.includes("EIO") || code.includes("errno 5")) return;
-    if (!this._ptyAlive) return;
-    const message = errorMessage(err);
-    console.warn(`[session ${this.id}] pty socket error: ${message} - killing the session`);
-    this.kill();
-  }
-
   _titleProjectName(): string {
     const cwdBasename = path.basename(this.effectiveCwd());
     return this._adapter.titleProfile.projectTitleOf?.(cwdBasename) ?? cwdBasename;
@@ -2257,29 +2193,33 @@ class Session extends EventEmitter {
   }
 
   _handlePtyData(data: string): void {
-    if (this._destroyed) return;
+    this._driver.handleOutput(data);
+  }
+
+  _noteOutput(data: string): void {
     if (this._recorder) {
       this._recorder.writeData(data);
     }
-
     if (this.state === STATES.STARTING && !this._startupSignals.has("output")) {
       this._startupSignals.add("output");
       this._armInputReadyFallback();
     }
-    this._scanForInputReady(data);
+  }
 
+  _feedTitle(data: string): void {
     try {
       this._titleSource.feed(data);
     } catch (err) {
       console.error(`[session:${this.name}] title source error: ${errorMessage(err)}`);
     }
+  }
 
-    this._answerColorQueries(data);
-
-    this._output.push(data);
-    if (this.listenerCount("data") > 0) {
-      this.emit("data", data);
+  _onDriverEvent(event: DriverEvent): void {
+    if (event.kind === "output") {
+      if (this.listenerCount("data") > 0) this.emit("data", event.data);
+      return;
     }
+    if (event.kind === "exit") void this._handleSpawnedPtyExit(event.exitCode, event.signal);
   }
 
   _isExitHeadedForFailure(event: string): boolean {
@@ -2295,20 +2235,18 @@ class Session extends EventEmitter {
   }
 
   async _handlePtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
-    const pid = this.ptyProcess ? this.ptyProcess.pid : null;
-    const scopeUnit = this._ptyScopeUnit;
+    const exitedPty = this._driver.currentHandle();
     this._resetDetectionSources({ quiet: false, clearTracking: true });
     this._dispatchAttention({ type: "teardown" });
 
     this._hooks.cleanup();
-    this._ptyLifecycle = "exited";
-    this.ptyProcess = null;
-    this._ptyScopeUnit = null;
+    this._driver.markExited();
+    this._driver.forget();
     this._lastClaudeSessionReport = null;
     this._promptNotes.dropResumeNote();
 
-    if (pid) {
-      this._reaper.exitReap = this._reaper.reapTreeOnce(pid, scopeUnit);
+    if (exitedPty?.pid) {
+      this._reaper.exitReap = this._reaper.reapTreeOnce(exitedPty.pid, exitedPty.scopeUnit);
     }
 
     const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._startupSignals.has("output"), this._stopReason);
@@ -2338,8 +2276,7 @@ class Session extends EventEmitter {
   }
 
   ptySize(): { cols: number; rows: number; seq: number } {
-    const size = this._output.ptySize();
-    return { cols: size.cols, rows: size.rows, seq: this._resizeSeq };
+    return this._driver.ptySize();
   }
 
   getOutputOffset(): number {
@@ -2350,19 +2287,12 @@ class Session extends EventEmitter {
     return this._output.since(offset);
   }
 
-  _answerColorQueries(data: string): void {
-    const scan = scanTerminalColorQueries(this._pendingColorQuery, data, this._getTerminalColors());
-    this._pendingColorQuery = scan.pending;
-    for (const reply of scan.replies) this.write(reply);
-  }
-
   write(text: string): void {
     if (this._recorder) {
       this._recorder.writeInput(text);
     }
 
-    if (!this.ptyProcess || !this._ptyAlive) return;
-    this.ptyProcess.write(text);
+    if (!this._driver.write(text)) return;
     if (!isPromptSubmit(text)) return;
     if (isComposerSubmit(text, this.state)) this._output.forgetUnsubmittedComposerPaste();
     this._observeCompaction("resume");
@@ -2470,20 +2400,12 @@ class Session extends EventEmitter {
   }
 
   resize(cols: number, rows: number): void {
-    const didSizeChange = this._output.rememberSize(cols, rows);
     if (this._recorder) {
       this._recorder.writeResize(cols, rows);
     }
-    if (!didSizeChange) return;
-
-    if (this.ptyProcess) {
-      try {
-        this.ptyProcess.resize(cols, rows);
-      } catch {}
-      if (this._launch.hasActiveSandbox) void signalWindowChangeBelow(this.ptyProcess.pid);
-    }
-    this._resizeSeq += 1;
-    this.emit("resize", { cols, rows, seq: this._resizeSeq });
+    const resizeSeq = this._driver.resize(cols, rows);
+    if (resizeSeq === null) return;
+    this.emit("resize", { cols, rows, seq: resizeSeq });
   }
 
   _emitError(err: unknown): void {
@@ -2491,11 +2413,9 @@ class Session extends EventEmitter {
   }
 
   kill(): void {
-    if (!this.ptyProcess) return;
-
-    this._ptyLifecycle = "exited";
+    if (!this._driver.process) return;
     this._promptNotes.dropResumeNote();
-    this._reaper.kill(this.ptyProcess.pid);
+    this._driver.stop();
   }
 
   dismiss(): boolean {

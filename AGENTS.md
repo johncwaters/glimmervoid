@@ -24,7 +24,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
 | `server/core/` | Pure decision modules for everything in `server/`, no IO |
 | `session/` | Session domain (`session/AGENTS.md`) |
-| `session/sessions.ts` | Session lifecycle and PTY ownership |
+| `session/sessions.ts` | Session lifecycle over a driver |
 | `session/adapters/`, `session/core/` | Agent adapters and pure session cores |
 | `detection/`, `notifications/` | Status signals and notification lifecycle |
 | `shared/` | Shared constants and wire contracts |

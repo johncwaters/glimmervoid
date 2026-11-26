@@ -58,4 +58,4 @@ function scanInputReady(condition: InputReadyCondition | undefined, scan: InputR
 }
 
 export { NO_INPUT_READY_SCAN, scanInputReady };
-export type { InputReadyCondition, InputReadyScan };
+export type { InputReadyCondition };

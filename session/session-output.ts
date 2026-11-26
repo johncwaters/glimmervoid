@@ -348,4 +348,4 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
 }
 
 export { createSessionOutput };
-export type { ScreenSnapshot };
+export type { ScreenSnapshot, SessionOutputOptions };

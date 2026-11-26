@@ -77,7 +77,7 @@ test("only child-process-safe.ts imports child_process directly (all spawns go t
 });
 
 const PTY_IMPORTERS = new Set([
-  path.join(ROOT, "session", "sessions.ts"),
+  path.join(ROOT, "session", "drivers", "pty-driver.ts"),
   path.join(ROOT, "server", "agent-login", "agent-connect.ts"),
   path.join(ROOT, "server", "node-pty-preflight.ts"),
 ]);
@@ -93,7 +93,7 @@ test("only the pty.spawn sites that call assertLaunchable import node-pty", () =
   assert.deepEqual(
     offenders,
     [],
-    `These modules import node-pty outside the guarded pty.spawn sites; spawn through session/sessions.ts or call assertLaunchable before pty.spawn:\n  ${offenders.join("\n  ")}`,
+    `These modules import node-pty outside the guarded pty.spawn sites; spawn through session/drivers/pty-driver.ts or call assertLaunchable before pty.spawn:\n  ${offenders.join("\n  ")}`,
   );
 });
 
