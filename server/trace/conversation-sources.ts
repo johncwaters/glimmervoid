@@ -5,8 +5,11 @@ import path from 'node:path';
 import { CONVERSATION_EVENTS_HOOK_EVENT } from '../../shared/contracts/trace.ts';
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import type { CatalogAgentId } from '../../shared/contracts/agent-models.ts';
+import type { DriverListener } from '../../session/drivers/driver.ts';
+import { clock } from '../../shared/clock.ts';
 import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import { traceRecordsFromTranscriptLine } from '../core/trace-core.ts';
+import { acpRecordsFromDriverEvent, createAcpTraceState, flushAcpTraceState } from '../core/conversation/acp-core.ts';
 import { codexRecordsFromLine } from '../core/conversation/codex-core.ts';
 import { codexRolloutRoots } from '../../session/adapters/codex.ts';
 import { kimiRecordsFromLine } from '../core/conversation/kimi-core.ts';
@@ -32,9 +35,21 @@ interface RelayConversationSource {
   recordsFromPayload(payload: unknown, now: number): TraceRecord[];
 }
 
+type SubscribeDriverEvents = (listener: DriverListener) => () => void;
+
+interface DriverConversationSource {
+  kind: 'driver';
+  subscribe(
+    subscribeEvents: SubscribeDriverEvents,
+    onRecords: (records: TraceRecord[]) => void,
+    nowFn?: () => number,
+  ): () => void;
+}
+
 type ConversationSource =
   | TranscriptConversationSource
   | RelayConversationSource
+  | DriverConversationSource
   | { kind: 'none'; reason: string };
 
 const ANTIGRAVITY_BRAIN_FOLDERS = ['antigravity-cli', 'antigravity'];
@@ -111,10 +126,34 @@ function relaySourceOf(agentId: string): RelayConversationSource | null {
   return source.kind === 'relay' ? source : null;
 }
 
+const ACP_DRIVER_SOURCE: DriverConversationSource = {
+  kind: 'driver',
+  subscribe(subscribeEvents, onRecords, nowFn = clock.nowMs) {
+    const state = createAcpTraceState();
+    let isStopped = false;
+    const unsubscribeEvents = subscribeEvents((event) => {
+      if (isStopped) return;
+      const records = acpRecordsFromDriverEvent(state, event, nowFn());
+      if (records.length > 0) onRecords(records);
+    });
+    return () => {
+      if (isStopped) return;
+      isStopped = true;
+      unsubscribeEvents();
+      const remaining = flushAcpTraceState(state);
+      if (remaining.length > 0) onRecords(remaining);
+    };
+  },
+};
+
+function driverSource(): DriverConversationSource {
+  return ACP_DRIVER_SOURCE;
+}
+
 function containmentRootFor(source: TranscriptConversationSource, agentEnv: Record<string, string | undefined>, candidatePath: string): string {
   const roots = source.containmentRoots(agentEnv);
   return roots.find((root) => isPathInside(path.resolve(root), candidatePath, { allowEqual: false })) ?? roots[0];
 }
 
-export { containmentRootFor, relaySourceOf, transcriptSourceOf };
-export type { TranscriptConversationSource };
+export { containmentRootFor, driverSource, relaySourceOf, transcriptSourceOf };
+export type { DriverConversationSource, SubscribeDriverEvents, TranscriptConversationSource };
