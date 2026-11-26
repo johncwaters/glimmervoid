@@ -214,7 +214,7 @@ Every "nothing here yet" placeholder is `emptyState()` from `public/ui/empty-sta
 ### Brand Mark
 - Four corner brackets around a small diamond light, from `shared/brand-mark.ts`: the wordmark glyph (site nav and dashboard header), the favicon (whose light turns amber or red when a session needs you or failed) and the loading screen. While connecting the brackets scan; when the dashboard is ready the mark spins once like a vault dial, the brackets clamp, the light comes on and the mark bursts away.
 
-### Terminal Pane (signature, the product)
+### Terminal Pane (signature, the core view)
 - An xterm.js surface filling each card on the Card Graphite background. The server is a dumb pipe; xterm renders all ANSI. The terminal theme is derived from the active CSS-variable palette at runtime, so it stays in lockstep with the chrome. Chrome around it must never compete with it for contrast or color.
 
 ### Permissions Badge

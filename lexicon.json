@@ -1720,7 +1720,10 @@
     },
     {
       "name": "effort",
-      "definition": "The reasoning effort level passed to a session agent (such as low, medium or high), picked per session, launcher or lane from the agent model catalog or set over ACP via thought_level"
+      "definition": "The reasoning effort level passed to a session agent (such as low, medium or high), picked per session, launcher or lane from the agent model catalog or set over ACP via thought_level",
+      "aliases": [
+        "medium"
+      ]
     },
     {
       "name": "permission",
@@ -1741,6 +1744,22 @@
     {
       "name": "dark",
       "definition": "A theme mode: a dark theme (Glimmer, Phyrexian, Midnight, Golgari, PostHog Dark, Rainbow Unicorns Dark) puts light text on dark surfaces, and the terminal takes ANSI_HUES_BY_MODE.dark colors for it"
+    },
+    {
+      "name": "subagent",
+      "definition": "An in-process agent an agent CLI spawns inside a session (as distinct from a child session spawned through glimmervoid spawn), reported by hooks (SubagentStop) or ACP subagent_update and shown as monitoring when it outlives a turn"
+    },
+    {
+      "name": "recording",
+      "definition": "A JSONL capture file of events over time: a session recording under ~/.glimmervoid/recordings capturing PTY output, hooks and state decisions for status detection debugging, or an ACP spike recording under harness/acp-spike/recordings capturing wire messages for a scenario"
+    },
+    {
+      "name": "feature",
+      "definition": "A named capability of Glimmervoid, listed in README Features, toggled in Settings > Features, or held under Feature freeze in AGENTS.md"
+    },
+    {
+      "name": "login",
+      "definition": "An account credential or session an agent CLI or operator is logged in with, such as a Claude subscription, ChatGPT, Google keyring, GitHub or Tailscale login"
     }
   ],
   "retired": [
