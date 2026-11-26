@@ -17,6 +17,8 @@ import type { RailField } from './status-rail-core.ts';
 
 interface ChatView {
   element: HTMLElement;
+  pauseActivityStats(): void;
+  resumeActivityStats(): void;
   stopActivityStats(): void;
   upsert(parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>): void;
   remove(partIds: readonly string[]): void;
@@ -193,10 +195,18 @@ function renderEmptyState(): HTMLElement {
 
 function renderLoadingState(): HTMLElement {
   const loading = el('div', 'chat-loading');
-  loading.setAttribute('aria-hidden', 'true');
+  loading.setAttribute('role', 'status');
+  const lines = Array.from({ length: LOADING_SKELETON_LINE_COUNT }, () => {
+    const line = el('span', 'chat-loading-line');
+    line.setAttribute('aria-hidden', 'true');
+    return line;
+  });
   const spinner = el('span', 'chat-loading-spinner');
-  paintStatusIcon(spinner, 'working');
-  loading.append(...Array.from({ length: LOADING_SKELETON_LINE_COUNT }, () => el('span', 'chat-loading-line')), spinner);
+  spinner.setAttribute('aria-hidden', 'true');
+  paintStatusIcon(spinner, 'starting');
+  const statusRow = el('div', 'chat-loading-status');
+  statusRow.append(spinner, el('span', 'chat-loading-label', 'Loading conversation'));
+  loading.append(...lines, statusRow);
   return loading;
 }
 
@@ -295,5 +305,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     if (turnEnd === null || isInTurnRow || turnEnd.pill.parentElement === turnEndRow) return;
     turnEndRow.replaceChildren(turnEnd.pill, turnEnd.list);
   };
-  return { element, stopActivityStats: activity.stopStats, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes, showLoaded };
+  return { element, pauseActivityStats: activity.pauseStats, resumeActivityStats: activity.resumeStats, stopActivityStats: activity.stopStats, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes, showLoaded };
 }

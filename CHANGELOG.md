@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Opening a session in Chat view no longer flashes a blank screen.** The Chat loading placeholder bars previously matched the chat background color and were invisible, and leaving a session while at the bottom discarded its rendered Chat view so returning triggered a full reload. Loading placeholders now contrast against the chat surface beside a `Loading conversation` status line, and revisiting a live session keeps its rendered Chat view in place while catching up.
 - **Shell sessions no longer offer or open a Chat view.** Opening a shell session on a phone or desktop now stays in the terminal without showing a Chat button or auto-opening Chat when Chat is your last-used view.
 - **Asking a question on the Code map no longer fails the session's board-layout check.** When a session asked a question about a file or module with `whiteboard ask`, Glimmervoid recorded the server-drawn question card and its dashed link wire as authored by that session, so crossings against the map's own wires failed its turn-end check. Board questions are now written without blaming the asking session's layout check, leaving the card and link wire on the map until you answer.
 - **Workspace folder cleanup ignores worktree trash folders that are still deleting.** Removing a workspace session or sweeping an orphaned folder no longer mistakes a `.deleting-*` trash directory from an in-flight worktree removal for a live checkout and leaves the workspace folder behind.

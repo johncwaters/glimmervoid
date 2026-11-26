@@ -409,7 +409,8 @@ function buildChat(sessionId: string): MountedChat {
     stopRunTimes();
   };
   const keepRunTimesTicking = () => {
-    if (runTimeTimer === null) runTimeTimer = setInterval(tickRunTimes, RUN_TIME_TICK_MS);
+    if (!root.isConnected || runTimeTimer !== null) return;
+    runTimeTimer = setInterval(tickRunTimes, RUN_TIME_TICK_MS);
   };
   const stopRail = () => {
     modelPicker.close();
@@ -573,11 +574,12 @@ function buildChat(sessionId: string): MountedChat {
     resumeRail: () => {
       showRail();
       if (railTimer === null) railTimer = setInterval(showRail, RAIL_TICK_MS);
+      chatView.resumeActivityStats();
       keepRunTimesTicking();
     },
     park: () => {
       stopRail();
-      chatView.stopActivityStats();
+      chatView.pauseActivityStats();
       if (sessionUIs.has(sessionId)) saveChatDraft(sessionId, chatView.readDraft());
       waits.releaseTerminal();
     },
@@ -592,17 +594,12 @@ function buildChat(sessionId: string): MountedChat {
   };
 }
 
-function isReaderAwayFromLatest(chat: MountedChat): boolean {
-  return chat.root.querySelector<HTMLButtonElement>('.chat-jump-slot button')?.hidden === false;
-}
-
 function unmountChat(): void {
   if (!mountedChat) return;
   const shownChat = mountedChat;
   mountedChat = null;
-  const shouldKeepPlace = isReaderAwayFromLatest(shownChat);
   shownChat.root.remove();
-  if (!shouldKeepPlace) {
+  if (!isChatAvailableFor(shownChat.sessionId)) {
     shownChat.close();
     return;
   }
@@ -765,6 +762,7 @@ export const chatPage: SessionPage = {
     mountedChat.showOutbox();
     mountedChat.resumeRail();
     mountedChat.showDone();
+    refreshChatFileRefs(mountedChat.root);
     mountedChat.catchUp();
     applyChatSessionStatus(sessionId);
     mountedChat.showBoardChanges();

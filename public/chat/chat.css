@@ -816,13 +816,15 @@ html[data-layout="phone"] .chat-card-option-keys .ui-keycap { display: none; }
   margin: 24px auto 0;
 }
 
-.chat-loading-line { height: 12px; border-radius: var(--radius); background: var(--bg-surface); }
+.chat-loading-line { height: 12px; border-radius: var(--radius); background: color-mix(in oklab, var(--text) 10%, var(--bg-surface)); }
 
 .chat-loading-line:nth-child(1) { width: 40%; margin-left: auto; }
 
 .chat-loading-line:nth-child(2) { width: 85%; }
 
 .chat-loading-line:nth-child(3) { width: 65%; }
+
+.chat-loading-status { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font: var(--type-meta)/1 var(--font-mono); }
 
 .chat-loading-spinner { display: grid; place-items: center; width: 12px; height: 12px; color: var(--accent); }
 

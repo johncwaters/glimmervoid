@@ -14,6 +14,8 @@ interface ChatActivity {
   beat(beats: readonly ActivityBeat[]): void;
   narrate(reply: string | null, callLabel: string | null): void;
   showStats(openedAt: number | null, outputTokens: number | null): void;
+  pauseStats(): void;
+  resumeStats(): void;
   stopStats(): void;
 }
 
@@ -91,16 +93,23 @@ export function createChatActivity(verbs: ActivityVerbs = 'varied'): ChatActivit
   let statsOpenedAt: number | null = null;
   let statsTokens: number | null = null;
   let statsTimer: ReturnType<typeof setInterval> | undefined;
+  const pauseStats = () => {
+    clearInterval(statsTimer);
+    statsTimer = undefined;
+  };
   const stopStats = () => {
     statsOpenedAt = null;
     statsTokens = null;
     stats.textContent = '';
-    clearInterval(statsTimer);
-    statsTimer = undefined;
+    pauseStats();
   };
   const paintStats = () => {
     if (statsOpenedAt === null || shownPhase !== 'working') {
       stopStats();
+      return;
+    }
+    if (!element.isConnected) {
+      pauseStats();
       return;
     }
     stats.textContent = liveStatsText(clock.nowMs() - statsOpenedAt, statsTokens);
@@ -271,6 +280,8 @@ export function createChatActivity(verbs: ActivityVerbs = 'varied'): ChatActivit
       statsTokens = outputTokens;
       paintStats();
     },
+    pauseStats,
+    resumeStats: paintStats,
     stopStats,
     beat: (beats) => {
       const shownBeat = beats.at(-1);
