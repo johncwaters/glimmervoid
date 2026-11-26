@@ -3,7 +3,10 @@
   "concepts": [
     {
       "name": "session",
-      "definition": "One supervised agent process (Claude Code, Codex, Kimi Code, Grok or a custom CLI) that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard"
+      "definition": "One supervised agent process (Claude Code, Codex, Antigravity CLI, Kimi Code, Grok or a custom CLI) that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard",
+      "aliases": [
+        "agent session"
+      ]
     },
     {
       "name": "worktree",
@@ -309,7 +312,10 @@
     },
     {
       "name": "review",
-      "definition": "An agent's pass over a pull request in the team review lane, drafted for the operator to post, or a GitHub review on the operator's own pull request; the Reviews tab queues both"
+      "definition": "An agent's pass over a pull request in the team review lane, drafted for the operator to post, or a GitHub review on the operator's own pull request; the Reviews tab queues both",
+      "aliases": [
+        "team review"
+      ]
     },
     {
       "name": "draft",
@@ -387,7 +393,10 @@
     },
     {
       "name": "agent",
-      "definition": "A coding agent CLI Glimmervoid supervises in a session (Claude Code, Codex, Antigravity CLI first-class; Kimi Code, OpenCode, pi, Gemini CLI, Qwen Code, Copilot CLI, Grok and custom CLIs best effort), read through its agent adapter"
+      "definition": "A coding agent CLI Glimmervoid supervises in a session (Claude Code, Codex, Antigravity CLI first-class; Kimi Code, OpenCode, pi, Gemini CLI, Qwen Code, Copilot CLI, Grok and custom CLIs best effort), read through its agent adapter",
+      "aliases": [
+        "opencode"
+      ]
     },
     {
       "name": "status",
@@ -1700,6 +1709,38 @@
     {
       "name": "style popover",
       "definition": "The former whiteboard panel above the properties panel that styled selected elements; removed with the operator's board authoring tools"
+    },
+    {
+      "name": "child",
+      "definition": "A session spawned by a parent session through the session tool (glimmervoid spawn), which talks to its parent or to siblings spawned by the same parent and is owned by its parent until closed; also an OS child process spawned by the server or a session"
+    },
+    {
+      "name": "kill",
+      "definition": "To terminate a running process with a signal, such as SIGKILL on an agent process during teardown, shutdown or the ACP spike resume test"
+    },
+    {
+      "name": "effort",
+      "definition": "The reasoning effort level passed to a session agent (such as low, medium or high), picked per session, launcher or lane from the agent model catalog or set over ACP via thought_level"
+    },
+    {
+      "name": "permission",
+      "definition": "An agent authorization to run a tool or command: the session permission mode (such as default, auto or bypassPermissions), a permission prompt held for operator approval (session/request_permission), or OS and remote access permission"
+    },
+    {
+      "name": "capability",
+      "definition": "A declared feature an agent adapter, ACP server or pack API supports (such as adapter capabilities in session/adapters, ACP agentCapabilities or pack bridge capabilities); an undeclared capability is absent"
+    },
+    {
+      "name": "navigate",
+      "definition": "To switch the dashboard view or focus to a target (a session terminal, a pack settings page or a host Settings section), including the proposed pack panel bridge navigate message"
+    },
+    {
+      "name": "providers",
+      "definition": "The pack panel bridge read topic carrying open incidents polled from a pack HTTPS statuspage summary URLs (status.urls), shared across packs and polled at most every 5 minutes"
+    },
+    {
+      "name": "dark",
+      "definition": "A theme mode: a dark theme (Glimmer, Phyrexian, Midnight, Golgari, PostHog Dark, Rainbow Unicorns Dark) puts light text on dark surfaces, and the terminal takes ANSI_HUES_BY_MODE.dark colors for it"
     }
   ],
   "retired": [
