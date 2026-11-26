@@ -180,6 +180,38 @@ test('validateConfig rejects malformed known fields', () => {
   assert.match(errors.join('\n'), /remote must be a plain object/);
   assert.equal(validateConfig(null).ok, false);
   assert.equal(validateConfig([]).ok, false);
+
+  const ruleViolations = validateConfig({
+    projects: [{
+      path: '/repo',
+      resumeSessionId: '--not-a-conversation-id',
+      saneYolo: 'yes',
+      repos: ['/only-one'],
+      agentHome: 'invalid-home',
+    }],
+  });
+  assert.equal(ruleViolations.ok, false);
+  const ruleErrors = ruleViolations.ok ? '' : ruleViolations.errors.join('\n');
+  assert.match(ruleErrors, /projects\[\]\.resumeSessionId must be a valid conversation id/);
+  assert.doesNotMatch(ruleErrors, /resumeSessionId must be a string/);
+  assert.match(ruleErrors, /projects\[\]\.saneYolo must be a boolean/);
+  assert.doesNotMatch(ruleErrors, /saneYolo must be a string/);
+  assert.match(ruleErrors, /projects\[0\]\.repos: /);
+  assert.doesNotMatch(ruleErrors, /repos must be a string/);
+  assert.match(ruleErrors, /projects\[0\]\.agentHome: /);
+  assert.doesNotMatch(ruleErrors, /agentHome must be a string/);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-config-load-err-'));
+  try {
+    const badConfigPath = path.join(tmpDir, 'config.json');
+    fs.writeFileSync(badConfigPath, JSON.stringify({ projects: [{ path: '/repo', resumeSessionId: '--bad' }] }), 'utf8');
+    const loaded = loadConfigFile(badConfigPath, { exitOnError: false });
+    assert.ok('error' in loaded);
+    assert.match(loaded.message, /projects\[\]\.resumeSessionId must be a valid conversation id/);
+    assert.doesNotMatch(loaded.message, /must be a string/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
 
 test('validateConfig keeps sandboxAllowedHosts to host names a sandbox cannot turn into a private address', () => {

@@ -61,6 +61,13 @@ function generateProjectId(): string {
   return crypto.randomUUID();
 }
 
+function formatProjectIssuePath(pathSegments: readonly PropertyKey[]): string {
+  return pathSegments.reduce<string>((formatted, segment) => {
+    if (typeof segment === 'number') return `${formatted}[${segment}]`;
+    return formatted === '' ? String(segment) : `${formatted}.${String(segment)}`;
+  }, '');
+}
+
 function validateConfig(candidate: unknown): ConfigValidation {
   if (!isRecord(candidate)) return { ok: false, errors: ['config must be a plain object'] };
   const parsedConfig = Config.safeParse(candidate);
@@ -78,9 +85,12 @@ function validateConfig(candidate: unknown): ConfigValidation {
       if (typeof index !== 'number') return 'projects must be an array';
       if (!field) return `projects[${index}] must be a plain object`;
       if (field === 'agent') return `projects[${index}].agent must be ${AGENT_ID_SHAPE_MESSAGE}`;
-      if (field === 'codexBypassHookTrust') return `projects[${index}].codexBypassHookTrust must be a boolean`;
-      if (field === 'environment') return issue.message;
-      return `projects[${index}].${String(field)} must be a string`;
+      if (issue.path.length === 3 && issue.code === 'invalid_type' && issue.message.startsWith('Invalid input:')) {
+        if (issue.expected === 'string') return `projects[${index}].${String(field)} must be a string`;
+        if (issue.expected === 'boolean') return `projects[${index}].${String(field)} must be a boolean`;
+      }
+      if (issue.message.startsWith('projects[')) return issue.message;
+      return `${formatProjectIssuePath(issue.path)}: ${issue.message}`;
     });
     return { ok: false, errors };
   }
