@@ -370,7 +370,7 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
     }
     const ui = sessionUIs.get(sessionId);
     const isWaitingOnLimit = ui?.pendingPromptKind === RATE_LIMIT_PROMPT_KIND;
-    const isWaitingOnTerminal = ui?.currentState === STATES.WAITING && !isAnswerableFromChat && !isWaitingOnLimit;
+    const isWaitingOnTerminal = ui?.hasTerminal !== false && ui?.currentState === STATES.WAITING && !isAnswerableFromChat && !isWaitingOnLimit;
     if (isWaitingOnTerminal) {
       borrowTerminal();
       return;

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { openContainedFile } from '../contained-file.ts';
@@ -60,14 +61,17 @@ function detachDriverListener<EventName extends keyof SessionDriverEventPayloads
 function subscribeSessionDriverEvents(
   session: TraceSession,
   onAgentSession: (agentSessionId: string) => void,
+  skipReplayBeforeOpen: boolean,
 ): SubscribeDriverEvents {
   return (listener: DriverListener) => {
+    let isSkippingReplay = skipReplayBeforeOpen;
     const forward = <EventName extends keyof SessionDriverEventPayloads>(
       eventName: EventName,
-      toDriverEvent: (payload: SessionDriverEventPayloads[EventName]) => DriverEvent,
+      toDriverEvent: (payload: SessionDriverEventPayloads[EventName]) => DriverEvent | null,
     ): (() => void) => {
       const handler: DriverSessionListener<EventName> = (payload) => {
-        listener(toDriverEvent(payload));
+        const driverEvent = toDriverEvent(payload);
+        if (driverEvent !== null) listener(driverEvent);
       };
       session.on(eventName, handler);
       return () => { detachDriverListener(session, eventName, handler); };
@@ -75,14 +79,23 @@ function subscribeSessionDriverEvents(
 
     const detachAll: (() => void)[] = [
       forward(SESSION_DRIVER_EVENTS.agentSession, (payload) => {
+        isSkippingReplay = false;
         if (payload.agentSessionId.length > 0) onAgentSession(payload.agentSessionId);
         return { kind: 'agent-session', agentSessionId: payload.agentSessionId, isResumed: payload.isResumed };
       }),
-      forward(SESSION_DRIVER_EVENTS.update, (payload) => ({
-        kind: 'update',
+      forward(SESSION_DRIVER_EVENTS.prompt, (payload) => ({
+        kind: 'prompt',
         agentSessionId: payload.agentSessionId,
-        update: payload.update,
+        text: payload.text,
       })),
+      forward(SESSION_DRIVER_EVENTS.update, (payload) => {
+        if (isSkippingReplay) return null;
+        return {
+          kind: 'update',
+          agentSessionId: payload.agentSessionId,
+          update: payload.update,
+        };
+      }),
       forward(SESSION_DRIVER_EVENTS.permission, (payload) => ({
         kind: 'permission',
         request: payload.request,
@@ -94,6 +107,10 @@ function subscribeSessionDriverEvents(
       forward(SESSION_DRIVER_EVENTS.turnEnd, (payload) => ({
         kind: 'turn-end',
         stopReason: payload.stopReason,
+      })),
+      forward(SESSION_DRIVER_EVENTS.promptError, (payload) => ({
+        kind: 'prompt-error',
+        message: payload.message,
       })),
     ];
 
@@ -129,9 +146,20 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   const { readSubagentTranscript } = deps.subagentCapture;
   const attachedSessions = new WeakSet<object>();
   const driverStopByGlimmervoidSessionId = new Map<string, () => void>();
+  const driverTraceRecordedSessionIds = new Set<string>();
   const conversationVendorSessionIdByGlimmervoidSessionId = new Map<string, string>();
   const pendingRecordsByGlimmervoidSessionId = new Map<string, Record<string, unknown>[]>();
   const launchEnvByGlimmervoidSessionId = new Map<string, () => Record<string, string | undefined>>();
+
+  function hasExistingTraceFile(glimmervoidSessionId: string): boolean {
+    const filePath = traceFilePath(glimmervoidSessionId);
+    if (!filePath) return false;
+    try {
+      return fs.statSync(filePath).size > 0;
+    } catch {
+      return false;
+    }
+  }
 
   function stopDriverSubscription(glimmervoidSessionId: string): void {
     const stopDriver = driverStopByGlimmervoidSessionId.get(glimmervoidSessionId);
@@ -152,11 +180,15 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
 
   function ensureDriverSubscription(session: TraceSession): void {
     if (isStopped() || closedSessionIds.has(session.id) || driverStopByGlimmervoidSessionId.has(session.id)) return;
+    const skipReplayBeforeOpen = driverTraceRecordedSessionIds.has(session.id) || hasExistingTraceFile(session.id);
     const stopDriver = driverSource().subscribe(
       subscribeSessionDriverEvents(session, (agentSessionId) => {
         conversationVendorSessionIdByGlimmervoidSessionId.set(session.id, agentSessionId);
-      }),
-      (records) => { appendConversationRecords(session.id, records); },
+      }, skipReplayBeforeOpen),
+      (records) => {
+        if (records.length > 0) driverTraceRecordedSessionIds.add(session.id);
+        appendConversationRecords(session.id, records);
+      },
       nowFn,
     );
     driverStopByGlimmervoidSessionId.set(session.id, stopDriver);
@@ -347,6 +379,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   function closeSession(glimmervoidSessionId: string): void {
     stopDriverSubscription(glimmervoidSessionId);
     closedSessionIds.add(glimmervoidSessionId);
+    driverTraceRecordedSessionIds.delete(glimmervoidSessionId);
     awaitingTranscriptByGlimmervoidSessionId.delete(glimmervoidSessionId);
     conversationVendorSessionIdByGlimmervoidSessionId.delete(glimmervoidSessionId);
     pendingRecordsByGlimmervoidSessionId.delete(glimmervoidSessionId);

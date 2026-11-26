@@ -154,11 +154,12 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   return sessionUi;
 }
 
-export function setSessionAgent(sessionId: unknown, agent: unknown, agentDrawsAlternateScreen: unknown) {
+export function setSessionAgent(sessionId: unknown, agent: unknown, agentDrawsAlternateScreen: unknown, hasTerminal: unknown = true) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.agent = typeof agent === 'string' ? agent : null;
   ui.agentDrawsAlternateScreen = agentDrawsAlternateScreen === true;
+  ui.hasTerminal = hasTerminal !== false;
   const agentMarkEl = queryCardPart(ui.card, '.session-agent-mark');
   if (agentMarkEl) paintAgentMark(agentMarkEl, ui.agent);
   paintSessionAccount(ui);

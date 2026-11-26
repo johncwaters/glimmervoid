@@ -91,6 +91,7 @@ export const SessionCardFields = z.object({
   path: z.string(),
   agent: z.string(),
   agentDrawsAlternateScreen: z.boolean().optional(),
+  hasTerminal: z.boolean().optional(),
   state: SessionState,
   stateSince: timestamp,
   skipPerms: z.boolean(),

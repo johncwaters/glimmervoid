@@ -15,7 +15,7 @@ interface DeliverOptions {
   when: DeliveryWhen;
   submit: boolean;
   timeoutMs?: number;
-  onSettled?: (settlement: DeliverySettlement) => void;
+  onSettled?: (settlement: DeliverySettlement, detail?: string) => void;
 }
 
 const SUBMIT_DELAY_MS = 300;

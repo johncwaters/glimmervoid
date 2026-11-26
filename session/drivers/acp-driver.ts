@@ -2,13 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
-import { client, methods, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { client, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import type { ClientConnection, CreateElicitationResponse, McpServer, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "../../server/child-process-safe.ts";
 import { glimmervoidHomeDir } from "../../server/core/config-path-core.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { decideAcpSend, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
+import { classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
 import type { AcpPhase } from "../core/acp-driver-core.ts";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
 import { withoutGlimmervoidSecrets } from "../core/spawn-env.ts";
@@ -21,9 +21,10 @@ interface AcpDriverOptions {
   killTree: (pid: number) => void;
 }
 
-interface QueuedPrompt {
+interface ActivePrompt {
   text: string;
   options: DeliverOptions;
+  isConfirmed: boolean;
 }
 
 function signalNumberOf(signalName: NodeJS.Signals | null): number | undefined {
@@ -57,7 +58,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
   let phase: AcpPhase = "idle";
   let agentSessionId: string | null = null;
   let isPromptOpen = false;
-  let queuedPrompt: QueuedPrompt | null = null;
+  let activePrompt: ActivePrompt | null = null;
   let runGeneration = 0;
 
   function emit(event: DriverEvent): void {
@@ -69,24 +70,45 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     emit({ kind: "failure", stage, message: errorMessage(error) });
   }
 
-  function dropQueuedPrompt(): void {
-    queuedPrompt?.options.onSettled?.("dropped");
-    queuedPrompt = null;
+  function confirmActivePrompt(): void {
+    if (activePrompt === null || activePrompt.isConfirmed || agentSessionId === null) return;
+    activePrompt.isConfirmed = true;
+    emit({ kind: "prompt", agentSessionId, text: activePrompt.text });
+    activePrompt.options.onSettled?.("submitted");
   }
 
-  function openPrompt(generation: number, activeConnection: ClientConnection, sessionId: string, prompt: QueuedPrompt): void {
+  function dropActivePrompt(detail?: string): void {
+    const pending = activePrompt;
+    activePrompt = null;
+    if (pending === null || pending.isConfirmed) return;
+    pending.options.onSettled?.("dropped", detail);
+  }
+
+  function openPrompt(generation: number, activeConnection: ClientConnection, sessionId: string, text: string, deliverOptions: DeliverOptions): void {
     isPromptOpen = true;
-    const turn = activeConnection.agent.request(methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: prompt.text }] });
-    prompt.options.onSettled?.("submitted");
+    activePrompt = { text, options: deliverOptions, isConfirmed: false };
+    const turn = activeConnection.agent.request(methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text }] });
     turn.then(
       (response) => {
         if (generation !== runGeneration || phase === "closed") return;
+        confirmActivePrompt();
+        activePrompt = null;
         isPromptOpen = false;
         emit({ kind: "turn-end", stopReason: response.stopReason });
       },
       (error: unknown) => {
         if (generation !== runGeneration || phase === "closed") return;
+        const decision = classifyAcpPromptError({
+          isRequestError: error instanceof RequestError,
+          isConnectionAlive: phase === "ready",
+          message: errorMessage(error),
+        });
         isPromptOpen = false;
+        dropActivePrompt(decision.failureMessage ?? undefined);
+        if (decision.action === "end-turn") {
+          emit({ kind: "prompt-error", message: decision.failureMessage });
+          return;
+        }
         reportFailure(generation, "prompt", error);
       },
     );
@@ -107,9 +129,6 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     agentSessionId = openedSessionId;
     phase = "ready";
     emit({ kind: "agent-session", agentSessionId: openedSessionId, isResumed: plan.method === "session/load" });
-    const waitingPrompt = queuedPrompt;
-    queuedPrompt = null;
-    if (waitingPrompt !== null) openPrompt(generation, activeConnection, openedSessionId, waitingPrompt);
   }
 
   function connect(generation: number, agentProcess: ChildProcess): ClientConnection {
@@ -120,17 +139,20 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     return client({ name: options.clientName })
       .onNotification(methods.client.session.update, ({ params }) => {
         if (generation !== runGeneration || phase === "closed") return;
+        if (isPromptOpen && doesUpdateConfirmPrompt(params.update)) confirmActivePrompt();
         emit({ kind: "update", agentSessionId: params.sessionId, update: params.update });
       })
       .onNotification("*", dropAccountPrivateExtensionNotification)
       .onRequest(methods.client.session.requestPermission, ({ params, signal }) => new Promise<RequestPermissionResponse>((resolve) => {
         if (generation !== runGeneration || phase === "closed") return resolve({ outcome: { outcome: "cancelled" } });
+        if (isPromptOpen) confirmActivePrompt();
         emit({ kind: "permission", request: { ...permissionFieldsOf(params), options: params.options, withdrawn: signal, respond: (outcome) => resolve({ outcome }) } });
       }))
       .onRequest(methods.client.elicitation.create, ({ params, signal }) => new Promise<CreateElicitationResponse>((resolve) => {
         if (generation !== runGeneration || phase === "closed") return resolve({ action: "cancel" });
         const fields = questionFieldsOf(params);
         if (fields === null) return resolve({ action: "decline" });
+        if (isPromptOpen) confirmActivePrompt();
         emit({ kind: "question", question: { ...fields, withdrawn: signal, respond: (answer) => resolve(answer as CreateElicitationResponse) } });
       }))
       .connect(ndJsonStream(toAgent, fromAgent));
@@ -144,7 +166,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     const generation = ++runGeneration;
     agentSessionId = null;
     isPromptOpen = false;
-    dropQueuedPrompt();
+    dropActivePrompt();
     const agentProcess = spawn(launch.file, launch.args, {
       cwd: spawnCwd,
       env: acpSpawnEnv(launch.env),
@@ -165,7 +187,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
       if (generation !== runGeneration) return;
       phase = "closed";
       isPromptOpen = false;
-      dropQueuedPrompt();
+      dropActivePrompt();
       void activeConnection.closed.then(() => {
         if (generation !== runGeneration) return;
         emit({ kind: "exit", exitCode: exitCode ?? 0, signal: signalNumberOf(signalName) });
@@ -179,16 +201,14 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
   }
 
   function send(text: string, deliverOptions: DeliverOptions): DeliveryOutcome {
-    const decision = decideAcpSend({ phase, isPromptOpen, hasQueuedPrompt: queuedPrompt !== null }, deliverOptions);
-    if (decision.action === "queue") queuedPrompt = { text, options: deliverOptions };
+    const decision = decideAcpSend({ phase, isPromptOpen }, deliverOptions);
     if (decision.action === "prompt" && connection !== null && agentSessionId !== null) {
-      openPrompt(runGeneration, connection, agentSessionId, { text, options: deliverOptions });
+      openPrompt(runGeneration, connection, agentSessionId, text, deliverOptions);
     }
     return decision.outcome;
   }
 
   function interrupt(): void {
-    dropQueuedPrompt();
     if (!isPromptOpen || connection === null || agentSessionId === null) return;
     const generation = runGeneration;
     connection.agent.notify(methods.agent.session.cancel, { sessionId: agentSessionId }).catch((error: unknown) => reportFailure(generation, "prompt", error));
@@ -198,7 +218,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     if (child === null || child.pid === undefined) return false;
     phase = "closed";
     isPromptOpen = false;
-    dropQueuedPrompt();
+    dropActivePrompt();
     options.killTree(child.pid);
     return true;
   }

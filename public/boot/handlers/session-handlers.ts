@@ -24,7 +24,7 @@ const messageHandlers = {
     applyChatSessionStatus(msg.id);
     noteBoardSessionStatusChanged(msg.id);
   },
-  'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); noteChatAgentDoneLines(msg.id, msg.agentDoneLines ?? []); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } setSessionModelSelection(msg.id, msg.modelSelection ?? null); setSessionAccountId(msg.id, msg.accountId ?? null); setSessionWorkingDirectory(msg.id, msg.workingDirectory); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); noteChatAgentDoneLines(msg.id, msg.agentDoneLines ?? []); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen, msg.hasTerminal); } setSessionModelSelection(msg.id, msg.modelSelection ?? null); setSessionAccountId(msg.id, msg.accountId ?? null); setSessionWorkingDirectory(msg.id, msg.workingDirectory); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
   'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); forgetChatDraft(msg.id); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
@@ -34,7 +34,7 @@ const messageHandlers = {
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     rebuildSessionCard(msg.id, msg.session, msg.state, msg, msg.linkedPrs);
-    setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen);
+    setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen, msg.hasTerminal);
     refreshFavicon(attentionTally.counts);
     refreshRosterAndAttentionSurfaces();
     syncTraceSessionsFromCards();

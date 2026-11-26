@@ -95,7 +95,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     noteChatPlanGate(s.id, s.planGate);
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
-    setSessionAgent(s.id, s.agent, s.agentDrawsAlternateScreen);
+    setSessionAgent(s.id, s.agent, s.agentDrawsAlternateScreen, s.hasTerminal);
 
     seedSessionMergeStatus(s.id, s.mergeStatus, s.mergeReason);
 
@@ -183,7 +183,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
   createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, accountId: card?.dataset.accountId ?? null, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom, parent: previousUi?.parent, isStudioMain: previousUi?.isStudioMain, attentionOwner: previousUi?.attentionOwner }));
-  setSessionAgent(msg.id, previousUi?.agent, previousUi?.agentDrawsAlternateScreen);
+  setSessionAgent(msg.id, previousUi?.agent, previousUi?.agentDrawsAlternateScreen, previousUi?.hasTerminal);
   carryOverClientSessionFields(msg.id, previousUi);
 }
 

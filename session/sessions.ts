@@ -578,8 +578,9 @@ class Session extends EventEmitter {
     this._driver.subscribe((event) => this._onDriverEvent(event));
     this._chatOutbox = createChatOutbox({
       canTakeMessage: () => this.hasLivePty && this.isBetweenTurns() && this._isAgentReadyForChat(),
-      reportsTurnStarts: () => this._hooksReportPrompts,
-      recordsPrompts: () => CatalogAgentId.safeParse(this.agentId).success,
+      hasTerminal: () => this._driver.hasTerminal,
+      reportsTurnStarts: () => this._driver.hasTerminal && this._hooksReportPrompts,
+      recordsPrompts: () => this._driver.hasTerminal && CatalogAgentId.safeParse(this.agentId).success,
       isDeliveryInFlight: () => this.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
       noteSubmitted: (entry) => {
@@ -1536,9 +1537,14 @@ class Session extends EventEmitter {
   }
 
   enterCheckTerminal(): void {
+    if (!this._driver.hasTerminal) return;
     if (mapSignalToEvent("awaiting-input", this.state, "high", 0) !== "prompt_detected") return;
     this._setPendingPromptKind(CHECK_TERMINAL_PROMPT_KIND);
     this._statusSource.ingest({ signal: "awaiting-input", source: "glimmervoid", confidence: "high", ts: clock.nowMs() });
+  }
+
+  get hasTerminal(): boolean {
+    return this._driver.hasTerminal;
   }
 
   get hasLivePty(): boolean {
@@ -1634,19 +1640,23 @@ class Session extends EventEmitter {
   pasteMergePrompt() { return this.worktreeLifecycle.pasteMergePrompt(); }
 
   deliver(text: string, options: DeliverOptions): DeliveryOutcome {
-    return this._driver.send(cleanPastedText(text), {
+    const outcome = this._driver.send(cleanPastedText(text), {
       ...options,
-      onSettled: (settlement) => {
-        if (settlement === "submitted" && this._pty === null) this._stepAcpStatus({ kind: "prompt-accepted" });
+      onSettled: (settlement, detail) => {
         if (settlement === "submitted") this.emit("delivered-input");
-        options.onSettled?.(settlement);
+        options.onSettled?.(settlement, detail);
       },
     });
+    if (outcome.ok && this._pty === null) this._stepAcpStatus({ kind: "prompt-accepted" });
+    return outcome;
   }
 
 
   hasPendingPaste(): boolean { return this._pty?.output.hasPendingPaste() ?? false; }
-  isDeliveryInFlight(): boolean { return this._pty?.output.isDeliveryInFlight() ?? false; }
+  isDeliveryInFlight(): boolean {
+    if (this._pty !== null) return this._pty.output.isDeliveryInFlight();
+    return this._acpTurn.isPromptOpen;
+  }
 
   _clearPendingPaste(): void { this._pty?.output.clearPendingPaste(); }
 
@@ -1728,6 +1738,7 @@ class Session extends EventEmitter {
       workingDirectory: this.effectiveCwd(),
       agent: this.agentId,
       agentDrawsAlternateScreen: this.agentDrawsAlternateScreen,
+      hasTerminal: this._driver.hasTerminal,
       state: this.state,
       stateSince: this.stateSince,
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
@@ -2103,7 +2114,7 @@ class Session extends EventEmitter {
     }
     console.log(`[session ${this.id}] spawn over ACP: ${sandboxedCommand.file} ${sandboxedCommand.args.join(" ")} (cwd=${this.effectiveCwd()})`);
     const launchPrompt = resumeAgentSessionId !== null ? resumePrompt : this._initialPrompt;
-    if (launchPrompt) this.deliver(launchPrompt, { when: "now", submit: true });
+    if (launchPrompt) this._chatOutbox.queue(launchPrompt, [], "operator");
   }
 
   _emitRebaseline(): void {
@@ -2311,6 +2322,9 @@ class Session extends EventEmitter {
         this.emit(SESSION_DRIVER_EVENTS.agentSession, { agentSessionId: event.agentSessionId, isResumed: event.isResumed });
         return;
       }
+      case "prompt":
+        this.emit(SESSION_DRIVER_EVENTS.prompt, { agentSessionId: event.agentSessionId, text: event.text });
+        return;
       case "update": {
         const isInTurn = this._acpTurn.isPromptOpen;
         this._stepAcpStatus({ kind: "update" });
@@ -2327,6 +2341,13 @@ class Session extends EventEmitter {
         this._stepAcpStatus({ kind: "turn-end" });
         this._cancelDriverAsks();
         this.emit(SESSION_DRIVER_EVENTS.turnEnd, { stopReason: event.stopReason });
+        this._chatOutbox.drain();
+        return;
+      case "prompt-error":
+        this._stepAcpStatus({ kind: "turn-end" });
+        this._cancelDriverAsks();
+        this.emit(SESSION_DRIVER_EVENTS.promptError, { message: event.message });
+        this._chatOutbox.drain();
         return;
       case "failure":
         this._failDriver(event.stage, event.message);
@@ -2462,7 +2483,7 @@ class Session extends EventEmitter {
   stopFromChat(sendNextEntryId?: string): void {
     const isTurnEndHeldForBackgroundWork = this._isTurnEndHeldForBackgroundWork();
     if (sendNextEntryId !== undefined) {
-      const isTurnRunning = this.state === STATES.RUNNING || isTurnEndHeldForBackgroundWork;
+      const isTurnRunning = this.state === STATES.RUNNING || isTurnEndHeldForBackgroundWork || (this._pty === null && this._acpTurn.isPromptOpen);
       if (!isTurnRunning || !this._chatOutbox.sendNext(sendNextEntryId)) return;
       if (isTurnEndHeldForBackgroundWork) {
         this._chatOutbox.drain();
@@ -2472,6 +2493,10 @@ class Session extends EventEmitter {
     if (isTurnEndHeldForBackgroundWork) {
       const isStopAlreadyAsked = this._chatOutbox.entries().some((entry) => entry.origin === "stop-background" && entry.state !== "failed");
       if (!isStopAlreadyAsked) this._chatOutbox.queue(STOP_BACKGROUND_WORK_TEXT, [], "stop-background");
+      return;
+    }
+    if (this._pty === null) {
+      this.interrupt();
       return;
     }
     this.write(LONE_ESCAPE);
@@ -2518,6 +2543,7 @@ class Session extends EventEmitter {
   }
 
   startSignIn(onSettled: NonNullable<DeliverOptions["onSettled"]>): ReturnType<Session["deliver"]> | null {
+    if (!this._driver.hasTerminal) return null;
     const loginCommand = LOGIN_COMMAND_BY_AGENT[this.agentId];
     if (!loginCommand) return null;
     this._applyWaitingInputDecision(loginCommand);

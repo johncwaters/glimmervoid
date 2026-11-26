@@ -40,10 +40,12 @@ interface DriverQuestion {
 type DriverEvent =
   | { kind: "output"; data: string }
   | { kind: "agent-session"; agentSessionId: string; isResumed: boolean }
+  | { kind: "prompt"; agentSessionId: string; text: string }
   | { kind: "update"; agentSessionId: string; update: SessionUpdate }
   | { kind: "permission"; request: DriverPermissionRequest }
   | { kind: "question"; question: DriverQuestion }
   | { kind: "turn-end"; stopReason: StopReason }
+  | { kind: "prompt-error"; message: string }
   | { kind: "failure"; stage: DriverFailureStage; message: string }
   | { kind: "exit"; exitCode: number; signal: number | undefined };
 
@@ -66,18 +68,22 @@ type SessionDriverChoice =
 
 const SESSION_DRIVER_EVENTS = Object.freeze({
   agentSession: "driver-agent-session",
+  prompt: "driver-prompt",
   update: "driver-update",
   permission: "driver-permission",
   question: "driver-question",
   turnEnd: "driver-turn-end",
+  promptError: "driver-prompt-error",
 } as const);
 
 interface SessionDriverEventPayloads {
   [SESSION_DRIVER_EVENTS.agentSession]: { agentSessionId: string; isResumed: boolean };
+  [SESSION_DRIVER_EVENTS.prompt]: { agentSessionId: string; text: string };
   [SESSION_DRIVER_EVENTS.update]: { agentSessionId: string; update: SessionUpdate; isInTurn: boolean };
   [SESSION_DRIVER_EVENTS.permission]: { request: DriverPermissionRequest };
   [SESSION_DRIVER_EVENTS.question]: { question: DriverQuestion };
   [SESSION_DRIVER_EVENTS.turnEnd]: { stopReason: StopReason };
+  [SESSION_DRIVER_EVENTS.promptError]: { message: string };
 }
 
 export { SESSION_DRIVER_EVENTS };

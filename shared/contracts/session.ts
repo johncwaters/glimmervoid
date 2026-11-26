@@ -91,6 +91,7 @@ export const ConversationApproval = z.object({
 export const PermissionDecision = z.enum(['allow', 'deny']);
 
 export const CHAT_OUTBOX_TEXT_MAX_CHARS = 4000;
+export const CHAT_OUTBOX_FAILURE_MAX_CHARS = 500;
 export const CHAT_OUTBOX_MAX_ENTRIES = 20;
 export const CHAT_SEND_MAX_ATTACHMENTS = 8;
 export const UPLOAD_FILENAME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}(-chat)?(\.[a-z0-9]{1,16})?$/;
@@ -102,7 +103,7 @@ export const ChatOutboxEntry = z.object({
   text: z.string().max(CHAT_OUTBOX_TEXT_MAX_CHARS),
   attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]),
   state: z.enum(['held', 'next', 'sending', 'submitted', 'failed']),
-  failure: z.string().max(500).nullable(),
+  failure: z.string().max(CHAT_OUTBOX_FAILURE_MAX_CHARS).nullable(),
   shouldOpenTerminal: z.boolean().default(false),
   origin: ChatOutboxOrigin.default('operator'),
 }).strict();
@@ -167,6 +168,7 @@ export const SessionSnapshot = z.object({
   workingDirectory: z.string().nullable().default(null),
   agent: z.string(),
   agentDrawsAlternateScreen: z.boolean().default(false),
+  hasTerminal: z.boolean().default(true),
   state: SessionState,
   stateSince: z.number(),
   dangerouslySkipPermissions: z.boolean(),

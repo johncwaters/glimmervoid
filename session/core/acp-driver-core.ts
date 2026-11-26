@@ -1,4 +1,4 @@
-import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest, ToolKind } from "@agentclientprotocol/sdk";
+import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest, SessionUpdate, ToolKind } from "@agentclientprotocol/sdk";
 import type { DeliverOptions, DeliveryOutcome } from "./input-delivery-core.ts";
 
 type AcpPhase = "idle" | "opening" | "ready" | "closed";
@@ -6,13 +6,30 @@ type AcpPhase = "idle" | "opening" | "ready" | "closed";
 interface AcpSendFacts {
   phase: AcpPhase;
   isPromptOpen: boolean;
-  hasQueuedPrompt: boolean;
 }
 
 type AcpSendDecision =
   | { action: "prompt"; outcome: DeliveryOutcome }
-  | { action: "queue"; outcome: DeliveryOutcome }
   | { action: "refuse"; outcome: DeliveryOutcome };
+
+interface AcpPromptErrorFacts {
+  isRequestError: boolean;
+  isConnectionAlive: boolean;
+  message: string;
+}
+
+type AcpPromptErrorDecision =
+  | { action: "end-turn"; settlement: "dropped"; failureMessage: string }
+  | { action: "fail-driver"; settlement: "dropped"; failureMessage: null };
+
+const PROMPT_CONFIRMING_UPDATES: ReadonlySet<SessionUpdate["sessionUpdate"]> = new Set([
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update",
+  "plan",
+  "subagent_update",
+]);
 
 type AcpSessionOpenPlan =
   | { method: "session/new"; request: NewSessionRequest }
@@ -63,9 +80,19 @@ function decideAcpSend(facts: AcpSendFacts, options: DeliverOptions): AcpSendDec
   const busy: AcpSendDecision = { action: "refuse", outcome: { ok: false, kind: "refused", reason: "not-idle" } };
   if (!options.submit) return noAgent;
   if (facts.phase === "idle" || facts.phase === "closed") return noAgent;
-  if (facts.hasQueuedPrompt || facts.isPromptOpen) return busy;
-  if (facts.phase === "opening") return { action: "queue", outcome: { ok: true, kind: "queued" } };
+  if (facts.phase === "opening" || facts.isPromptOpen) return busy;
   return { action: "prompt", outcome: { ok: true, kind: "pasted" } };
+}
+
+function classifyAcpPromptError(facts: AcpPromptErrorFacts): AcpPromptErrorDecision {
+  if (facts.isRequestError && facts.isConnectionAlive) {
+    return { action: "end-turn", settlement: "dropped", failureMessage: facts.message };
+  }
+  return { action: "fail-driver", settlement: "dropped", failureMessage: null };
+}
+
+function doesUpdateConfirmPrompt(update: SessionUpdate): boolean {
+  return PROMPT_CONFIRMING_UPDATES.has(update.sessionUpdate);
 }
 
 function questionFieldsOf(request: CreateElicitationRequest): AcpQuestionFields | null {
@@ -93,5 +120,5 @@ function permissionFieldsOf(request: RequestPermissionRequest): AcpPermissionFie
   };
 }
 
-export { decideAcpSend, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf };
+export { classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf };
 export type { AcpPhase };

@@ -11,6 +11,7 @@ interface SessionCardSource {
   workingDirectory?: string;
   agentId: string;
   agentDrawsAlternateScreen?: boolean;
+  hasTerminal?: boolean;
   state: SessionCardFields["state"];
   stateSince: number;
   dangerouslySkipPermissions?: boolean;
@@ -54,6 +55,7 @@ function projectSessionCard(
     ...(source.workingDirectory ? { workingDirectory: source.workingDirectory } : {}),
     agent: source.agentId,
     agentDrawsAlternateScreen: !!source.agentDrawsAlternateScreen,
+    ...(source.hasTerminal === false ? { hasTerminal: false } : {}),
     state: source.state,
     stateSince: source.stateSince,
     skipPerms: !!source.dangerouslySkipPermissions,
@@ -84,6 +86,7 @@ interface SnapshotSource {
   workingDirectory?: string | null;
   agent: string;
   agentDrawsAlternateScreen?: boolean;
+  hasTerminal?: boolean;
   state: string;
   stateSince: number;
   dangerouslySkipPermissions: boolean;
@@ -132,6 +135,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     workingDirectory: source.workingDirectory ?? null,
     agent: source.agent,
     agentDrawsAlternateScreen: !!source.agentDrawsAlternateScreen,
+    hasTerminal: source.hasTerminal !== false,
     state: source.state,
     stateSince: source.stateSince,
     dangerouslySkipPermissions: source.dangerouslySkipPermissions,

@@ -383,6 +383,12 @@ function acpRecordsFromDriverEvent(state: AcpTraceState, event: DriverEvent, now
     if (vendorSessionId !== null) state.lastVendorSessionId = vendorSessionId;
     return [];
   }
+  if (event.kind === 'prompt') {
+    const vendorSessionId = nonEmptyString(event.agentSessionId) ?? state.lastVendorSessionId;
+    if (vendorSessionId === null) return [];
+    state.lastVendorSessionId = vendorSessionId;
+    return [...flushOpenChunk(state), ...textRecords(baseOf(vendorSessionId, now), 'prompt', event.text)];
+  }
   if (event.kind === 'update') {
     return acpRecordsFromUpdate(state, event.update, { vendorSessionId: event.agentSessionId, now });
   }
@@ -403,7 +409,7 @@ function acpRecordsFromDriverEvent(state: AcpTraceState, event: DriverEvent, now
     const emittedCall = flushPendingToolCall(state, toolUseId);
     return emittedCall === null ? flushed : [...flushed, emittedCall];
   }
-  if (event.kind === 'turn-end' || event.kind === 'exit') {
+  if (event.kind === 'turn-end' || event.kind === 'prompt-error' || event.kind === 'exit') {
     return flushAcpTraceState(state);
   }
   return [];

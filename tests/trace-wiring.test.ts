@@ -1533,14 +1533,15 @@ test('an ACP-backed Session traces tool call, tool result, and assistant records
 
   const page = await harness.wiring.readTracePage(session.id, { after: 0 });
   const kinds = page.records.map((record) => record.kind);
-  assert.deepEqual(kinds, ['tool_call', 'tool_result', 'assistant']);
+  assert.deepEqual(kinds, ['prompt', 'tool_call', 'tool_result', 'assistant']);
   for (const record of page.records) {
     assert.ok(TraceRecord.safeParse(record).success);
     assert.ok(record.vendorSessionId.length > 0);
   }
-  assert.equal(page.records[0].kind === 'tool_call' ? page.records[0].name : null, 'ToolSearch');
-  assert.equal(page.records[1].kind === 'tool_result' ? page.records[1].isError : null, false);
-  assert.ok(page.records[2].kind === 'assistant' && page.records[2].text.length > 0);
+  assert.equal(page.records[0].kind === 'prompt' ? page.records[0].text : null, 'replayed prompt');
+  assert.equal(page.records[1].kind === 'tool_call' ? page.records[1].name : null, 'ToolSearch');
+  assert.equal(page.records[2].kind === 'tool_result' ? page.records[2].isError : null, false);
+  assert.ok(page.records[3].kind === 'assistant' && page.records[3].text.length > 0);
 
   await harness.wiring.stop();
   fs.rmSync(configDirectory, { recursive: true, force: true });

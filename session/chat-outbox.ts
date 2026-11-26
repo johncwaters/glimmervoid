@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CHAT_OUTBOX_MAX_ENTRIES } from "../shared/contracts/session.ts";
+import { CHAT_OUTBOX_FAILURE_MAX_CHARS, CHAT_OUTBOX_MAX_ENTRIES } from "../shared/contracts/session.ts";
 import type { ChatOutboxEntry, ChatOutboxOrigin } from "../shared/contracts/session.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import type { DeliverySettlement } from "./core/input-delivery-core.ts";
@@ -20,10 +20,11 @@ const NOT_TAKEN_TEXT = "The agent did not start a turn for this message. Open Te
 
 interface ChatOutboxPort {
   canTakeMessage(): boolean;
+  hasTerminal(): boolean;
   reportsTurnStarts(): boolean;
   recordsPrompts(): boolean;
   isDeliveryInFlight(): boolean;
-  deliver(entry: ChatOutboxEntry, onSettled: (settlement: DeliverySettlement) => void): { ok: boolean; reason?: string };
+  deliver(entry: ChatOutboxEntry, onSettled: (settlement: DeliverySettlement, detail?: string) => void): { ok: boolean; reason?: string };
   noteSubmitted(entry: ChatOutboxEntry): void;
   noteTaken(entry: ChatOutboxEntry, submittedAtMs: number): void;
   nowMs(): number;
@@ -65,14 +66,25 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     publish(outboxEntries.map((entry) => (entry.entryId === entryId ? { ...entry, ...change } : entry)));
   }
 
-  function settle(entryId: string, settlement: DeliverySettlement): void {
+  function settle(entryId: string, settlement: DeliverySettlement, detail?: string): void {
     if (settlement === "submitted") {
       const submittedEntry = outboxEntries.find((entry) => entry.entryId === entryId);
       if (submittedEntry) port.noteSubmitted(submittedEntry);
+      if (!port.hasTerminal()) {
+        if (submittedEntry) port.noteTaken(submittedEntry, port.nowMs());
+        publish(outboxEntries.filter((entry) => entry.entryId !== entryId));
+        drain();
+        return;
+      }
       submittedAtByEntryId.set(entryId, port.nowMs());
       replaceEntry(entryId, { state: "submitted" });
       awaitTurnFor(entryId);
       drain();
+      return;
+    }
+    if (!port.hasTerminal()) {
+      const failure = (detail !== undefined && detail.length > 0 ? detail : UNDELIVERED_TEXT_BY_SETTLEMENT.dropped).slice(0, CHAT_OUTBOX_FAILURE_MAX_CHARS);
+      replaceEntry(entryId, { state: "failed", failure, shouldOpenTerminal: false });
       return;
     }
     replaceEntry(entryId, { state: "failed", failure: UNDELIVERED_TEXT_BY_SETTLEMENT[settlement], shouldOpenTerminal: TERMINAL_SETTLEMENTS.has(settlement) });
@@ -149,8 +161,12 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     if (!nextEntry || !port.canTakeMessage()) return;
     if (port.isDeliveryInFlight()) return;
     replaceEntry(nextEntry.entryId, { state: "sending" });
-    const delivery = port.deliver(nextEntry, (settlement) => settle(nextEntry.entryId, settlement));
-    if (!delivery.ok) replaceEntry(nextEntry.entryId, { state: "failed", failure: `The message could not be typed into the session: ${delivery.reason ?? "unknown reason"}.` });
+    const delivery = port.deliver(nextEntry, (settlement, detail) => settle(nextEntry.entryId, settlement, detail));
+    if (!delivery.ok) {
+      const deliveryVerb = port.hasTerminal() ? "typed into" : "sent to";
+      const failure = `The message could not be ${deliveryVerb} the session: ${delivery.reason ?? "unknown reason"}.`.slice(0, CHAT_OUTBOX_FAILURE_MAX_CHARS);
+      replaceEntry(nextEntry.entryId, { state: "failed", failure, shouldOpenTerminal: false });
+    }
   }
 
   function queue(text: string, attachments: readonly string[], origin: ChatOutboxOrigin): QueueOutcome {

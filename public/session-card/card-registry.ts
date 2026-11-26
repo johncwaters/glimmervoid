@@ -42,6 +42,7 @@ export interface SessionUi {
   currentState: string;
   agent?: string | null;
   agentDrawsAlternateScreen?: boolean;
+  hasTerminal?: boolean;
   isBorrowed: boolean;
   pendingPromptKind: string | null;
   usageLimit?: UsageLimit | null;
