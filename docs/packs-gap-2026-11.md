@@ -1,13 +1,13 @@
 # Packs gap report: Community and Team Review
 
-Written 2026-11-25 for Task P1.5 of the Glimmervoid realignment task list. This report answers whether a pack can express a tab like Community or Team Review today, lists what packs can do now, maps every capability each feature uses against current pack APIs, and names the smallest pack API addition that would close each gap.
+Written 2026-11-25 for Task P1.5 of the Glimmervoid realignment task list. This report answers whether a pack can express a tab like Community or Team PR Review today, lists what packs can do now, maps every capability each feature uses against current pack APIs, and names the smallest pack API addition that would close each gap.
 
 ## Answer
 
 - **Community: No.** A pack can supply question sources to the built-in Community tab through the `community` manifest section, and a pack can render a sandboxed tab with a 64 KiB store and interactive session actions. A pack cannot express the Community lane or tab itself: it cannot run unattended lane-sandboxed research or judge sessions, store state past 64 KiB, expose server-side action or abort RPCs, poll on a configurable interval with rate-limit backoff and immediate catch-up, send browser or Telegram notifications, light up a tab activity dot, open external URLs, copy to the clipboard, or navigate the dashboard to a started session or settings.
-- **Team Review: No.** A pack panel can already read the built-in Reviews queue (`reads: ["reviews"]`) and send built-in review actions (`acts: ["reviews"]`), so a pack can render an alternate UI on top of the core Team Review backend. A pack cannot express Team Review itself without the core lane: it cannot access the shared GitHub store and rate-limit budget, perform host-authenticated GitHub writes, manage cached clones, detached worktrees, and process reaping, run unattended lane-sandboxed review and thread-judge sessions with shutdown resume, register watcher alarms or an agent MCP request verb, store state past 64 KiB, or use host UI capabilities (external links, remote avatars, tab attention, keyboard reveal, and dashboard navigation).
+- **Team Review: No.** A pack panel can already read the built-in Reviews queue (`reads: ["reviews"]`) and send built-in review actions (`acts: ["reviews"]`), so a pack can render an alternate UI on top of the core review lane backend. A pack cannot express the review lane itself without core: it cannot access the shared GitHub store and rate-limit budget, perform host-authenticated GitHub writes, manage cached clones, detached worktrees, and process reaping, run unattended lane-sandboxed review and thread-judge sessions with shutdown resume, register watcher alarms or an agent MCP request verb, store state past 64 KiB, or use host UI capabilities (external links, remote avatars, tab attention, keyboard reveal, and dashboard navigation).
 
-Note on `server/review/` and `public/review/`: those directories implement the local session diff reader (the Changes page for a running session, `server/review/review-wiring.ts:35-113`, `public/review/review-reader.ts:28`), not the Team Review tab.
+Note on `server/review/` and `public/review/`: those directories implement the local session diff reader (the Changes page for a running session, `server/review/review-wiring.ts:35-113`, `public/review/review-reader.ts:28`), not the review lane tab.
 
 ## What a pack can do today
 
@@ -25,7 +25,7 @@ Every pack is a folder (at most 1 MiB, no symlinks) with a `pack.json` manifest 
 | Settings and secrets (`settings`) | Up to 16 plain `text` (in `pack-settings.json`) or vault `secret` (`GLIMMERVOID_PACK_<PACK>__<KEY>`, age-file writable, 1Password read-only) env vars scoped to named commands (`pr-source`, `pr-item-action`, `pr-action`, `job`, `community-source`). Secrets are masked from command errors and JSON output. | `shared/contracts/pack.ts:226-251`, `server/packs/pack-settings.ts:19-23,104-171`, `server/packs/pack-command.ts:38-45,77` |
 | GitHub access (`prFlows`) | Commands run on PRs in the built-in My PRs lane: `prActions` (PR buttons), `sources` (findings and status lines), `actions` (item actions), and `rules` (auto-disposition on `mine` PRs). No direct access to the shared GitHub store or host `gh` write client from panels or jobs. | `shared/contracts/pack.ts:38-53`, `docs/packs-reference.md:33-67` |
 | Hooks (`hooks`) | Up to 16 `beforeTool` commands watching `edit` and/or `shell` tool calls across agent sessions; exit 2 blocks with stderr reason. | `shared/contracts/pack.ts:187-224`, `server/packs/pack-files.ts:133-147` |
-| Agent context and skills (`agent`) | One context file named in every interactive session's first prompt, plus up to 32 skill folders (`SKILL.md`), copied from the approved snapshot. Never injected into team review, community, or Radar lane sessions. | `shared/contracts/pack.ts:127-146`, `server/packs/pack-agent.ts:57` |
+| Agent context and skills (`agent`) | One context file named in every interactive session's first prompt, plus up to 32 skill folders (`SKILL.md`), copied from the approved snapshot. Never injected into review lane, community, or Radar lane sessions. | `shared/contracts/pack.ts:127-146`, `server/packs/pack-agent.ts:57` |
 | MCP servers (`mcp`) | Up to 8 streamable HTTP MCP servers (`https://` or loopback `http://`, optional vault bearer token) attached to locally launched interactive sessions. | `shared/contracts/pack.ts:154-185`, `server/packs/pack-store.ts:317-327` |
 | Themes (`ui.themes`) and status pages (`status`) | Up to 8 dashboard themes (`chrome` + `states` hex palettes) and up to 8 HTTPS Statuspage summary URLs polled every 5 minutes for the `providers` topic. | `shared/contracts/pack.ts:67-79,118-125`, `server/packs/pack-store.ts:200-206` |
 | Requirements (`requires`) | Machine-level `requires.env` and `requires.programs` checks that keep a pack off without error while unmet. | `shared/contracts/pack.ts:23`, `server/packs/pack-files.ts:72-79` |
@@ -66,9 +66,9 @@ The `community` section (`shared/contracts/pack.ts:276-304`) is a plugin hook in
 
 ## Team Review capability gap table
 
-Note: while the core Team Review lane remains built in, a pack panel can already read the `reviews` topic (`public/packs/pack-bridge-host.ts:64`) and send `team-review-action` and `open-team-review-session` (`shared/contracts/reviews.ts:34-41`). The "Reachable from a pack today" column below evaluates whether a pack can implement the capability itself without relying on the built-in Team Review backend.
+Note: while the core review lane remains built in, a pack panel can already read the `reviews` topic (`public/packs/pack-bridge-host.ts:64`) and send `team-review-action` and `open-team-review-session` (`shared/contracts/reviews.ts:34-41`). The "Reachable from a pack today" column below evaluates whether a pack can implement the capability itself without relying on the built-in review lane backend.
 
-| Capability used by Team Review | Citation | Reachable from a pack today | Smallest pack API addition |
+| Capability used by the review lane | Citation | Reachable from a pack today | Smallest pack API addition |
 |---|---|---|---|
 | Shared GitHub store reads (watched PR search, viewer/teams/members, PR head/view/diff, review threads, shared rate-limit budget, and watcher-nudged refreshes) | `server/github/github-store-wiring.ts:32-125`, `server/github/team-review-poller.ts:73,144-187,212`, `server/github/team-review-wiring.ts:203` | No (packs have no access to `GithubLaneStore` or its rate-limit coordinator) | A read-only **GitHub store bridge** for pack jobs/commands (scoped read queries routed through `GithubLaneStore` and its rate-limit budget, or a `github-prs` topic/query API) |
 | Host-authenticated GitHub writes under the operator's identity (`postReview`, `dismissReview`, `resolveReviewThread`, with head-movement guard and diff-line validation) | `server/github/team-review-actions.ts:139-224`, `server/github/pr-gh.ts:58,74-75` | No (only reachable today by delegating to the built-in `team-review-action` handler; a pack cannot execute host `gh` writes itself without raw credentials) | Keep GitHub write primitives as explicit granted host actions (e.g. a `github-write` grant with typed `post-review`, `dismiss-review`, `resolve-thread` operations that enforce head checks in the host) |
@@ -84,11 +84,11 @@ Note: while the core Team Review lane remains built in, a pack panel can already
 | Tab activity dot, unseen row tracking, and cross-view jump (`showPrInReviewQueue`, `jumpToNextReview`) | `public/github/review-queue-store.ts:56-62,100-103,152-165` | No | Panel bridge `set-attention` message for the tab dot; optional `focus-item` event on the bridge if host shortcuts jump into a pack tab |
 | External PR/commit links and remote GitHub author avatars | `public/github/team-review-detail-views.ts:217`, `public/github/review-queue-panel.ts:373`, `public/github/team-review-detail-parts.ts:83-85` | No (CSP blocks remote images and `sandbox` blocks external links, `server/packs/core/pack-core.ts:56-65`, `public/sandboxed-frame.ts:12`) | Panel bridge `open-url` for links; for avatars, either render monograms in-pack or expose a host avatar proxy/data URL if required |
 | Setup card reading/writing global GitHub sign-in, teams, org, and lane read token | `public/github/review-setup-card.ts:55-67,159-200`, `public/github/team-review-panel.ts:85` | No | Covered by the read-only `prerequisites` topic plus `navigate` to host Settings |
-| Shared Reviews queue combining Team Review and My PRs in one tab | `public/github/review-queue-panel.ts:663-665,739-744`, `public/github/review-queue-store.ts:78-87` | No (each pack panel is an isolated tab; a pack cannot contribute a column or section into another tab) | Only needed if Team Review and My PRs remain in one unified tab; if Team Review is its own tab, not needed |
+| Shared Reviews queue combining the review lane and My PRs in one tab | `public/github/review-queue-panel.ts:663-665,739-744`, `public/github/review-queue-store.ts:78-87` | No (each pack panel is an isolated tab; a pack cannot contribute a column or section into another tab) | Only needed if the review lane and My PRs remain in one unified tab; if the review lane is its own tab, not needed |
 
 ## Smallest pack API additions
 
-Grouped by layer, deduplicated across Community and Team Review:
+Grouped by layer, deduplicated across Community and the review lane:
 
 1. **Panel bridge UI primitives (needed by both):**
    - `open-url`: host opens a validated `http://` or `https://` URL on user gesture.
@@ -102,11 +102,11 @@ Grouped by layer, deduplicated across Community and Team Review:
    - Let a pack declare panel-callable server actions (run a pack command or abort a running job/worker) and let `jobs` return a `nextDelayMs` / `retryAfterMs` hint and register one-shot watcher alarms.
 4. **Unattended lane worker primitive (needed by both):**
    - A manifest/runtime primitive that spawns an ephemeral headless session with `untrusted.json`, declared tool allow/deny profile, `laneAccess` (read-only GitHub token + approved `fetchDomains`), timeout/abort, and bounded JSON/text output capture.
-   - For Team Review, add optional read-only PR worktree staging (with `node_modules` sharing and automatic process reaping on exit/restart), live tool-step progress events, and shutdown resume.
+   - For the review lane, add optional read-only PR worktree staging (with `node_modules` sharing and automatic process reaping on exit/restart), live tool-step progress events, and shutdown resume.
 5. **Pack notifications (needed by Community):**
    - A granted `notify` action/output for pack jobs and workers, routed through Glimmervoid's existing browser and Telegram off-dashboard gate.
-6. **GitHub store bridge and typed GitHub write grants (needed by Team Review):**
+6. **GitHub store bridge and typed GitHub write grants (needed by the review lane):**
    - Route pack GitHub reads through `GithubLaneStore` so one rate-limit budget and watcher coverage apply.
    - Expose typed host-authenticated GitHub write actions (`post-review`, `dismiss-review`, `resolve-thread`) with host-enforced head checks rather than handing raw credentials to pack code.
-7. **Agent MCP verb registration (needed by Team Review only if `glimmervoid review` moves with it):**
+7. **Agent MCP verb registration (needed by the review lane only if `glimmervoid review` moves with it):**
    - Allow a pack to register a named action that non-lane sessions can invoke through `glimmervoid` MCP/CLI to enqueue work in the pack.
