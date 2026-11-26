@@ -1,9 +1,6 @@
 import { clock } from '#shared/clock.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 import type { UsageCoverageRow } from '#shared/contracts/usage-report.ts';
-import type { YourDay } from '#shared/contracts/your-day.ts';
-import { twoUnitDurationText } from '#shared/display-text.ts';
-import { yourDayRecapLabel, yourDaySessionWord } from '#shared/your-day-text.ts';
 import {
   NO_VALUE,
   formatCount,
@@ -141,16 +138,6 @@ export function formatPercent(value: unknown): string {
   const numeric = numberOr(value, null);
   if (numeric === null) return NO_VALUE;
   return `${Math.round(numeric)}%`;
-}
-
-function formatMinutes(minutes: unknown): string {
-  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) return NO_VALUE;
-  return twoUnitDurationText(Math.round(minutes) * 60, { smallestUnit: 'm', dropsZeroRemainder: true });
-}
-
-export function yourDayHint(yourDay: YourDay, now: number): string {
-  const sessionCount = yourDay.yesterday.sessionCount;
-  return `${yourDayRecapLabel(yourDay, now)}: ${sessionCount} ${yourDaySessionWord(sessionCount)}, ${formatMinutes(yourDay.yesterday.activeMs / 60_000)}`;
 }
 
 function paceToneOf(usedPct: number, projectedPct: number | null): PaceTone {

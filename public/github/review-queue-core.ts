@@ -353,7 +353,7 @@ function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly Que
   return turnItems(groups).map((item) => ({ id: item.key, kind: item.attention ?? 'waiting', name: labelOf(item) }));
 }
 
-export function attentionTilesOf(groups: readonly QueueGroup[]): AttentionTile[] {
+function attentionTilesOf(groups: readonly QueueGroup[]): AttentionTile[] {
   return labeledAttentionTiles(groups, itemLabel);
 }
 

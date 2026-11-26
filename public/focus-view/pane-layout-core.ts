@@ -18,7 +18,7 @@ const MIN_VISIBLE_SHARE = 0.1;
 const NEW_PANE_SHARE = 0.35;
 const EVERY_PANE: readonly Pane[] = Pane.options;
 
-export const DEFAULT_FOCUS_LAYOUT: FocusLayout = {
+const DEFAULT_FOCUS_LAYOUT: FocusLayout = {
   kind: 'split',
   direction: 'column',
   children: [{ kind: 'split', direction: 'row', children: ['terminal', 'board'], shares: [0.5, 0.5] }, 'shell'],
