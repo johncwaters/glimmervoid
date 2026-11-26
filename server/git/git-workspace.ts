@@ -38,6 +38,8 @@ import { clock } from '../../shared/clock.ts';
 import { deleteLeftoverTrash, moveFolderToTrash, moveFolderToTrashSync } from '../trash-folder.ts';
 import { readDiskHeadroom } from '../disk-headroom.ts';
 import { diskShortNotice, isDiskShort } from '../core/disk-headroom-core.ts';
+import { addCowWorktree, warmCowTemplateFromWorktree } from './cow-worktree.ts';
+import type { CowCanClone, CowCloneDir, CowWorktreeGitOps } from './cow-worktree.ts';
 
 const WORKTREE_TRASH_LABEL = 'worktree';
 const GITLINK_MODE = '160000 ';
@@ -163,6 +165,7 @@ function createGitWorkspace(opts: {
   rebaseSigningArgs?: (worktreePath: string) => Promise<string[]>;
   probeOrigin?: OriginProbe;
   readDiskReserveBytes?: () => number;
+  cow?: { canClone?: CowCanClone; cloneDir?: CowCloneDir; warmIntervalMs?: number; env?: Readonly<Record<string, string | undefined>> };
 } = {}) {
 
   const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
@@ -286,6 +289,58 @@ function createGitWorkspace(opts: {
     if (!isWorktreeHiddenFromGuardedSessions(worktreePath, glimmervoidHomes)) return added;
     await lockWorktreeEntry(runGitInProject, worktreePath);
     return added;
+  }
+
+  function cowGitOpsFor(runGitInProject: ProjectGitRunner): CowWorktreeGitOps {
+    return {
+      runGit: (args, cwd) => run(args, cwd),
+      addNoCheckoutWorktree: (worktreePath, branch, startRef) => {
+        const args = branch
+          ? ['worktree', 'add', '--no-checkout', '-b', branch, worktreePath, startRef]
+          : ['worktree', 'add', '--no-checkout', worktreePath, startRef];
+        return runGitInProject(args);
+      },
+      addDetachedTemplate: (templatePath, startRef, noCheckout) => {
+        const args = noCheckout
+          ? ['worktree', 'add', '-f', '--no-checkout', '--detach', templatePath, startRef]
+          : ['worktree', 'add', '-f', '--detach', templatePath, startRef];
+        return runGitInProject(args);
+      },
+      removeWorktreeForce: (worktreePath) => runGitInProject(['worktree', 'remove', '--force', '--force', worktreePath]),
+      deleteBranchForce: (branch) => runGitInProject(['branch', '-D', branch]),
+    };
+  }
+
+  async function addWorktreeWithCowFallback(options: {
+    projectPath: string;
+    runGitInProject: ProjectGitRunner;
+    worktreePath: string;
+    branch: string;
+    createBranch: boolean;
+    startRef: string;
+    templateStartRef: string;
+    fallbackArgs: string[];
+    ownership: WorktreeOwnership;
+  }): Promise<GitResult> {
+    const cowOutcome = await addCowWorktree({
+      projectPath: options.projectPath,
+      worktreePath: options.worktreePath,
+      branch: options.branch,
+      createBranch: options.createBranch,
+      startRef: options.startRef,
+      templateStartRef: options.templateStartRef,
+      gitOps: cowGitOpsFor(options.runGitInProject),
+      ...opts.cow,
+    });
+    if (!cowOutcome.ok) return addWorktreeEntry(options.runGitInProject, options.worktreePath, options.fallbackArgs, options.ownership);
+    if (isWorktreeHiddenFromGuardedSessions(cowOutcome.templateDir, glimmervoidHomes) && (await readWorktreeLockState(cowOutcome.templateDir)) !== 'locked') {
+      await lockWorktreeEntry(options.runGitInProject, cowOutcome.templateDir);
+    }
+    await opts.ownedPaths?.record({ path: options.worktreePath, kind: 'git-worktree', ...options.ownership });
+    if (isWorktreeHiddenFromGuardedSessions(options.worktreePath, glimmervoidHomes)) {
+      await lockWorktreeEntry(options.runGitInProject, options.worktreePath);
+    }
+    return okResult('');
   }
 
   async function lockWorktreeEntry(runGitInProject: ProjectGitRunner, worktreePath: string): Promise<void> {
@@ -464,7 +519,17 @@ function createGitWorkspace(opts: {
     const diskRefusal = await readDiskShortRefusal(location.parent);
     if (diskRefusal) return { cwd: projectPath, isGit: false, reason: 'disk-short', error: diskRefusal };
     const wtDir = mkdtemp(path.join(location.parent, location.prefix));
-    const add = await addWorktreeEntry(runInProject(projectPath), wtDir, ['-b', branch, wtDir, baseSha], { owner, projectPath, branch });
+    const add = await addWorktreeWithCowFallback({
+      projectPath,
+      runGitInProject: runInProject(projectPath),
+      worktreePath: wtDir,
+      branch,
+      createBranch: true,
+      startRef: baseSha,
+      templateStartRef: baseSha,
+      fallbackArgs: ['-b', branch, wtDir, baseSha],
+      ownership: { owner, projectPath, branch },
+    });
     if (!add.ok) {
       try { fs.rmSync(wtDir, { recursive: true, force: true }); } catch {}
       return { cwd: projectPath, isGit: false, error: add.err };
@@ -514,7 +579,17 @@ function createGitWorkspace(opts: {
     if (diskRefusal) return { cwd: projectPath, isGit: false, error: diskRefusal };
     const existingBranch = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath);
     if (existingBranch.ok) {
-      const attached = await addWorktreeEntry(runInProject(projectPath), wtDir, [wtDir, branch], { owner, projectPath, branch });
+      const attached = await addWorktreeWithCowFallback({
+        projectPath,
+        runGitInProject: runInProject(projectPath),
+        worktreePath: wtDir,
+        branch,
+        createBranch: false,
+        startRef: branch,
+        templateStartRef: base || branch,
+        fallbackArgs: [wtDir, branch],
+        ownership: { owner, projectPath, branch },
+      });
       if (!attached.ok) return { cwd: projectPath, isGit: false, reason: 'worktree-add-failed', error: attached.err };
       await populateShare({ projectPath, wtDir, shareList });
       return { cwd: wtDir, isGit: true, branch, base };
@@ -527,7 +602,17 @@ function createGitWorkspace(opts: {
     const baseRef = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${base}`], projectPath);
     const baseSha = baseRef.ok ? baseRef.out : await ensureLocalBranch(projectPath, base);
     if (!baseSha) return { cwd: projectPath, isGit: false, reason: 'no-base-branch' };
-    const added = await addWorktreeEntry(runInProject(projectPath), wtDir, ['-b', branch, wtDir, baseSha], { owner, projectPath, branch });
+    const added = await addWorktreeWithCowFallback({
+      projectPath,
+      runGitInProject: runInProject(projectPath),
+      worktreePath: wtDir,
+      branch,
+      createBranch: true,
+      startRef: baseSha,
+      templateStartRef: baseSha,
+      fallbackArgs: ['-b', branch, wtDir, baseSha],
+      ownership: { owner, projectPath, branch },
+    });
     if (!added.ok) return { cwd: projectPath, isGit: false, reason: 'worktree-add-failed', error: added.err };
     await populateShare({ projectPath, wtDir, shareList });
     return { cwd: wtDir, isGit: true, branch, base, baseSha };
@@ -554,6 +639,13 @@ function createGitWorkspace(opts: {
   async function tearDownWorktree(projectPath: string, wt: string, branch: string | null | undefined): Promise<void> {
     const admission = await admitRemoval({ cause: 'merge', kind: 'worktree', projectPath, path: wt, branch: branch ?? null });
     if (!admission.admitted) return;
+    await warmCowTemplateFromWorktree({
+      projectPath,
+      worktreePath: wt,
+      worktreeParent: path.dirname(wt),
+      gitOps: { runGit: run },
+      ...opts.cow,
+    }).catch(() => {});
     removeWorktreeLinks(wt);
     await removeWorktreeEntry(runInProject(projectPath), wt, ['--force']);
     await pruneWorktreeEntries(runInProject(projectPath));

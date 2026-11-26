@@ -446,23 +446,80 @@ async function stageAll(stagedDirs: readonly StagedDir[], cloneFlags: readonly s
     if (linkCheck) return linkCheck;
   }
   for (const { sourcePath } of stagedDirs) {
-    const changedDuringClone = await runCommand('find', [sourcePath, '-cnewer', markerPath, '-print', '-quit'], { timeoutMs: CLONE_TIMEOUT_MS });
-    if (!changedDuringClone.ok) return 'failed';
-    if (changedDuringClone.out) return 'torn';
+    const tornCheck = await checkSourceChangedSince(sourcePath, markerPath);
+    if (tornCheck) return tornCheck;
   }
   return null;
 }
 
-async function findLinkOutsideCheckout(relativeDir: string, stagingPath: string): Promise<'failed' | 'outside-link' | null> {
+export async function checkSourceChangedSince(sourcePath: string, markerPath: string): Promise<'failed' | 'torn' | null> {
+  const changedDuringClone = await runCommand('find', [sourcePath, '-cnewer', markerPath, '-print', '-quit'], { timeoutMs: CLONE_TIMEOUT_MS });
+  if (!changedDuringClone.ok) return 'failed';
+  if (changedDuringClone.out) return 'torn';
+  return null;
+}
+
+const MAX_SYMLINK_HOPS = 16;
+
+function normalizePosixRelative(relativePath: string): string {
+  return relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+async function resolveStagedSymlinkChain(
+  pathPrefixInCheckout: string,
+  stagingPath: string,
+  linkPathInCheckout: string,
+  initialTarget: string,
+): Promise<boolean> {
+  const normalizedPrefix = normalizePosixRelative(pathPrefixInCheckout).replace(/\/+$/, '');
+  const prefixSegments = normalizedPrefix ? normalizedPrefix.split('/').filter(Boolean) : [];
+  if (!isLinkInsideCheckout(linkPathInCheckout, initialTarget)) return false;
+
+  const linkSegments = normalizePosixRelative(linkPathInCheckout).split('/').filter(Boolean);
+  let resolvedSegments = linkSegments.slice(0, -1);
+  let pendingSegments = initialTarget.replace(/\\/g, '/').split('/').filter(Boolean);
+  let hops = 0;
+
+  while (pendingSegments.length > 0) {
+    const segment = pendingSegments.shift();
+    if (segment === undefined || segment === '.') continue;
+    if (segment === '..') {
+      if (resolvedSegments.length === 0) return false;
+      resolvedSegments.pop();
+      continue;
+    }
+    resolvedSegments.push(segment);
+    const isInsideStagedPrefix = prefixSegments.every((prefixSegment, index) => resolvedSegments[index] === prefixSegment);
+    if (!isInsideStagedPrefix || resolvedSegments.length <= prefixSegments.length) continue;
+    const relativeToStaging = resolvedSegments.slice(prefixSegments.length);
+    const diskPath = path.join(stagingPath, ...relativeToStaging);
+    const entryStat = await fsp.lstat(diskPath).catch(() => null);
+    if (!entryStat?.isSymbolicLink()) continue;
+    hops += 1;
+    if (hops > MAX_SYMLINK_HOPS) return false;
+    const nextTarget = await fsp.readlink(diskPath).catch(() => null);
+    if (nextTarget === null) return false;
+    if (path.isAbsolute(nextTarget) || path.posix.isAbsolute(nextTarget.replace(/\\/g, '/'))) return false;
+    resolvedSegments.pop();
+    pendingSegments = [...nextTarget.replace(/\\/g, '/').split('/').filter(Boolean), ...pendingSegments];
+  }
+  return true;
+}
+
+export async function findEscapingSymlink(pathPrefixInCheckout: string, stagingPath: string): Promise<'failed' | 'outside-link' | null> {
   const links = await runCommand('find', [stagingPath, '-type', 'l', '-print0'], { timeoutMs: CLONE_TIMEOUT_MS, maxBuffer: LINK_LIST_MAX_BYTES, trim: false });
   if (!links.ok) return 'failed';
   for (const linkPath of links.out.split('\0').filter(Boolean)) {
     const linkTarget = await fsp.readlink(linkPath).catch(() => null);
     if (linkTarget === null) return 'failed';
-    const linkPathInCheckout = path.join(relativeDir, NODE_MODULES, path.relative(stagingPath, linkPath));
-    if (!isLinkInsideCheckout(linkPathInCheckout, linkTarget)) return 'outside-link';
+    const linkPathInCheckout = path.join(pathPrefixInCheckout, path.relative(stagingPath, linkPath));
+    if (!(await resolveStagedSymlinkChain(pathPrefixInCheckout, stagingPath, linkPathInCheckout, linkTarget))) return 'outside-link';
   }
   return null;
+}
+
+async function findLinkOutsideCheckout(relativeDir: string, stagingPath: string): Promise<'failed' | 'outside-link' | null> {
+  return findEscapingSymlink(path.join(relativeDir, NODE_MODULES), stagingPath);
 }
 
 async function readLock(mainDir: string, worktreeDir: string): Promise<DependencyLock | null> {
