@@ -38,7 +38,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Node >=24.15.0 (type stripping for source mode and the `.test.ts` suite; `node:sqlite` for the whiteboard store). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - A feature ships only when it works on every first-class agent (Claude Code, Codex, Antigravity CLI), pinned by the agent parity matrix: each scenario row needs a live-captured fixture per agent or a stated reason none can exist. Other agents are best effort.
-- Spawn sessions with `pty.spawn`, never `child_process.spawn`, and never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
+- A PTY session spawns only by `pty.spawn` in `session/drivers/pty-driver.ts`; an ACP session spawns its agent on stdio only in `session/drivers/acp-driver.ts`, through `server/child-process-safe.ts`. Never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
 - All sessions share one event loop: no sync git or fs on recurring paths (polls, turn-end, watchers). Use async `execFile` with yields. One-shot cold paths may stay sync.
 - House character style: no literal em dash, en dash, ellipsis character, or emoji anywhere (source, tests, docs, commits). When code must emit one, build it via `String.fromCharCode`.
 - Prefer the seam pattern: pure logic in `session/core/` or a `*-core` module, thin IO shells around it. A pure core imports no Session and reads no clock.
@@ -79,7 +79,7 @@ These areas stay on as today and take fixes for crashes, data loss and security 
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
-| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Review Cases and Claude Tokens, Held Questions, Security: Trust Boundary, Transport and Session Identity, Telemetry | `server/AGENTS.md` |
+| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Review Cases and Claude Tokens, Held Questions, Security: Trust Boundary, Transport and Session Identity, Session Temp Folders, Telemetry | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries, Lane PostHog MCP | `server/lanes/AGENTS.md` |
 | Usage Tracking | `server/usage/AGENTS.md` |
 | Team PR Review, Shared GitHub Store | `server/github/AGENTS.md` |
@@ -106,9 +106,11 @@ Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Buil
 
 `@xterm/headless` with `@xterm/addon-serialize` and `@xterm/addon-unicode11` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP previews of whiteboard media. `@stackline/xlsx` reads an XLSX workbook into the CSV per sheet a board shows.
 
-`fs-native-extensions` gives the kernel file locks (`fcntl` OFD, `flock`, `LockFileEx`) that mark a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate.
+`fs-native-extensions` gives the kernel file locks that mark a session temp folder in use (`server/AGENTS.md`, Session Temp Folders).
 
 `@modelcontextprotocol/server` and `@modelcontextprotocol/node` serve the agent MCP endpoint, the one integration every agent CLI speaks.
+
+`@agentclientprotocol/sdk` owns the ACP wire for the ACP driver, so Glimmervoid keeps no ACP wire code of its own.
 
 `httpxy` forwards the doorman's HTTP and WebSocket traffic to each tenant server, so the doorman owns only routing, the wake hold and its header rule.
 

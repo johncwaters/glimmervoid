@@ -1,3 +1,4 @@
+import type { PermissionOption, SessionUpdate, StopReason } from "@agentclientprotocol/sdk";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
 
 interface DriverLaunch {
@@ -6,17 +7,10 @@ interface DriverLaunch {
   cwd: string;
   env: Record<string, string | undefined>;
   scopeUnit: string | null;
+  resumeAgentSessionId: string | null;
 }
 
-type DriverStopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled";
-
-type DriverUpdate = { sessionUpdate: string } & Record<string, unknown>;
-
-interface DriverPermissionOption {
-  optionId: string;
-  name: string;
-  kind: string;
-}
+type DriverFailureStage = "open" | "prompt";
 
 type DriverPermissionOutcome = { outcome: "selected"; optionId: string } | { outcome: "cancelled" };
 
@@ -24,7 +18,7 @@ interface DriverPermissionRequest {
   toolCallId: string;
   title: string | null;
   rawInput: unknown;
-  options: readonly DriverPermissionOption[];
+  options: readonly PermissionOption[];
   respond(outcome: DriverPermissionOutcome): void;
 }
 
@@ -41,10 +35,12 @@ interface DriverQuestion {
 
 type DriverEvent =
   | { kind: "output"; data: string }
-  | { kind: "update"; update: DriverUpdate }
+  | { kind: "agent-session"; agentSessionId: string; isResumed: boolean }
+  | { kind: "update"; agentSessionId: string; update: SessionUpdate }
   | { kind: "permission"; request: DriverPermissionRequest }
   | { kind: "question"; question: DriverQuestion }
-  | { kind: "turn-end"; stopReason: DriverStopReason }
+  | { kind: "turn-end"; stopReason: StopReason }
+  | { kind: "failure"; stage: DriverFailureStage; message: string }
   | { kind: "exit"; exitCode: number; signal: number | undefined };
 
 type DriverListener = (event: DriverEvent) => void;
@@ -60,4 +56,4 @@ interface SessionDriver {
   subscribe(listener: DriverListener): () => void;
 }
 
-export type { DriverEvent, DriverLaunch, DriverListener, SessionDriver };
+export type { DriverEvent, DriverFailureStage, DriverLaunch, DriverListener, SessionDriver };

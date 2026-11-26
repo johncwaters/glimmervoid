@@ -1998,7 +1998,7 @@ class Session extends EventEmitter {
 
     const ptySize = this._driver.ptySize();
     try {
-      this._driver.start({ file: launch.file, args: launch.args, cwd: this.effectiveCwd(), env: launch.env, scopeUnit });
+      this._driver.start({ file: launch.file, args: launch.args, cwd: this.effectiveCwd(), env: launch.env, scopeUnit, resumeAgentSessionId: null });
     } catch (err) {
       this._abandonSpawn(err);
       return;

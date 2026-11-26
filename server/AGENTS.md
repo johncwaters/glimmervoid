@@ -97,6 +97,10 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Resize is arbitrated by ACTIVE VIEWER: a claim wins and a departure hands the PTY to the most recent survivor, since last-write-wins left a desktop stuck at a phone's column count forever.
 - ANSI is parsed in the browser for display and in the server keeper for attach, because raw bytes are only correct at the width that produced them.
 
+### Session Temp Folders
+
+- `fs-native-extensions` (`fcntl` OFD, `flock`, `LockFileEx`) marks a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate (`server/session-temp/session-temp-locks.ts`).
+
 ### Telemetry
 
 - Never copy a T3 Code (pingdotgg/t3code) design choice. Telemetry sends no hash of an account id, value read from another tool's login, or free notice text: a hash under a public salt still links an install to its account. The one account id it sends is the Glimmervoid Cloud owner's WorkOS id, as the `cloud_account` property of its own profile and only once the doorman verified that owner over the signed link; a self-hosted install is tagged only from the account page on the carbon unit's click. Never merge profiles (`$merge_dangerously`): Delete my data deletes a whole profile, so a merge would let one install's deletion erase the account. The strict schemas in `shared/contracts/telemetry.ts` refuse those fields.
