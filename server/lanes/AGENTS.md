@@ -10,6 +10,10 @@ Lane spawning: the ephemeral judge lanes and the interactive work lane, with the
 | `work-lane.ts` | Reads the git folders of a lane's own checkout |
 | `lane-mcp.ts` | Read-only PostHog MCP posture shared by both lane spawn chokepoints |
 
+## For AI Agents
+
+- Lane shape: pure rules in a core, deps injected into an IO-free poller, a thin wiring shell owning the timers.
+
 ## Invariants
 
 Each entry is a rule, its why, and where it is pinned. Mechanism lives in the code.

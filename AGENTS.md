@@ -20,9 +20,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `mcp/` | Agent MCP endpoint; all MCP code (`mcp/AGENTS.md`) |
 | `cloud/` | The watcher and the server's link to it (`cloud/AGENTS.md`) |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
-| `server/child-process-safe.ts` | The ONLY importer of `node:child_process` |
-| `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
-| `server/core/` | Pure decision modules for everything in `server/`, no IO |
 | `session/` | Session domain (`session/AGENTS.md`) |
 | `session/sessions.ts` | Session lifecycle over a driver |
 | `session/adapters/`, `session/core/` | Agent adapters and pure session cores |
@@ -38,7 +35,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ### Working In This Directory
 
-- Everything is TypeScript ESM; the browser reaches `shared/` through the `#shared/*` imports map. Never `as unknown as`.
 - Node >=24.15.0 (type stripping for source mode and the `.test.ts` suite; `node:sqlite` for the whiteboard store). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - A feature ships only when it works on every first-class agent (Claude Code, Codex, Antigravity CLI), pinned by the agent parity matrix: each scenario row needs a live-captured fixture per agent or a stated reason none can exist. Other agents are best effort.
@@ -50,6 +46,13 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Sessions are keyed by stable UUID `id`; `name` is display-only.
 - Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed, and types come from `z.infer`, never hand-duplicated.
 - Coherence reports are work, not backlog: anything a Coherence hook or `coherence query status` reports open (a requirement, an undefined recurring term, an entrance, a failing check) an operator session hands at once to one child session (`glimmervoid spawn`); a spawned child or subagent settles it itself, and a lane leaves it.
+
+### Product scope
+
+- No new top-level feature area until Studio runs on ACP: Studio is the primary surface, so new top-level work waits until its ACP foundation is in place.
+- A new tab or panel arrives as a pack, not a built-in: Packs is how operators add their own tabs without growing core chrome.
+- Studio work ships when it works over ACP on the first-class agents that passed the ACP spike (`docs/acp-spike-2026-11.md`): Claude Code and Codex; Antigravity CLI joins once the whiteboard and show tools reach its model over ACP.
+- On boards, agents author and the operator annotates: keeping authoring with agents and markup with the operator avoids competing board tools.
 
 ### Feature freeze
 
@@ -67,12 +70,6 @@ These areas stay on as today and take fixes for crashes, data loss and security 
 
 - Before claiming completion, run `npm run typecheck` and the tests covering the changed files (`npm run test:files -- <files>`). A pull request needs the full `npm test`; the maintainer's host runs it and `npm run build` only on the operator's ask (out of memory).
 - Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
-
-### Common Patterns
-
-- Dual WebSocket: data WS (`/terminals/:sessionId`, raw PTY bytes) and control WS (`/control`, JSON).
-- Table-driven state machines (`session/core/state-machine.ts`, `shared/notification-states.ts`).
-- Lane shape: pure rules in a core, deps injected into an IO-free poller, a thin wiring shell owning the timers.
 
 ## Invariants
 
@@ -96,7 +93,6 @@ These areas stay on as today and take fixes for crashes, data loss and security 
 
 - No classes unless the pattern genuinely requires instance state.
 - Propagate errors via EventEmitter `error` events or callbacks, not thrown exceptions in async paths.
-- Code comments are banned entirely; name or restructure instead.
 
 ## Development Workflow
 
