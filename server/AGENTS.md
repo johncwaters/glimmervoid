@@ -32,7 +32,9 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `core/upgrade-route.ts` | Pure WS-upgrade target classification by PATHNAME |
 
 ## For AI Agents
-- Resolve a shipped asset only through `runtime-paths.ts`, never `import.meta.dirname` or a `..` offset: the same module runs from a source checkout and from `dist/`.
+- The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset only through `runtime-paths.ts`, never `import.meta.dirname` or a `..` offset: the same module runs from a source checkout and from `dist/`.
+- Secrets resolve in the config loader from `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, and an environment-provided one is stripped from every write, so a dashboard save cannot re-persist it (`server/core/config-secrets-core.ts`).
+- Session worktrees use the configured integration branch, or each repo's default branch when unset. Origin is the source of truth, as pinned by the git-workspace tests.
 - Before saying no newer build exists, read the install's channel in `~/.glimmervoid/update-check.json` (experimental takes the newer of npm `next` and `latest`, so `npm view glimmervoid version` alone misleads) and the `[update]` lines in `~/.glimmervoid/logs/server.log`, which name a staged build and a rollback.
 - See root `AGENTS.md` for architecture and conventions.
 

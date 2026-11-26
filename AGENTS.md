@@ -41,19 +41,27 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Everything is TypeScript ESM; the browser reaches `shared/` through the `#shared/*` imports map. Never `as unknown as`.
 - Node >=24.15.0 (type stripping for source mode and the `.test.ts` suite; `node:sqlite` for the whiteboard store). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
-- Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
 - A feature ships only when it works on every first-class agent (Claude Code, Codex, Antigravity CLI), pinned by the agent parity matrix: each scenario row needs a live-captured fixture per agent or a stated reason none can exist. Other agents are best effort.
 - Spawn sessions with `pty.spawn`, never `child_process.spawn`, and never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
-- Session worktrees use the configured integration branch, or each repo's default branch when unset. Origin is the source of truth, as pinned by the git-workspace tests.
 - All sessions share one event loop: no sync git or fs on recurring paths (polls, turn-end, watchers). Use async `execFile` with yields. One-shot cold paths may stay sync.
-- Secrets resolve in the config loader from `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, and an environment-provided one is stripped from every write, so a dashboard save cannot re-persist it (`server/core/config-secrets-core.ts`).
 - House character style: no literal em dash, en dash, ellipsis character, or emoji anywhere (source, tests, docs, commits). When code must emit one, build it via `String.fromCharCode`.
 - Prefer the seam pattern: pure logic in `session/core/` or a `*-core` module, thin IO shells around it. A pure core imports no Session and reads no clock.
 - Inter-module communication via Node `EventEmitter`, not globals or direct coupling.
-- The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset (relay, CLI, dashboard) through `server/runtime-paths.ts`, never from `import.meta.dirname`: the same module runs from a source checkout and from `dist/`.
 - Sessions are keyed by stable UUID `id`; `name` is display-only.
 - Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed, and types come from `z.infer`, never hand-duplicated.
 - Coherence reports are work, not backlog: anything a Coherence hook or `coherence query status` reports open (a requirement, an undefined recurring term, an entrance, a failing check) an operator session hands at once to one child session (`glimmervoid spawn`); a spawned child or subagent settles it itself, and a lane leaves it.
+
+### Frozen features
+
+These areas stay on as today and take fixes for crashes, data loss and security only, with no feature work (Packs is not frozen). When asked to add to one, stop and tell the operator.
+
+- Wargames: `server/wargames/`, `public/wargames/`, `shared/wargames/`
+- Arena: `public/arena/`, `server/race/`
+- Radar: `server/radar/`, `public/radar/`
+- Community: `server/community/`, `public/community/`
+- Team Review: `server/github/`, `server/review/`, `public/github/`, `public/review/`
+- Usage: `server/usage/`, `public/usage/`
+- Celebration extras (flying animals, nyan cat, merge celebration): `public/animals/`, `public/flying-animal*`, `public/nyan-*`, `public/merge-celebration*`
 
 ### Testing Requirements
 
