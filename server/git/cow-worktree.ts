@@ -3,7 +3,6 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { clock } from '../../shared/clock.ts';
 import { isPathInside } from '../../shared/paths.ts';
-import { errorMessage } from '../../shared/text.ts';
 import { runCommand } from './git-exec.ts';
 import { canCloneCopyOnWrite, checkSourceChangedSince, findEscapingSymlink } from './dependency-clone.ts';
 import { cloneFlagsFor } from './core/dependency-clone-core.ts';
@@ -54,7 +53,7 @@ type CowWorktreeAddOptions = {
 
 type CowWorktreeAddResult =
   | { ok: true; templateDir: string }
-  | { ok: false; reason: CowFallbackReason; detail?: string };
+  | { ok: false; reason: CowFallbackReason };
 
 type WarmCowTemplateOptions = {
   projectPath: string;
@@ -72,14 +71,18 @@ async function pathExists(targetPath: string): Promise<boolean> {
   return fsp.lstat(targetPath).then(() => true, () => false);
 }
 
+async function removeWorktreeDir(gitOps: Pick<CowWorktreeGitOps, 'removeWorktreeForce'>, targetPath: string): Promise<void> {
+  await gitOps.removeWorktreeForce(targetPath).catch(() => {});
+  await fsp.rm(targetPath, { recursive: true, force: true }).catch(() => {});
+}
+
 async function defaultCanCloneDirs(sourceDir: string, targetDir: string): Promise<boolean> {
   await fsp.mkdir(targetDir, { recursive: true }).catch(() => {});
   const [sourceStat, targetStat] = await Promise.all([
     fsp.stat(sourceDir).catch(() => null),
     fsp.stat(targetDir).catch(() => null),
   ]);
-  if (!sourceStat || !targetStat) return false;
-  if (sourceStat.dev !== targetStat.dev) return false;
+  if (!sourceStat || !targetStat || sourceStat.dev !== targetStat.dev) return false;
   const deviceKey = `${sourceStat.dev}:${targetStat.dev}`;
   const cached = cowSupportByDevicePair.get(deviceKey);
   if (cached !== undefined) return cached;
@@ -120,9 +123,7 @@ async function copyIndexAndResetHard(sourceDir: string, targetDir: string, runGi
   if (!sourceGitDir.ok || !targetGitDir.ok) return false;
   const sourceIndex = path.join(sourceGitDir.out.trim(), 'index');
   const targetIndex = path.join(targetGitDir.out.trim(), 'index');
-  if (await pathExists(sourceIndex)) {
-    await fsp.copyFile(sourceIndex, targetIndex);
-  }
+  if (await pathExists(sourceIndex)) await fsp.copyFile(sourceIndex, targetIndex);
   await runGit(['update-index', '-q', '--refresh'], targetDir);
   const reset = await runGit(['reset', '--hard', '-q'], targetDir);
   return reset.ok;
@@ -142,21 +143,17 @@ async function cloneTemplateFromMainCheckout(options: {
   const topLevelOutcome = await gitOps.runGit(['rev-parse', '--show-toplevel'], projectPath);
   if (!topLevelOutcome.ok || !topLevelOutcome.out.trim()) return false;
   const mainCheckoutDir = topLevelOutcome.out.trim();
-  const templateParent = path.dirname(templateDir);
-  if (!(await canClone(mainCheckoutDir, templateParent))) return false;
-  const added = await gitOps.addDetachedTemplate(templateDir, templateStartRef, true);
-  if (!added.ok) return false;
+  if (!(await canClone(mainCheckoutDir, path.dirname(templateDir)))) return false;
+  if (!(await gitOps.addDetachedTemplate(templateDir, templateStartRef, true)).ok) return false;
   const treeListing = await gitOps.runGit(['ls-tree', '-z', '--name-only', 'HEAD'], mainCheckoutDir);
   if (!treeListing.ok) return false;
   for (const entryName of treeListing.out.split('\0').filter(Boolean)) {
     const sourceEntry = path.join(mainCheckoutDir, entryName);
     if (!(await pathExists(sourceEntry))) continue;
-    const cloned = await cloneEntry(sourceEntry, path.join(templateDir, entryName), cloneFlags);
-    if (!cloned) return false;
+    if (!(await cloneEntry(sourceEntry, path.join(templateDir, entryName), cloneFlags))) return false;
   }
   if (!(await copyIndexAndResetHard(mainCheckoutDir, templateDir, gitOps.runGit))) return false;
-  const cleaned = await gitOps.runGit(['clean', '-ffdxq'], templateDir);
-  return cleaned.ok;
+  return (await gitOps.runGit(['clean', '-ffdxq'], templateDir)).ok;
 }
 
 async function refreshTemplateCheckout(options: {
@@ -176,13 +173,10 @@ async function refreshTemplateCheckout(options: {
       return true;
     }
   }
-  await gitOps.removeWorktreeForce(templateDir).catch(() => {});
-  await fsp.rm(templateDir, { recursive: true, force: true }).catch(() => {});
+  await removeWorktreeDir(gitOps, templateDir);
   if (await cloneTemplateFromMainCheckout(options)) return true;
-  await gitOps.removeWorktreeForce(templateDir).catch(() => {});
-  await fsp.rm(templateDir, { recursive: true, force: true }).catch(() => {});
-  const plainTemplate = await gitOps.addDetachedTemplate(templateDir, templateStartRef, false);
-  return plainTemplate.ok;
+  await removeWorktreeDir(gitOps, templateDir);
+  return (await gitOps.addDetachedTemplate(templateDir, templateStartRef, false)).ok;
 }
 
 async function readStampMtimeMs(stampPath: string): Promise<number | null> {
@@ -236,17 +230,16 @@ async function warmTemplateBuildDirs(options: {
   sharedHiddenDirs: readonly string[];
   runGit: CowWorktreeGitOps['runGit'];
   cloneEntry: CowCloneDir;
-}): Promise<number> {
+}): Promise<void> {
   const { sourceCheckoutDir, templatePaths, cloneFlags, sharedHiddenDirs, runGit, cloneEntry } = options;
   const [ignoredListing, trackedListing] = await Promise.all([
     runGit(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], sourceCheckoutDir),
     runGit(['ls-files', '-z'], templatePaths.templateDir),
   ]);
-  if (!ignoredListing.ok || !trackedListing.ok) return 0;
+  if (!ignoredListing.ok || !trackedListing.ok) return;
   const trackedAncestors = trackedAncestorDirsFrom(trackedListing.out);
   const candidateDirs = filterIgnoredBuildDirs(ignoredListing.out, sharedHiddenDirs, trackedAncestors);
   const allowedHiddenDirs = new Set(sharedHiddenDirs);
-  let warmedCount = 0;
   for (const relativeDir of candidateDirs) {
     const sourceDir = path.join(sourceCheckoutDir, relativeDir);
     if (!(await pathExists(sourceDir))) continue;
@@ -257,26 +250,21 @@ async function warmTemplateBuildDirs(options: {
     await fsp.mkdir(templatePaths.warmStagingDir, { recursive: true });
     await fsp.writeFile(markerPath, '');
     try {
-      const cloned = await cloneEntry(sourceDir, stagingPath, cloneFlags);
-      if (!cloned) continue;
+      if (!(await cloneEntry(sourceDir, stagingPath, cloneFlags))) continue;
       await stripDisallowedStagedEntries(stagingPath, allowedHiddenDirs);
-      const escapingSymlink = await findEscapingSymlink(relativeDir, stagingPath);
-      if (escapingSymlink !== null) continue;
-      const tornClone = await checkSourceChangedSince(sourceDir, markerPath);
-      if (tornClone !== null) continue;
+      if ((await findEscapingSymlink(relativeDir, stagingPath)) !== null) continue;
+      if ((await checkSourceChangedSince(sourceDir, markerPath)) !== null) continue;
       if (await hasSymlinkAncestorInTemplate(templatePaths.templateDir, relativeDir)) continue;
       const destinationDir = path.join(templatePaths.templateDir, relativeDir);
       await fsp.rm(destinationDir, { recursive: true, force: true }).catch(() => {});
       await fsp.mkdir(path.dirname(destinationDir), { recursive: true });
       await fsp.rename(stagingPath, destinationDir);
-      warmedCount += 1;
     } catch {
     } finally {
       await fsp.rm(markerPath, { force: true }).catch(() => {});
       await fsp.rm(templatePaths.warmStagingDir, { recursive: true, force: true }).catch(() => {});
     }
   }
-  return warmedCount;
 }
 
 async function populateWorktreeFromTemplate(options: {
@@ -289,13 +277,11 @@ async function populateWorktreeFromTemplate(options: {
   cloneEntry: CowCloneDir;
 }): Promise<boolean> {
   const { templateDir, worktreePath, branch, startRef, cloneFlags, gitOps, cloneEntry } = options;
-  const added = await gitOps.addNoCheckoutWorktree(worktreePath, branch, startRef);
-  if (!added.ok) return false;
+  if (!(await gitOps.addNoCheckoutWorktree(worktreePath, branch, startRef)).ok) return false;
   const templateEntries = await fsp.readdir(templateDir, { withFileTypes: true });
   for (const entry of templateEntries) {
     if (entry.name === '.git') continue;
-    const cloned = await cloneEntry(path.join(templateDir, entry.name), path.join(worktreePath, entry.name), cloneFlags);
-    if (!cloned) return false;
+    if (!(await cloneEntry(path.join(templateDir, entry.name), path.join(worktreePath, entry.name), cloneFlags))) return false;
   }
   if (!(await copyIndexAndResetHard(templateDir, worktreePath, gitOps.runGit))) return false;
   await gitOps.runGit(['clean', '-ffdq'], worktreePath);
@@ -311,26 +297,20 @@ export async function addCowWorktree(options: CowWorktreeAddOptions): Promise<Co
   const warmIntervalMs = options.warmIntervalMs ?? DEFAULT_COW_WARM_INTERVAL_MS;
 
   const worktreeParent = path.dirname(options.worktreePath);
-  const prePlan = planCowWorktreeAdd({
-    platform,
-    cowDisabled: isCowDisabledByEnv(env),
-    hasSubmodules: await pathExists(path.join(options.projectPath, '.gitmodules')),
-    canCloneCopyOnWrite: true,
-  });
-  if (prePlan.action === 'fallback') return { ok: false, reason: prePlan.reason };
-
-  await fsp.mkdir(worktreeParent, { recursive: true }).catch(() => {});
-  const canCloneIntoWorktree = await canClone(worktreeParent, worktreeParent);
+  const cowDisabled = isCowDisabledByEnv(env);
+  const hasSubmodules = await pathExists(path.join(options.projectPath, '.gitmodules'));
+  const shouldProbe = !cowDisabled && !hasSubmodules && cloneFlagsFor(platform) !== null;
+  if (shouldProbe) await fsp.mkdir(worktreeParent, { recursive: true }).catch(() => {});
   const plan = planCowWorktreeAdd({
     platform,
-    cowDisabled: false,
-    hasSubmodules: false,
-    canCloneCopyOnWrite: canCloneIntoWorktree,
+    cowDisabled,
+    hasSubmodules,
+    canCloneCopyOnWrite: shouldProbe ? await canClone(worktreeParent, worktreeParent) : false,
   });
   if (plan.action === 'fallback') return { ok: false, reason: plan.reason };
 
   const repoCommonDir = await resolveCommonGitDir(options.projectPath, options.gitOps.runGit);
-  if (!repoCommonDir) return { ok: false, reason: 'failed', detail: 'could not resolve common git dir' };
+  if (!repoCommonDir) return { ok: false, reason: 'failed' };
   const templatePaths = templatePathsFor(worktreeParent, repoCommonDir);
 
   const branchExistedBefore = options.createBranch && options.branch !== null
@@ -348,11 +328,8 @@ export async function addCowWorktree(options: CowWorktreeAddOptions): Promise<Co
       cloneEntry,
       canClone,
     });
-    if (!refreshed) return { ok: false, reason: 'failed', detail: 'could not refresh template checkout' };
-
-    if (await pathExists(path.join(templatePaths.templateDir, '.gitmodules'))) {
-      return { ok: false, reason: 'submodules' };
-    }
+    if (!refreshed) return { ok: false, reason: 'failed' };
+    if (await pathExists(path.join(templatePaths.templateDir, '.gitmodules'))) return { ok: false, reason: 'submodules' };
 
     const isBare = await isBareRepository(options.projectPath, options.gitOps.runGit);
     const stampMtimeMs = await readStampMtimeMs(templatePaths.stampPath);
@@ -379,16 +356,15 @@ export async function addCowWorktree(options: CowWorktreeAddOptions): Promise<Co
     });
     if (populated) return { ok: true, templateDir: templatePaths.templateDir };
     await cleanupFailedWorktree(options, branchExistedBefore);
-    return { ok: false, reason: 'failed', detail: 'could not populate worktree from template' };
-  } catch (error) {
+    return { ok: false, reason: 'failed' };
+  } catch {
     await cleanupFailedWorktree(options, branchExistedBefore);
-    return { ok: false, reason: 'failed', detail: errorMessage(error) };
+    return { ok: false, reason: 'failed' };
   }
 }
 
 async function cleanupFailedWorktree(options: CowWorktreeAddOptions, branchExistedBefore: boolean): Promise<void> {
-  await options.gitOps.removeWorktreeForce(options.worktreePath).catch(() => {});
-  await fsp.rm(options.worktreePath, { recursive: true, force: true }).catch(() => {});
+  await removeWorktreeDir(options.gitOps, options.worktreePath);
   if (options.createBranch && !branchExistedBefore && options.branch) {
     await options.gitOps.deleteBranchForce(options.branch).catch(() => {});
   }
