@@ -8,20 +8,31 @@ import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, ManagerDecision } from '../../shared/contracts/question-manager.ts';
 import { BACKGROUND_TASK_SIGNAL_EVENT, BackgroundTaskSignal, MAX_RAW_LINE_CHARS, REBASELINE_EVENT, RebaselineSignal, SUBAGENT_SIGNAL_EVENT, SubagentSignal } from '../../shared/contracts/trace.ts';
 import { MAX_REMEMBERED_CLOSED_SESSIONS, stopFollowingBinding, trimOldest } from './trace-wiring-context.ts';
-import { containmentRootFor, relaySourceOf, transcriptSourceOf } from './conversation-sources.ts';
-import type { TranscriptConversationSource } from './conversation-sources.ts';
+import { SESSION_DRIVER_EVENTS } from '../../session/drivers/driver.ts';
+import type { DriverEvent, DriverListener, SessionDriverEventPayloads } from '../../session/drivers/driver.ts';
+import { containmentRootFor, driverSource, relaySourceOf, transcriptSourceOf } from './conversation-sources.ts';
+import type { SubscribeDriverEvents, TranscriptConversationSource } from './conversation-sources.ts';
 import type { TraceBinding, TraceWiringContext } from './trace-wiring-context.ts';
 import type { TraceRecordStore } from './trace-record-store.ts';
 import type { TraceCheckpoints } from './trace-checkpoints.ts';
 import type { TraceTranscriptDrain } from './trace-transcript-drain.ts';
 import type { TraceSubagentCapture } from './trace-subagent-capture.ts';
 
+type SessionEventListener = (payload: Record<string, unknown>) => void;
+type DriverSessionListener<EventName extends keyof SessionDriverEventPayloads> = (payload: SessionDriverEventPayloads[EventName]) => void;
+
 interface TraceSession {
   id: string;
   agentId: string;
   launchEnv(): Record<string, string | undefined>;
   deliveredSecretValues?(): readonly string[];
-  on(event: string, listener: (payload: Record<string, unknown>) => void): unknown;
+  _driver?: { readonly hasTerminal: boolean };
+  on<EventName extends keyof SessionDriverEventPayloads>(event: EventName, listener: DriverSessionListener<EventName>): unknown;
+  on(event: string, listener: SessionEventListener): unknown;
+  off?<EventName extends keyof SessionDriverEventPayloads>(event: EventName, listener: DriverSessionListener<EventName>): unknown;
+  off?(event: string, listener: SessionEventListener): unknown;
+  removeListener?<EventName extends keyof SessionDriverEventPayloads>(event: EventName, listener: DriverSessionListener<EventName>): unknown;
+  removeListener?(event: string, listener: SessionEventListener): unknown;
 }
 
 interface TraceSessionBindingDeps {
@@ -33,6 +44,64 @@ interface TraceSessionBindingDeps {
 
 const TRANSCRIPT_WATCH_DEBOUNCE_MS = 50;
 const MAX_PENDING_PRE_BIND_RECORDS = 64;
+
+function detachDriverListener<EventName extends keyof SessionDriverEventPayloads>(
+  session: TraceSession,
+  eventName: EventName,
+  listener: DriverSessionListener<EventName>,
+): void {
+  if (typeof session.off === 'function') {
+    session.off(eventName, listener);
+    return;
+  }
+  session.removeListener?.(eventName, listener);
+}
+
+function subscribeSessionDriverEvents(
+  session: TraceSession,
+  onAgentSession: (agentSessionId: string) => void,
+): SubscribeDriverEvents {
+  return (listener: DriverListener) => {
+    const forward = <EventName extends keyof SessionDriverEventPayloads>(
+      eventName: EventName,
+      toDriverEvent: (payload: SessionDriverEventPayloads[EventName]) => DriverEvent,
+    ): (() => void) => {
+      const handler: DriverSessionListener<EventName> = (payload) => {
+        listener(toDriverEvent(payload));
+      };
+      session.on(eventName, handler);
+      return () => { detachDriverListener(session, eventName, handler); };
+    };
+
+    const detachAll: (() => void)[] = [
+      forward(SESSION_DRIVER_EVENTS.agentSession, (payload) => {
+        if (payload.agentSessionId.length > 0) onAgentSession(payload.agentSessionId);
+        return { kind: 'agent-session', agentSessionId: payload.agentSessionId, isResumed: payload.isResumed };
+      }),
+      forward(SESSION_DRIVER_EVENTS.update, (payload) => ({
+        kind: 'update',
+        agentSessionId: payload.agentSessionId,
+        update: payload.update,
+      })),
+      forward(SESSION_DRIVER_EVENTS.permission, (payload) => ({
+        kind: 'permission',
+        request: payload.request,
+      })),
+      forward(SESSION_DRIVER_EVENTS.question, (payload) => ({
+        kind: 'question',
+        question: payload.question,
+      })),
+      forward(SESSION_DRIVER_EVENTS.turnEnd, (payload) => ({
+        kind: 'turn-end',
+        stopReason: payload.stopReason,
+      })),
+    ];
+
+    return () => {
+      for (const detach of detachAll) detach();
+    };
+  };
+}
 
 function predecessorAwaitingDrain(previous: TraceBinding | undefined): TraceBinding | null {
   if (!previous) return null;
@@ -59,9 +128,39 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   const { noteResumeOutcome, drainBinding } = deps.drain;
   const { readSubagentTranscript } = deps.subagentCapture;
   const attachedSessions = new WeakSet<object>();
+  const driverStopByGlimmervoidSessionId = new Map<string, () => void>();
   const conversationVendorSessionIdByGlimmervoidSessionId = new Map<string, string>();
   const pendingRecordsByGlimmervoidSessionId = new Map<string, Record<string, unknown>[]>();
   const launchEnvByGlimmervoidSessionId = new Map<string, () => Record<string, string | undefined>>();
+
+  function stopDriverSubscription(glimmervoidSessionId: string): void {
+    const stopDriver = driverStopByGlimmervoidSessionId.get(glimmervoidSessionId);
+    if (!stopDriver) return;
+    driverStopByGlimmervoidSessionId.delete(glimmervoidSessionId);
+    stopDriver();
+  }
+
+  function stopAllDriverSubscriptions(): void {
+    for (const glimmervoidSessionId of [...driverStopByGlimmervoidSessionId.keys()]) {
+      stopDriverSubscription(glimmervoidSessionId);
+    }
+  }
+
+  function hasDriverSubscription(glimmervoidSessionId: string): boolean {
+    return driverStopByGlimmervoidSessionId.has(glimmervoidSessionId);
+  }
+
+  function ensureDriverSubscription(session: TraceSession): void {
+    if (isStopped() || closedSessionIds.has(session.id) || driverStopByGlimmervoidSessionId.has(session.id)) return;
+    const stopDriver = driverSource().subscribe(
+      subscribeSessionDriverEvents(session, (agentSessionId) => {
+        conversationVendorSessionIdByGlimmervoidSessionId.set(session.id, agentSessionId);
+      }),
+      (records) => { appendConversationRecords(session.id, records); },
+      nowFn,
+    );
+    driverStopByGlimmervoidSessionId.set(session.id, stopDriver);
+  }
 
   async function bindSession(
     glimmervoidSessionId: string,
@@ -227,6 +326,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   }
 
   function detachSession(glimmervoidSessionId: string): void {
+    stopDriverSubscription(glimmervoidSessionId);
     chain(async () => {
       const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
       if (!binding) return;
@@ -245,6 +345,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   }
 
   function closeSession(glimmervoidSessionId: string): void {
+    stopDriverSubscription(glimmervoidSessionId);
     closedSessionIds.add(glimmervoidSessionId);
     awaitingTranscriptByGlimmervoidSessionId.delete(glimmervoidSessionId);
     conversationVendorSessionIdByGlimmervoidSessionId.delete(glimmervoidSessionId);
@@ -299,6 +400,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   }
 
   function hasConversationSource(glimmervoidSessionId: string): boolean {
+    if (driverStopByGlimmervoidSessionId.has(glimmervoidSessionId)) return true;
     const agentId = agentIdBySessionId.get(glimmervoidSessionId) ?? '';
     return transcriptSourceOf(agentId) !== null || relaySourceOf(agentId) !== null;
   }
@@ -366,21 +468,29 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     deliveredSecretValuesBySessionId.set(session.id, () => session.deliveredSecretValues?.() ?? []);
     agentIdBySessionId.set(session.id, session.agentId);
     launchEnvByGlimmervoidSessionId.set(session.id, () => session.launchEnv());
-    session.on('claude-session-id', (payload) => { noteVendorSession(session.id, payload); });
-    session.on('hook-event', (record) => { noteHookEvent(session.id, record); });
+    stopDriverSubscription(session.id);
+    const usesDriverSource = session._driver?.hasTerminal === false;
+    if (usesDriverSource) ensureDriverSubscription(session);
+    if (!usesDriverSource) {
+      session.on('claude-session-id', (payload) => { noteVendorSession(session.id, payload); });
+      session.on('hook-event', (record) => { noteHookEvent(session.id, record); });
+      session.on('post-turn-check', () => { drainAtTurnEnd(session.id); });
+    }
     session.on('conversation-records', ({ records }) => { appendConversationRecords(session.id, records); });
     session.on(MANAGER_DECISION_EVENT, (payload) => { appendManagerDecisionNotice(session.id, payload); });
     session.on('chat-attachments-sent', (payload) => { appendSentAttachments(session.id, payload); });
     session.on('chat-board-answer-sent', (payload) => { appendSentBoardAnswer(session.id, payload); });
-    session.on(REBASELINE_EVENT, (payload) => { appendRestartRecord(session.id, payload); });
+    session.on(REBASELINE_EVENT, (payload) => {
+      if (usesDriverSource) ensureDriverSubscription(session);
+      appendRestartRecord(session.id, payload);
+    });
     session.on(SUBAGENT_SIGNAL_EVENT, (payload) => { appendSubagentSignal(session.id, payload); });
     session.on(BACKGROUND_TASK_SIGNAL_EVENT, (payload) => { appendBackgroundTaskSignal(session.id, payload); });
-    session.on('post-turn-check', () => { drainAtTurnEnd(session.id); });
     session.on('exit', () => { detachSession(session.id); });
     session.on('teardown', () => { closeSession(session.id); });
   }
 
-  return { attachSession };
+  return { attachSession, hasDriverSubscription, stopAllDriverSubscriptions };
 }
 
 export { createTraceSessionBinding };

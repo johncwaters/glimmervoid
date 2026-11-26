@@ -13,6 +13,7 @@ import {
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../server/core/trace-tail-core.ts';
 import { Session } from '../session/sessions.ts';
+import { SESSION_DRIVER_EVENTS } from '../session/drivers/driver.ts';
 import { exitablePty, fakePty } from './helpers/fake-pty.ts';
 
 const claudeHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-home-')));
@@ -1477,6 +1478,69 @@ test('a respawn after the first start records the restart after the old process 
   const records = readTrace(harness.tracePath('restarted-session'));
   assert.deepEqual(records.map((record) => record.kind), ['session', 'prompt', 'restart']);
   assert.equal(records[2].kind === 'restart' ? records[2].startsNewConversation : null, true);
+
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+});
+
+test('an ACP-backed Session traces tool call, tool result, and assistant records through the driver source and leaves no driver listeners on exit', { timeout: 30_000 }, async () => {
+  const { configDirectory } = makeWorkspace('acp-driver-trace');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const repoRoot = path.join(import.meta.dirname, '..');
+  const replayAgentPath = path.join(repoRoot, 'tests', 'fixtures', 'acp-replay-agent.ts');
+  const recordingPath = path.join(repoRoot, 'harness', 'acp-spike', 'recordings', 'claude', 'updates.jsonl');
+  const session = new Session({
+    id: 'acp-trace-session',
+    name: 'acp-trace-session',
+    path: repoRoot,
+    agent: 'claude-code',
+    driver: {
+      kind: 'acp',
+      command: {
+        file: process.execPath,
+        args: [replayAgentPath, recordingPath, '1', 'carbon.unit@example.test', 'plan-marker-7c1f'],
+      },
+      mcpServers: [],
+      clientVersion: 'test',
+    },
+  });
+  harness.wiring.attachSession(session);
+  for (const eventName of Object.values(SESSION_DRIVER_EVENTS)) {
+    assert.equal(session.listenerCount(eventName), 1, `expected trace listener on ${eventName}`);
+  }
+
+  const exited = new Promise<void>((resolveExit) => session.once('exit', () => resolveExit()));
+  const turnEnded = new Promise<void>((resolveTurn) => {
+    session.once(SESSION_DRIVER_EVENTS.agentSession, () => {
+      assert.deepEqual(session.deliver('replayed prompt', { when: 'now', submit: true }), { ok: true, kind: 'pasted' });
+    });
+    session.once(SESSION_DRIVER_EVENTS.turnEnd, () => resolveTurn());
+  });
+  session.on('error', (error: unknown) => assert.fail(String(error)));
+
+  await session.start();
+  await turnEnded;
+  session.kill();
+  await exited;
+
+  for (const eventName of Object.values(SESSION_DRIVER_EVENTS)) {
+    assert.equal(session.listenerCount(eventName), 0, `expected no driver listener left on ${eventName} after exit`);
+  }
+
+  session.destroy();
+  await harness.wiring.whenIdle();
+
+  const page = await harness.wiring.readTracePage(session.id, { after: 0 });
+  const kinds = page.records.map((record) => record.kind);
+  assert.deepEqual(kinds, ['tool_call', 'tool_result', 'assistant']);
+  for (const record of page.records) {
+    assert.ok(TraceRecord.safeParse(record).success);
+    assert.ok(record.vendorSessionId.length > 0);
+  }
+  assert.equal(page.records[0].kind === 'tool_call' ? page.records[0].name : null, 'ToolSearch');
+  assert.equal(page.records[1].kind === 'tool_result' ? page.records[1].isError : null, false);
+  assert.ok(page.records[2].kind === 'assistant' && page.records[2].text.length > 0);
 
   await harness.wiring.stop();
   fs.rmSync(configDirectory, { recursive: true, force: true });

@@ -98,7 +98,7 @@ function createTraceWiring({
   const checkpoints = createTraceCheckpoints(context, recordStore);
   const drain = createTraceTranscriptDrain(context, recordStore, checkpoints);
   const subagentCapture = createTraceSubagentCapture(context, drain);
-  const { attachSession } = createTraceSessionBinding(context, { recordStore, checkpoints, drain, subagentCapture });
+  const { attachSession, hasDriverSubscription, stopAllDriverSubscriptions } = createTraceSessionBinding(context, { recordStore, checkpoints, drain, subagentCapture });
   const { readTracePage, flushEverySession } = recordStore;
   const { drainBinding } = drain;
 
@@ -106,7 +106,7 @@ function createTraceWiring({
     await pruneTraceFiles({
       traceDirectory,
       now: nowFn(),
-      isBoundSessionId: (glimmervoidSessionId) => bindingByGlimmervoidSessionId.has(glimmervoidSessionId),
+      isBoundSessionId: (glimmervoidSessionId) => bindingByGlimmervoidSessionId.has(glimmervoidSessionId) || hasDriverSubscription(glimmervoidSessionId),
     });
   }
 
@@ -136,6 +136,7 @@ function createTraceWiring({
   async function stopOnce(): Promise<void> {
     if (pruneTimer) clearIntervalFn(pruneTimer);
     pruneTimer = null;
+    stopAllDriverSubscriptions();
     await operationQueue.idle();
     for (const binding of [...bindingByGlimmervoidSessionId.values()]) {
       bindingByGlimmervoidSessionId.delete(binding.glimmervoidSessionId);
