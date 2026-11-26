@@ -678,10 +678,6 @@ function wireCeilingOf(freeformTop: number): number {
   return hasStepBand ? freeformTop - WIRE_HEADROOM : Number.NEGATIVE_INFINITY;
 }
 
-function pinnedOffsetYOf(board: Board): number {
-  return stepBandOf(board).bottom - MARGIN;
-}
-
 function pinnedOffsetYAfterLeaving(plan: PlanBand | null, leavingBoxes: readonly { x: number; height: number }[]): number {
   const remainingBottoms = (plan?.columns ?? []).flatMap((column) => {
     const leavingHere = leavingBoxes.filter((box) => box.x === column.x);
@@ -984,6 +980,6 @@ export {
   FRAME_TITLE_HEIGHT, MARGIN, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
   handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, isInStepBand,
-  customLegendLabelByKey, defaultWireStyleLabel, isFullBleedBox, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, placingBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
+  customLegendLabelByKey, defaultWireStyleLabel, isFullBleedBox, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, placingBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };

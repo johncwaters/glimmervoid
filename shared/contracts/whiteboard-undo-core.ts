@@ -64,10 +64,6 @@ function undoStepOf(before: DiffBefore, diff: BoardDiff): { ops: Op[]; expected:
   return { ops: restoringOps(touchedAfter, touchedBefore), expected: { fields, elements } };
 }
 
-function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
-  return undoStepOf(before, diff).ops;
-}
-
 function withEntry<Entry>(stack: readonly Entry[], entry: Entry): Entry[] {
   return [...stack, entry].slice(-UNDO_LIMIT);
 }
@@ -87,5 +83,5 @@ function recordStep<Entry>(history: UndoHistory<Entry>, direction: UndoDirection
   return { ...history, [opposite]: withEntry(history[opposite], entry) };
 }
 
-export { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, recordStep, takeStep, undoOpsOf, undoStepOf };
+export { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoStepOf };
 export type { UndoDirection, UndoHistory };

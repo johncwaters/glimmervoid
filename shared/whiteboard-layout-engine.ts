@@ -352,10 +352,6 @@ function* resumingLayoutWorld(board: Board, saved: SavedWorld, elementsPerSlice:
   return yield* buildingWorld(board, { laidOut: saved.laidOut, chrome: saved.chrome, routeMemory, warningLists }, minIncrementalElements, elementsPerSlice);
 }
 
-function resumeLayoutWorld(board: Board, saved: SavedWorld, minIncrementalElements = INCREMENTAL_MIN_ELEMENTS): LayoutWorld {
-  return drained(resumingLayoutWorld(board, saved, Number.POSITIVE_INFINITY, minIncrementalElements));
-}
-
 function savedWorldOf(world: LayoutWorld): SavedWorldParts {
   bookUnbookedWarnings(world);
   return { routeById: world.routeMemory.routeById, routeWarnings: [...world.routeWarnings.warningByText.values()], placementWarnings: [...world.placementWarnings.warningByText.values()] };
@@ -846,10 +842,6 @@ function* applyingLayoutDelta(world: LayoutWorld, board: Board, changes: Readonl
   return { world: rebuilt, delta: { changed: [], previousById: new Map(), removedIds: [], isChromeChanged: true, isRebuilt: true, worldChanges: { routeIds: [], warnings: [] } } };
 }
 
-function applyLayoutDelta(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): { world: LayoutWorld; delta: LayoutDelta } {
-  return drained(applyingLayoutDelta(world, board, changes, Number.POSITIVE_INFINITY));
-}
-
 function layoutOf(world: LayoutWorld): PlacedLayout {
   if (world.layout) return world.layout;
   const frames: LaidOutFrame[] = [];
@@ -907,5 +899,5 @@ function warningsOfWorld(world: LayoutWorld): string[] {
   return world.layout ? world.layout.warnings : warningsOf(world);
 }
 
-export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, applyingLayoutDelta, createLayoutWorld, layoutOf, rebuildingWorld, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld };
+export { INCREMENTAL_MIN_ELEMENTS, applyingLayoutDelta, createLayoutWorld, layoutOf, rebuildingWorld, resumingLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld };
 export type { ElementChange, LayoutDelta, LayoutWorld, SavedWorld, SavedWorldParts, WarningChange };
