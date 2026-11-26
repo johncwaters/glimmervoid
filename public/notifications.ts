@@ -5,7 +5,9 @@ import { describeFailure } from './client-error-core.ts';
 import { reportToServerLog, sendControlMsg } from './control-ws.ts';
 import { alertGroupBannerOptions, desktopNotificationOptions, foldAlertGroupLines } from './desktop-notification-core.ts';
 import { el } from './dom-helpers.ts';
+import { isPhoneLayout } from './form-factor.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
+import { getVisiblePhoneSessionId } from './phone/phone-shell-gate.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { getSoundId, isNotificationsEnabled, isSoundEnabled } from './ui-prefs.ts';
 import { button } from './ui/button.ts';
@@ -166,7 +168,10 @@ function claimGroupSound(group: NotifyAlertGroup | undefined): boolean {
 }
 
 function alertWhileFocused(msg: ServerMessageOf<'notify'>) {
-  if (sessionUIs.get(msg.session)?._isActiveViewer?.() === true) {
+  const isViewingSession = isPhoneLayout()
+    ? getVisiblePhoneSessionId() === msg.session
+    : sessionUIs.get(msg.session)?._isActiveViewer?.() === true;
+  if (isViewingSession) {
     sendControlMsg({ type: 'alert-seen', id: msg.session });
     return;
   }

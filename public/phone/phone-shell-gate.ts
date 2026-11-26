@@ -70,6 +70,11 @@ export function getPhoneSessionId(): string | null {
   return loadedShell?.getPhoneSessionId() ?? null;
 }
 
+export function getVisiblePhoneSessionId(): string | null {
+  if (wantedActivation) return null;
+  return loadedShell?.getVisiblePhoneSessionId() ?? null;
+}
+
 export function orderPhonePanels(orderedViewIds: readonly string[]): void {
   latestPanelOrder = orderedViewIds;
   loadedShell?.orderPhonePanels(orderedViewIds);

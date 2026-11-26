@@ -1,6 +1,7 @@
 import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { isPhoneLayout } from '../form-factor.ts';
+import { getVisiblePhoneSessionId } from '../phone/phone-shell-gate.ts';
 import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
 import type { SessionUi } from './card-registry.ts';
 
@@ -22,13 +23,14 @@ function holdThenDismissWatchedCompletion(ui: SessionUi, sessionId: string) {
 
 function isCompletionWatchedAt(ui: SessionUi, previousState: string, nextState: string) {
   const activeElement = document.activeElement;
+  const isPhone = isPhoneLayout();
   return isCompletionWatchedByOperator({
     previousState,
     nextState,
-    isPhoneLayout: isPhoneLayout(),
+    isPhoneLayout: isPhone,
     isDocumentVisible: document.visibilityState === 'visible',
     isDocumentFocused: document.hasFocus(),
-    isActiveViewer: ui._isActiveViewer?.() === true,
+    isActiveViewer: isPhone ? getVisiblePhoneSessionId() === ui.card.dataset.id : ui._isActiveViewer?.() === true,
     hasFocusInsideTerminal: activeElement instanceof Node && ui.termWrap.contains(activeElement),
   });
 }

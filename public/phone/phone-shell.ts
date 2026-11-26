@@ -5,6 +5,7 @@ import { jumpTargetCount, pickStrongestAttention } from '../attention-core.ts';
 import { getRestorableSessionId, isSessionShown, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionUIs } from '../session-card/card-registry.ts';
+import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
 import type { SessionPage, SessionPageHost } from '../page-registry.ts';
 import { getSessionView } from '../ui-prefs.ts';
@@ -306,8 +307,7 @@ function openSession(sessionId: string) {
   selectSession(sessionId);
   terminalScreen.show(sessionId);
   isBoardStale = true;
-  showScreen(TERMINAL);
-  if (getSessionView() === 'chat') openSessionPage('chat', sessionId);
+  showScreen(chosenSessionScreen());
 }
 
 interface PhoneHistoryState {
@@ -449,6 +449,10 @@ function applyScreen(requestedScreenId: string) {
     return;
   }
   terminalScreen.unview();
+  if (isPageScreen(screenId)) {
+    const shownSessionId = terminalScreen.getSessionId();
+    if (shownSessionId) markSessionSeen(shownSessionId);
+  }
 }
 
 function canShowScreen(screenId: string) {
@@ -493,7 +497,7 @@ export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: 
     return;
   }
   if (sessionId && startScreen === BOARD) {
-    showScreen(TERMINAL);
+    showScreen(chosenSessionScreen());
     return;
   }
   applyScreen(startScreen);
@@ -524,6 +528,12 @@ export function isPhoneShellActive() {
 
 export function getPhoneSessionId() {
   return active && terminalScreen ? terminalScreen.getSessionId() : null;
+}
+
+export function getVisiblePhoneSessionId() {
+  if (!active || !terminalScreen) return null;
+  if (rootScreenOf(uiState.snapshot().phoneScreen || BOARD) !== TERMINAL) return null;
+  return terminalScreen.getSessionId();
 }
 
 export function refreshPhoneBoard() {

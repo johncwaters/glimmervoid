@@ -859,6 +859,7 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.locator('.phone-nav > .phone-nav-item[data-screen="terminal"]').click();
   await page.waitForTimeout(300);
   assert.equal(await page.locator('.session-chat .chat-composer').isVisible(), true, 'the Session tab keeps the view the toggle chose');
+  await verifyPhoneChatMarksRead(page, chatBar);
   const shellId = await page.evaluate(async () => {
     const controlWsUrl = '/control-ws.ts';
     const { sendControlRequest } = await import(controlWsUrl);
@@ -886,6 +887,43 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.locator('.phone-board-list button.session-row:not([data-shell])').first().click();
   await page.locator('.phone-terminal .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.locator('.session-chat').count(), 0, 'after Terminal, the next session opens in the terminal');
+}
+
+async function verifyPhoneChatMarksRead(page: Page, chatBar: Locator): Promise<void> {
+  const viewerCheck = await page.evaluate(async () => {
+    const phoneGateUrl = '/phone/phone-shell-gate.ts';
+    const registryUrl = '/session-card/card-registry.ts';
+    const { getVisiblePhoneSessionId } = await import(phoneGateUrl);
+    const { sessionUIs } = await import(registryUrl);
+    const visibleId = getVisiblePhoneSessionId();
+    const isTerminalActiveViewer = visibleId ? sessionUIs.get(visibleId)?._isActiveViewer?.() === true : null;
+    return { visibleId, isTerminalActiveViewer };
+  });
+  assert.ok(viewerCheck.visibleId, 'phone Chat reports the shown session as visible');
+  assert.equal(viewerCheck.isTerminalActiveViewer, false, 'phone Chat keeps the hidden terminal unviewed so it does not claim the PTY grid');
+
+  await waitForTurnRunning(page, false);
+  await sendFromComposer(page, 'take-any-prompt');
+  await waitForTurnRunning(page, true);
+  await waitForOutboxEmpty(page);
+  await stopTurnPastHints(page);
+  await page.waitForFunction(() => document.querySelector('.phone-page-chat')?.parentElement?.querySelector('.phone-terminal-bar')?.getAttribute('data-state') === 'IDLE', undefined, { timeout: CARD_TIMEOUT_MS });
+
+  await sendFromComposer(page, 'take-any-prompt');
+  await waitForTurnRunning(page, true);
+  await waitForOutboxEmpty(page);
+  await chatBar.locator('button[data-action="back-to-board"]').click();
+  const sessionRow = page.locator(`.phone-board-list button.session-row[data-id="${viewerCheck.visibleId}"]`);
+  await sessionRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.evaluate(async (sessionId) => {
+    const controlWsUrl = '/control-ws.ts';
+    const { sendControlMsg } = await import(controlWsUrl);
+    sendControlMsg({ type: 'chat-stop', id: sessionId });
+  }, viewerCheck.visibleId);
+  await sessionRow.and(page.locator('[data-state="COMPLETE"]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.phone-nav > .phone-nav-item[data-screen="terminal"]').click();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.waitForFunction(() => document.querySelector('.phone-page-chat')?.parentElement?.querySelector('.phone-terminal-bar')?.getAttribute('data-state') === 'IDLE', undefined, { timeout: CARD_TIMEOUT_MS });
 }
 
 export const DONE_MEANS_UNTRACKED_FILE = 'done-means.txt';

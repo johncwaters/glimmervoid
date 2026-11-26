@@ -1,14 +1,13 @@
 import { getBorrowedCardId } from '../card-host.ts';
-import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
+import { getVisiblePhoneSessionId } from '../phone/phone-shell-gate.ts';
 import { findSessionUi } from '../session-card/card-registry.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { syncGridOnEngagementEdge } from '../session-card/terminal.ts';
 import { reloadEveryWebglAddon } from '../session-card/webgl-pool.ts';
 
 function markShownPhoneSessionSeen() {
-  const shownPhoneSessionId = getPhoneSessionId();
+  const shownPhoneSessionId = getVisiblePhoneSessionId();
   if (!shownPhoneSessionId) return;
-  if (findSessionUi(shownPhoneSessionId)?._isActiveViewer?.() !== true) return;
   markSessionSeen(shownPhoneSessionId);
 }
 
