@@ -45,7 +45,7 @@
     },
     {
       "name": "agent adapter",
-      "definition": "The per-agent module (first-class: Claude Code, Codex, Kimi Code; best effort: Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
+      "definition": "The per-agent module (first-class: Claude Code, Codex, Antigravity CLI; best effort: Kimi Code, OpenCode, pi, Gemini CLI, Qwen Code, Copilot CLI, Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
     },
     {
       "name": "visions",
@@ -384,7 +384,7 @@
     },
     {
       "name": "agent",
-      "definition": "A coding agent CLI Glimmervoid supervises in a session (Claude Code, Codex, Kimi Code first-class; Grok, Gemini CLI, Qwen Code, Copilot CLI and custom CLIs best effort), read through its agent adapter"
+      "definition": "A coding agent CLI Glimmervoid supervises in a session (Claude Code, Codex, Antigravity CLI first-class; Kimi Code, OpenCode, pi, Gemini CLI, Qwen Code, Copilot CLI, Grok and custom CLIs best effort), read through its agent adapter"
     },
     {
       "name": "status",
