@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **First-class agents are now Claude Code, Codex and Antigravity CLI.** Kimi Code, OpenCode and pi move to best-effort hooked status. Nothing is removed or turned off: their adapters, hooks, Chat approvals and existing regression tests stay as they are, while new features are checked only against the three first-class agents.
 - **The Code map belongs to Studio.** Only Studio sessions (the Orchestrator and its branches) have the code map now. In any other session the agent is no longer offered the `codemap` tool, `glimmervoid codemap` is refused with the reason, the import check no longer runs at turn end or holds a landing, starting the session or landing its commits no longer builds a map (unless the repo is open in Studio, whose map still follows mainline), the first prompt no longer mentions the code map or its board, the Code map board is left out of `whiteboard list` and refused to `whiteboard get`, `put` and `connect`, and `whiteboard ask` is refused with a pointer to ask in chat or raise attention instead. The Code map board no longer appears in the Focus roster, and it shows only the repos you open in Studio: a Focus session no longer adds its repo as an area on it. Areas Focus sessions added before this release stay until you remove them.
 
 ### Fixed

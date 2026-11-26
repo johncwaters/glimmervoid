@@ -200,6 +200,7 @@ const opencode = {
     headless: false,
     subagentTurnStops: false,
     permissionHoldOnPromptOnly: true,
+    chatApprovals: true,
   },
 } satisfies AgentAdapterShape;
 

@@ -93,14 +93,14 @@ Cloud is in an invite-only alpha. [Join the waitlist](https://glimmervoid.dev/#c
 |-------|---------|-------------|
 | Claude Code (default) | `claude` | Hooks |
 | Codex CLI | `codex` | Hooks, plus its session log for a plan awaiting approval |
-| Kimi Code | `kimi` | Hooks |
-| OpenCode | `opencode` | A plugin Glimmervoid generates for each session |
-| pi | `pi` | An extension Glimmervoid generates, which also asks before shell commands and file edits |
 | Antigravity CLI | `agy` | Hooks from a plugin Glimmervoid writes at each start, plus its title command for a permission dialog |
+| Kimi Code (best effort) | `kimi` | Hooks |
+| OpenCode (best effort) | `opencode` | A plugin Glimmervoid generates for each session |
+| pi (best effort) | `pi` | An extension Glimmervoid generates, which also asks before shell commands and file edits |
 | Grok Build (best effort) | `grok` | Hooks, after running `glimmervoid agent setup grok` once |
 | Any other terminal agent (best effort) | your own | Terminal title only |
 
-Claude Code, Codex, Kimi Code, OpenCode, pi and Antigravity CLI are first-class: every feature is checked against live recordings of each, so a waiting prompt, a plan, a question, compaction, sub-agents and `/clear` look the same on each card. Antigravity CLI has no compaction to show.
+Claude Code, Codex and Antigravity CLI are first-class: every feature is checked against live recordings of each, so a waiting prompt, a plan, a question, compaction, sub-agents and `/clear` look the same on each card. Antigravity CLI has no compaction to show.
 
 Declare another agent under `customAgents` in `config.json` with an `id`, `label` and `command`, plus optional `args`, `idleTitle` and `busyTitle`. The **+ Session** dialog offers only the agents it finds on PATH, and a project can default to one with `projects[].agent`.
 

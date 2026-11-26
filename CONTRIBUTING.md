@@ -45,7 +45,7 @@ Tests pass but you have not used the change? Run it in the dashboard first; the 
 
 Code conventions, invariants and the architecture map are in [AGENTS.md](AGENTS.md) and the `AGENTS.md` nearest the code you touch. Tests enforce most of them, so a failing test usually names the rule. The ones no test checks:
 
-- **Agent parity.** A session feature works on every first-class agent (Claude Code, Codex, Kimi Code, OpenCode, pi, Antigravity CLI), or the pull request says why one cannot.
+- **Agent parity.** A session feature works on every first-class agent (Claude Code, Codex, Antigravity CLI), or the pull request says why one cannot.
 - **No new dependencies** unless the maintainer agrees in the pull request.
 - **No code comments.** Name or restructure instead.
 - **Screenshots.** Any UI change carries a screenshot in the pull request.

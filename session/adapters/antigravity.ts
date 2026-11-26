@@ -257,6 +257,7 @@ const antigravity = {
     skipPermissionsFlag: true,
     headless: false,
     subagentTurnStops: false,
+    chatApprovals: true,
   },
 } satisfies AgentAdapterShape;
 

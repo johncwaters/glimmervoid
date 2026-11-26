@@ -269,6 +269,7 @@ const kimi = {
     headless: true,
     subagentTurnStops: true,
     ptyInitialPrompt: true,
+    chatApprovals: true,
   },
   inputReady: "full-frame",
   promptContextReply: "message",

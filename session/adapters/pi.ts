@@ -175,6 +175,7 @@ const pi = {
     headless: false,
     subagentTurnStops: false,
     permissionHoldOnPromptOnly: true,
+    chatApprovals: true,
   },
 } satisfies AgentAdapterShape;
 

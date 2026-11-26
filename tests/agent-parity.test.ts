@@ -20,7 +20,7 @@ import type { UsageEntry } from '../server/usage/core/usage-entry-core.ts';
 import { relaySourceOf, transcriptSourceOf } from '../server/trace/conversation-sources.ts';
 import type { SessionState } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
-import { getAdapter, hookProfileOf } from '../session/adapters/index.ts';
+import { BUILT_IN_AGENTS, getAdapter, hookProfileOf } from '../session/adapters/index.ts';
 import { Session } from '../session/sessions.ts';
 import { chatApprovalModeFor, permissionReplyFor } from '../session/core/claude-approval-core.ts';
 import { buildHookSettings } from '../detection/settings-injector.ts';
@@ -33,7 +33,10 @@ import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../shared/contracts/question-mana
 import type { HookPayload, PermissionDecision } from '../shared/contracts/index.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
 
-type FirstClassAgent = 'claude-code' | 'codex' | 'kimi' | 'opencode' | 'pi' | 'antigravity';
+type FirstClassAgent = 'claude-code' | 'codex' | 'antigravity';
+type DemotedHookedAgent = 'kimi' | 'opencode' | 'pi';
+type MatrixAgent = FirstClassAgent | DemotedHookedAgent;
+type AgentFixtureMap<Entry> = Record<FirstClassAgent, Entry> & Partial<Record<DemotedHookedAgent, Entry>>;
 type WaitingExpectation = 'required' | 'forbidden' | 'allowed';
 
 interface UnproducibleScenario {
@@ -46,11 +49,11 @@ interface ParityScenario {
   expectedCompleteNotifications: number;
   expectedCompleteTransitions?: number;
   waitingNotification: WaitingExpectation;
-  fixtureByAgent: Record<FirstClassAgent, string | UnproducibleScenario>;
+  fixtureByAgent: AgentFixtureMap<string | UnproducibleScenario>;
   additionalFixtures?: readonly string[];
   requiresCompactionWindow?: boolean;
   requiresClearReset?: boolean;
-  requiredSignalsByAgent?: Partial<Record<FirstClassAgent, readonly string[]>>;
+  requiredSignalsByAgent?: Partial<Record<MatrixAgent, readonly string[]>>;
 }
 
 interface ConversationFixture {
@@ -58,11 +61,12 @@ interface ConversationFixture {
   vendorSessionId: string;
 }
 
-const FIRST_CLASS_AGENTS: readonly FirstClassAgent[] = ['claude-code', 'codex', 'kimi', 'opencode', 'pi', 'antigravity'];
+const FIRST_CLASS_AGENTS: readonly FirstClassAgent[] = ['claude-code', 'codex', 'antigravity'];
+const MATRIX_AGENTS: readonly MatrixAgent[] = [...FIRST_CLASS_AGENTS, 'kimi', 'opencode', 'pi'];
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, 'fixtures');
 const CONVERSATION_FIXTURE_DIRECTORY = path.join(FIXTURE_DIRECTORY, 'conversation');
 const REQUIRED_CONVERSATION_KINDS = ['prompt', 'assistant', 'tool_call', 'tool_result'] as const;
-const CONVERSATION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const CONVERSATION_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-transcript.jsonl', vendorSessionId: 'd52a3005-05a6-48f3-a913-180b01ff3daf' },
   codex: { file: 'codex-rollout.jsonl', vendorSessionId: '01a1ea8d-3204-7bf3-a022-1aedf182e1dc' },
   kimi: { file: 'kimi-wire.jsonl', vendorSessionId: 'session_2c2d0092-eee8-4450-a133-5c9887f826b3' },
@@ -70,7 +74,7 @@ const CONVERSATION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture
   pi: { file: 'pi-session.jsonl', vendorSessionId: '01a1eaa3-6a11-745a-8f7a-862a3b0fdbe9' },
   antigravity: { file: 'antigravity-transcript.jsonl', vendorSessionId: 'e49c4f93-2b16-498c-ac66-a509a837905c' },
 };
-const SPILLED_OUTPUT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const SPILLED_OUTPUT_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-spill.jsonl', vendorSessionId: 'b26ac462-dd87-4b37-bc79-319e6210fc72' },
   codex: { unproducible: 'Codex converts CommandExecution.aggregated_output, the raw command output, which Codex never wraps; its truncation note lives only in the model-facing tool output' },
   kimi: { file: 'kimi-spill.jsonl', vendorSessionId: 'session_4c392ca0-0483-4142-93eb-2c1724240a36' },
@@ -78,7 +82,7 @@ const SPILLED_OUTPUT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixtu
   pi: { file: 'pi-spill.jsonl', vendorSessionId: '01a1eb36-5519-75b2-ad2e-f67b52e126e9' },
   antigravity: { file: 'antigravity-spill.jsonl', vendorSessionId: '36aa83a7-4886-494b-80f8-9aafc4c7c16a' },
 };
-const IMAGE_RESULT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const IMAGE_RESULT_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-image-result.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
   codex: { unproducible: 'Codex writes a viewed image as an ImageView item holding only the file path and puts the bytes on a separate response_item line under another call id, so the converter shows a view_image row without a thumbnail' },
   kimi: { unproducible: 'No Kimi Code session on the capture host has a tool result carrying an image yet; its converter reads image parts through the shared trace-image walker' },
@@ -86,7 +90,7 @@ const IMAGE_RESULT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture
   pi: { unproducible: 'No pi session on the capture host has a tool result carrying an image yet; its converter reads image blocks through the shared trace-image walker' },
   antigravity: { unproducible: 'Antigravity writes tool results as a text-only content string, so no image bytes exist in its transcript' },
 };
-const USAGE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const USAGE_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': CONVERSATION_FIXTURE_BY_AGENT['claude-code'],
   codex: CONVERSATION_FIXTURE_BY_AGENT.codex,
   kimi: CONVERSATION_FIXTURE_BY_AGENT.kimi,
@@ -94,7 +98,7 @@ const USAGE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | Unpr
   pi: CONVERSATION_FIXTURE_BY_AGENT.pi,
   antigravity: CONVERSATION_FIXTURE_BY_AGENT.antigravity,
 };
-const STARTUP_READY_FIXTURE_BY_AGENT: Record<FirstClassAgent, string | UnproducibleScenario> = {
+const STARTUP_READY_FIXTURE_BY_AGENT: AgentFixtureMap<string | UnproducibleScenario> = {
   'claude-code': { unproducible: 'Claude Code reports input readiness through its SessionStart hook, not its terminal output, which the control-chat startup hook tests pin' },
   codex: 'v2-codex-startup-ready.jsonl',
   kimi: 'v2-kimi-startup-ready.jsonl',
@@ -303,7 +307,7 @@ function fixturesReplayedByMatrix(): Set<string> {
   return replayedFixtures;
 }
 
-function assertScenarioOutcome(scenario: ParityScenario, fixture: string, t: TestContext, agent?: FirstClassAgent): void {
+function assertScenarioOutcome(scenario: ParityScenario, fixture: string, t: TestContext, agent?: MatrixAgent): void {
   const outcome = replayThroughSession(fixture, t, { minimumGapMs: PROBE_FIXTURE_RECORD_SPACING_MS });
   const completeNotifications = outcome.notifications.filter((category) => category === 'complete').length;
   const hasWaitingNotification = outcome.notifications.includes('waiting');
@@ -324,10 +328,11 @@ function assertScenarioOutcome(scenario: ParityScenario, fixture: string, t: Tes
 }
 
 for (const scenario of PARITY_SCENARIOS) {
-  for (const agent of FIRST_CLASS_AGENTS) {
+  for (const agent of MATRIX_AGENTS) {
     const fixture = scenario.fixtureByAgent[agent];
+    if (fixture === undefined) continue;
     if (typeof fixture !== 'string') {
-      test(`${scenario.name} on ${agent}`, { skip: fixture.unproducible }, () => {});
+      if (isFirstClassAgent(agent)) test(`${scenario.name} on ${agent}`, { skip: fixture.unproducible }, () => {});
       continue;
     }
     test(`${scenario.name} on ${agent}`, (t) => {
@@ -349,10 +354,11 @@ async function settleChatDelivery(t: TestContext): Promise<void> {
   for (let round = 0; round < 5; round++) await new Promise((resolve) => setImmediate(resolve));
 }
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = STARTUP_READY_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if (typeof fixture !== 'string') {
-    test(`a Chat message to a starting session waits until the agent can take input on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`a Chat message to a starting session waits until the agent can take input on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`a Chat message to a starting session waits until the agent can take input on ${agent}`, async (t) => {
@@ -394,6 +400,7 @@ test('every fixture pinned elsewhere still exists', () => {
 });
 
 test('every first-class v2 recording sits in a parity row or a test that asserts it', () => {
+  assert.deepEqual(BUILT_IN_AGENTS.filter(({ tier }) => tier === 'first-class').map(({ adapter }) => adapter.id), [...FIRST_CLASS_AGENTS]);
   const replayedFixtures = fixturesReplayedByMatrix();
   const unplacedFixtures = fs.readdirSync(FIXTURE_DIRECTORY)
     .filter((fixture) => fixture.startsWith('v2-') && fixture.endsWith('.jsonl'))
@@ -405,7 +412,7 @@ test('every first-class v2 recording sits in a parity row or a test that asserts
   assert.deepEqual(unplacedFixtures, []);
 });
 
-function convertedConversation(agent: FirstClassAgent, fixture: ConversationFixture): unknown[] {
+function convertedConversation(agent: MatrixAgent, fixture: ConversationFixture): unknown[] {
   const lines = fs.readFileSync(path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file), 'utf8').split('\n').filter((line) => line.length > 0);
   const transcriptSource = transcriptSourceOf(agent);
   if (transcriptSource) return lines.flatMap((line) => transcriptSource.recordsFromLine(line, { vendorSessionId: fixture.vendorSessionId, now: 0 }));
@@ -414,10 +421,11 @@ function convertedConversation(agent: FirstClassAgent, fixture: ConversationFixt
   return lines.map((line) => JSON.parse(line)).filter((relay) => relay.event === relaySource.hookEvent).flatMap((relay) => relaySource.recordsFromPayload(relay.body, 0));
 }
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = CONVERSATION_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`conversation records on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`conversation records on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`conversation records on ${agent}`, () => {
@@ -429,10 +437,11 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = IMAGE_RESULT_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`tool-result images on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`tool-result images on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`tool-result images on ${agent}`, () => {
@@ -444,7 +453,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const SLASH_COMMAND_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const SLASH_COMMAND_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-commands.jsonl', vendorSessionId: 'd086de86-7fcd-40b7-8b9c-fe3b3857e5cd' },
   codex: { unproducible: 'No Codex rollout on the capture host holds a typed slash command; the Codex TUI runs /model, /status and /diff itself and writes no rollout item for them' },
   kimi: { unproducible: 'kimi-code 2.7.3 declares no wire record type for a slash command (its wire types are turn, context, compaction, hook and llm records), so a typed command never reaches wire.jsonl' },
@@ -453,10 +462,11 @@ const SLASH_COMMAND_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixtur
   antigravity: { unproducible: 'None of the 265 USER_INPUT steps in the 141 Antigravity transcripts on the capture host holds a slash command, and no step type (GENERIC, PLANNER_RESPONSE, USER_INPUT, SYSTEM_MESSAGE, EPHEMERAL_MESSAGE, CHECKPOINT) records one' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = SLASH_COMMAND_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`typed slash commands on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`typed slash commands on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`typed slash commands on ${agent}`, () => {
@@ -472,7 +482,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const COMPACTION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const COMPACTION_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-system-events.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
   codex: { file: 'codex-compaction.jsonl', vendorSessionId: '01a11562-2d1f-7050-b101-621264c08ce9' },
   kimi: { unproducible: 'No Kimi Code session exists on the capture host; kimi-code 2.7.3 declares a compaction.completed wire record whose fields stay unknown until one is captured' },
@@ -481,10 +491,11 @@ const COMPACTION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture |
   antigravity: { file: 'antigravity-compaction.jsonl', vendorSessionId: '509ff452-883c-4f61-95c9-ddc2042dddec' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = COMPACTION_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`compaction on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`compaction on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`compaction on ${agent}`, () => {
@@ -493,7 +504,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const AGENT_ERROR_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const AGENT_ERROR_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-system-events.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
   codex: { unproducible: 'None of the 847 Codex rollouts on the capture host holds an error or stream_error item; Codex shows API errors and retries only in its TUI' },
   kimi: { unproducible: 'No Kimi Code session exists on the capture host; kimi-code 2.7.3 declares turn.failed and turn.step.retrying wire records whose fields stay unknown until one is captured' },
@@ -502,10 +513,11 @@ const AGENT_ERROR_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture 
   antigravity: { unproducible: 'None of the 141 Antigravity transcripts on the capture host records an API error or retry step' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = AGENT_ERROR_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`agent API errors and retries on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`agent API errors and retries on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`agent API errors and retries on ${agent}`, () => {
@@ -517,7 +529,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const HOOK_MESSAGE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const HOOK_MESSAGE_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-hooks.jsonl', vendorSessionId: 'f0fa2e5d-c713-410b-bbca-9c6c549345f6' },
   codex: { unproducible: 'None of the 847 Codex rollouts on the capture host holds a hook message; the rollout item types are messages, reasoning, tool calls, compaction and token counts' },
   kimi: { unproducible: 'No Kimi Code session exists on the capture host; kimi-code 2.7.3 declares a hook.failed wire record whose fields stay unknown until one is captured' },
@@ -526,10 +538,11 @@ const HOOK_MESSAGE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture
   antigravity: { unproducible: 'None of the 141 Antigravity transcripts on the capture host records a hook step' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = HOOK_MESSAGE_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`hook messages on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`hook messages on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`hook messages on ${agent}`, () => {
@@ -539,7 +552,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const ANSWERED_QUESTION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const ANSWERED_QUESTION_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-answers-plans.jsonl', vendorSessionId: '0869e86e-9a03-45e6-86bd-65c543883d8a' },
   codex: { unproducible: 'Codex asks through request_user_input_async, a function_call whose output is only {"accepted":true}; the answer returns later as an ordinary user message, so no rollout line pairs a question with its answer' },
   kimi: { unproducible: 'No Kimi Code session exists on the capture host, so no answered AskUserQuestion result exists to capture' },
@@ -553,10 +566,11 @@ function chatTurnSegmentsOf(records: readonly TraceRecord[]): TurnSegment[] {
   return parts.flatMap((part) => (part.kind === 'turn' ? [...part.segments] : []));
 }
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = ANSWERED_QUESTION_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`answered questions in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`answered questions in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`answered questions in Chat on ${agent}`, () => {
@@ -582,7 +596,7 @@ test('an Antigravity question answered from Glimmervoid shows the operator choic
   assert.deepEqual(answered.map((question) => question.chosen), [['Blue']]);
 });
 
-const PLAN_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const PLAN_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-answers-plans.jsonl', vendorSessionId: '46110dc0-886a-4d0d-ba14-24fa6ee56690' },
   codex: { unproducible: 'None of the 847 Codex rollouts on the capture host holds a proposed plan; the plan item name appears only in tool definitions' },
   kimi: { unproducible: 'No Kimi Code session exists on the capture host, so no plan exists to capture' },
@@ -591,10 +605,11 @@ const PLAN_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | Unpro
   antigravity: { unproducible: 'Antigravity writes its plan as ordinary planner response text, which Chat already renders as markdown' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = PLAN_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`plans in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`plans in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`plans in Chat on ${agent}`, () => {
@@ -603,7 +618,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const TASK_LIST_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const TASK_LIST_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { unproducible: 'No Claude Code session on the capture host has used a todo tool, and a headless 2.1.331 run asked to keep a todo list answered in text without one' },
   codex: { unproducible: 'Codex writes update_plan as a response_item function_call, which the Codex converter does not read (it reads item_completed lines), and none of the 847 Codex rollouts on the capture host holds one to capture' },
   kimi: { unproducible: 'No Kimi Code session exists on the capture host to capture; Chat reads its TodoList tool (kimi-code 2.7.3: todos of title and status)' },
@@ -612,10 +627,11 @@ const TASK_LIST_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | 
   antigravity: { file: 'antigravity-steps.jsonl', vendorSessionId: 'de753bd5-ff1d-4847-8729-e7bc4f04db63' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = TASK_LIST_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`task lists in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`task lists in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`task lists in Chat on ${agent}`, () => {
@@ -627,7 +643,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const THINKING_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture> = {
+const THINKING_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture> = {
   'claude-code': { file: 'claude-thinking.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
   codex: { file: 'codex-thinking.jsonl', vendorSessionId: '01a0f157-57d9-7090-adf0-332e965e79f2' },
   kimi: CONVERSATION_FIXTURE_BY_AGENT.kimi as ConversationFixture,
@@ -636,9 +652,10 @@ const THINKING_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture> = 
   antigravity: CONVERSATION_FIXTURE_BY_AGENT.antigravity as ConversationFixture,
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
+  const fixture = THINKING_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   test(`thinking text in Chat on ${agent}`, () => {
-    const fixture = THINKING_FIXTURE_BY_AGENT[agent];
     const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
     const reply: TraceRecord = { ts: Number.MAX_SAFE_INTEGER, uuid: null, parentUuid: null, vendorSessionId: fixture.vendorSessionId, kind: 'assistant', text: 'done' };
     const { parts } = appendChatRecords(createChatPartsState(), [...records, reply]);
@@ -646,7 +663,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const OUTPUT_TOKENS_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const OUTPUT_TOKENS_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': CONVERSATION_FIXTURE_BY_AGENT['claude-code'],
   codex: { unproducible: 'Codex reports output tokens on token_count event lines, which the Codex converter does not read (it reads item_completed lines)' },
   kimi: { unproducible: 'Kimi Code reports tokens on usage.record wire lines, which the Kimi converter does not read' },
@@ -655,10 +672,11 @@ const OUTPUT_TOKENS_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixtur
   antigravity: CONVERSATION_FIXTURE_BY_AGENT.antigravity,
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = OUTPUT_TOKENS_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`live output tokens in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`live output tokens in Chat on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`live output tokens in Chat on ${agent}`, () => {
@@ -668,7 +686,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-const PERMISSION_MODE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+const PERMISSION_MODE_FIXTURE_BY_AGENT: AgentFixtureMap<ConversationFixture | UnproducibleScenario> = {
   'claude-code': { file: 'claude-permission-mode.jsonl', vendorSessionId: '46110dc0-886a-4d0d-ba14-24fa6ee56690' },
   codex: { unproducible: 'Codex records its approval policy on turn_context lines, which the Codex converter does not read' },
   kimi: { unproducible: 'No Kimi Code session exists on the capture host to capture a permission mode change' },
@@ -677,10 +695,11 @@ const PERMISSION_MODE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixt
   antigravity: { unproducible: 'Antigravity transcript steps carry no permission mode field' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = PERMISSION_MODE_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`permission mode on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`permission mode on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`permission mode on ${agent}`, () => {
@@ -689,7 +708,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
-function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
+function parsedUsageEntries(agent: MatrixAgent, fixture: ConversationFixture): UsageEntry[] {
   const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
   const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);
   const entries: UsageEntry[] = [];
@@ -728,10 +747,11 @@ function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture
 }
 
 test('usage parsing covers every first-class agent', () => {
-  for (const agent of FIRST_CLASS_AGENTS) {
+  for (const agent of MATRIX_AGENTS) {
     const fixture = USAGE_FIXTURE_BY_AGENT[agent];
+    if (fixture === undefined) continue;
     if ('unproducible' in fixture) {
-      assert.ok(fixture.unproducible.trim().length > 0, `${agent} unproducible reason is empty`);
+      if (isFirstClassAgent(agent)) assert.ok(fixture.unproducible.trim().length > 0, `${agent} unproducible reason is empty`);
       continue;
     }
     const entries = parsedUsageEntries(agent, fixture);
@@ -744,10 +764,11 @@ test('usage parsing covers every first-class agent', () => {
   }
 });
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const fixture = SPILLED_OUTPUT_FIXTURE_BY_AGENT[agent];
+  if (fixture === undefined) continue;
   if ('unproducible' in fixture) {
-    test(`a spilled tool output keeps what the tool printed, not the save-to-file wrapper, on ${agent}`, { skip: fixture.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`a spilled tool output keeps what the tool printed, not the save-to-file wrapper, on ${agent}`, { skip: fixture.unproducible }, () => {});
     continue;
   }
   test(`a spilled tool output keeps what the tool printed, not the save-to-file wrapper, on ${agent}`, () => {
@@ -782,7 +803,7 @@ function antigravityHeldRequest(): HookPayload {
 type ReplyPath = readonly string[];
 const PERMISSION_REQUEST_BEHAVIOR: ReplyPath = ['hookSpecificOutput', 'decision', 'behavior'];
 const PERMISSION_REQUEST_MESSAGE: ReplyPath = ['hookSpecificOutput', 'decision', 'message'];
-const CHAT_PERMISSION_BY_AGENT: Record<FirstClassAgent, { heldRequest: () => HookPayload; decisionAt: ReplyPath; reasonAt: ReplyPath }> = {
+const CHAT_PERMISSION_BY_AGENT: AgentFixtureMap<{ heldRequest: () => HookPayload; decisionAt: ReplyPath; reasonAt: ReplyPath }> = {
   'claude-code': { heldRequest: () => firstHookPayload('v2-claude-code-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR, reasonAt: PERMISSION_REQUEST_MESSAGE },
   codex: { heldRequest: () => firstHookPayload('v2-codex-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR, reasonAt: PERMISSION_REQUEST_MESSAGE },
   kimi: { heldRequest: () => firstHookPayload('v2-kimi-approval-turn.jsonl', 'permissionrequest'), decisionAt: ['hookSpecificOutput', 'permissionDecision'], reasonAt: ['hookSpecificOutput', 'permissionDecisionReason'] },
@@ -795,11 +816,13 @@ function valueAt(reply: unknown, replyPath: ReplyPath): unknown {
   return replyPath.reduce<unknown>((value, key) => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined), reply);
 }
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
+  const permissionConfig = CHAT_PERMISSION_BY_AGENT[agent];
+  if (!permissionConfig) continue;
   test(`a permission prompt is held for Chat and answered with the agent's own reply on ${agent}`, async () => {
     const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-permission-'));
     const session = new Session({ id: `chat-permission-${agent}`, name: agent, path: projectPath, agent, readChatApprovals: () => 'questions-and-permissions', ptySpawn: () => capturingPty([]) });
-    const { heldRequest, decisionAt, reasonAt } = CHAT_PERMISSION_BY_AGENT[agent];
+    const { heldRequest, decisionAt, reasonAt } = permissionConfig;
     try {
       for (const decision of ['allow', 'deny'] satisfies PermissionDecision[]) {
         const held = session.holdConversationPermission(heldRequest(), new AbortController().signal);
@@ -827,7 +850,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
 }
 
 test('skip-permissions Chat sessions hold permission prompts on prompt-driven agents and keep PreToolUse agents in questions mode', async () => {
-  const expectedModeByAgent: Record<FirstClassAgent, string> = {
+  const expectedModeByAgent: AgentFixtureMap<string> = {
     'claude-code': 'questions-and-permissions',
     codex: 'questions-and-permissions',
     opencode: 'questions-and-permissions',
@@ -835,11 +858,13 @@ test('skip-permissions Chat sessions hold permission prompts on prompt-driven ag
     antigravity: 'questions',
     kimi: 'questions',
   };
-  for (const agent of FIRST_CLASS_AGENTS) {
+  for (const agent of MATRIX_AGENTS) {
+    const expectedMode = expectedModeByAgent[agent];
+    if (expectedMode === undefined) continue;
     const adapter = getAdapter(agent);
     assert.ok(adapter, `${agent} has no adapter`);
     const isPromptOnly = adapter.capabilities.permissionHoldOnPromptOnly === true;
-    assert.equal(chatApprovalModeFor(true, true, isPromptOnly), expectedModeByAgent[agent], `${agent} skip-permissions mode`);
+    assert.equal(chatApprovalModeFor(true, true, isPromptOnly), expectedMode, `${agent} skip-permissions mode`);
     assert.equal(chatApprovalModeFor(false, true, isPromptOnly), 'off', `${agent} chat-off mode`);
   }
   const claudeMode = chatApprovalModeFor(true, true, getAdapter('claude-code')?.capabilities.permissionHoldOnPromptOnly === true);
@@ -884,17 +909,19 @@ test('skip-permissions Chat sessions hold permission prompts on prompt-driven ag
     assert.equal(approval?.toolName, 'mcp__example__exec');
     assert.ok(claudeSession.decideConversationApproval(approval.requestId, 'allow'));
     assert.equal(valueAt(await held, PERMISSION_REQUEST_BEHAVIOR), 'allow');
+    const kimiPermission = CHAT_PERMISSION_BY_AGENT.kimi;
+    assert.ok(kimiPermission);
     assert.equal(
-      kimiSkipSession.holdConversationPermission(CHAT_PERMISSION_BY_AGENT.kimi.heldRequest(), new AbortController().signal),
+      kimiSkipSession.holdConversationPermission(kimiPermission.heldRequest(), new AbortController().signal),
       null,
       'PreToolUse-driven agent does not hold tool calls when skipping permissions',
     );
-    const heldOverride = kimiOverrideAskSession.holdConversationPermission(CHAT_PERMISSION_BY_AGENT.kimi.heldRequest(), new AbortController().signal);
+    const heldOverride = kimiOverrideAskSession.holdConversationPermission(kimiPermission.heldRequest(), new AbortController().signal);
     assert.ok(heldOverride, 'dangerouslySkipPermissions=false override enables permission holds on PreToolUse-driven agent');
     const overrideApproval = kimiOverrideAskSession.toSnapshot().conversationApproval;
     assert.ok(overrideApproval);
     assert.ok(kimiOverrideAskSession.decideConversationApproval(overrideApproval.requestId, 'deny'));
-    assert.equal(valueAt(await heldOverride, CHAT_PERMISSION_BY_AGENT.kimi.decisionAt), 'deny');
+    assert.equal(valueAt(await heldOverride, kimiPermission.decisionAt), 'deny');
   } finally {
     claudeSession.destroy();
     kimiSkipSession.destroy();
@@ -919,7 +946,7 @@ function antigravityPlainQuestionEvent(): HookPayload {
   return enrich('pretooluse', firstHookPayload('v2-antigravity-ask-question.jsonl', 'pretooluse'));
 }
 
-const CHAT_QUESTION_BY_AGENT: Record<Exclude<FirstClassAgent, 'claude-code'>, { heldRequest: () => HookPayload; ownToolEvent: () => HookPayload }> = {
+const CHAT_QUESTION_BY_AGENT: Omit<AgentFixtureMap<{ heldRequest: () => HookPayload; ownToolEvent: () => HookPayload }>, 'claude-code'> = {
   codex: { heldRequest: () => firstHookPayload('v2-codex-request-user-input.jsonl', 'pretooluse'), ownToolEvent: () => firstHookPayload('v2-codex-request-user-input.jsonl', 'pretooluse') },
   kimi: { heldRequest: () => firstHookPayload('v2-kimi-ask-question.jsonl', 'pretooluse'), ownToolEvent: () => firstHookPayload('v2-kimi-ask-question.jsonl', 'pretooluse') },
   opencode: { heldRequest: () => firstHookPayload('v2-opencode-ask-question.jsonl', QUESTION_TOOL_HOLD_HOOK_EVENT), ownToolEvent: () => firstHookPayload('v2-opencode-ask-question.jsonl', 'elicitation') },
@@ -978,7 +1005,7 @@ const MCP_FORM_ELICITATION = {
   requested_schema: { type: 'object', properties: { title: { type: 'string', title: 'Title' }, estimate: { type: 'integer', title: 'Estimate' }, isBlocking: { type: 'boolean' } }, required: ['title'] },
 };
 
-const ELICITATION_HOLD_BY_AGENT: Record<FirstClassAgent, { payload: Record<string, unknown> } | UnproducibleScenario> = {
+const ELICITATION_HOLD_BY_AGENT: AgentFixtureMap<{ payload: Record<string, unknown> } | UnproducibleScenario> = {
   'claude-code': { payload: MCP_FORM_ELICITATION },
   codex: { unproducible: 'The Codex adapter has no hook for MCP elicitations; its elicitation prompt kind comes from request_user_input (session/adapters/codex.ts), which the question hold answers from Chat' },
   kimi: { unproducible: 'The Kimi Code adapter installs no hook that answers an MCP elicitation (session/adapters/kimi.ts), so its own dialog stays in the terminal card' },
@@ -987,10 +1014,11 @@ const ELICITATION_HOLD_BY_AGENT: Record<FirstClassAgent, { payload: Record<strin
   antigravity: { unproducible: 'The Antigravity plugin relays no MCP elicitation event (session/core/antigravity-plugin-core.ts), so its own dialog stays in the terminal card' },
 };
 
-for (const agent of FIRST_CLASS_AGENTS) {
+for (const agent of MATRIX_AGENTS) {
   const scenario = ELICITATION_HOLD_BY_AGENT[agent];
+  if (scenario === undefined) continue;
   if ('unproducible' in scenario) {
-    test(`an MCP elicitation is held for Chat on ${agent}`, { skip: scenario.unproducible }, () => {});
+    if (isFirstClassAgent(agent)) test(`an MCP elicitation is held for Chat on ${agent}`, { skip: scenario.unproducible }, () => {});
     continue;
   }
   test(`an MCP elicitation is held for Chat on ${agent}`, async () => {

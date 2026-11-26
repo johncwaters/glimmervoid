@@ -44,6 +44,7 @@ interface AgentCapabilities {
   resumeNoteByHook?: boolean;
   drawsOwnAlternateScreen?: boolean;
   permissionHoldOnPromptOnly?: boolean;
+  chatApprovals?: boolean;
 }
 
 
@@ -213,10 +214,10 @@ interface BuiltInAgent {
 const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: claudeCode, tier: "first-class" },
   { adapter: codex, tier: "first-class" },
-  { adapter: kimi, tier: "first-class" },
-  { adapter: opencode, tier: "first-class" },
-  { adapter: pi, tier: "first-class" },
   { adapter: antigravity, tier: "first-class" },
+  { adapter: kimi, tier: "hooked" },
+  { adapter: opencode, tier: "hooked" },
+  { adapter: pi, tier: "hooked" },
   { adapter: gemini, tier: "hooked" },
   { adapter: qwen, tier: "hooked" },
   { adapter: copilot, tier: "hooked" },

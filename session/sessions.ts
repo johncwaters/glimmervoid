@@ -56,7 +56,7 @@ import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
-import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
+import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.ts";
 import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ChatOutboxOrigin, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome, UsageLimit } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
 import type { ElicitationHookReply } from "./core/claude-elicitation-core.ts";
@@ -606,9 +606,10 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
-    this._questionManager = isFirstClassAgent(this.agentId) && !isEphemeral && !holdsQuestions ? questionManager : null;
+    const supportsChatApprovals = this._adapter.capabilities.chatApprovals === true;
+    this._questionManager = supportsChatApprovals && !isEphemeral && !holdsQuestions ? questionManager : null;
     this._chatUploadsDirectory = chatUploadsDirectory;
-    this._readChatApprovals = isFirstClassAgent(this.agentId) ? readChatApprovals : () => "off";
+    this._readChatApprovals = supportsChatApprovals ? readChatApprovals : () => "off";
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
       questionDenyReply: this._adapter.questionDenyReply ?? "hook-specific-output",
