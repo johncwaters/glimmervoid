@@ -18,7 +18,7 @@ import type { WargamesPov } from './wargames-store.ts';
 
 type VillageState = NonNullable<MatchState['villages'][number]>;
 
-export function latestResolvedTickOf(ordersByTick: Readonly<Record<number, unknown>>): number {
+function latestResolvedTickOf(ordersByTick: Readonly<Record<number, unknown>>): number {
   let latest = -1;
   for (const key of Object.keys(ordersByTick)) {
     const numeric = Number(key);

@@ -4,14 +4,12 @@ import type {
   RejectionCode,
   SeatStatus,
   TickPhase,
-  VillageProductionState,
   WargamesRejection,
 } from '../contracts/wargames.ts';
 
 type MatchEventKind = 'begin_seating' | 'all_seats_connected' | 'match_won' | 'tick_limit_reached' | 'abort_match';
 type TickEventKind = 'phase_complete' | 'resolution_complete' | 'next_tick';
 type SeatEventKind = 'seat_connect' | 'phase_start' | 'seat_submit' | 'phase_deadline' | 'seat_disconnect' | 'seat_eliminated';
-type VillageEventKind = 'outer_ring_squeeze';
 type ArmyEventKind = 'army_depart' | 'army_arrive' | 'army_stand' | 'army_redeploy' | 'army_return' | 'army_reach_home' | 'army_destroy';
 
 type MachineResult<State extends string> =
@@ -42,11 +40,6 @@ const SEAT_TRANSITIONS: TransitionTable<SeatStatus, SeatEventKind> = Object.free
   submitted: { phase_start: 'acting', seat_disconnect: 'disconnected', seat_eliminated: 'eliminated' },
   timedOut: { phase_start: 'acting', seat_disconnect: 'disconnected', seat_eliminated: 'eliminated' },
   eliminated: {},
-});
-
-const VILLAGE_TRANSITIONS: TransitionTable<VillageProductionState, VillageEventKind> = Object.freeze({
-  producing: { outer_ring_squeeze: 'barren' },
-  barren: {},
 });
 
 const ARMY_TRANSITIONS: TransitionTable<ArmyStatus, ArmyEventKind> = Object.freeze({
@@ -81,10 +74,6 @@ export function transitionTick(state: TickPhase, event: TickEventKind): MachineR
 
 export function transitionSeat(state: SeatStatus, event: SeatEventKind): MachineResult<SeatStatus> {
   return runTransition(SEAT_TRANSITIONS, state, event, 'invalid_seat_state', 'seat');
-}
-
-export function transitionVillage(state: VillageProductionState, event: VillageEventKind): MachineResult<VillageProductionState> {
-  return runTransition(VILLAGE_TRANSITIONS, state, event, 'invalid_village_state', 'village');
 }
 
 export function transitionArmy(state: ArmyStatus, event: ArmyEventKind): MachineResult<ArmyStatus> {

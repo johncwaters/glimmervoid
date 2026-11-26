@@ -35,7 +35,7 @@ const BOARD_OVERLAY_TRANSITIONS: TransitionTable<BoardOverlayMode, BoardOverlayE
   preview: { start_recap: 'recap', show_previews: 'preview', hide_previews: 'idle', reset: 'idle' },
 });
 
-export function transitionBoardQueue(state: BoardQueueState, event: BoardQueueEvent): BoardQueueState | null {
+function transitionBoardQueue(state: BoardQueueState, event: BoardQueueEvent): BoardQueueState | null {
   return BOARD_QUEUE_TRANSITIONS[state][event] ?? null;
 }
 
