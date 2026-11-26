@@ -1,0 +1,150 @@
+{
+  "agent": "antigravity",
+  "scenario": "subagents",
+  "durationMs": 105039,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "load_session": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "session_capabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "auth": {
+        "logout": {}
+      },
+      "_meta": {
+        "antigravity": {
+          "tier": true,
+          "systemPrompt": {
+            "append": true
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "name": "Antigravity ACP Server",
+      "version": "1.5.17"
+    },
+    "authMethods": [
+      {
+        "id": "oauth-personal",
+        "name": "Log in with Google",
+        "description": "Log in with your Google account"
+      },
+      {
+        "id": "oauth-business",
+        "name": "Log in with Gemini Enterprise",
+        "description": "Log in with your Gemini Enterprise account"
+      },
+      {
+        "id": "gemini-api-key",
+        "name": "Gemini API key",
+        "description": "Use an API key with Gemini Developer API"
+      },
+      {
+        "id": "agent-platform",
+        "name": "Gemini Enterprise Agent Platform",
+        "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+      }
+    ]
+  },
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "Done launching what wasn't blocked, ending my turn now:\n\n1. **Background shell command (`sleep 45 && echo bg-done > bg.txt`)**: Blocked on both the initial call and the documented retry for a verbatim carbon-unit-dictated edit by the `spec-gate` pre-tool hook (`hooks/guard-workflow.mjs`), which denied `run_command` twice with `[spec-gate] This is the first repo edit in a session that never ran /specifying...`.\n2. **Subagent**: Launched a `research` subagent (`AGENTS.md Reader`, [transcript](conversation://b6ff7bc1-cf58-46f3-9c54-e959fc78f321)) to read [AGENTS.md](file://~/.cache/glimmervoid-acp-spike/work/wt-antigravity/AGENTS.md) and report its first line back.\n\nThe `AGENTS.md Reader` subagent ([conversation](conversation://b6ff7bc1-cf58-46f3-9c54-e959fc78f321)) reported back the first line of [AGENTS.md](file://~/.cache/glimmervoid-acp-spike/work/wt-antigravity/AGENTS.md):\n\n```\n# acp spike project\n```",
+    "updateKinds": [
+      "available_commands_update",
+      "usage_update",
+      "session_info_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call",
+      "tool_call_update",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call",
+      "tool_call_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 43994
+  },
+  "turnDurationMs": 43994,
+  "backgroundFileAtTurnEnd": false,
+  "backgroundFileAfterWait": false,
+  "lateUpdateKinds": [],
+  "toolCalls": [
+    {
+      "toolCallId": "call_16544929008985890995",
+      "title": "sleep 45 && echo bg-done > bg.txt",
+      "kind": "execute",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "call_16544929008985891114",
+      "title": "Run invoke_subagent",
+      "kind": "other",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "call_8198182307778802542",
+      "title": "sleep 45 && echo bg-done > bg.txt",
+      "kind": "execute",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "call_8198182307778805055",
+      "title": "Run invoke_subagent",
+      "kind": "other",
+      "status": "in_progress"
+    }
+  ],
+  "childSessionIds": [],
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "usage_update": 5,
+    "session_info_update": 1,
+    "agent_thought_chunk": 6,
+    "tool_call": 4,
+    "tool_call_update": 4,
+    "agent_message_chunk": 11
+  },
+  "clientRequestMethods": [],
+  "stderrTail": []
+}

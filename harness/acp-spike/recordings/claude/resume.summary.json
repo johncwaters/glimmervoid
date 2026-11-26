@@ -1,0 +1,350 @@
+{
+  "agent": "claude",
+  "scenario": "resume",
+  "durationMs": 5187,
+  "sessionId": "b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c",
+  "canLoad": true,
+  "canResume": true,
+  "method": "session/load",
+  "firstTurn": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "OK",
+    "updateKinds": [
+      "available_commands_update",
+      "available_commands_update",
+      "available_commands_update",
+      "usage_update",
+      "agent_message_chunk",
+      "usage_update",
+      "usage_update"
+    ],
+    "durationMs": 1174
+  },
+  "reopened": {
+    "response": {
+      "sessionId": "b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c",
+      "modes": {
+        "currentModeId": "auto",
+        "availableModes": [
+          {
+            "id": "default",
+            "name": "Manual",
+            "description": "Always ask before making changes"
+          },
+          {
+            "id": "acceptEdits",
+            "name": "Accept edits",
+            "description": "Automatically accept all file edits"
+          },
+          {
+            "id": "plan",
+            "name": "Plan",
+            "description": "Create a plan before making changes"
+          },
+          {
+            "id": "auto",
+            "name": "Auto",
+            "description": "Claude handles permission decisions"
+          },
+          {
+            "id": "bypassPermissions",
+            "name": "Bypass permissions",
+            "description": "Accepts all permissions"
+          }
+        ]
+      },
+      "configOptions": [
+        {
+          "id": "model",
+          "name": "Model",
+          "description": "AI model to use",
+          "category": "model",
+          "type": "select",
+          "currentValue": "fable",
+          "options": [
+            {
+              "value": "default",
+              "name": "Default (recommended)",
+              "description": "Opus 5.5"
+            },
+            {
+              "value": "opus",
+              "name": "Opus 5.5",
+              "description": "For complex work and everyday tasks"
+            },
+            {
+              "value": "fable",
+              "name": "Fable 5.2",
+              "description": "For your toughest challenges"
+            },
+            {
+              "value": "sonnet",
+              "name": "Sonnet 5.5",
+              "description": "Most efficient for simpler tasks"
+            },
+            {
+              "value": "haiku",
+              "name": "Haiku 5.5",
+              "description": "Fastest for quick answers"
+            },
+            {
+              "value": "claude-fable-5-1",
+              "name": "Fable 5.1",
+              "description": "Most capable for your hardest and longest-running tasks"
+            },
+            {
+              "value": "claude-haiku-4-5-20251001",
+              "name": "Haiku 4.5",
+              "description": "Fastest for quick answers"
+            },
+            {
+              "value": "claude-sonnet-5",
+              "name": "Sonnet 5",
+              "description": "Efficient for routine tasks"
+            },
+            {
+              "value": "claude-opus-5",
+              "name": "Opus 5",
+              "description": "Best for everyday, complex tasks"
+            },
+            {
+              "value": "claude-fable-5",
+              "name": "Fable 5",
+              "description": "Most capable for your hardest and longest-running tasks"
+            },
+            {
+              "value": "claude-opus-4-8",
+              "name": "Opus 4.8",
+              "description": "Best for everyday, complex tasks"
+            },
+            {
+              "value": "claude-opus-4-7",
+              "name": "Opus 4.7",
+              "description": "Best for everyday, complex tasks"
+            },
+            {
+              "value": "claude-opus-4-6",
+              "name": "Opus 4.6",
+              "description": "Best for everyday, complex tasks"
+            },
+            {
+              "value": "claude-sonnet-4-6",
+              "name": "Sonnet 4.6",
+              "description": "Efficient for routine tasks"
+            }
+          ]
+        },
+        {
+          "id": "effort",
+          "name": "Effort",
+          "description": "Available effort levels for this model",
+          "category": "thought_level",
+          "type": "select",
+          "currentValue": "high",
+          "options": [
+            {
+              "value": "default",
+              "name": "Default"
+            },
+            {
+              "value": "low",
+              "name": "Low"
+            },
+            {
+              "value": "medium",
+              "name": "Medium"
+            },
+            {
+              "value": "high",
+              "name": "High"
+            },
+            {
+              "value": "xhigh",
+              "name": "Xhigh"
+            },
+            {
+              "value": "max",
+              "name": "Max"
+            }
+          ]
+        },
+        {
+          "id": "fast",
+          "name": "Fast mode",
+          "description": "Faster responses on supported models",
+          "category": "speed",
+          "type": "select",
+          "currentValue": "off",
+          "options": [
+            {
+              "value": "off",
+              "name": "Off"
+            },
+            {
+              "value": "on",
+              "name": "On"
+            }
+          ]
+        },
+        {
+          "id": "ultracode",
+          "name": "Ultracode",
+          "description": "Dynamic workflows on every task, at any effort level",
+          "category": "model_config",
+          "type": "select",
+          "currentValue": "off",
+          "options": [
+            {
+              "value": "on",
+              "name": "On"
+            },
+            {
+              "value": "off",
+              "name": "Off"
+            }
+          ]
+        },
+        {
+          "id": "mode",
+          "name": "Mode",
+          "description": "Session permission mode",
+          "category": "mode",
+          "type": "select",
+          "currentValue": "auto",
+          "options": [
+            {
+              "value": "default",
+              "name": "Manual",
+              "description": "Always ask before making changes"
+            },
+            {
+              "value": "acceptEdits",
+              "name": "Accept edits",
+              "description": "Automatically accept all file edits"
+            },
+            {
+              "value": "plan",
+              "name": "Plan",
+              "description": "Create a plan before making changes"
+            },
+            {
+              "value": "auto",
+              "name": "Auto",
+              "description": "Claude handles permission decisions"
+            },
+            {
+              "value": "bypassPermissions",
+              "name": "Bypass permissions",
+              "description": "Accepts all permissions"
+            }
+          ]
+        },
+        {
+          "id": "agent",
+          "name": "Agent",
+          "description": "Main-thread agent persona",
+          "type": "select",
+          "currentValue": "default",
+          "options": [
+            {
+              "value": "default",
+              "name": "Default",
+              "description": "Standard Claude Code agent"
+            },
+            {
+              "value": "architecture-reviewer",
+              "name": "architecture-reviewer",
+              "description": "The architecture lane of qa-swarm. Takes every contract a supplied diff publishes or consumes across a repo or release line — a name, an id, a schema, a version, a folder another tool writes — and asks whether it is declared, versioned, and owned, so the next ordinary change on either side cannot break the other, in the shared STRUCTURED_FINDINGS format. Read-only, never edits. Spawned by qa-swarm only; a caller that spawns it directly skips scope pinning, lane selection, triage, and the verdict."
+            },
+            {
+              "value": "boundary-reviewer",
+              "name": "boundary-reviewer",
+              "description": "The boundary lane of qa-swarm. Takes everything a supplied diff reads from or writes to that it does not own — a peer process, a worker, a cache, a shared file, git, the environment — and runs the states the happy path never sends, in the shared STRUCTURED_FINDINGS format. Read-only, never edits. Spawned by qa-swarm only; a caller that spawns it directly skips scope pinning, lane selection, triage, and the verdict."
+            },
+            {
+              "value": "caveman:cavecrew-builder",
+              "name": "caveman:cavecrew-builder",
+              "description": "Surgical 1-2 file edit. Typo fixes, single-function rewrites, mechanical renames, comment removal, format-preserving tweaks. Hard refuses 3+ file scope. Returns caveman diff receipt. Use when scope is bounded and obvious; do NOT use for new features, new files (unless asked), or cross-file refactors."
+            },
+            {
+              "value": "caveman:cavecrew-investigator",
+              "name": "caveman:cavecrew-investigator",
+              "description": "Read-only code locator. Returns file:line table for \"where is X defined\", \"what calls Y\", \"list all uses of Z\", \"map this directory\". Output is caveman-compressed, one row per hit, to keep main-thread context small. Refuses to suggest fixes."
+            },
+            {
+              "value": "caveman:cavecrew-reviewer",
+              "name": "caveman:cavecrew-reviewer",
+              "description": "Diff/branch/file reviewer. One line per finding, severity-tagged, no praise, no scope creep. Output format `path:line: <emoji> <severity>: <problem>. <fix>.` Use for \"review this PR\", \"review my diff\", \"audit this file\". Skips formatting nits unless they change meaning."
+            },
+            {
+              "value": "plan-challenger",
+              "name": "plan-challenger",
+              "description": "The adversarial challenger lane of plan-challenge. Argues CUT/SHRINK/KEEP for every numbered step of a supplied plan according to its lane brief, in the shared STEP_VERDICTS format. Read-only, never edits. Spawned by plan-challenge only; a caller that spawns it directly skips lane dispatch, convergence, and the stamp."
+            },
+            {
+              "value": "qa-code-reviewer",
+              "name": "qa-code-reviewer",
+              "description": "The general-correctness lane of qa-swarm. Produces severity-rated findings on a supplied diff, logic defects first, in the shared STRUCTURED_FINDINGS format. Read-only, never edits. Spawned by qa-swarm only; a caller that spawns it directly skips scope pinning, lane selection, triage, and the verdict."
+            },
+            {
+              "value": "redteam-reviewer",
+              "name": "redteam-reviewer",
+              "description": "The red-team lane of qa-swarm. Takes every guarantee a supplied diff adds or leans on — a gate, a limit, a revocation, a charge, a cleanup — and tries to make it not happen, in the shared STRUCTURED_FINDINGS format. Read-only, never edits. Spawned by qa-swarm only; a caller that spawns it directly skips scope pinning, lane selection, triage, and the verdict."
+            },
+            {
+              "value": "security-reviewer",
+              "name": "security-reviewer",
+              "description": "The security lane of qa-swarm. Hunts vulnerabilities, secrets, unsafe patterns, and missing authorization in a supplied diff, in the shared STRUCTURED_FINDINGS format. Read-only, never edits. Spawned by qa-swarm only; a caller that spawns it directly skips scope pinning, lane selection, triage, and the verdict."
+            }
+          ]
+        }
+      ]
+    },
+    "error": null
+  },
+  "replayedUpdates": 2,
+  "replayedKinds": {
+    "user_message_chunk": 1,
+    "agent_message_chunk": 1
+  },
+  "secondTurn": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "ZEBRA-4127",
+    "updateKinds": [
+      "available_commands_update",
+      "available_commands_update",
+      "available_commands_update",
+      "usage_update",
+      "agent_message_chunk",
+      "session_info_update",
+      "agent_message_chunk",
+      "usage_update",
+      "usage_update",
+      "usage_update"
+    ],
+    "durationMs": 1407
+  },
+  "remembered": true,
+  "stderrTail": [
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=validate-cwd durationMs=0 totalMs=0",
+    "[session/models] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=read-transcript durationMs=5 totalMs=5 messages=2 model=claude-fable-5-2",
+    "[session/replay] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=read durationMs=1 messages=2",
+    "[session/replay] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=publish durationMs=1 totalMs=2 messages=2",
+    "[session/models] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=read-transcript-tail durationMs=3 totalMs=3 model=unknown permissionMode=auto",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=resume-transcript durationMs=8 totalMs=8",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=settings durationMs=16 totalMs=24",
+    "[session/query] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c resume=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c apiType=native baseUrl=native",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=prepare-query durationMs=8 totalMs=32",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=sdk-initialize durationMs=723 totalMs=755",
+    "[session/models] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=set-model durationMs=5 model=fable outcome=success",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=models durationMs=6 totalMs=762",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=modes durationMs=0 totalMs=762",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=agents durationMs=0 totalMs=762",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=ultracode durationMs=3 totalMs=765",
+    "[session/create] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=register durationMs=1 totalMs=766",
+    "[session/load] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=session-ready durationMs=767 totalMs=767",
+    "[session/load] sessionId=b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c phase=replay durationMs=0 totalMs=767"
+  ]
+}

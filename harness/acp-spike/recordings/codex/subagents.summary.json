@@ -1,0 +1,177 @@
+{
+  "agent": "codex",
+  "scenario": "subagents",
+  "durationMs": 77125,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentInfo": {
+      "name": "@agentclientprotocol/codex-acp",
+      "title": "Codex",
+      "version": "2.12.0"
+    },
+    "agentCapabilities": {
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "list": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "options": {},
+        "title": {},
+        "additionalDirectories": {},
+        "systemPrompt": {}
+      },
+      "mcpCapabilities": {
+        "acp": true,
+        "http": true,
+        "sse": false
+      },
+      "_meta": {
+        "authStatus": {}
+      }
+    },
+    "authMethods": [
+      {
+        "id": "api-key",
+        "name": "API Key",
+        "description": "Use an API key to authenticate",
+        "_meta": {
+          "api-key": {
+            "provider": "openai"
+          }
+        }
+      },
+      {
+        "id": "chat-gpt",
+        "name": "ChatGPT",
+        "description": "Use ChatGPT to authenticate"
+      }
+    ],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "I’ll start the background command and delegate reading the first line of AGENTS.md, then end the turn without waiting for the command.\nStarted the background command and delegated reading AGENTS.md’s first line to a subagent. I’m ending without waiting for the background command.The subagent reported AGENTS.md’s first line: `# acp spike project`.",
+    "updateKinds": [
+      "available_commands_update",
+      "session_info_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "tool_call",
+      "tool_call_update",
+      "usage_update",
+      "subagent_update",
+      "subagent_update",
+      "subagent_update",
+      "subagent_update",
+      "usage_update",
+      "subagent_update",
+      "subagent_update",
+      "subagent_update",
+      "agent_message_chunk",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "session_info_update",
+      "session_info_update"
+    ],
+    "durationMs": 16166
+  },
+  "turnDurationMs": 16166,
+  "backgroundFileAtTurnEnd": false,
+  "backgroundFileAfterWait": false,
+  "lateUpdateKinds": [
+    "session_info_update"
+  ],
+  "toolCalls": [
+    {
+      "toolCallId": "exec-47cfa61d-cdd4-44e8-8b75-59645a94c8f9",
+      "title": "nohup bash -c 'sleep 45 && echo bg-done > bg.txt' >/tmp/acp-bg-task.log 2>&1 < /dev/null &",
+      "kind": "execute",
+      "status": "in_progress",
+      "meta": {
+        "terminal_info": {
+          "cwd": "~/.cache/glimmervoid-acp-spike/work/wt-codex",
+          "terminal_id": "exec-47cfa61d-cdd4-44e8-8b75-59645a94c8f9"
+        }
+      }
+    },
+    {
+      "toolCallId": "exec-14604e2e-567b-4dc0-bca7-524f9050e5a0",
+      "title": "Read file '~/.cache/glimmervoid-acp-spike/work/wt-codex/AGENTS.md'",
+      "kind": "read",
+      "status": "in_progress"
+    }
+  ],
+  "childSessionIds": [
+    "01a2160b-9f19-7740-acb8-a8474b995406:subagent:01a2160b-b801-7432-9e91-814db0e68661"
+  ],
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "session_info_update": 4,
+    "agent_message_chunk": 50,
+    "tool_call": 2,
+    "tool_call_update": 2,
+    "usage_update": 6,
+    "subagent_update": 7,
+    "config_option_update": 2
+  },
+  "clientRequestMethods": [],
+  "stderrTail": []
+}

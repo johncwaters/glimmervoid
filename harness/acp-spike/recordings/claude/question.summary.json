@@ -1,0 +1,163 @@
+{
+  "agent": "claude",
+  "scenario": "question",
+  "durationMs": 3663,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "_meta": {
+        "claudeCode": {
+          "promptQueueing": true
+        },
+        "authStatus": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true,
+        "acp": true
+      },
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "options": {},
+        "resume": {},
+        "status": {},
+        "systemPrompt": {
+          "mode": {
+            "override": {}
+          }
+        },
+        "title": {}
+      }
+    },
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.112.0"
+    },
+    "authMethods": [],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "CHOSEN=Blue",
+    "updateKinds": [
+      "available_commands_update",
+      "available_commands_update",
+      "available_commands_update",
+      "usage_update",
+      "tool_call",
+      "session_info_update",
+      "tool_call_update",
+      "usage_update",
+      "usage_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 2510
+  },
+  "answerReachedAgent": true,
+  "clientRequests": [
+    {
+      "method": "elicitation/create",
+      "params": {
+        "sessionId": "924aa886-7cda-4dbd-9fdc-23643bc18afe",
+        "toolCallId": "toolu_0194F8qxUeMN3dr4GTc7RSKs",
+        "requestedSchema": {
+          "type": "object",
+          "properties": {
+            "question_0": {
+              "title": "Color",
+              "oneOf": [
+                {
+                  "const": "Red",
+                  "title": "Red",
+                  "description": "Pick red."
+                },
+                {
+                  "const": "Blue",
+                  "title": "Blue",
+                  "description": "Pick blue."
+                }
+              ],
+              "type": "string"
+            },
+            "question_0_custom": {
+              "title": "Other",
+              "description": "Type your own answer, or add a note to the option you chose above (optional).",
+              "type": "string"
+            }
+          }
+        },
+        "mode": "form",
+        "message": "Which color?"
+      },
+      "answer": {
+        "action": "accept",
+        "content": {
+          "question_0": "Blue"
+        }
+      }
+    }
+  ],
+  "toolCalls": [
+    {
+      "toolCallId": "toolu_0194F8qxUeMN3dr4GTc7RSKs",
+      "title": "Asking for your input",
+      "kind": "other",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "AskUserQuestion"
+        }
+      }
+    }
+  ],
+  "updateKindCounts": {
+    "available_commands_update": 3,
+    "usage_update": 5,
+    "tool_call": 1,
+    "session_info_update": 1,
+    "tool_call_update": 3,
+    "agent_message_chunk": 2
+  },
+  "clientRequestMethods": [
+    "elicitation/create"
+  ],
+  "stderrTail": [
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=validate-cwd durationMs=0 totalMs=0",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=settings durationMs=17 totalMs=17",
+    "[session/query] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe resume=none apiType=native baseUrl=native",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=prepare-query durationMs=8 totalMs=25",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=sdk-initialize durationMs=687 totalMs=713",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=models durationMs=1 totalMs=714",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=modes durationMs=0 totalMs=714",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=agents durationMs=0 totalMs=714",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=ultracode durationMs=8 totalMs=722",
+    "[session/create] sessionId=924aa886-7cda-4dbd-9fdc-23643bc18afe phase=register durationMs=1 totalMs=723",
+    "[idle-compaction] skip: rate limit status is allowed_warning"
+  ]
+}

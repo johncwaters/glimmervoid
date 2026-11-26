@@ -1,0 +1,190 @@
+{
+  "agent": "claude",
+  "scenario": "subagents",
+  "durationMs": 72395,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "_meta": {
+        "claudeCode": {
+          "promptQueueing": true
+        },
+        "authStatus": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true,
+        "acp": true
+      },
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "options": {},
+        "resume": {},
+        "status": {},
+        "systemPrompt": {
+          "mode": {
+            "override": {}
+          }
+        },
+        "title": {}
+      }
+    },
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.112.0"
+    },
+    "authMethods": [],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "1. Background shell running: ID `bm1jo9ede`, `sleep 45 && echo bg-done > bg.txt`. Not waited on.\n2. Subagent (haiku) report, AGENTS.md first line: `# acp spike project`\n\nFirst Agent call denied by hook (missing `Scope:`/`Out of scope:`/`Definition of done:` markers, no model pin). Re-issued with both.",
+    "updateKinds": [
+      "available_commands_update",
+      "available_commands_update",
+      "available_commands_update",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "session_info_update",
+      "usage_update",
+      "usage_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call",
+      "usage_update",
+      "usage_update",
+      "subagent_update",
+      "session_message",
+      "session_message",
+      "subagent_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 11312
+  },
+  "turnDurationMs": 11312,
+  "backgroundFileAtTurnEnd": false,
+  "backgroundFileAfterWait": true,
+  "lateUpdateKinds": [
+    "usage_update",
+    "agent_message_chunk",
+    "agent_message_chunk",
+    "agent_message_chunk",
+    "agent_message_chunk",
+    "agent_message_chunk",
+    "agent_message_chunk",
+    "agent_message_chunk",
+    "usage_update",
+    "usage_update"
+  ],
+  "toolCalls": [
+    {
+      "toolCallId": "toolu_01GdvHSsD44HpuuCjGgN9g48",
+      "title": "Terminal",
+      "kind": "execute",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "Bash"
+        }
+      }
+    },
+    {
+      "toolCallId": "toolu_01R5qi2UiFy7NGpfj26oDQWe",
+      "title": "Read AGENTS.md first line",
+      "kind": "think",
+      "status": "failed",
+      "meta": {
+        "claudeCode": {
+          "toolName": "Agent",
+          "nonExecutionKind": "permission-rule"
+        }
+      }
+    },
+    {
+      "toolCallId": "toolu_01Ax4qkdiQeDMTSqPFcHWE2f",
+      "title": "Read AGENTS.md (1 - 1)",
+      "kind": "read",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "Read",
+          "parentToolUseId": "toolu_01QLtDS2UpPjN7oAszo62njQ"
+        }
+      }
+    }
+  ],
+  "childSessionIds": [
+    "a23e60ff8ee0c9148"
+  ],
+  "updateKindCounts": {
+    "available_commands_update": 3,
+    "usage_update": 10,
+    "tool_call": 3,
+    "tool_call_update": 7,
+    "session_info_update": 1,
+    "subagent_update": 2,
+    "session_message": 4,
+    "config_option_update": 3,
+    "agent_message_chunk": 28
+  },
+  "clientRequestMethods": [],
+  "stderrTail": [
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=validate-cwd durationMs=0 totalMs=0",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=settings durationMs=16 totalMs=16",
+    "[session/query] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c resume=none apiType=native baseUrl=native",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=prepare-query durationMs=8 totalMs=24",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=sdk-initialize durationMs=628 totalMs=652",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=models durationMs=1 totalMs=653",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=modes durationMs=0 totalMs=654",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=agents durationMs=0 totalMs=654",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=ultracode durationMs=4 totalMs=658",
+    "[session/create] sessionId=bedbf2ff-7f26-46df-80fc-7feb22b0422c phase=register durationMs=1 totalMs=659",
+    "[idle-compaction] skip: rate limit status is allowed_warning",
+    "[idle-compaction] skip: rate limit status is allowed_warning"
+  ]
+}

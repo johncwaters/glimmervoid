@@ -1,0 +1,161 @@
+{
+  "agent": "codex",
+  "scenario": "question",
+  "durationMs": 5138,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentInfo": {
+      "name": "@agentclientprotocol/codex-acp",
+      "title": "Codex",
+      "version": "2.12.0"
+    },
+    "agentCapabilities": {
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "list": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "options": {},
+        "title": {},
+        "additionalDirectories": {},
+        "systemPrompt": {}
+      },
+      "mcpCapabilities": {
+        "acp": true,
+        "http": true,
+        "sse": false
+      },
+      "_meta": {
+        "authStatus": {}
+      }
+    },
+    "authMethods": [
+      {
+        "id": "api-key",
+        "name": "API Key",
+        "description": "Use an API key to authenticate",
+        "_meta": {
+          "api-key": {
+            "provider": "openai"
+          }
+        }
+      },
+      {
+        "id": "chat-gpt",
+        "name": "ChatGPT",
+        "description": "Use ChatGPT to authenticate"
+      }
+    ],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "Which color?\n- Red\n- BlueCHOSEN=Blue",
+    "updateKinds": [
+      "available_commands_update",
+      "session_info_update",
+      "agent_message_chunk",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "session_info_update",
+      "session_info_update"
+    ],
+    "durationMs": 4234
+  },
+  "answerReachedAgent": true,
+  "clientRequests": [
+    {
+      "method": "elicitation/create",
+      "params": {
+        "sessionId": "01a2160f-0b5d-7253-a48f-22c49c2a0312",
+        "requestedSchema": {
+          "type": "object",
+          "properties": {
+            "question_0": {
+              "title": "Which color?",
+              "oneOf": [
+                {
+                  "const": "Red",
+                  "title": "Red"
+                },
+                {
+                  "const": "Blue",
+                  "title": "Blue"
+                },
+                {
+                  "const": "None of the above",
+                  "title": "None of the above",
+                  "description": "Provide a different answer in the note field."
+                }
+              ],
+              "_meta": {
+                "codex": {
+                  "isOther": true,
+                  "isSecret": false
+                }
+              },
+              "type": "string"
+            },
+            "question_0_note": {
+              "title": "Additional answer or note",
+              "_meta": {
+                "codex": {
+                  "questionId": "question_0",
+                  "role": "user_note",
+                  "isSecret": false
+                }
+              },
+              "type": "string"
+            }
+          }
+        },
+        "mode": "form",
+        "message": "Codex keeps working while you answer. Your answer continues the conversation.",
+        "_meta": {
+          "codex": {
+            "delivery": "async"
+          }
+        }
+      },
+      "answer": {
+        "action": "accept",
+        "content": {
+          "question_0": "Blue"
+        }
+      }
+    }
+  ],
+  "toolCalls": [],
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "session_info_update": 3,
+    "agent_message_chunk": 6,
+    "usage_update": 2
+  },
+  "clientRequestMethods": [
+    "elicitation/create"
+  ],
+  "stderrTail": []
+}

@@ -1,0 +1,385 @@
+{
+  "agent": "codex",
+  "scenario": "permissions",
+  "durationMs": 18369,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentInfo": {
+      "name": "@agentclientprotocol/codex-acp",
+      "title": "Codex",
+      "version": "2.12.0"
+    },
+    "agentCapabilities": {
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "list": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "options": {},
+        "title": {},
+        "additionalDirectories": {},
+        "systemPrompt": {}
+      },
+      "mcpCapabilities": {
+        "acp": true,
+        "http": true,
+        "sse": false
+      },
+      "_meta": {
+        "authStatus": {}
+      }
+    },
+    "authMethods": [
+      {
+        "id": "api-key",
+        "name": "API Key",
+        "description": "Use an API key to authenticate",
+        "_meta": {
+          "api-key": {
+            "provider": "openai"
+          }
+        }
+      },
+      {
+        "id": "chat-gpt",
+        "name": "ChatGPT",
+        "description": "Use ChatGPT to authenticate"
+      }
+    ],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "availableModes": {
+    "availableModes": [
+      {
+        "id": "read-only",
+        "name": "Read-only",
+        "description": "Requires approval to edit files and access the internet."
+      },
+      {
+        "id": "workspace-write",
+        "name": "Workspace access",
+        "description": "Edit workspace files; ask before writing outside the workspace or accessing the network."
+      },
+      {
+        "id": "agent",
+        "name": "Auto review",
+        "description": "Only ask for actions detected as potentially unsafe"
+      },
+      {
+        "id": "agent-full-access",
+        "name": "Full access",
+        "description": "Unrestricted access to the internet and any file on your computer"
+      }
+    ],
+    "currentModeId": "agent"
+  },
+  "modeChange": {},
+  "allowed": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "I’ll create `perm-test.txt` with the file edit tool, then run `touch perm-shell.txt` and report the result.Created `perm-test.txt` containing `hello`.\n\n`touch perm-shell.txt` initially failed on the read-only filesystem, then succeeded with escalated permissions.",
+    "updateKinds": [
+      "available_commands_update",
+      "session_info_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "tool_call",
+      "session_info_update",
+      "session_info_update",
+      "tool_call_update",
+      "usage_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "tool_call",
+      "tool_call_update",
+      "session_info_update",
+      "tool_call",
+      "session_info_update",
+      "tool_call_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "session_info_update",
+      "session_info_update"
+    ],
+    "durationMs": 13142
+  },
+  "rejected": {
+    "stopReason": "cancelled",
+    "error": null,
+    "agentText": "I’ll run `rm perm-shell.txt` and request approval if the sandbox blocks it.",
+    "updateKinds": [
+      "session_info_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "session_info_update",
+      "usage_update",
+      "session_info_update",
+      "tool_call",
+      "tool_call_update",
+      "session_info_update",
+      "usage_update",
+      "session_info_update"
+    ],
+    "durationMs": 4263
+  },
+  "permissionRequests": [
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "01a21610-fd1b-7282-ab51-fce26be8dd71",
+        "toolCall": {
+          "toolCallId": "exec-d95207e7-2ed5-4f4e-91c0-a87b31158520",
+          "kind": "edit",
+          "status": "pending",
+          "title": "Edit files",
+          "locations": [
+            {
+              "path": "~/.cache/glimmervoid-acp-spike/work/wt-codex/perm-test.txt"
+            }
+          ]
+        },
+        "options": [
+          {
+            "optionId": "allow_once",
+            "name": "Yes, proceed",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "allow_for_session",
+            "name": "Yes, and don't ask again for these files",
+            "kind": "allow_always"
+          },
+          {
+            "optionId": "cancel",
+            "name": "No, and tell Codex what to do differently",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow_once"
+        }
+      }
+    },
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "01a21610-fd1b-7282-ab51-fce26be8dd71",
+        "toolCall": {
+          "toolCallId": "exec-8842bb01-80b4-4a24-819b-6613e6593df5",
+          "kind": "execute",
+          "status": "pending",
+          "title": "touch perm-shell.txt",
+          "rawInput": {
+            "command": "touch perm-shell.txt",
+            "cwd": "~/.cache/glimmervoid-acp-spike/work/wt-codex"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow_once",
+            "name": "Yes, proceed",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "accept_execpolicy_amendment",
+            "name": "Yes, and don't ask again for commands that start with `touch perm-shell.txt`",
+            "kind": "allow_always"
+          },
+          {
+            "optionId": "cancel",
+            "name": "No, and tell Codex what to do differently",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow_once"
+        }
+      }
+    },
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "01a21610-fd1b-7282-ab51-fce26be8dd71",
+        "toolCall": {
+          "toolCallId": "exec-0c28adbf-1938-4d89-8f9f-fca19fdcde3f",
+          "kind": "execute",
+          "status": "pending",
+          "title": "rm perm-shell.txt",
+          "rawInput": {
+            "command": "rm perm-shell.txt",
+            "cwd": "~/.cache/glimmervoid-acp-spike/work/wt-codex"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow_once",
+            "name": "Yes, proceed",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "accept_execpolicy_amendment",
+            "name": "Yes, and don't ask again for commands that start with `rm perm-shell.txt`",
+            "kind": "allow_always"
+          },
+          {
+            "optionId": "cancel",
+            "name": "No, and tell Codex what to do differently",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "cancel"
+        }
+      }
+    }
+  ],
+  "requestsAfterAllow": 2,
+  "fileWritten": true,
+  "shellFileAfterAllow": true,
+  "shellFileAfterReject": true,
+  "toolCalls": [
+    {
+      "toolCallId": "exec-d95207e7-2ed5-4f4e-91c0-a87b31158520",
+      "title": "Editing files",
+      "kind": "edit",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "exec-b88f30b2-fc23-40d6-aa9c-21243b789f92",
+      "title": "Read file '~/.cache/glimmervoid-acp-spike/work/wt-codex/perm-test.txt'",
+      "kind": "read",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "exec-8842bb01-80b4-4a24-819b-6613e6593df5",
+      "title": "touch perm-shell.txt",
+      "kind": "execute",
+      "status": "in_progress",
+      "meta": {
+        "terminal_info": {
+          "cwd": "~/.cache/glimmervoid-acp-spike/work/wt-codex",
+          "terminal_id": "exec-8842bb01-80b4-4a24-819b-6613e6593df5"
+        }
+      }
+    },
+    {
+      "toolCallId": "exec-0c28adbf-1938-4d89-8f9f-fca19fdcde3f",
+      "title": "rm perm-shell.txt",
+      "kind": "execute",
+      "status": "in_progress",
+      "meta": {
+        "terminal_info": {
+          "cwd": "~/.cache/glimmervoid-acp-spike/work/wt-codex",
+          "terminal_id": "exec-0c28adbf-1938-4d89-8f9f-fca19fdcde3f"
+        }
+      }
+    }
+  ],
+  "updateKindCounts": {
+    "config_option_update": 1,
+    "available_commands_update": 1,
+    "session_info_update": 12,
+    "agent_message_chunk": 70,
+    "tool_call": 4,
+    "tool_call_update": 4,
+    "usage_update": 5,
+    "agent_thought_chunk": 2
+  },
+  "clientRequestMethods": [
+    "session/request_permission",
+    "session/request_permission",
+    "session/request_permission"
+  ],
+  "stderrTail": []
+}

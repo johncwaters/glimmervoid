@@ -1,0 +1,138 @@
+{
+  "agent": "claude",
+  "scenario": "updates",
+  "durationMs": 11148,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "_meta": {
+        "claudeCode": {
+          "promptQueueing": true
+        },
+        "authStatus": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true,
+        "acp": true
+      },
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "options": {},
+        "resume": {},
+        "status": {},
+        "systemPrompt": {
+          "mode": {
+            "override": {}
+          }
+        },
+        "title": {}
+      }
+    },
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.112.0"
+    },
+    "authMethods": [],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "No todo/plan tool in this session: `TodoWrite`, `update_plan`, task list all absent (ToolSearch checked). Plan not recorded in any tool, so no PLAN-OK. No files created or edited.\n\nPlan, chat only:\n\n1. Pick greeting: `Hello, world!` — completed\n2. Write `greeting.txt` — pending\n3. Check it — pending",
+    "updateKinds": [
+      "available_commands_update",
+      "available_commands_update",
+      "available_commands_update",
+      "usage_update",
+      "tool_call",
+      "session_info_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "usage_update",
+      "tool_call_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "usage_update"
+    ],
+    "durationMs": 10010
+  },
+  "toolCalls": [
+    {
+      "toolCallId": "toolu_01V33wNbsHfosRzR79C5dBx1",
+      "title": "ToolSearch",
+      "kind": "other",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "ToolSearch"
+        }
+      }
+    }
+  ],
+  "updateKindCounts": {
+    "available_commands_update": 3,
+    "usage_update": 6,
+    "tool_call": 1,
+    "session_info_update": 1,
+    "tool_call_update": 4,
+    "agent_message_chunk": 22
+  },
+  "clientRequestMethods": [],
+  "stderrTail": [
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=validate-cwd durationMs=0 totalMs=0",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=settings durationMs=16 totalMs=17",
+    "[session/query] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f resume=none apiType=native baseUrl=native",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=prepare-query durationMs=8 totalMs=24",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=sdk-initialize durationMs=663 totalMs=688",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=models durationMs=1 totalMs=689",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=modes durationMs=0 totalMs=689",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=agents durationMs=0 totalMs=689",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=ultracode durationMs=4 totalMs=693",
+    "[session/create] sessionId=d8630287-bf70-47cf-b5a0-fd4893da5a6f phase=register durationMs=1 totalMs=694"
+  ]
+}

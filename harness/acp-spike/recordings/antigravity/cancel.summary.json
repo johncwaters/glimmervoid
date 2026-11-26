@@ -1,0 +1,110 @@
+{
+  "agent": "antigravity",
+  "scenario": "cancel",
+  "durationMs": 14338,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "load_session": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "session_capabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "auth": {
+        "logout": {}
+      },
+      "_meta": {
+        "antigravity": {
+          "tier": true,
+          "systemPrompt": {
+            "append": true
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "name": "Antigravity ACP Server",
+      "version": "1.5.17"
+    },
+    "authMethods": [
+      {
+        "id": "oauth-personal",
+        "name": "Log in with Google",
+        "description": "Log in with your Google account"
+      },
+      {
+        "id": "oauth-business",
+        "name": "Log in with Gemini Enterprise",
+        "description": "Log in with your Gemini Enterprise account"
+      },
+      {
+        "id": "gemini-api-key",
+        "name": "Gemini API key",
+        "description": "Use an API key with Gemini Developer API"
+      },
+      {
+        "id": "agent-platform",
+        "name": "Gemini Enterprise Agent Platform",
+        "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+      }
+    ]
+  },
+  "cancelled": {
+    "stopReason": "cancelled",
+    "error": null,
+    "agentText": "",
+    "updateKinds": [
+      "available_commands_update",
+      "usage_update",
+      "session_info_update",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update"
+    ],
+    "durationMs": 10201
+  },
+  "after": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "AFTER-CANCEL-OK",
+    "updateKinds": [
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 3166
+  },
+  "cancelSent": true,
+  "followUpWorked": true,
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "usage_update": 3,
+    "session_info_update": 1,
+    "agent_thought_chunk": 1,
+    "tool_call": 1,
+    "tool_call_update": 3,
+    "agent_message_chunk": 1
+  },
+  "clientRequestMethods": [
+    "session/request_permission"
+  ],
+  "stderrTail": []
+}

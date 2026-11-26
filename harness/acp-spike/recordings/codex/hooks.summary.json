@@ -1,0 +1,134 @@
+{
+  "agent": "codex",
+  "scenario": "hooks",
+  "durationMs": 13055,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentInfo": {
+      "name": "@agentclientprotocol/codex-acp",
+      "title": "Codex",
+      "version": "2.12.0"
+    },
+    "agentCapabilities": {
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "list": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "options": {},
+        "title": {},
+        "additionalDirectories": {},
+        "systemPrompt": {}
+      },
+      "mcpCapabilities": {
+        "acp": true,
+        "http": true,
+        "sse": false
+      },
+      "_meta": {
+        "authStatus": {}
+      }
+    },
+    "authMethods": [
+      {
+        "id": "api-key",
+        "name": "API Key",
+        "description": "Use an API key to authenticate",
+        "_meta": {
+          "api-key": {
+            "provider": "openai"
+          }
+        }
+      },
+      {
+        "id": "chat-gpt",
+        "name": "ChatGPT",
+        "description": "Use ChatGPT to authenticate"
+      }
+    ],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "I’ll write `hook-probe.ts` with the exact line you supplied.Created `hook-probe.ts` with the exact line supplied.",
+    "updateKinds": [
+      "available_commands_update",
+      "session_info_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "tool_call",
+      "tool_call_update",
+      "usage_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "session_info_update",
+      "session_info_update"
+    ],
+    "durationMs": 12112
+  },
+  "written": "export function pick(flag: boolean) { if (flag) { return 1; } else { return 2; } }\n",
+  "hookBlockedElse": false,
+  "toolCalls": [
+    {
+      "toolCallId": "exec-6b13387d-4095-4c53-9e4d-ed02849fd96a",
+      "title": "Editing files",
+      "kind": "edit",
+      "status": "in_progress"
+    }
+  ],
+  "permissionRequests": [],
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "session_info_update": 3,
+    "agent_message_chunk": 27,
+    "tool_call": 1,
+    "tool_call_update": 1,
+    "usage_update": 2,
+    "agent_thought_chunk": 2
+  },
+  "clientRequestMethods": [],
+  "stderrTail": []
+}

@@ -1,0 +1,116 @@
+{
+  "agent": "antigravity",
+  "scenario": "hooks",
+  "durationMs": 16596,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "load_session": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "session_capabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "auth": {
+        "logout": {}
+      },
+      "_meta": {
+        "antigravity": {
+          "tier": true,
+          "systemPrompt": {
+            "append": true
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "name": "Antigravity ACP Server",
+      "version": "1.5.17"
+    },
+    "authMethods": [
+      {
+        "id": "oauth-personal",
+        "name": "Log in with Google",
+        "description": "Log in with your Google account"
+      },
+      {
+        "id": "oauth-business",
+        "name": "Log in with Gemini Enterprise",
+        "description": "Log in with your Gemini Enterprise account"
+      },
+      {
+        "id": "gemini-api-key",
+        "name": "Gemini API key",
+        "description": "Use an API key with Gemini Developer API"
+      },
+      {
+        "id": "agent-platform",
+        "name": "Gemini Enterprise Agent Platform",
+        "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+      }
+    ]
+  },
+  "authenticateResult": null,
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "The write was refused by a pre-tool hook with the following verbatim message:\n\n```text\nEncountered error in tool execution: tool call denied by pre-tool hook: No-else guard blocked this write to hook-probe.ts.\nWhy: it adds 1 net-new else statement(s):\n  export function pick(flag: boolean) { if (flag) { return 1; } else { return 2; } }\nFix: invert the condition and return, continue, break, or throw early; replace else-if chains with guard clauses, a lookup map, or a switch with early returns.\nTernaries, Rust let-else, Python for/while/try/except else, and Ruby begin/rescue else are exempt.\n```",
+    "updateKinds": [
+      "available_commands_update",
+      "usage_update",
+      "session_info_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 15615
+  },
+  "written": null,
+  "hookBlockedElse": true,
+  "toolCalls": [
+    {
+      "toolCallId": "call_10316572844080213083",
+      "title": "File hook-probe.ts",
+      "kind": "edit",
+      "status": "in_progress"
+    }
+  ],
+  "permissionRequests": [],
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "usage_update": 3,
+    "session_info_update": 1,
+    "agent_thought_chunk": 2,
+    "tool_call": 1,
+    "tool_call_update": 1,
+    "agent_message_chunk": 8
+  },
+  "clientRequestMethods": [],
+  "stderrTail": []
+}

@@ -1,0 +1,312 @@
+{
+  "agent": "antigravity",
+  "scenario": "permissions",
+  "durationMs": 49496,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "load_session": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "session_capabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "auth": {
+        "logout": {}
+      },
+      "_meta": {
+        "antigravity": {
+          "tier": true,
+          "systemPrompt": {
+            "append": true
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "name": "Antigravity ACP Server",
+      "version": "1.5.17"
+    },
+    "authMethods": [
+      {
+        "id": "oauth-personal",
+        "name": "Log in with Google",
+        "description": "Log in with your Google account"
+      },
+      {
+        "id": "oauth-business",
+        "name": "Log in with Gemini Enterprise",
+        "description": "Log in with your Gemini Enterprise account"
+      },
+      {
+        "id": "gemini-api-key",
+        "name": "Gemini API key",
+        "description": "Use an API key with Gemini Developer API"
+      },
+      {
+        "id": "agent-platform",
+        "name": "Gemini Enterprise Agent Platform",
+        "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+      }
+    ]
+  },
+  "authenticateResult": null,
+  "availableModes": {
+    "currentModeId": "default",
+    "availableModes": [
+      {
+        "id": "default",
+        "name": "Default",
+        "description": "Ask before edits and commands, per your permission settings."
+      },
+      {
+        "id": "accept-edits",
+        "name": "Accept edits",
+        "description": "Approve file edits in the workspace without asking."
+      },
+      {
+        "id": "auto",
+        "name": "Auto",
+        "description": "Approve edits and safe commands; ask before irreversible actions."
+      },
+      {
+        "id": "plan",
+        "name": "Plan",
+        "description": "Plan carefully before executing a task."
+      }
+    ]
+  },
+  "modeChange": {},
+  "allowed": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "Created [perm-test.txt](file://~/.cache/glimmervoid-acp-spike/work/wt-antigravity/perm-test.txt) containing `hello` via `write_file`, and ran `touch perm-shell.txt` via `run_command` to create [perm-shell.txt](file://~/.cache/glimmervoid-acp-spike/work/wt-antigravity/perm-shell.txt). Both succeeded (the shell command exited with code `0`).\n\n`<land_when_done>` exempts this turn: this was an exploration/permission check in the spike worktree, not a code change to land.",
+    "updateKinds": [
+      "available_commands_update",
+      "usage_update",
+      "session_info_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "agent_thought_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 43275
+  },
+  "rejected": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "",
+    "updateKinds": [
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update"
+    ],
+    "durationMs": 5187
+  },
+  "permissionRequests": [
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "8a436f0d-cf1f-497b-a287-952f4f5ee3da",
+        "toolCall": {
+          "toolCallId": "call_4524711230320237486",
+          "kind": "edit",
+          "status": "pending",
+          "title": "File perm-test.txt",
+          "name": "write_file",
+          "content": [
+            {
+              "path": "~/.cache/glimmervoid-acp-spike/work/wt-antigravity/perm-test.txt",
+              "newText": "hello\n",
+              "type": "diff"
+            }
+          ],
+          "locations": [
+            {
+              "path": "~/.cache/glimmervoid-acp-spike/work/wt-antigravity/perm-test.txt"
+            }
+          ],
+          "rawInput": {
+            "Content": "hello\n",
+            "Overwrite": true,
+            "Path": "~/.cache/glimmervoid-acp-spike/work/wt-antigravity/perm-test.txt"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow",
+            "name": "Allow",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "deny",
+            "name": "Deny",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "8a436f0d-cf1f-497b-a287-952f4f5ee3da",
+        "toolCall": {
+          "toolCallId": "call_7433933934215677672",
+          "kind": "execute",
+          "status": "pending",
+          "title": "touch perm-shell.txt",
+          "name": "run_command",
+          "rawInput": {
+            "CommandLine": "touch perm-shell.txt",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Create perm-shell.txt via touch"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow",
+            "name": "Allow",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "deny",
+            "name": "Deny",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "8a436f0d-cf1f-497b-a287-952f4f5ee3da",
+        "toolCall": {
+          "toolCallId": "call_1328507865677608202",
+          "kind": "execute",
+          "status": "pending",
+          "title": "rm perm-shell.txt",
+          "name": "run_command",
+          "rawInput": {
+            "CommandLine": "rm perm-shell.txt",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Remove perm-shell.txt via rm"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow",
+            "name": "Allow",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "deny",
+            "name": "Deny",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    }
+  ],
+  "requestsAfterAllow": 2,
+  "fileWritten": true,
+  "shellFileAfterAllow": true,
+  "shellFileAfterReject": true,
+  "toolCalls": [
+    {
+      "toolCallId": "call_3590734330782550040",
+      "title": "File perm-test.txt",
+      "kind": "edit",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "call_4524711230320237486",
+      "title": "File perm-test.txt",
+      "kind": "edit",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "call_7433933934215677672",
+      "title": "touch perm-shell.txt",
+      "kind": "execute",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "call_1328507865677608202",
+      "title": "rm perm-shell.txt",
+      "kind": "execute",
+      "status": "in_progress"
+    }
+  ],
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "usage_update": 7,
+    "session_info_update": 1,
+    "agent_thought_chunk": 4,
+    "tool_call": 4,
+    "tool_call_update": 10,
+    "agent_message_chunk": 7
+  },
+  "clientRequestMethods": [
+    "session/request_permission",
+    "session/request_permission",
+    "session/request_permission"
+  ],
+  "stderrTail": []
+}

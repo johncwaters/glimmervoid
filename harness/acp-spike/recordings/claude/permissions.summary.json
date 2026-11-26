@@ -1,0 +1,368 @@
+{
+  "agent": "claude",
+  "scenario": "permissions",
+  "durationMs": 8133,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "_meta": {
+        "claudeCode": {
+          "promptQueueing": true
+        },
+        "authStatus": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true,
+        "acp": true
+      },
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "options": {},
+        "resume": {},
+        "status": {},
+        "systemPrompt": {
+          "mode": {
+            "override": {}
+          }
+        },
+        "title": {}
+      }
+    },
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.112.0"
+    },
+    "authMethods": [],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "availableModes": {
+    "currentModeId": "auto",
+    "availableModes": [
+      {
+        "id": "default",
+        "name": "Manual",
+        "description": "Always ask before making changes"
+      },
+      {
+        "id": "acceptEdits",
+        "name": "Accept edits",
+        "description": "Automatically accept all file edits"
+      },
+      {
+        "id": "plan",
+        "name": "Plan",
+        "description": "Create a plan before making changes"
+      },
+      {
+        "id": "auto",
+        "name": "Auto",
+        "description": "Claude handles permission decisions"
+      },
+      {
+        "id": "bypassPermissions",
+        "name": "Bypass permissions",
+        "description": "Accepts all permissions"
+      }
+    ]
+  },
+  "modeChange": {},
+  "allowed": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "`perm-test.txt` written: `hello`.\n`touch perm-shell.txt` succeeded: 0-byte file exists.\n\nNeither committed.",
+    "updateKinds": [
+      "available_commands_update",
+      "available_commands_update",
+      "usage_update",
+      "session_info_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "usage_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 4072
+  },
+  "rejected": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "Refused: `rm perm-shell.txt` denied permission. Not retried. `perm-shell.txt` still exists.",
+    "updateKinds": [
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "tool_call_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 2952
+  },
+  "permissionRequests": [
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "b2180f36-1e2a-4821-a148-0510bebf083f",
+        "toolCall": {
+          "toolCallId": "toolu_013Ntcn4WnCXUBpKfrDLL4su",
+          "kind": "edit",
+          "status": "pending",
+          "title": "Write perm-test.txt",
+          "name": "Write",
+          "content": [
+            {
+              "path": "~/.cache/glimmervoid-acp-spike/work/wt-claude/perm-test.txt",
+              "oldText": null,
+              "newText": "hello\n",
+              "type": "diff"
+            }
+          ],
+          "locations": [
+            {
+              "path": "~/.cache/glimmervoid-acp-spike/work/wt-claude/perm-test.txt"
+            }
+          ],
+          "rawInput": {
+            "file_path": "~/.cache/glimmervoid-acp-spike/work/wt-claude/perm-test.txt",
+            "content": "hello\n"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow-once",
+            "name": "Yes",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "allow-with-updates",
+            "name": "Yes, allow all edits during this session",
+            "kind": "allow_always"
+          },
+          {
+            "optionId": "reject",
+            "name": "No",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow-once"
+        }
+      }
+    },
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "b2180f36-1e2a-4821-a148-0510bebf083f",
+        "toolCall": {
+          "toolCallId": "toolu_01CB21DXTWV541NzAe8dcy2c",
+          "kind": "execute",
+          "status": "pending",
+          "title": "touch perm-shell.txt && ls -l perm-shell.txt",
+          "name": "Bash",
+          "content": [
+            {
+              "content": {
+                "text": "Create empty perm-shell.txt and confirm it exists",
+                "type": "text"
+              },
+              "type": "content"
+            }
+          ],
+          "locations": [
+            {
+              "path": "~/.cache/glimmervoid-acp-spike/work/wt-claude/perm-shell.txt"
+            }
+          ],
+          "rawInput": {
+            "command": "touch perm-shell.txt && ls -l perm-shell.txt",
+            "description": "Create empty perm-shell.txt and confirm it exists"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow-once",
+            "name": "Yes",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "reject",
+            "name": "No",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow-once"
+        }
+      }
+    },
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "b2180f36-1e2a-4821-a148-0510bebf083f",
+        "toolCall": {
+          "toolCallId": "toolu_01PwXGKYeVRmd9tbD4hQYhoJ",
+          "kind": "execute",
+          "status": "pending",
+          "title": "rm perm-shell.txt",
+          "name": "Bash",
+          "content": [
+            {
+              "content": {
+                "text": "Delete perm-shell.txt",
+                "type": "text"
+              },
+              "type": "content"
+            }
+          ],
+          "locations": [
+            {
+              "path": "~/.cache/glimmervoid-acp-spike/work/wt-claude/perm-shell.txt"
+            }
+          ],
+          "rawInput": {
+            "command": "rm perm-shell.txt",
+            "description": "Delete perm-shell.txt"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow-once",
+            "name": "Yes",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "reject",
+            "name": "No",
+            "kind": "reject_once"
+          }
+        ]
+      },
+      "answer": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "reject"
+        }
+      }
+    }
+  ],
+  "requestsAfterAllow": 2,
+  "fileWritten": true,
+  "shellFileAfterAllow": true,
+  "shellFileAfterReject": true,
+  "toolCalls": [
+    {
+      "toolCallId": "toolu_013Ntcn4WnCXUBpKfrDLL4su",
+      "title": "Preparing file…",
+      "kind": "edit",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "Write"
+        }
+      }
+    },
+    {
+      "toolCallId": "toolu_01CB21DXTWV541NzAe8dcy2c",
+      "title": "Terminal",
+      "kind": "execute",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "Bash"
+        }
+      }
+    },
+    {
+      "toolCallId": "toolu_01PwXGKYeVRmd9tbD4hQYhoJ",
+      "title": "Terminal",
+      "kind": "execute",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "Bash"
+        }
+      }
+    }
+  ],
+  "updateKindCounts": {
+    "available_commands_update": 3,
+    "config_option_update": 1,
+    "usage_update": 9,
+    "session_info_update": 1,
+    "tool_call": 3,
+    "tool_call_update": 11,
+    "agent_message_chunk": 16
+  },
+  "clientRequestMethods": [
+    "session/request_permission",
+    "session/request_permission",
+    "session/request_permission"
+  ],
+  "stderrTail": [
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=validate-cwd durationMs=0 totalMs=0",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=settings durationMs=18 totalMs=18",
+    "[session/query] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f resume=none apiType=native baseUrl=native",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=prepare-query durationMs=7 totalMs=25",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=sdk-initialize durationMs=638 totalMs=663",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=models durationMs=1 totalMs=665",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=modes durationMs=0 totalMs=665",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=agents durationMs=0 totalMs=665",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=ultracode durationMs=4 totalMs=668",
+    "[session/create] sessionId=b2180f36-1e2a-4821-a148-0510bebf083f phase=register durationMs=1 totalMs=669",
+    "[idle-compaction] skip: rate limit status is allowed_warning",
+    "[idle-compaction] skip: rate limit status is allowed_warning"
+  ]
+}

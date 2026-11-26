@@ -1,0 +1,146 @@
+{
+  "agent": "claude",
+  "scenario": "hooks",
+  "durationMs": 9381,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "_meta": {
+        "claudeCode": {
+          "promptQueueing": true
+        },
+        "authStatus": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true,
+        "acp": true
+      },
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "options": {},
+        "resume": {},
+        "status": {},
+        "systemPrompt": {
+          "mode": {
+            "override": {}
+          }
+        },
+        "title": {}
+      }
+    },
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.112.0"
+    },
+    "authMethods": [],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "Write refused. No file written. Hook message verbatim:\n\n```\nPreToolUse:Write hook error: No-else guard blocked this write to hook-probe.ts.\nWhy: it adds 1 net-new else statement(s):\n  export function pick(flag: boolean) { if (flag) { return 1; } else { return 2; } }\nFix: invert the condition and return, continue, break, or throw early; replace else-if chains with guard clauses, a lookup map, or a switch with early returns.\nTernaries, Rust let-else, Python for/while/try/except else, and Ruby begin/rescue else are exempt.\n```",
+    "updateKinds": [
+      "available_commands_update",
+      "available_commands_update",
+      "available_commands_update",
+      "session_info_update",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "tool_call_update",
+      "usage_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 6850
+  },
+  "written": null,
+  "hookBlockedElse": true,
+  "toolCalls": [
+    {
+      "toolCallId": "toolu_01TCZPrHhoW6WcUcxcDbhGZJ",
+      "title": "Preparing file…",
+      "kind": "edit",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "Write"
+        }
+      }
+    }
+  ],
+  "permissionRequests": [],
+  "updateKindCounts": {
+    "available_commands_update": 3,
+    "session_info_update": 1,
+    "usage_update": 5,
+    "tool_call": 1,
+    "tool_call_update": 3,
+    "agent_message_chunk": 28
+  },
+  "clientRequestMethods": [],
+  "stderrTail": [
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=validate-cwd durationMs=2 totalMs=2",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=settings durationMs=39 totalMs=41",
+    "[session/query] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 resume=none apiType=native baseUrl=native",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=prepare-query durationMs=16 totalMs=56",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=sdk-initialize durationMs=1537 totalMs=1594",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=models durationMs=4 totalMs=1598",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=modes durationMs=1 totalMs=1599",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=agents durationMs=0 totalMs=1599",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=ultracode durationMs=10 totalMs=1609",
+    "[session/create] sessionId=f459cb21-9b45-4e85-b1d9-72ec198d1353 phase=register durationMs=1 totalMs=1610",
+    "[idle-compaction] skip: rate limit status is allowed_warning"
+  ]
+}
