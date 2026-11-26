@@ -54,7 +54,7 @@ function readAcpSpikeRecording(agentName: string, scenarioFile: string, baseTs: 
         ts,
         event: {
           kind: 'permission',
-          request: { ...permissionFieldsOf(params), options: params.options, respond: () => {} },
+          request: { ...permissionFieldsOf(params), options: params.options, withdrawn: new AbortController().signal, respond: () => {} },
         },
       });
       continue;
@@ -62,7 +62,7 @@ function readAcpSpikeRecording(agentName: string, scenarioFile: string, baseTs: 
     if (entry.message?.method === 'elicitation/create' && entry.message.params) {
       const fields = questionFieldsOf(entry.message.params as CreateElicitationRequest);
       if (fields !== null) {
-        events.push({ ts, event: { kind: 'question', question: { ...fields, respond: () => {} } } });
+        events.push({ ts, event: { kind: 'question', question: { ...fields, withdrawn: new AbortController().signal, respond: () => {} } } });
       }
       continue;
     }

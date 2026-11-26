@@ -1,4 +1,4 @@
-import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest } from "@agentclientprotocol/sdk";
+import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest, ToolKind } from "@agentclientprotocol/sdk";
 import type { DeliverOptions, DeliveryOutcome } from "./input-delivery-core.ts";
 
 type AcpPhase = "idle" | "opening" | "ready" | "closed";
@@ -75,11 +75,21 @@ function questionFieldsOf(request: CreateElicitationRequest): AcpQuestionFields 
   return { toolCallId, message, requestedSchema: request.requestedSchema as Record<string, unknown> };
 }
 
-function permissionFieldsOf(request: RequestPermissionRequest): { toolCallId: string; title: string | null; rawInput: unknown } {
+interface AcpPermissionFields {
+  toolCallId: string;
+  title: string | null;
+  toolKind: ToolKind | null;
+  rawInput: unknown;
+  locationPaths: string[];
+}
+
+function permissionFieldsOf(request: RequestPermissionRequest): AcpPermissionFields {
   return {
     toolCallId: request.toolCall.toolCallId,
     title: request.toolCall.title ?? null,
+    toolKind: request.toolCall.kind ?? null,
     rawInput: request.toolCall.rawInput,
+    locationPaths: (request.toolCall.locations ?? []).map((location) => location.path),
   };
 }
 

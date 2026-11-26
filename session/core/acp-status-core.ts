@@ -7,6 +7,7 @@ type AcpStatusInput =
   | { kind: "update" }
   | { kind: "ask" }
   | { kind: "ask-answered"; askedInTurn: number }
+  | { kind: "asks-closed" }
   | { kind: "turn-end" };
 
 type AcpStatusSignal =
@@ -18,6 +19,7 @@ type AcpStatusSignal =
   | "ask-answered-others-open"
   | "last-ask-answered-in-turn"
   | "ask-answered-after-its-turn-ended"
+  | "asks-closed"
   | "turn-ended";
 
 interface AcpTurn {
@@ -37,6 +39,7 @@ const ACP_STATUS_EVENTS: Readonly<Record<AcpStatusSignal, Readonly<Partial<Recor
   "ask-answered-others-open": {},
   "last-ask-answered-in-turn": { [STATES.WAITING]: "user_input" },
   "ask-answered-after-its-turn-ended": {},
+  "asks-closed": {},
   "turn-ended": { [STATES.RUNNING]: "task_complete", [STATES.WAITING]: "task_complete" },
 });
 
@@ -55,6 +58,8 @@ function stepAcpStatus(turn: AcpTurn, input: AcpStatusInput): { turn: AcpTurn; s
       const answered = { ...turn, openAskCount: turn.openAskCount - 1 };
       return { turn: answered, signal: answered.openAskCount > 0 ? "ask-answered-others-open" : "last-ask-answered-in-turn" };
     }
+    case "asks-closed":
+      return { turn: { ...turn, openAskCount: 0 }, signal: "asks-closed" };
     case "turn-end":
       return { turn: { turnNumber: turn.turnNumber + 1, isPromptOpen: false, openAskCount: 0 }, signal: "turn-ended" };
   }

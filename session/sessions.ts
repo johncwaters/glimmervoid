@@ -98,6 +98,8 @@ import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts"
 import type { SeedDependencies } from "../server/git/dependency-clone.ts";
 import type { GitWorkspace } from "./worktree/worktree-lifecycle-context.ts";
 import { createSessionApprovalHolds } from "./session-approval-holds.ts";
+import { createDriverAsks } from "./session-driver-asks.ts";
+import type { DriverAsks } from "./session-driver-asks.ts";
 import type { QuestionManagerPort, SessionApprovalHolds } from "./session-approval-holds.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import { createSessionLaunch } from "./session-launch.ts";
@@ -302,6 +304,7 @@ class Session extends EventEmitter {
   bypassHookTrust: boolean;
   _launch: SessionLaunch;
   _approvals: SessionApprovalHolds<HookSignal>;
+  _driverAsks: DriverAsks;
   backgroundTracking: ReturnType<typeof createSessionBackgroundTracking>;
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
   _worktreeReaderHolds = new Set<() => Promise<() => void>>();
@@ -623,6 +626,15 @@ class Session extends EventEmitter {
         noteAnsweredFromChat: () => this._ingestHookSignal({ signal: "working", source: "hook", confidence: "high", ts: clock.nowMs() }),
         taskTitle: () => this.refocusTaskTitle,
       },
+    });
+    this._driverAsks = createDriverAsks({
+      agentId: this.agentId,
+      logName: () => this.name,
+      cwd: () => this.effectiveCwd(),
+      saneYoloTool: () => this._hookTools.find((tool) => tool.id === "saneYolo"),
+      holds: this._approvals,
+      raisePermission: (request) => this._raiseDriverAsk(SESSION_DRIVER_EVENTS.permission, request),
+      raiseQuestion: (question) => this._raiseDriverAsk(SESSION_DRIVER_EVENTS.question, question),
     });
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
@@ -2063,6 +2075,8 @@ class Session extends EventEmitter {
 
   async _startAcpAgent(isStartSuperseded: () => boolean, resumePrompt: string | null = null): Promise<void> {
     this._launch.clearApprovedLaunches();
+    this._cancelDriverAsks();
+    this._approvals.releaseAll();
     if (this._acpLaunch === null) return;
     if (this.worktreeDir) this.worktreeLifecycle.startWatching();
     this._startupSignals.clear();
@@ -2304,15 +2318,14 @@ class Session extends EventEmitter {
         return;
       }
       case "permission":
-        this._stepAcpStatus({ kind: "ask" });
-        this.emit(SESSION_DRIVER_EVENTS.permission, { request: this._answerTracked(event.request) });
+        this._driverAsks.takePermission(event.request);
         return;
       case "question":
-        this._stepAcpStatus({ kind: "ask" });
-        this.emit(SESSION_DRIVER_EVENTS.question, { question: this._answerTracked(event.question) });
+        this._driverAsks.takeQuestion(event.question);
         return;
       case "turn-end":
         this._stepAcpStatus({ kind: "turn-end" });
+        this._cancelDriverAsks();
         this.emit(SESSION_DRIVER_EVENTS.turnEnd, { stopReason: event.stopReason });
         return;
       case "failure":
@@ -2326,6 +2339,18 @@ class Session extends EventEmitter {
     this._acpTurn = turn;
     const event = acpStatusEventFor(signal, this.state);
     if (event !== null) this.transition(event, { source: "acp", signal });
+  }
+
+  _cancelDriverAsks(): void {
+    this._stepAcpStatus({ kind: "asks-closed" });
+    this._driverAsks.cancelOpenAsks();
+  }
+
+  _raiseDriverAsk<Ask extends DriverPermissionRequest | DriverQuestion>(event: typeof SESSION_DRIVER_EVENTS.permission | typeof SESSION_DRIVER_EVENTS.question, ask: Ask): Ask {
+    this._stepAcpStatus({ kind: "ask" });
+    const tracked = this._answerTracked(ask);
+    this.emit(event, event === SESSION_DRIVER_EVENTS.permission ? { request: tracked } : { question: tracked });
+    return tracked;
   }
 
   _answerTracked<Ask extends DriverPermissionRequest | DriverQuestion>(ask: Ask): Ask {
@@ -2356,6 +2381,7 @@ class Session extends EventEmitter {
 
   _handleSpawnedPtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
     this._launch.disposeSandbox();
+    this._cancelDriverAsks();
     this._approvals.releaseAll();
     return this._handlePtyExit(exitCode, signal);
   }
@@ -2542,11 +2568,13 @@ class Session extends EventEmitter {
   kill(): void {
     if (this._liveAgentHandle() === null) return;
     this._promptNotes.dropResumeNote();
+    this._cancelDriverAsks();
     this._driver.stop();
   }
 
   interrupt(): void {
     this._driver.interrupt();
+    this._cancelDriverAsks();
   }
 
   dismiss(): boolean {

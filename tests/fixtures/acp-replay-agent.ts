@@ -4,7 +4,7 @@ import readline from "node:readline";
 type WireMessage = { id?: number | string; method?: string } & Record<string, unknown>;
 type RecordedLine = { direction: "client->agent" | "agent->client" | "note"; message: unknown };
 
-const [recordingPath, launchNumberText, email, plan] = process.argv.slice(2);
+const [recordingPath, launchNumberText, email, plan, receivedLogPath] = process.argv.slice(2);
 const launchNumber = Number(launchNumberText);
 
 function recordedLinesOfLaunch(): RecordedLine[] {
@@ -20,6 +20,7 @@ let isInputClosed = false;
 const input = readline.createInterface({ input: process.stdin });
 input.on("line", (line) => {
   if (line.trim().length === 0) return;
+  if (receivedLogPath !== undefined) fs.appendFileSync(receivedLogPath, `${line.trim()}\n`);
   incoming.push(JSON.parse(line) as WireMessage);
   wakeReader?.();
 });

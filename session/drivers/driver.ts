@@ -1,4 +1,4 @@
-import type { McpServer, PermissionOption, SessionUpdate, StopReason } from "@agentclientprotocol/sdk";
+import type { McpServer, PermissionOption, SessionUpdate, StopReason, ToolKind } from "@agentclientprotocol/sdk";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
 
 interface DriverLaunch {
@@ -17,8 +17,11 @@ type DriverPermissionOutcome = { outcome: "selected"; optionId: string } | { out
 interface DriverPermissionRequest {
   toolCallId: string;
   title: string | null;
+  toolKind: ToolKind | null;
   rawInput: unknown;
+  locationPaths: readonly string[];
   options: readonly PermissionOption[];
+  withdrawn: AbortSignal;
   respond(outcome: DriverPermissionOutcome): void;
 }
 
@@ -30,6 +33,7 @@ interface DriverQuestion {
   toolCallId: string | null;
   message: string | null;
   requestedSchema: Record<string, unknown>;
+  withdrawn: AbortSignal;
   respond(answer: DriverQuestionAnswer): void;
 }
 
@@ -82,8 +86,10 @@ export type {
   DriverFailureStage,
   DriverLaunch,
   DriverListener,
+  DriverPermissionOutcome,
   DriverPermissionRequest,
   DriverQuestion,
+  DriverQuestionAnswer,
   SessionDriver,
   SessionDriverChoice,
   SessionDriverEventPayloads,

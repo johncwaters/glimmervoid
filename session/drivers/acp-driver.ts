@@ -103,15 +103,15 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
         emit({ kind: "update", agentSessionId: params.sessionId, update: params.update });
       })
       .onNotification("*", dropAccountPrivateExtensionNotification)
-      .onRequest(methods.client.session.requestPermission, ({ params }) => new Promise<RequestPermissionResponse>((resolve) => {
+      .onRequest(methods.client.session.requestPermission, ({ params, signal }) => new Promise<RequestPermissionResponse>((resolve) => {
         if (generation !== runGeneration || phase === "closed") return resolve({ outcome: { outcome: "cancelled" } });
-        emit({ kind: "permission", request: { ...permissionFieldsOf(params), options: params.options, respond: (outcome) => resolve({ outcome }) } });
+        emit({ kind: "permission", request: { ...permissionFieldsOf(params), options: params.options, withdrawn: signal, respond: (outcome) => resolve({ outcome }) } });
       }))
-      .onRequest(methods.client.elicitation.create, ({ params }) => new Promise<CreateElicitationResponse>((resolve) => {
+      .onRequest(methods.client.elicitation.create, ({ params, signal }) => new Promise<CreateElicitationResponse>((resolve) => {
         if (generation !== runGeneration || phase === "closed") return resolve({ action: "cancel" });
         const fields = questionFieldsOf(params);
         if (fields === null) return resolve({ action: "decline" });
-        emit({ kind: "question", question: { ...fields, respond: (answer) => resolve(answer as CreateElicitationResponse) } });
+        emit({ kind: "question", question: { ...fields, withdrawn: signal, respond: (answer) => resolve(answer as CreateElicitationResponse) } });
       }))
       .connect(ndJsonStream(toAgent, fromAgent));
   }

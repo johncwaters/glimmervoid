@@ -20,7 +20,12 @@ interface StdoutLike {
   write(text: string): unknown;
 }
 
-function runHookTool(binPath: string, body: Buffer, agentFlavor = ""): Promise<string> {
+interface HookToolSpawn {
+  env?: NodeJS.ProcessEnv;
+  cwd?: string;
+}
+
+function runHookTool(binPath: string, body: Buffer, agentFlavor = "", toolSpawn: HookToolSpawn = {}): Promise<string> {
   return new Promise((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout | null = null;
@@ -33,7 +38,7 @@ function runHookTool(binPath: string, body: Buffer, agentFlavor = ""): Promise<s
     let child: ReturnType<typeof spawn>;
     try {
       const [launcher, ...launchArguments] = scriptLaunch(binPath, "cc-safety-net", process.execPath);
-      child = spawn(launcher, [...launchArguments, "hook", saneYoloHostFlag(agentFlavor)], { stdio: ["pipe", "pipe", "ignore"] });
+      child = spawn(launcher, [...launchArguments, "hook", saneYoloHostFlag(agentFlavor)], { ...toolSpawn, stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       done("");
       return;

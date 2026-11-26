@@ -14,14 +14,18 @@ import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { claudePlanDecisionReply, isExitPlanModeTool, nextPlanGate, planTextOfToolInput, shouldClearPlanGate } from "./core/plan-gate-core.ts";
 import type { PlanGateEvent } from "./core/plan-gate-core.ts";
 
-type HeldReply = PermissionHookReply | QuestionToolDenyResponse | ElicitationHookReply;
-
-interface ChatHoldKind<Reply extends HeldReply> {
+interface ChatHoldKind<Reply> {
   toAnswers(approval: ConversationApproval, answers: ConversationAnswers): Reply | null;
   toDecision(approval: ConversationApproval, decision: PermissionDecision, denyMessage: string | null): Reply | null;
   isReleasedBy(event: string, payload: Record<string, unknown>): boolean;
   didHold(): void;
   didSettle(): void;
+  didDismissQuestion(): void;
+}
+
+interface DriverAskReplies<Reply> {
+  toAnswers(answers: ConversationAnswers): Reply | null;
+  toDecision(decision: PermissionDecision): Reply | null;
 }
 
 interface ClaudeApprovalHold {
@@ -30,6 +34,7 @@ interface ClaudeApprovalHold {
   isReleasedBy(event: string, payload: Record<string, unknown>): boolean;
   settleWithAnswers(answers: ConversationAnswers): boolean;
   settleWithDecision(decision: PermissionDecision, denyMessage: string | null): boolean;
+  didDismissQuestion(): void;
   release(): void;
 }
 
@@ -77,6 +82,7 @@ interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
 }
 
 const ELICITATION_TOOL_NAME = "Elicitation";
+const DRIVER_ASK_TOOL_NAME = "driver-ask";
 
 function agentKeyOfPayload(payload: unknown): string {
   const agentId = typeof payload === "object" && payload !== null && "agent_id" in payload ? payload.agent_id : null;
@@ -105,6 +111,7 @@ interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   hold(payload: unknown, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null;
   holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null;
   holdElicitation(payload: unknown, abandoned: AbortSignal): Promise<ElicitationHookReply | null> | null;
+  holdDriverAsk<Reply>(approvalFor: (requestId: string) => ConversationApproval, replies: DriverAskReplies<Reply>, abandoned: AbortSignal): Promise<Reply | null>;
   parksQuestionStatus(signal: Signal): boolean;
   releaseAfterHookEvent(event: string, payload: Record<string, unknown>): void;
   releaseAll(): void;
@@ -361,6 +368,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       isReleasedBy: (event, payload) => !QUESTION_TOOL_OWN_HOOK_EVENTS.has(event.toLowerCase()) && isHoldReleasedByHookEvent(request, event, payload),
       didHold: () => port.noteHeldForChat(request.toolName, { tool_name: request.toolName, tool_input: request.toolInput }),
       didSettle: port.noteAnsweredFromChat,
+      didDismissQuestion: port.noteQuestionDismissed,
     };
   }
 
@@ -389,6 +397,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       isReleasedBy: isElicitationHoldReleasedBy,
       didHold: () => port.noteHeldForChat(ELICITATION_TOOL_NAME, { tool_name: ELICITATION_TOOL_NAME, mcp_server_name: elicitation.serverName }),
       didSettle: port.noteAnsweredFromChat,
+      didDismissQuestion: port.noteQuestionDismissed,
     };
   }
 
@@ -436,10 +445,23 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       isReleasedBy: (event, payload) => isHoldReleasedByHookEvent(request, event, payload),
       didHold: () => {},
       didSettle: () => {},
+      didDismissQuestion: port.noteQuestionDismissed,
     };
   }
 
-  function holdForChat<Reply extends HeldReply>(request: ClaudePermissionRequest, approvalFor: (requestId: string) => ConversationApproval, abandoned: AbortSignal, replies: ChatHoldKind<Reply>): Promise<Reply | null> {
+  function holdDriverAsk<Reply>(approvalFor: (requestId: string) => ConversationApproval, replies: DriverAskReplies<Reply>, abandoned: AbortSignal): Promise<Reply | null> {
+    const request: ClaudePermissionRequest = { toolName: DRIVER_ASK_TOOL_NAME, toolInput: {}, agentKey: `${DRIVER_ASK_TOOL_NAME}-${nextApprovalNumber}` };
+    return holdForChat(request, approvalFor, abandoned, {
+      toAnswers: (_approval, answers) => replies.toAnswers(answers),
+      toDecision: (_approval, decision) => replies.toDecision(decision),
+      isReleasedBy: () => false,
+      didHold: () => {},
+      didSettle: () => {},
+      didDismissQuestion: () => {},
+    });
+  }
+
+  function holdForChat<Reply>(request: ClaudePermissionRequest, approvalFor: (requestId: string) => ConversationApproval, abandoned: AbortSignal, replies: ChatHoldKind<Reply>): Promise<Reply | null> {
     releaseHolds((hold) => hold.request.agentKey === request.agentKey);
     const requestId = `claude-${nextApprovalNumber}`;
     nextApprovalNumber += 1;
@@ -457,6 +479,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
         isReleasedBy: replies.isReleasedBy,
         settleWithAnswers: (answers) => settleWith(replies.toAnswers(approval, answers)),
         settleWithDecision: (decision, denyMessage) => settleWith(replies.toDecision(approval, decision, denyMessage)),
+        didDismissQuestion: replies.didDismissQuestion,
         release: () => resolve(null),
       };
       holds.push(hold);
@@ -508,13 +531,13 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     if (!hold.settleWithDecision(decision, denyMessage)) return false;
     holds = holds.filter((candidate) => candidate !== hold);
     showFirstApproval();
-    if (hold.approval.kind === "question") port.noteQuestionDismissed();
+    if (hold.approval.kind === "question") hold.didDismissQuestion();
     return true;
   }
 
   function release(requestId: string): boolean {
     const hold = holds.find((candidate) => candidate.approval.requestId === requestId);
-    if (!hold) return false;
+    if (!hold || hold.request.toolName === DRIVER_ASK_TOOL_NAME) return false;
     releaseHolds((candidate) => candidate === hold);
     return true;
   }
@@ -536,6 +559,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     hold,
     holdQuestionTool,
     holdElicitation,
+    holdDriverAsk,
     yieldManagerDecisions,
     parksQuestionStatus,
     releaseAfterHookEvent,
