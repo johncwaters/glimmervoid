@@ -1,4 +1,7 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
+import { validResumeSessionId } from '../../session/core/auto-resume.ts';
+import { SESSION_DRIVER_EVENTS } from '../../session/drivers/driver.ts';
+import type { SessionDriverEventPayloads } from '../../session/drivers/driver.ts';
 import type { PlanGate } from '../../shared/contracts/plan-gate.ts';
 import { isPlanGateEnabled } from '../../session/core/plan-gate-core.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
@@ -210,6 +213,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (isResumeTarget) persistProjectField('resumeSessionId', id);
       dependencies.recordLane(id, INTERACTIVE_LANE, vendor);
       dependencies.usage.refreshSessions();
+    });
+    session.on(SESSION_DRIVER_EVENTS.agentSession, ({ agentSessionId }: SessionDriverEventPayloads['driver-agent-session']) => {
+      const validId = validResumeSessionId(agentSessionId);
+      if (validId !== null) persistProjectField('resumeSessionId', validId);
     });
     session.on('dependency-install-failed', ({ tool, tool_major, cause }: TelemetryEventProperties<'dependency_install_failed'>) => {
       dependencies.telemetry?.capture('dependency_install_failed', { tool, tool_major, cause });

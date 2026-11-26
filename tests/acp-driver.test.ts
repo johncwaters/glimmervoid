@@ -2,8 +2,13 @@ import './helpers/isolate-home.ts';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createAcpDriver } from "../session/drivers/acp-driver.ts";
+import { createConfigStore } from "../server/config-store.ts";
+import { createSessionEventWiring } from "../server/session/session-event-wiring.ts";
+import { pickAutoResume } from "../session/core/auto-resume.ts";
+import { ProjectConfig } from "../shared/contracts/config.ts";
 import { execFile } from "../server/child-process-safe.ts";
 import { createSessionProcessReaper } from "../session/session-process-reaper.ts";
 import { SESSION_DRIVER_EVENTS } from "../session/drivers/driver.ts";
@@ -295,3 +300,317 @@ for (const scenario of STATUS_SCENARIOS) {
     if (scenario.difference !== null) assert.notDeepEqual(scenario.acpSequence, scenario.hookSequence);
   });
 }
+
+function wireSessionToStore(session: Session, store: ReturnType<typeof createConfigStore>): void {
+  createSessionEventWiring({
+    configStore: store,
+    config: store.config,
+    recordLane: () => {},
+    usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+    broadcastControl: () => {},
+    telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+    notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
+    attachSessionPrLink: () => {},
+    closeSessionDataClients: () => {},
+    logger: { error: () => {}, log: () => {}, warn: () => {} },
+  })(session);
+}
+
+async function withConfigFile<T>(configObject: Record<string, unknown>, run: (configPath: string) => Promise<T>): Promise<T> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-resume-"));
+  const configPath = path.join(dir, "config.json");
+  fs.writeFileSync(configPath, JSON.stringify(configObject, null, 2), "utf8");
+  const previous = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  try {
+    return await run(configPath);
+  } finally {
+    if (previous === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previous !== undefined) process.env.GLIMMERVOID_CONFIG = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function acpChoiceFor(recording: string, launchNumber: number) {
+  return {
+    kind: "acp" as const,
+    command: { file: process.execPath, args: [REPLAY_AGENT, fixtures.recordingPath(recording), String(launchNumber), ACCOUNT_EMAIL, ACCOUNT_PLAN] },
+    mcpServers: [],
+    clientVersion: "test",
+  };
+}
+
+const STUB_ACP_AGENT_SCRIPT = `
+import readline from "node:readline";
+const mode = process.argv[1];
+const reportedId = process.argv[2] || "stub-session-1234";
+const input = readline.createInterface({ input: process.stdin });
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+input.on("line", (line) => {
+  if (!line.trim()) return;
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: mode !== "no-load" } } });
+    return;
+  }
+  if (message.method === "session/new") {
+    send({ jsonrpc: "2.0", id: message.id, result: { sessionId: reportedId } });
+    return;
+  }
+  if (message.method === "session/load") {
+    if (mode === "refuse-load") {
+      send({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "unknown session id" } });
+      return;
+    }
+    send({ jsonrpc: "2.0", id: message.id, result: {} });
+  }
+});
+`;
+
+function stubAcpChoice(mode: "new" | "no-load" | "refuse-load", reportedId = "stub-session-1234") {
+  return {
+    kind: "acp" as const,
+    command: { file: process.execPath, args: ["--input-type=module", "-e", STUB_ACP_AGENT_SCRIPT, "--", mode, reportedId] },
+    mcpServers: [],
+    clientVersion: "test",
+  };
+}
+
+for (const { agent, recording } of [
+  { agent: "claude-code", recording: "claude/resume.jsonl" },
+  { agent: "codex", recording: "codex/resume.jsonl" },
+] as const) {
+  test(`an ACP Session on ${recording} persists its id across a server stop and restores via session/load into IDLE`, { timeout: 30_000 }, async () => {
+    const launchOne = scriptOf(recording, 1);
+    const launchTwo = scriptOf(recording, 2);
+    assert.equal(launchOne.isResumed, false);
+    assert.equal(launchTwo.isResumed, true);
+    assert.equal(launchTwo.openedSessionId, launchOne.openedSessionId);
+
+    await withConfigFile({ projects: [{ id: "acp-proj", name: "acp-proj", path: ROOT, agent }] }, async (configPath) => {
+      const storeBeforeStop = createConfigStore();
+      const firstSession = new Session({
+        id: "acp-proj",
+        name: "acp-proj",
+        path: ROOT,
+        agent,
+        driver: acpChoiceFor(recording, 1),
+      });
+      wireSessionToStore(firstSession, storeBeforeStop);
+      const firstOpened = new Promise<SessionDriverEventPayloads["driver-agent-session"]>((resolve) => {
+        firstSession.once(SESSION_DRIVER_EVENTS.agentSession, resolve);
+      });
+      const firstTurnEnded = new Promise<void>((resolve) => {
+        firstSession.once(SESSION_DRIVER_EVENTS.turnEnd, () => resolve());
+      });
+      await firstSession.start();
+      const openedEvent = await firstOpened;
+      assert.deepEqual(openedEvent, { agentSessionId: launchOne.openedSessionId, isResumed: false });
+      assert.equal(firstSession.resumeSessionId, launchOne.openedSessionId);
+
+      assert.deepEqual(firstSession.deliver("Remember the codeword ZEBRA-4127.", { when: "now", submit: true }), { ok: true, kind: "pasted" });
+      await firstTurnEnded;
+      await storeBeforeStop.idle();
+
+      const savedBeforeStop = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      assert.equal(savedBeforeStop.projects[0].resumeSessionId, launchOne.openedSessionId);
+      assert.equal(savedBeforeStop.projects[0].wasActive, true);
+
+      firstSession.destroy("server_stopped");
+      await storeBeforeStop.idle();
+
+      const storeAfterRestart = createConfigStore();
+      const reloadedProject = storeAfterRestart.config.projects[0];
+      assert.equal(reloadedProject.resumeSessionId, launchOne.openedSessionId);
+      assert.deepEqual(pickAutoResume(storeAfterRestart.config.projects, storeAfterRestart.config, Date.now()), ["acp-proj"]);
+
+      const restoredSession = new Session({
+        id: reloadedProject.id,
+        name: reloadedProject.name,
+        path: reloadedProject.path,
+        agent: reloadedProject.agent,
+        resumeSessionId: reloadedProject.resumeSessionId ?? null,
+        driver: acpChoiceFor(recording, 2),
+      });
+      wireSessionToStore(restoredSession, storeAfterRestart);
+
+      const statesBeforePrompt: SessionState[] = [];
+      const replayUpdates: SessionDriverEventPayloads["driver-update"][] = [];
+      let hasOpened = false;
+      restoredSession.on("state-change", ({ to }: { to: SessionState }) => {
+        if (!hasOpened) statesBeforePrompt.push(to);
+      });
+      restoredSession.on(SESSION_DRIVER_EVENTS.update, (payload: SessionDriverEventPayloads["driver-update"]) => {
+        if (!hasOpened) replayUpdates.push(payload);
+      });
+      const restoredOpened = new Promise<SessionDriverEventPayloads["driver-agent-session"]>((resolve) => {
+        restoredSession.once(SESSION_DRIVER_EVENTS.agentSession, (payload) => {
+          hasOpened = true;
+          resolve(payload);
+        });
+      });
+
+      await restoredSession.start();
+      const resumedEvent = await restoredOpened;
+      assert.deepEqual(resumedEvent, { agentSessionId: launchOne.openedSessionId, isResumed: true });
+      assert.ok(replayUpdates.length > 0, "session/load replayed conversation updates before opening");
+      assert.ok(replayUpdates.every((entry) => entry.isInTurn === false), "every replayed update arrived outside a turn");
+      assert.equal(restoredSession.state, STATES.IDLE, "replaying session/load leaves the session IDLE, not RUNNING");
+      assert.equal(statesBeforePrompt.includes(STATES.RUNNING), false);
+
+      const secondTurnEnded = new Promise<void>((resolve) => {
+        restoredSession.once(SESSION_DRIVER_EVENTS.turnEnd, () => resolve());
+      });
+      assert.deepEqual(restoredSession.deliver("What was the codeword?", { when: "now", submit: true }), { ok: true, kind: "pasted" });
+      await secondTurnEnded;
+      assert.equal(restoredSession.state, STATES.COMPLETE);
+
+      const exited = new Promise<void>((resolve) => restoredSession.once("exit", () => resolve()));
+      restoredSession.kill();
+      await exited;
+      restoredSession.destroy();
+      await storeAfterRestart.idle();
+    });
+  });
+}
+
+test("an invalid ACP session id is rejected by ProjectConfig, never persisted, and never sent to session/load", { timeout: 30_000 }, async () => {
+  assert.equal(ProjectConfig.safeParse({ id: "p1", name: "p1", path: ROOT, resumeSessionId: "--bad-id" }).success, false);
+  assert.deepEqual(pickAutoResume([{ id: "p1", wasActive: true, resumeSessionId: "--bad-id" }], { autoResume: true }, Date.now()), []);
+
+  await withConfigFile({ projects: [{ id: "bad-id", name: "bad-id", path: ROOT, agent: "claude-code" }] }, async (configPath) => {
+    const store = createConfigStore();
+    const session = new Session({
+      id: "bad-id",
+      name: "bad-id",
+      path: ROOT,
+      agent: "claude-code",
+      resumeSessionId: "--not-a-valid-id",
+      driver: stubAcpChoice("new", "--also-invalid"),
+    });
+    wireSessionToStore(session, store);
+    const opened = new Promise<SessionDriverEventPayloads["driver-agent-session"]>((resolve) => {
+      session.once(SESSION_DRIVER_EVENTS.agentSession, resolve);
+    });
+    await session.start();
+    const event = await opened;
+    assert.equal(event.isResumed, false, "an invalid stored id falls back to session/new instead of sending session/load");
+    assert.equal(session.resumeSessionId, "--not-a-valid-id", "the invalid reported id did not overwrite or get adopted");
+    await store.idle();
+    const onDisk = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(onDisk.projects[0].resumeSessionId, undefined, "an invalid reported id is never persisted");
+
+    const exited = new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    session.kill();
+    await exited;
+    session.destroy();
+    await store.idle();
+  });
+});
+
+for (const mode of ["no-load", "refuse-load"] as const) {
+  test(`an ACP Session ends FAILED and flips wasActive false when session/load fails (${mode})`, { timeout: 30_000 }, async () => {
+    await withConfigFile({
+      projects: [{ id: "fail-load", name: "fail-load", path: ROOT, agent: "claude-code", wasActive: true, resumeSessionId: "b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c" }],
+    }, async (configPath) => {
+      const store = createConfigStore();
+      const session = new Session({
+        id: "fail-load",
+        name: "fail-load",
+        path: ROOT,
+        agent: "claude-code",
+        resumeSessionId: "b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c",
+        driver: stubAcpChoice(mode),
+      });
+      wireSessionToStore(session, store);
+      const exited = new Promise<void>((resolve) => session.once("exit", () => resolve()));
+      await session.start();
+      await exited;
+      assert.equal(session.state, STATES.FAILED);
+      assert.ok(session.failureReason?.includes("failed at open"), `expected open failure reason, got ${session.failureReason}`);
+      await store.idle();
+      const onDisk = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      assert.equal(onDisk.projects[0].wasActive, false, "a failed load flips wasActive false so boot auto-resume never loops");
+      session.destroy();
+    });
+  });
+}
+
+test("Session.restart() reuses the same ACP driver instance cleanly after a mid-turn kill and resumes via session/load", { timeout: 30_000 }, async () => {
+  const launchCounterDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-restart-"));
+  const counterFile = path.join(launchCounterDir, "launch-count.txt");
+  const recordingPath = fixtures.recordingPath("claude/resume.jsonl");
+  const expectedId = scriptOf("claude/resume.jsonl", 1).openedSessionId;
+  const sequentialReplayWrapper = `
+import fs from "node:fs";
+import { spawn } from "node:child_process";
+const [counterPath, replayAgent, recording, email, plan] = process.argv.slice(1);
+const nextLaunch = fs.existsSync(counterPath) ? Number(fs.readFileSync(counterPath, "utf8")) + 1 : 1;
+fs.writeFileSync(counterPath, String(nextLaunch), "utf8");
+const child = spawn(process.execPath, [replayAgent, recording, String(nextLaunch), email, plan], { stdio: "inherit" });
+child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
+`;
+  const session = new Session({
+    id: "acp-restart-reuse",
+    name: "acp-restart-reuse",
+    path: ROOT,
+    agent: "claude-code",
+    driver: {
+      kind: "acp",
+      command: {
+        file: process.execPath,
+        args: ["--input-type=module", "-e", sequentialReplayWrapper, "--", counterFile, REPLAY_AGENT, recordingPath, ACCOUNT_EMAIL, ACCOUNT_PLAN],
+      },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  try {
+    const firstOpened = new Promise<SessionDriverEventPayloads["driver-agent-session"]>((resolve) => {
+      session.once(SESSION_DRIVER_EVENTS.agentSession, resolve);
+    });
+    await session.start();
+    const firstEvent = await firstOpened;
+    assert.deepEqual(firstEvent, { agentSessionId: expectedId, isResumed: false });
+    assert.equal(session.resumeSessionId, expectedId);
+
+    assert.deepEqual(session.deliver("Remember the codeword ZEBRA-4127.", { when: "now", submit: true }), { ok: true, kind: "pasted" });
+    assert.equal(session.state, STATES.RUNNING);
+
+    const firstExited = new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    assert.equal(session.killSession(), true);
+    await firstExited;
+    assert.equal(session.state, STATES.DONE);
+
+    const replayUpdates: SessionDriverEventPayloads["driver-update"][] = [];
+    let secondOpenedDone = false;
+    session.on(SESSION_DRIVER_EVENTS.update, (payload: SessionDriverEventPayloads["driver-update"]) => {
+      if (!secondOpenedDone) replayUpdates.push(payload);
+    });
+    const secondOpened = new Promise<SessionDriverEventPayloads["driver-agent-session"]>((resolve) => {
+      session.once(SESSION_DRIVER_EVENTS.agentSession, (payload) => {
+        secondOpenedDone = true;
+        resolve(payload);
+      });
+    });
+
+    assert.equal(session.restart(), true);
+    const secondEvent = await secondOpened;
+    assert.deepEqual(secondEvent, { agentSessionId: expectedId, isResumed: true });
+    assert.ok(replayUpdates.length > 0, "restarted session replayed conversation updates");
+    assert.ok(replayUpdates.every((entry) => entry.isInTurn === false), "replayed updates after a mid-turn kill stay out of turn");
+    assert.equal(session.state, STATES.IDLE);
+
+    const secondTurnEnded = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.turnEnd, () => resolve()));
+    assert.deepEqual(session.deliver("What was the codeword?", { when: "now", submit: true }), { ok: true, kind: "pasted" });
+    await secondTurnEnded;
+    assert.equal(session.state, STATES.COMPLETE);
+
+    const secondExited = new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    session.kill();
+    await secondExited;
+  } finally {
+    session.destroy();
+    fs.rmSync(launchCounterDir, { recursive: true, force: true });
+  }
+});

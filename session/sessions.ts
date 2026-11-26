@@ -81,7 +81,7 @@ import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import type { ExpiredOpenWork } from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
-import { isConversationReplacedAtStartup, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
+import { isConversationReplacedAtStartup, shouldAdoptReportedResumeId, validResumeSessionId, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
 import { promptWithDoneMeans } from "./core/done-means-prompt.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
@@ -1899,7 +1899,7 @@ class Session extends EventEmitter {
       this._launch.clearApprovedLaunches();
       return;
     }
-    if (this._pty === null) return this._startAcpAgent(isStartSuperseded);
+    if (this._pty === null) return this._startAcpAgent(isStartSuperseded, resumePrompt);
     const terminal = this._pty;
 
     const launchPlan = launchPlanFor(this._adapter.id, this._agentSetup, this._platform);
@@ -2061,20 +2061,23 @@ class Session extends EventEmitter {
     this._armPromptSupervisionLine();
   }
 
-  async _startAcpAgent(isStartSuperseded: () => boolean): Promise<void> {
+  async _startAcpAgent(isStartSuperseded: () => boolean, resumePrompt: string | null = null): Promise<void> {
     this._launch.clearApprovedLaunches();
     if (this._acpLaunch === null) return;
     if (this.worktreeDir) this.worktreeLifecycle.startWatching();
     this._startupSignals.clear();
     this._promptPhase = "awaiting-first-prompt";
     this._clearDetectionTracking();
+    this._acpTurn = { ...ACP_TURN_AT_START, turnNumber: this._acpTurn.turnNumber + 1 };
+    this._resumeCapture = "active";
     this._emitRebaseline();
     const launchEnv = { ...(this._launch.launchSpawnEnv() ?? {}), ...this._launch.gitEnv() };
     const env = this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: launchEnv });
     const sandboxedCommand = await this._launch.sandboxedCommand(this._acpLaunch.command, env, Object.keys(launchEnv), isStartSuperseded);
     if (sandboxedCommand === null) return;
+    const resumeAgentSessionId = validResumeSessionId(this._resumeSessionId);
     try {
-      this._driver.start({ file: sandboxedCommand.file, args: sandboxedCommand.args, cwd: this.effectiveCwd(), env: sandboxedCommand.env, scopeUnit: null, resumeAgentSessionId: null });
+      this._driver.start({ file: sandboxedCommand.file, args: sandboxedCommand.args, cwd: this.effectiveCwd(), env: sandboxedCommand.env, scopeUnit: null, resumeAgentSessionId });
     } catch (error) {
       this._abandonSpawn(error);
       return;
@@ -2085,7 +2088,8 @@ class Session extends EventEmitter {
       return;
     }
     console.log(`[session ${this.id}] spawn over ACP: ${sandboxedCommand.file} ${sandboxedCommand.args.join(" ")} (cwd=${this.effectiveCwd()})`);
-    if (this._initialPrompt) this.deliver(this._initialPrompt, { when: "now", submit: true });
+    const launchPrompt = resumeAgentSessionId !== null ? resumePrompt : this._initialPrompt;
+    if (launchPrompt) this.deliver(launchPrompt, { when: "now", submit: true });
   }
 
   _emitRebaseline(): void {
@@ -2281,14 +2285,18 @@ class Session extends EventEmitter {
         if (this.listenerCount("data") > 0) this.emit("data", event.data);
         return;
       case "exit":
+        if (this._pty === null && this.state === STATES.INITIALIZING) return;
         void this._handleSpawnedPtyExit(event.exitCode, event.signal);
         return;
-      case "agent-session":
+      case "agent-session": {
         this._startupSignals.add("output");
         this._startupSignals.add("ready");
+        const validId = validResumeSessionId(event.agentSessionId);
+        if (this._resumeCapture !== "suppressed" && validId !== null) this.setResumeConversation(validId);
         this._stepAcpStatus({ kind: "opened" });
         this.emit(SESSION_DRIVER_EVENTS.agentSession, { agentSessionId: event.agentSessionId, isResumed: event.isResumed });
         return;
+      }
       case "update": {
         const isInTurn = this._acpTurn.isPromptOpen;
         this._stepAcpStatus({ kind: "update" });

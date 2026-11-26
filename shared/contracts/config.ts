@@ -151,6 +151,10 @@ function readablePersistedDoneLines(lines: unknown[]): z.infer<typeof PersistedA
   }).slice(0, DONE_MEANS_MAX_LINES);
 }
 
+export const RESUME_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
+const ResumeSessionId = z.string({ error: 'projects[].resumeSessionId must be a string' })
+  .regex(RESUME_ID_RE, { error: 'projects[].resumeSessionId must be a valid conversation id' });
+
 export const ProjectConfig = z.preprocess(legacyParentLinkOf, z.object({
   id: z.string().optional(),
   name: z.string().optional(),
@@ -161,6 +165,7 @@ export const ProjectConfig = z.preprocess(legacyParentLinkOf, z.object({
   repos: z.array(z.string()).min(2).optional(),
   baseBranch: z.string().refine(isGitBranchName, { error: 'projects[].baseBranch must be a git branch name' }).optional(),
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
+  resumeSessionId: ResumeSessionId.nullable().optional(),
   codexBypassHookTrust: z.boolean().optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),
