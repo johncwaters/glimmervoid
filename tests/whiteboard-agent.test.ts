@@ -2932,7 +2932,7 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   assert.match(String((looped.body as { error?: string }).error), /never finishes/);
 });
 
-test('whiteboard ask does not fail the asking session board-layout check when its about wire crosses codemap wires', async () => {
+test('whiteboard ask and server-placed pull request cards do not fail the owning session board-layout check', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-ask-layout-'));
   const repoDir = path.join(boardsRoot, 'repo');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -3001,4 +3001,38 @@ test('whiteboard ask does not fail the asking session board-layout check when it
   const mapBoardAfterAnswer = await wiring.boardOf(mapBoardId);
   assert.equal(mapBoardAfterAnswer?.elements.has(askId), false);
   assert.equal(mapBoardAfterAnswer?.elements.has(aboutWireId), false);
+
+  const prOwnerId = 'pr-owner-session';
+  const prBoxId = 'pr-42-deadbeef';
+  const placedPr = await wiring.putPrCard(mapBoardId, {
+    boxId: prBoxId,
+    fields: {
+      title: '#42 Fix board layout blame on server-placed pull request cards with long titles',
+      icon: 'git-branch',
+      lines: [
+        { key: 'State', text: 'Open', style: 'kv', muted: false },
+        { key: 'Checks', text: 'Passing', style: 'kv', muted: false },
+      ],
+      tone: 'green',
+      pullRequest: { url: 'https://github.com/example/repo/pull/42' },
+    },
+    height: 150,
+    anchorBoxId: 'cm-target',
+    ownerSessionId: prOwnerId,
+  });
+  assert.equal(placedPr.status, 200, JSON.stringify(placedPr.body));
+  const mapBoardWithPr = await wiring.boardOf(mapBoardId);
+  assert.ok(mapBoardWithPr);
+  const prBox = mapBoardWithPr.elements.get(prBoxId);
+  assert.ok(prBox?.kind === 'box' && typeof prBox.place === 'object' && prBox.place !== null && 'at' in prBox.place);
+  const { x: prX, y: prY } = prBox.place.at;
+  assert.equal((await wiring.putWithoutReadCheck(codemapCaller, mapBoardId, z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'cm-pr-overlap', title: 'Overlapped map box', place: { at: { x: prX, y: prY } } } },
+  ]))).status, 200);
+  const mapBoardAfterMapUpdate = await wiring.boardOf(mapBoardId);
+  assert.ok(mapBoardAfterMapUpdate);
+  const prWarnings = layoutBoard(mapBoardAfterMapUpdate).warnings;
+  assert.ok(prWarnings.some((warning) => warning.includes(prBoxId)), `expected layout warning naming ${prBoxId}, got: ${JSON.stringify(prWarnings)}`);
+  assert.deepEqual(await wiring.layoutChecksOf(prOwnerId), []);
+  assert.deepEqual(await openWhiteboardWiring({ boardsRoot }).layoutChecksOf(prOwnerId), []);
 });

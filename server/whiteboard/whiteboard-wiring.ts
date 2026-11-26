@@ -1903,7 +1903,7 @@ function createWhiteboardWiring({
       const isPlaced = record.board.elements.get(card.boxId)?.kind === 'box';
       const built = isPlaced ? { ok: true as const, op: { op: 'set' as const, id: card.boxId, fields: card.fields } } : await newServerCardOp(record, card);
       if (!built.ok) return { ok: false, reply: built.reply };
-      const applied = await applyOpsToRecord(record, [built.op], author);
+      const applied = await applyOpsToRecord(record, [built.op], author, { isAuthoring: false });
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summaryOf(applied.record, now()), note: `pull request card ${card.boxId} ${isPlaced ? 'updated' : 'placed'}` } }, patch: applied.patch, staged: applied.staged };
     });
