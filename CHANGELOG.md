@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Attach any file type from the Chat view.** Clicking the paperclip button in Chat now opens an unrestricted file picker instead of photos only, and non-image attachments render as compact file chips in the composer and chat history.
 - **ACP agent table (`acpAgents` config and `glimmervoid doctor` checks).** Glimmervoid now defines the built-in ACP launch rows for Claude Code and Codex, accepts extra ACP agents under `acpAgents` in `config.json` (with command and argument validation matching `customAgents`, refusing ids that collide with built-in ACP agents), and reports whether each ACP agent's command resolves on PATH in `glimmervoid doctor` without running agents or downloading packages. No session uses ACP yet.
 - **New dependency: the official Agent Client Protocol SDK.** Glimmervoid now ships `@agentclientprotocol/sdk` 2.12.0, which the coming Studio connection to Claude Code, Codex and Antigravity CLI uses to talk to each agent over ACP instead of through a terminal. No session uses it yet, so nothing you run changes in this release.
 - **Persist unsent chat drafts across page refreshes.** Text typed into a session's Chat input or Studio's message bar is saved per session in local storage, restored after refreshing the page, cleared when sent, and cleaned up when the session is removed.

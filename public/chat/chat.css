@@ -943,14 +943,43 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 .chat-composer-attachments {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
 .chat-composer-attachments:empty { display: none; }
 
-.chat-composer-attachment { position: relative; }
+.chat-composer-attachment { position: relative; display: inline-flex; align-items: center; }
 
 .chat-composer-attachment-remove { position: absolute; top: 2px; right: 2px; background: color-mix(in oklab, var(--bg) 80%, transparent); }
+
+.chat-composer-attachment[data-attachment-kind="file"] .chat-prompt-file { padding-right: 28px; }
+
+.chat-composer-attachment[data-attachment-kind="file"] .chat-composer-attachment-remove {
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  background: transparent;
+}
+
+.chat-prompt-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text);
+  font-size: var(--type-meta);
+  line-height: 1;
+}
+
+.chat-prompt-file-icon { flex: none; width: 14px; height: 14px; color: var(--text-muted); }
+
+.chat-prompt-file-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .chat-prompt-with-attachments {
   display: flex;

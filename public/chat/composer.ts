@@ -30,10 +30,12 @@ function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {
 
 function attachmentPreviewOf(fileName: string, uploadUrlOf: (fileName: string) => string, onRemove: () => void): HTMLElement {
   const attachment = el('div', 'chat-composer-attachment');
+  const preview = renderAttachmentThumbnail(fileName, uploadUrlOf);
+  attachment.dataset.attachmentKind = preview.classList.contains('chat-prompt-file') ? 'file' : 'image';
   const removeButton = button({ variant: 'icon', size: 'small', label: 'Remove', icon: createLineIcon(REMOVE_ICON_PATH, '1.6') });
   removeButton.classList.add('chat-composer-attachment-remove');
   removeButton.addEventListener('click', onRemove);
-  attachment.append(renderAttachmentThumbnail(fileName, uploadUrlOf), removeButton);
+  attachment.append(preview, removeButton);
   return attachment;
 }
 
@@ -67,7 +69,6 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
   const filePicker = el('input', 'chat-composer-file-picker');
   filePicker.type = 'file';
   filePicker.multiple = true;
-  filePicker.accept = 'image/*';
   filePicker.hidden = true;
   const attachments = el('div', 'chat-composer-attachments');
   const sendStopSlot = el('div', 'chat-composer-slot');

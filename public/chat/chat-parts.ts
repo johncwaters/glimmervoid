@@ -79,7 +79,35 @@ export type TurnEnd = { pill: HTMLButtonElement; list: HTMLElement };
 const CHEVRON_ICON_PATH = 'M6 4l4 4-4 4';
 const STATUS_ICON_BY_CALL_STATE: Readonly<Record<ToolCallState, StatusIcon>> = { running: 'working', stopped: 'exited', done: 'complete', failed: 'failed' };
 
+const IMAGE_UPLOAD_EXTENSIONS: ReadonlySet<string> = new Set(['.png', '.jpg', '.webp', '.gif']);
+const UPLOAD_EXTENSION_PATTERN = /\.([a-z0-9]{1,16})$/i;
+const FILE_ICON_PATH = 'M4 2.5h5.5L12.5 5.5v8h-8.5zM9.5 2.5v3h3';
+
+function uploadExtensionOf(fileName: string): string {
+  const matchedExtension = UPLOAD_EXTENSION_PATTERN.exec(fileName)?.[1];
+  return matchedExtension ? `.${matchedExtension.toLowerCase()}` : '';
+}
+
+function isImageUploadFileName(fileName: string): boolean {
+  return IMAGE_UPLOAD_EXTENSIONS.has(uploadExtensionOf(fileName));
+}
+
+function attachmentFileLabelOf(fileName: string): string {
+  const extension = uploadExtensionOf(fileName);
+  if (extension.length === 0) return 'File';
+  return `${extension.slice(1).toUpperCase()} file`;
+}
+
+function renderAttachmentFileChip(fileName: string): HTMLElement {
+  const fileChip = el('span', 'chat-prompt-file');
+  const fileIcon = createLineIcon(FILE_ICON_PATH, '1.5');
+  fileIcon.classList.add('chat-prompt-file-icon');
+  fileChip.append(fileIcon, el('span', 'chat-prompt-file-name', attachmentFileLabelOf(fileName)));
+  return fileChip;
+}
+
 export function renderAttachmentThumbnail(fileName: string, uploadUrlOf: UploadUrlOf): HTMLElement {
+  if (!isImageUploadFileName(fileName)) return renderAttachmentFileChip(fileName);
   const thumbnail = el('span', 'chat-prompt-thumbnail');
   const image = el('img', 'chat-prompt-thumbnail-image');
   image.alt = '';
