@@ -4,7 +4,7 @@ Claude Code, Codex and Antigravity CLI were run over the Agent Client Protocol (
 
 ## Verdict
 
-**GO.** Rows 2, 4, 5, 7 and 9 pass for Claude Code and Codex. One part of row 2 is still open: the `session spawn` check. Glimmervoid itself refused that call because the probe ran under this spike's MCP token, and the spike session is a spawned session that may not spawn. ACP was not the cause. `operator-checks.sh` reruns the check from a top-level session.
+**GO.** Rows 2, 4, 5, 7 and 9 pass for Claude Code and Codex. The `session spawn` check of row 2, which failed in the initial spawned-session run because a spawned session may not spawn, passed for all three agents when rerun from a top-level session (`mcp-toplevel.jsonl`). `operator-checks.sh` still covers the untested API-key logins, and its spawn step is no longer needed for the verdict.
 
 Antigravity passes rows 4 through 8. Row 2 is partial for it, row 10 is blocked, and it stays first-class in Focus either way.
 
@@ -28,7 +28,7 @@ The scenarios are `setup`, `mcp`, `resume`, `permissions`, `question`, `cancel`,
 | Row | Claude Code | Codex | Antigravity |
 |---|---|---|---|
 | 1 Login | partial | partial | partial |
-| 2 MCP | pass (spawn blocked) | pass (spawn blocked) | partial |
+| 2 MCP | pass | pass | partial |
 | 3 User setup | pass | pass | pass |
 | 4 Resume | pass | pass | pass |
 | 5 Permissions | pass | pass | pass |
@@ -58,9 +58,9 @@ Every Antigravity ACP log also contains `Not reloading plugin MCP servers: ... Y
 
 The Glimmervoid HTTP MCP server was passed in `session/new` `mcpServers` as `{type: "http", name, url, headers}`.
 
-- **Claude Code and Codex:** both called `whiteboard put` to add a box to a board and then remove it, and both called `session limits`. All of these completed (`mcp.jsonl`).
-- **`session spawn`:** Glimmervoid's schema rejected it for both: `action: Invalid option: expected one of "send"|"read"|...`. The token belongs to this spike session, which is itself a spawned session, and `session limits` answers `spawn: a spawned session may not spawn another`. A Studio session on its own token would not hit this. The recheck is in `operator-checks.sh <board id>`, which must run from a top-level Glimmervoid session.
-- **Antigravity:** its `initialize` reply advertises no `mcpCapabilities`, yet it attached the HTTP server and called `session` (both `limits` and the refused `spawn` round-tripped). It never exposed `whiteboard` or `show` to the model, though the server registers them for every client. Both schemas use `$defs` and `$ref`, which is the likely cause. Sibling Antigravity sessions in Focus reach boards through the `glimmervoid whiteboard` CLI instead, so this is not specific to ACP.
+- **Claude Code and Codex:** both called `whiteboard put` to add a box to a board and then remove it, `session limits`, and `session spawn`. All four completed (`mcp-toplevel.jsonl`; the initial `mcp.jsonl` completed the first three).
+- **`session spawn`:** in the initial run (`mcp.jsonl`), Glimmervoid's schema rejected `spawn` (`action: Invalid option: expected one of "send"|"read"|...`) because the token belonged to the spike session, which was itself a spawned session, and `session limits` answers `spawn: a spawned session may not spawn another`. Rerunning from a top-level session on 2026-11-25 (`mcp-toplevel.jsonl`) succeeded for all three agents: Claude Code, Codex and Antigravity each called `session spawn` over ACP and Glimmervoid started a real session (`ok: true` with a `sessionId`; the three probe sessions were then closed). A first top-level attempt was refused with `at most 3 spawned sessions may be live at once` because the parent already had three children. The spawn step in `operator-checks.sh` is no longer needed for the verdict; the script remains for the untested API-key logins.
+- **Antigravity:** its `initialize` reply advertises no `mcpCapabilities`, yet it attached the HTTP server and called `session` (`limits` and `spawn` both succeeded in `mcp-toplevel.jsonl`; in the initial `mcp.jsonl`, `spawn` hit the spawned-session refusal). It never exposed `whiteboard` or `show` to the model, though the server registers them for every client, so its row 2 stays partial. Both schemas use `$defs` and `$ref`, which is the likely cause. Sibling Antigravity sessions in Focus reach boards through the `glimmervoid whiteboard` CLI instead, so this is not specific to ACP.
 
 ### 3. User setup
 
@@ -144,7 +144,7 @@ Two gaps:
 | `recordings/<agent>/question.jsonl` | `elicitation/create` and its answer |
 | `recordings/<agent>/cancel.jsonl` | `session/cancel` during a tool call, and the next turn |
 | `recordings/<agent>/model.jsonl` | `session/set_config_option` and `config_option_update` |
-| `recordings/<agent>/mcp.jsonl` | MCP server attached in session/new, and Glimmervoid tool calls |
+| `recordings/<agent>/mcp.jsonl`, `mcp-toplevel.jsonl` | MCP server attached in session/new, Glimmervoid tool calls, and the top-level `session spawn` rerun |
 | `recordings/<agent>/subagents.jsonl` | `subagent_update`, `session_message`, and updates after a turn ends |
 | `recordings/<agent>/updates.jsonl`, `hooks.jsonl` | thinking, plan tools, hook denials |
 

@@ -1,0 +1,246 @@
+{
+  "agent": "claude",
+  "scenario": "mcp",
+  "durationMs": 17575,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "_meta": {
+        "claudeCode": {
+          "promptQueueing": true
+        },
+        "authStatus": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true,
+        "acp": true
+      },
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "options": {},
+        "resume": {},
+        "status": {},
+        "systemPrompt": {
+          "mode": {
+            "override": {}
+          }
+        },
+        "title": {}
+      }
+    },
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.112.0"
+    },
+    "authMethods": [],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "authenticateResult": null,
+  "boxId": "acp-spike-claude-1795667772339",
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "1. `mcp__glimmervoid__whiteboard` (put add): `{\"ok\":true,\"version\":19,\"warnings\":[\"3 puts by this session since it last viewed this board; view it to see what you drew before calling the work done\"],\"readingVersion\":19,\"plan\":[{\"boxId\":\"f1\",\"title\":\"F1 MCP tools Antigravity dr`\n2. `mcp__glimmervoid__whiteboard` (put remove): `{\"ok\":true,\"version\":20,\"warnings\":[\"4 puts by this session since it last viewed this board; view it to see what you drew before calling the work done\"],\"readingVersion\":20,\"plan\":[{\"boxId\":\"f1\",\"title\":\"F1 MCP tools Antigravity dr`\n3. `mcp__glimmervoid__session` (limits): `{\"commands\":[{\"name\":\"push\",\"answers\":true},{\"name\":\"spawn\",\"answers\":true},{\"name\":\"send\",\"answers\":true},{\"name\":\"read\",\"answers\":true},{\"name\":\"close\",\"answers\":true},{\"name\":\"attention\",\"answers\":true},{\"name\":\"sessions\",\"answers\":t`\n4. `mcp__glimmervoid__session` (spawn): `{\"ok\":true,\"sessionId\":\"agent-spawn-5f2f34d9-a055-4aad-a683-3984a0dd9778\",\"name\":\"acp-spike-probe agent\",\"note\":\"this session owns acp-spike-probe agent until the task is done: session read with child agent-spawn-5f2f34d9-a055-4aad-a6`\n\nNo errors. Spawned child `agent-spawn-5f2f34d9-a055-4aad-a683-3984a0dd9778` still open, not closed.",
+    "updateKinds": [
+      "available_commands_update",
+      "session_info_update",
+      "available_commands_update",
+      "available_commands_update",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "usage_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "usage_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "usage_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 16355
+  },
+  "toolCalls": [
+    {
+      "toolCallId": "toolu_01Jt2EECgbnq8wqvcB8tBuZU",
+      "title": "glimmervoid: whiteboard",
+      "kind": "other",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "mcp__glimmervoid__whiteboard"
+        }
+      }
+    },
+    {
+      "toolCallId": "toolu_01Hq8QXdJ3x51bdHLPJAvHwM",
+      "title": "glimmervoid: whiteboard",
+      "kind": "other",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "mcp__glimmervoid__whiteboard"
+        }
+      }
+    },
+    {
+      "toolCallId": "toolu_01B9nyKrCcsTANdgDskb3thd",
+      "title": "glimmervoid: session",
+      "kind": "other",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "mcp__glimmervoid__session"
+        }
+      }
+    },
+    {
+      "toolCallId": "toolu_01BR7A8sxGQZhnfcZSEbaxHD",
+      "title": "glimmervoid: session",
+      "kind": "other",
+      "status": "pending",
+      "meta": {
+        "claudeCode": {
+          "toolName": "mcp__glimmervoid__session"
+        }
+      }
+    }
+  ],
+  "finalToolStatuses": {
+    "toolu_01Jt2EECgbnq8wqvcB8tBuZU": "completed",
+    "toolu_01Hq8QXdJ3x51bdHLPJAvHwM": "completed",
+    "toolu_01B9nyKrCcsTANdgDskb3thd": "completed",
+    "toolu_01BR7A8sxGQZhnfcZSEbaxHD": "completed"
+  },
+  "updateKindCounts": {
+    "available_commands_update": 3,
+    "session_info_update": 1,
+    "usage_update": 8,
+    "tool_call": 4,
+    "tool_call_update": 18,
+    "agent_message_chunk": 71
+  },
+  "clientRequestMethods": [],
+  "stderrTail": [
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=validate-cwd durationMs=0 totalMs=0",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=settings durationMs=17 totalMs=17",
+    "[session/query] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a resume=none apiType=native baseUrl=native",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=prepare-query durationMs=9 totalMs=26",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=sdk-initialize durationMs=694 totalMs=720",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=models durationMs=1 totalMs=721",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=modes durationMs=0 totalMs=721",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=agents durationMs=0 totalMs=721",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=ultracode durationMs=3 totalMs=724",
+    "[session/create] sessionId=6513d7f0-5bbd-4b1b-8dc0-a7df1ad6895a phase=register durationMs=1 totalMs=725"
+  ]
+}

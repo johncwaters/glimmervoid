@@ -1,0 +1,142 @@
+{
+  "agent": "antigravity",
+  "scenario": "mcp",
+  "durationMs": 44350,
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "load_session": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "session_capabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "auth": {
+        "logout": {}
+      },
+      "_meta": {
+        "antigravity": {
+          "tier": true,
+          "systemPrompt": {
+            "append": true
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "name": "Antigravity ACP Server",
+      "version": "1.5.17"
+    },
+    "authMethods": [
+      {
+        "id": "oauth-personal",
+        "name": "Log in with Google",
+        "description": "Log in with your Google account"
+      },
+      {
+        "id": "oauth-business",
+        "name": "Log in with Gemini Enterprise",
+        "description": "Log in with your Gemini Enterprise account"
+      },
+      {
+        "id": "gemini-api-key",
+        "name": "Gemini API key",
+        "description": "Use an API key with Gemini Developer API"
+      },
+      {
+        "id": "agent-platform",
+        "name": "Gemini Enterprise Agent Platform",
+        "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+      }
+    ]
+  },
+  "authenticateResult": null,
+  "boxId": "acp-spike-antigravity-1795667848533",
+  "outcome": {
+    "stopReason": "end_turn",
+    "error": null,
+    "agentText": "Step 1: none (`mcp_glimmervoid_whiteboard` unavailable) — Error: the `glimmervoid` MCP server did not expose a `whiteboard` tool in this session's tool declarations (16 tools exposed, none named `whiteboard`).\nStep 2: none (`mcp_glimmervoid_whiteboard` unavailable) — Error: the `glimmervoid` MCP server did not expose a `whiteboard` tool in this session's tool declarations (16 tools exposed, none named `whiteboard`).\nStep 3: `mcp_glimmervoid_session` — `{\"commands\":[{\"name\":\"push\",\"answers\":true},{\"name\":\"spawn\",\"answers\":true},{\"name\":\"send\",\"answers\":true},{\"name\":\"read\",\"answers\":true},{\"name\":\"close\",\"answers\":true},{\"name\":\"attention\",\"answers\":`\nStep 4: `mcp_glimmervoid_session` — `{\"ok\":true,\"sessionId\":\"agent-spawn-6d01909d-e6ea-441f-a5e5-bd71019f4528\",\"name\":\"acp-spike-probe agent\",\"note\":\"this session owns acp-spike-probe agent until the task is done: session read with child`",
+    "updateKinds": [
+      "available_commands_update",
+      "usage_update",
+      "session_info_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "agent_thought_chunk",
+      "usage_update",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "tool_call_update",
+      "agent_thought_chunk",
+      "agent_thought_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update"
+    ],
+    "durationMs": 43179
+  },
+  "toolCalls": [
+    {
+      "toolCallId": "call_7087288253098804079",
+      "title": "Run mcp_glimmervoid_session",
+      "kind": "other",
+      "status": "in_progress"
+    },
+    {
+      "toolCallId": "call_7265671427586719303",
+      "title": "Run mcp_glimmervoid_session",
+      "kind": "other",
+      "status": "in_progress"
+    }
+  ],
+  "finalToolStatuses": {
+    "call_7087288253098804079": "completed",
+    "call_7265671427586719303": "completed"
+  },
+  "updateKindCounts": {
+    "available_commands_update": 1,
+    "usage_update": 4,
+    "session_info_update": 1,
+    "agent_thought_chunk": 5,
+    "tool_call": 2,
+    "tool_call_update": 6,
+    "agent_message_chunk": 13
+  },
+  "clientRequestMethods": [
+    "session/request_permission",
+    "session/request_permission"
+  ],
+  "stderrTail": []
+}
