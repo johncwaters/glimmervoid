@@ -859,11 +859,31 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.locator('.phone-nav > .phone-nav-item[data-screen="terminal"]').click();
   await page.waitForTimeout(300);
   assert.equal(await page.locator('.session-chat .chat-composer').isVisible(), true, 'the Session tab keeps the view the toggle chose');
+  const shellId = await page.evaluate(async () => {
+    const controlWsUrl = '/control-ws.ts';
+    const { sendControlRequest } = await import(controlWsUrl);
+    const reply = await sendControlRequest('add-session', { name: 'phone-shell', path: '', agent: 'shell' });
+    return typeof reply?.sessionId === 'string' ? reply.sessionId : null;
+  });
+  assert.ok(shellId, 'a shell session starts for the phone chat-availability check');
+  await chatBar.locator('button[data-action="back-to-board"]').click();
+  const shellRow = page.locator(`.phone-board-list button.session-row[data-id="${shellId}"]`);
+  await shellRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await shellRow.click();
+  await page.locator('.phone-terminal .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await page.locator('.session-chat').count(), 0, 'a shell session opens directly in the terminal even when Chat is the remembered view');
+  assert.equal(await page.locator('.phone-terminal-bar button[data-action="show-chat"]').isVisible(), false, 'a shell session hides the Chat button in the phone session bar');
+  await page.locator('.phone-nav > .phone-nav-item[data-screen="terminal"]').click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('.session-chat').count(), 0, 'tapping the Session tab on a shell session keeps it on the terminal');
+  await page.locator('button[data-action="back-to-board"]:visible').click();
+  await page.locator('.phone-board-list button.session-row:not([data-shell])').first().click();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
   await page.locator('button[data-action="show-terminal"]:visible').click();
   await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.locator('button[data-action="show-terminal"]:visible').getAttribute('aria-pressed'), 'true', 'the Terminal button reads pressed while the terminal shows');
   await page.locator('button[data-action="back-to-board"]:visible').click();
-  await page.locator('.phone-board-list button.session-row').first().click();
+  await page.locator('.phone-board-list button.session-row:not([data-shell])').first().click();
   await page.locator('.phone-terminal .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.locator('.session-chat').count(), 0, 'after Terminal, the next session opens in the terminal');
 }

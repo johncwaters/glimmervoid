@@ -4,7 +4,8 @@ import type { PlanGate } from '#shared/contracts/plan-gate.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { sessionUIs } from '../session-card/card-registry.ts';
+import { SHELL_AGENT_ID } from '../session-card/agent-core.ts';
+import { onSessionCardsChanged, sessionUIs } from '../session-card/card-registry.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../page-registry.ts';
 import type { SessionPage } from '../page-registry.ts';
@@ -730,11 +731,28 @@ subscribeSettings((change) => {
   if (hasJustEnabled && getSessionView() === 'chat') openSessionPageOnShownSession(CHAT_PAGE_ID);
 });
 
+onSessionCardsChanged(() => {
+  for (const [sessionId, keptChat] of keptChatBySessionId) {
+    if (isChatAvailableFor(sessionId)) continue;
+    keptChat.close();
+    keptChatBySessionId.delete(sessionId);
+  }
+  if (!mountedChat || isChatAvailableFor(mountedChat.sessionId)) return;
+  if (isSessionPageOpen(CHAT_PAGE_ID, mountedChat.sessionId)) closeSessionPage();
+  announceSessionPageChange(CHAT_PAGE_ID, null);
+});
+
+function isChatAvailableFor(sessionId: string): boolean {
+  if (!isChatEnabled()) return false;
+  const ui = sessionUIs.get(sessionId);
+  return ui !== undefined && ui.agent !== SHELL_AGENT_ID;
+}
+
 export const chatPage: SessionPage = {
   id: CHAT_PAGE_ID,
   label: 'Chat',
   iconPath: CHAT_ICON_PATH,
-  isAvailableFor: (sessionId) => isChatEnabled() && sessionUIs.has(sessionId),
+  isAvailableFor: isChatAvailableFor,
   hasUnreadFor: () => false,
   mount(host, sessionId) {
     unmountChat();
