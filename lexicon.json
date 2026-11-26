@@ -171,7 +171,8 @@
       "name": "boards",
       "definition": "A shared whiteboard of boxes, wires, frames, notes and plan units that sessions and the operator draw together, opened in a Board pane beside a session's terminal in Focus and listed as rows under its project in the Focus rail (also: board)",
       "aliases": [
-        "board"
+        "board",
+        "whiteboard"
       ]
     },
     {
@@ -400,7 +401,10 @@
     },
     {
       "name": "status",
-      "definition": "A session's derived state (starting, running, waiting, idle, complete, failed and the rest), computed from structural signals by the session state machine and shown by the status badge"
+      "definition": "A session's derived state (starting, running, waiting, idle, complete, failed and the rest), computed from structural signals by the session state machine and shown by the status badge",
+      "aliases": [
+        "session state"
+      ]
     },
     {
       "name": "idle",
@@ -1764,6 +1768,18 @@
     {
       "name": "acp",
       "definition": "Agent Client Protocol: the JSON-RPC protocol on stdio that a session on the ACP driver speaks with its agent (session/prompt, session/update, session/request_permission, elicitation/create), the way Studio talks to agents while Focus stays on the PTY"
+    },
+    {
+      "name": "codemap",
+      "definition": "A repository module dependency map at its mainline commit, built by Glimmervoid for Studio sessions, drawn on the Code map board, and read through the codemap tool and glimmervoid codemap command, which also gates disallowed new module imports"
+    },
+    {
+      "name": "topic",
+      "definition": "One named read-only state stream (sessions, focus, theme, usage, attention, reviews or providers) that a pack panel subscribes to over the panel bridge when listed in its pack.json reads"
+    },
+    {
+      "name": "verification",
+      "definition": "The per-repository commands and built-in checks (such as board layout and codemap imports) Glimmervoid runs in a session worktree at turn end and before landing, configured under verification in config.json and shown in the Checked at turn end panel"
     }
   ],
   "retired": [
