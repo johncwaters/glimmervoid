@@ -386,8 +386,10 @@ function createConfigStore({
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;
     if (newConfig.coder == null) delete config.coder;
     if (newConfig.coder != null) config.coder = newConfig.coder;
-    config.customAgents = newConfig.customAgents ?? [];
-    config.acpAgents = newConfig.acpAgents ?? [];
+    if (newConfig.customAgents == null) delete config.customAgents;
+    if (newConfig.customAgents != null) config.customAgents = newConfig.customAgents;
+    if (newConfig.acpAgents == null) delete config.acpAgents;
+    if (newConfig.acpAgents != null) config.acpAgents = newConfig.acpAgents;
     if (newConfig.secrets == null) delete config.secrets;
     if (newConfig.secrets != null) config.secrets = newConfig.secrets;
     if (newConfig.agentAccounts == null) delete config.agentAccounts;
@@ -397,7 +399,8 @@ function createConfigStore({
     if (newConfig.laneAccounts == null) delete config.laneAccounts;
     if (newConfig.laneAccounts != null) config.laneAccounts = newConfig.laneAccounts;
 
-    config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];
+    if (Array.isArray(newConfig.hooks)) config.hooks = newConfig.hooks;
+    if (!Array.isArray(newConfig.hooks)) delete config.hooks;
     if (newConfig.port != null && newConfig.port !== config.port) {
       console.log(`[settings] Port changed to ${newConfig.port} - restart required to take effect`);
     }
