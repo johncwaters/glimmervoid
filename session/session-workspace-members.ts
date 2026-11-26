@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { GitWorkspaceInstance } from '../server/git/git-workspace.ts';
 import { holdsCheckout } from '../server/owned-paths-ledger.ts';
+import { removeFolderTree } from '../server/trash-folder.ts';
 import type { KeptWorkPath } from '../shared/contracts/control-messages.ts';
 import type { OwnedPathEntry, OwnedPathOwner } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
@@ -178,7 +179,7 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
     }
     if (keptRepoKeys.size > 0) return { kept };
     if (await holdsCheckout(plan.folder)) return { kept };
-    await fs.promises.rm(plan.folder, { recursive: true, force: true });
+    await removeFolderTree(plan.folder);
     await gitWorkspace.forgetRemovedPath(plan.folder);
     return { kept };
   }

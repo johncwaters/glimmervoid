@@ -9,6 +9,7 @@ import type { OwnedPathEntry } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
 import { errorMessage } from '../shared/text.ts';
 import { PARKED_REF_RETAIN_DAYS, holdsKeptPath, orphanedOwnedPaths } from './core/owned-paths-core.ts';
+import { isTrashFolderName, removeFolderTree } from './trash-folder.ts';
 import { clock } from '../shared/clock.ts';
 
 type OwnedPathsLedgerHandle = ReturnType<typeof createOwnedPathsLedger>;
@@ -106,7 +107,7 @@ async function pathExists(ownedPath: string): Promise<boolean> {
 }
 
 async function holdsCheckout(folderPath: string): Promise<boolean> {
-  const children = await fs.readdir(folderPath).catch(() => []);
+  const children = (await fs.readdir(folderPath).catch(() => [])).filter((child) => !isTrashFolderName(child));
   const checkoutMarkers = await Promise.all(children.map((child) => pathExists(path.join(folderPath, child, '.git'))));
   return checkoutMarkers.includes(true);
 }
@@ -138,7 +139,7 @@ async function removeOrphanedFolder(entry: OwnedPathEntry, ledger: Pick<OwnedPat
     sessionId: sessionIdFromOwner(entry.owner), checksPassed: ['session-not-configured', 'holds-no-checkout'], pid: process.pid,
   }, log);
   if (!isRecorded) return 'its removal record could not be written';
-  const removal = await fs.rm(entry.path, { recursive: true, force: true }).then(() => null, (error: unknown) => `it could not be deleted: ${errorMessage(error)}`);
+  const removal = await removeFolderTree(entry.path).then(() => null, (error: unknown) => `it could not be deleted: ${errorMessage(error)}`);
   if (removal) return removal;
   await ledger.forget(entry.path);
   return null;

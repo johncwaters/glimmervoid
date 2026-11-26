@@ -57,7 +57,7 @@ delete process.env.PI_CODING_AGENT_SESSION_DIR;
 const isolatedTestTemp = mintFolderRemovedOnExit('glimmervoid-test-tmp-');
 for (const temporaryFolderVariable of ['TMPDIR', 'TEMP', 'TMP']) process.env[temporaryFolderVariable] = isolatedTestTemp;
 
-const INHERITED_GIT_REACH_VARIABLES = ['GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_ASKPASS', 'SSH_ASKPASS', GIT_CREDENTIAL_URL_ENV];
+const INHERITED_GIT_REACH_VARIABLES = ['GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', GIT_CREDENTIAL_URL_ENV];
 const isInheritedGitConfigEntry = (name: string): boolean => name.startsWith('GIT_CONFIG_KEY_') || name.startsWith('GIT_CONFIG_VALUE_');
 for (const name of Object.keys(process.env).filter(isInheritedGitConfigEntry)) delete process.env[name];
 for (const name of INHERITED_GIT_REACH_VARIABLES) delete process.env[name];

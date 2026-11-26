@@ -766,8 +766,8 @@ test('a session keeps its agent done lines across a server restart, reading only
     assert.ok(session);
     assert.deepEqual(session.agentDoneLines, [{ text: 'a line from a newer build', command: 'npm test' }]);
     session.setAgentDoneLines([{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'lint passes', command: 'npm run lint' }]);
-    await waitFor(() => savedProject().agentDoneLines?.length === 2);
     await shutDown(before);
+    assert.equal(savedProject().agentDoneLines?.length, 2);
     const after = bootBackend();
     const restored = after.getSession('done-restart');
     assert.deepEqual(restored?.agentDoneLines, [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'lint passes', command: 'npm run lint' }]);

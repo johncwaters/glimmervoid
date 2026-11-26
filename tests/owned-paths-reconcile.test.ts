@@ -14,7 +14,6 @@ import { createSessionWorkspaceMembers } from '../session/session-workspace-memb
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
-import { waitFor } from './helpers/wait-for.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UNTOUCHED_SINCE = new Date(Date.now() - 2 * DAY_MS);
@@ -89,7 +88,9 @@ test('a backend booted on a config outside its home sweeps only that config\'s l
     server.on('request', backend.app);
     await listenOnLoopback(server);
 
-    await waitFor(() => !fs.existsSync(goneWorkspace.members[0].dir));
+    await settleBackendShutdown(backend);
+    backend = null;
+    assert.equal(fs.existsSync(goneWorkspace.members[0].dir), false);
     assert.equal(fs.existsSync(operatorWorkspace.members[0].dir), true);
   } finally {
     if (backend) await settleBackendShutdown(backend);

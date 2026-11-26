@@ -12,6 +12,10 @@ function trashFolderPrefixFor(label: string): string {
   return `${TRASH_FOLDER_PREFIX}${label}-`;
 }
 
+function isTrashFolderName(entryName: string): boolean {
+  return entryName.startsWith(TRASH_FOLDER_PREFIX);
+}
+
 function trashFolderPathFor(folder: string, label: string): string {
   return path.join(path.dirname(folder), `${trashFolderPrefixFor(label)}${path.basename(folder)}-${randomUUID()}`);
 }
@@ -41,10 +45,19 @@ async function moveFolderToTrash(folder: string, label: string): Promise<string 
 async function makeDirectoriesWritable(folder: string): Promise<void> {
   const pendingDirectories = [folder];
   for (let directory = pendingDirectories.pop(); directory !== undefined; directory = pendingDirectories.pop()) {
-    const directoryStat = await lstat(directory);
-    if (!directoryStat.isDirectory()) continue;
-    await chmod(directory, directoryStat.mode | OWNER_FULL_ACCESS);
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const directoryStat = await lstat(directory).catch((error: unknown) => {
+      if (isMissingFileError(error)) return null;
+      throw error;
+    });
+    if (!directoryStat?.isDirectory()) continue;
+    await chmod(directory, directoryStat.mode | OWNER_FULL_ACCESS).catch((error: unknown) => {
+      if (!isMissingFileError(error)) throw error;
+    });
+    const entries = await readdir(directory, { withFileTypes: true }).catch((error: unknown) => {
+      if (isMissingFileError(error)) return [];
+      throw error;
+    });
+    for (const entry of entries) {
       if (entry.isDirectory()) pendingDirectories.push(path.join(directory, entry.name));
     }
   }
@@ -52,13 +65,13 @@ async function makeDirectoriesWritable(folder: string): Promise<void> {
 
 async function removeFolderTree(folder: string): Promise<void> {
   try {
-    await rm(folder, { recursive: true, force: true });
+    await rm(folder, { recursive: true, force: true, maxRetries: 5 });
     return;
   } catch (error) {
     if (!PERMISSION_ERROR_CODES.has(errorCode(error) ?? '')) throw error;
   }
   await makeDirectoriesWritable(folder);
-  await rm(folder, { recursive: true, force: true });
+  await rm(folder, { recursive: true, force: true, maxRetries: 5 });
 }
 
 async function deleteTrashFolder(folder: string, log: Pick<Console, 'warn'>): Promise<void> {
@@ -76,4 +89,4 @@ async function deleteLeftoverTrash(parent: string, label: string, log: Pick<Cons
   }
 }
 
-export { deleteLeftoverTrash, moveFolderToTrash, moveFolderToTrashSync, removeFolderTree };
+export { deleteLeftoverTrash, isTrashFolderName, moveFolderToTrash, moveFolderToTrashSync, removeFolderTree };

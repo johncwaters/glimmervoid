@@ -62,6 +62,7 @@ test('workspace member shell preserves existing maps, reports partial failure an
     fs.writeFileSync(path.join(planned.plan.folder, 'notes.md'), 'agent scratch');
     assert.deepEqual((await shell.release({ discardWork: true, keepRepoPaths: [path.join(root, 'replacement')] })).kept, []);
     assert.equal(fs.existsSync(path.join(planned.plan.folder, 'notes.md')), true);
+    fs.mkdirSync(path.join(planned.plan.folder, '.deleting-worktree-in-flight', '.git'), { recursive: true });
     assert.deepEqual((await shell.release({ discardWork: true })).kept, []);
     assert.equal(fs.existsSync(planned.plan.folder), false);
     assert.equal(git(['rev-parse', planned.plan.branch], second).trim().length, 40);
