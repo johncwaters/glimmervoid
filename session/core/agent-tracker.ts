@@ -699,4 +699,4 @@ function createTaskRegistry({
 }
 
 export { backgroundTaskChanges, extractBackgroundTasks, isServiceShellLaunch, msUntilNextDrain, createTaskRegistry, DEFAULT_AGENT_TTL_MS, DEFAULT_SHELL_TASK_TTL_MS, DEFAULT_TEAMMATE_TASK_TTL_MS };
-export type { DeclaredEntry, ExpiredOpenWork, LateFinish, TaskRegistryBreakdown, TaskRegistryOptions };
+export type { DeclaredEntry, ExpiredOpenWork, LateFinish, TaskRegistryBreakdown };
