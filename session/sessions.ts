@@ -27,7 +27,11 @@ import { EventEmitter } from "node:events";
 import { execFile } from "../server/child-process-safe.ts";
 import { createPtyDriver } from "./drivers/pty-driver.ts";
 import type { PtyDriver, PtySpawn, SessionPty } from "./drivers/pty-driver.ts";
-import type { DriverEvent } from "./drivers/driver.ts";
+import { createAcpDriver } from "./drivers/acp-driver.ts";
+import { SESSION_DRIVER_EVENTS } from "./drivers/driver.ts";
+import type { DriverEvent, DriverPermissionRequest, DriverQuestion, SessionDriver, SessionDriverChoice } from "./drivers/driver.ts";
+import { ACP_TURN_AT_START, acpStatusEventFor, stepAcpStatus } from "./core/acp-status-core.ts";
+import type { AcpStatusInput, AcpTurn } from "./core/acp-status-core.ts";
 import { probeGraphicalSession, resolveSessionScopeHost, stopSessionScope } from "./systemd-user.ts";
 import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts";
 import { randomBytes } from "node:crypto";
@@ -254,6 +258,7 @@ interface SessionOptions {
   resolveLaunchSecrets?: ResolveLaunchSecrets | null;
   prepareSandbox?: PrepareSandbox | null;
   privateHomeKey?: string | null;
+  driver?: SessionDriverChoice;
 }
 
 interface ClaudeSessionIdEvent {
@@ -309,7 +314,10 @@ class Session extends EventEmitter {
   _teardown: Teardown;
   _recorder: SessionRecorderPort | null;
   _deliveredSecretValues: readonly string[] = [];
-  _driver: PtyDriver;
+  _driver: SessionDriver;
+  _pty: PtyDriver | null;
+  _acpLaunch: Extract<SessionDriverChoice, { kind: "acp" }> | null;
+  _acpTurn: AcpTurn = ACP_TURN_AT_START;
   _chatOutbox: ChatOutbox;
   _adapter: AgentAdapter;
   _observability: ReturnType<typeof createSessionObservability>;
@@ -480,6 +488,7 @@ class Session extends EventEmitter {
     resolveLaunchSecrets = null,
     prepareSandbox = null,
     privateHomeKey = null,
+    driver = { kind: "pty" },
   }: SessionOptions) {
     super();
     const isEphemeral = ephemeral === true;
@@ -530,7 +539,8 @@ class Session extends EventEmitter {
 
     this._recorder = null;
     this._lastOperatorInputAt = Number.NEGATIVE_INFINITY;
-    this._driver = createPtyDriver({
+    this._acpLaunch = driver.kind === "acp" ? driver : null;
+    this._pty = driver.kind === "pty" ? createPtyDriver({
       sessionId: id,
       spawn: ptySpawn,
       platform: () => this._platform,
@@ -555,13 +565,19 @@ class Session extends EventEmitter {
       off: (event, listener) => { this.off(event, listener); },
       screenKeeperFactory,
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
+    }) : null;
+    this._driver = this._pty ?? createAcpDriver({
+      clientName: "glimmervoid",
+      clientVersion: this._acpLaunch?.clientVersion ?? "",
+      mcpServers: this._acpLaunch?.mcpServers ?? [],
+      killTree: (pid) => this._reaper.kill(pid),
     });
     this._driver.subscribe((event) => this._onDriverEvent(event));
     this._chatOutbox = createChatOutbox({
       canTakeMessage: () => this.hasLivePty && this.isBetweenTurns() && this._isAgentReadyForChat(),
       reportsTurnStarts: () => this._hooksReportPrompts,
       recordsPrompts: () => CatalogAgentId.safeParse(this.agentId).success,
-      isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
+      isDeliveryInFlight: () => this.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
       noteSubmitted: (entry) => {
         const pastedPrefix = this.chatAttachmentPrefixOf(entry);
@@ -574,7 +590,7 @@ class Session extends EventEmitter {
       noteNotTaken: () => this.enterCheckTerminal(),
       emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
     });
-    this._output.onDeliveryIdle(() => this._chatOutbox.drain());
+    this._pty?.output.onDeliveryIdle(() => this._chatOutbox.drain());
     this.on("state-change", ({ from, to }: { from: SessionState; to: SessionState }) => {
       if (startsTurn(from, to)) this._chatOutbox.noteTurnStarted();
       this._chatOutbox.drain();
@@ -803,32 +819,37 @@ class Session extends EventEmitter {
     this._statusSource.on("meta", (m: MetaStatusSignal) => this._onMeta(m));
   }
 
+  _terminal(): PtyDriver {
+    if (this._pty === null) throw new Error(`session ${this.id} runs on the ACP driver and has no terminal`);
+    return this._pty;
+  }
+
   get _ptyAlive(): boolean {
-    return this._driver.isMarkedLive;
+    return this._pty?.isMarkedLive ?? this._driver.isLive;
   }
 
   set _ptyAlive(isAlive: boolean) {
-    this._driver.setLive(isAlive);
+    this._terminal().setLive(isAlive);
   }
 
   get ptyProcess(): SessionPty | null {
-    return this._driver.process;
+    return this._pty?.process ?? null;
   }
 
   set ptyProcess(process: SessionPty | null) {
-    this._driver.adoptProcess(process);
+    this._terminal().adoptProcess(process);
   }
 
   get _output(): PtyDriver["output"] {
-    return this._driver.output;
+    return this._terminal().output;
   }
 
   get _ptySpawn(): PtySpawn {
-    return this._driver.spawnFunction();
+    return this._terminal().spawnFunction();
   }
 
   set _ptySpawn(spawn: PtySpawn) {
-    this._driver.useSpawnFunction(spawn);
+    this._terminal().useSpawnFunction(spawn);
   }
 
   get _hooksReportPrompts(): boolean {
@@ -1604,6 +1625,7 @@ class Session extends EventEmitter {
     return this._driver.send(cleanPastedText(text), {
       ...options,
       onSettled: (settlement) => {
+        if (settlement === "submitted" && this._pty === null) this._stepAcpStatus({ kind: "prompt-accepted" });
         if (settlement === "submitted") this.emit("delivered-input");
         options.onSettled?.(settlement);
       },
@@ -1611,10 +1633,10 @@ class Session extends EventEmitter {
   }
 
 
-  hasPendingPaste(): boolean { return this._output.hasPendingPaste(); }
-  isDeliveryInFlight(): boolean { return this._output.isDeliveryInFlight(); }
+  hasPendingPaste(): boolean { return this._pty?.output.hasPendingPaste() ?? false; }
+  isDeliveryInFlight(): boolean { return this._pty?.output.isDeliveryInFlight() ?? false; }
 
-  _clearPendingPaste(): void { this._output.clearPendingPaste(); }
+  _clearPendingPaste(): void { this._pty?.output.clearPendingPaste(); }
 
   hasUnmergedWork() { return this.worktreeLifecycle.hasUnmergedWork(); }
 
@@ -1664,11 +1686,11 @@ class Session extends EventEmitter {
       state: this.state,
       destroyed: this._destroyed,
       pendingRestart: this.pendingRestart,
-      hasPty: this._driver.process !== null,
+      hasPty: this.ptyProcess !== null,
       ptyPid: this._driver.pid,
-      outputBufferEntries: this._output.stats().entries,
-      outputBufferBytes: this._output.stats().bytes,
-      outputBufferTotal: this._output.stats().total,
+      outputBufferEntries: this._pty?.output.stats().entries ?? 0,
+      outputBufferBytes: this._pty?.output.stats().bytes ?? 0,
+      outputBufferTotal: this._pty?.output.stats().total ?? 0,
       auditLogLength: this.auditLog.length,
       dataListenerCount: this.listenerCount("data"),
       hookSeen: this.hookSeen,
@@ -1837,11 +1859,11 @@ class Session extends EventEmitter {
     if (this._destroyed) return;
     const startGeneration = ++this._startGeneration;
 
-    const previousPty = this._driver.currentHandle();
+    const previousPty = this._liveAgentHandle();
     if (previousPty) {
       console.warn(`[session:${this.name}] start() called while PTY exists - killing previous PTY first`);
       this._reaper.killReap = this._reaper.reapTreeOnce(previousPty.pid, previousPty.scopeUnit);
-      this._driver.forget();
+      this._pty?.forget();
     }
 
     const pendingReaps = this._reaper.awaitPendingReaps();
@@ -1877,6 +1899,8 @@ class Session extends EventEmitter {
       this._launch.clearApprovedLaunches();
       return;
     }
+    if (this._pty === null) return this._startAcpAgent(isStartSuperseded);
+    const terminal = this._pty;
 
     const launchPlan = launchPlanFor(this._adapter.id, this._agentSetup, this._platform);
     const launchSecretEnv = await this._launch.resolveLaunchSecretEnv(launchPlan, this.effectiveCwd());
@@ -1913,11 +1937,9 @@ class Session extends EventEmitter {
     this._clearTimer("_inputReadyFallbackTimer");
 
     this._clearDetectionTracking();
-    this._driver.resetForStart();
+    terminal.resetForStart();
 
-    const rebaseline: RebaselineSignal = { startsNewConversation: this._restartStartsNewConversation };
-    this._restartStartsNewConversation = false;
-    this.emit(REBASELINE_EVENT, rebaseline);
+    this._emitRebaseline();
     this._resetDetectionSources({ quiet: false });
 
     const accountRefusal = await this._launch.prepareAccountAndPacks(this._isCleanHome, packMcpLaunch, isStartSuperseded);
@@ -1983,7 +2005,7 @@ class Session extends EventEmitter {
       this._hooks.cleanup();
       return;
     }
-    const scopeHost = this._driver.spawnsWithNodePty() ? await resolveSessionScopeHost() : null;
+    const scopeHost = terminal.spawnsWithNodePty() ? await resolveSessionScopeHost() : null;
     if (isStartSuperseded()) {
       this._hooks.cleanup();
       return;
@@ -1996,9 +2018,9 @@ class Session extends EventEmitter {
     const sandboxedEnv = sandboxedCommand.env;
     const launch = scopeUnit === null ? { file, args, env: sandboxedEnv } : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file, args, env: sandboxedEnv });
 
-    const ptySize = this._driver.ptySize();
+    const ptySize = terminal.ptySize();
     try {
-      this._driver.start({ file: launch.file, args: launch.args, cwd: this.effectiveCwd(), env: launch.env, scopeUnit, resumeAgentSessionId: null });
+      terminal.start({ file: launch.file, args: launch.args, cwd: this.effectiveCwd(), env: launch.env, scopeUnit, resumeAgentSessionId: null });
     } catch (err) {
       this._abandonSpawn(err);
       return;
@@ -2033,10 +2055,49 @@ class Session extends EventEmitter {
       });
     }
 
-    this._driver.streamOutput();
+    terminal.streamOutput();
     this._deliverPtyInitialPrompt(launchPrompt);
     this._armResumeNoteFallback();
     this._armPromptSupervisionLine();
+  }
+
+  async _startAcpAgent(isStartSuperseded: () => boolean): Promise<void> {
+    this._launch.clearApprovedLaunches();
+    if (this._acpLaunch === null) return;
+    if (this.worktreeDir) this.worktreeLifecycle.startWatching();
+    this._startupSignals.clear();
+    this._promptPhase = "awaiting-first-prompt";
+    this._clearDetectionTracking();
+    this._emitRebaseline();
+    const launchEnv = { ...(this._launch.launchSpawnEnv() ?? {}), ...this._launch.gitEnv() };
+    const env = this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: launchEnv });
+    const sandboxedCommand = await this._launch.sandboxedCommand(this._acpLaunch.command, env, Object.keys(launchEnv), isStartSuperseded);
+    if (sandboxedCommand === null) return;
+    try {
+      this._driver.start({ file: sandboxedCommand.file, args: sandboxedCommand.args, cwd: this.effectiveCwd(), env: sandboxedCommand.env, scopeUnit: null, resumeAgentSessionId: null });
+    } catch (error) {
+      this._abandonSpawn(error);
+      return;
+    }
+    if (!this.transition("spawn_success", { spawnCwdExists: fs.existsSync(this.effectiveCwd()) })) {
+      this.transition("spawn_fail", { reason: "spawn_cwd_missing" });
+      this.kill();
+      return;
+    }
+    console.log(`[session ${this.id}] spawn over ACP: ${sandboxedCommand.file} ${sandboxedCommand.args.join(" ")} (cwd=${this.effectiveCwd()})`);
+    if (this._initialPrompt) this.deliver(this._initialPrompt, { when: "now", submit: true });
+  }
+
+  _emitRebaseline(): void {
+    const rebaseline: RebaselineSignal = { startsNewConversation: this._restartStartsNewConversation };
+    this._restartStartsNewConversation = false;
+    this.emit(REBASELINE_EVENT, rebaseline);
+  }
+
+  _liveAgentHandle(): { pid: number; scopeUnit: string | null } | null {
+    if (this._pty !== null) return this._pty.currentHandle();
+    const pid = this._driver.pid;
+    return pid !== null && this._driver.isLive ? { pid, scopeUnit: null } : null;
   }
 
   _inputReadyCondition(): InputReadyCondition | undefined {
@@ -2193,7 +2254,7 @@ class Session extends EventEmitter {
   }
 
   _handlePtyData(data: string): void {
-    this._driver.handleOutput(data);
+    this._terminal().handleOutput(data);
   }
 
   _noteOutput(data: string): void {
@@ -2215,11 +2276,68 @@ class Session extends EventEmitter {
   }
 
   _onDriverEvent(event: DriverEvent): void {
-    if (event.kind === "output") {
-      if (this.listenerCount("data") > 0) this.emit("data", event.data);
-      return;
+    switch (event.kind) {
+      case "output":
+        if (this.listenerCount("data") > 0) this.emit("data", event.data);
+        return;
+      case "exit":
+        void this._handleSpawnedPtyExit(event.exitCode, event.signal);
+        return;
+      case "agent-session":
+        this._startupSignals.add("output");
+        this._startupSignals.add("ready");
+        this._stepAcpStatus({ kind: "opened" });
+        this.emit(SESSION_DRIVER_EVENTS.agentSession, { agentSessionId: event.agentSessionId, isResumed: event.isResumed });
+        return;
+      case "update": {
+        const isInTurn = this._acpTurn.isPromptOpen;
+        this._stepAcpStatus({ kind: "update" });
+        this.emit(SESSION_DRIVER_EVENTS.update, { agentSessionId: event.agentSessionId, update: event.update, isInTurn });
+        return;
+      }
+      case "permission":
+        this._stepAcpStatus({ kind: "ask" });
+        this.emit(SESSION_DRIVER_EVENTS.permission, { request: this._answerTracked(event.request) });
+        return;
+      case "question":
+        this._stepAcpStatus({ kind: "ask" });
+        this.emit(SESSION_DRIVER_EVENTS.question, { question: this._answerTracked(event.question) });
+        return;
+      case "turn-end":
+        this._stepAcpStatus({ kind: "turn-end" });
+        this.emit(SESSION_DRIVER_EVENTS.turnEnd, { stopReason: event.stopReason });
+        return;
+      case "failure":
+        this._failDriver(event.stage, event.message);
+        return;
     }
-    if (event.kind === "exit") void this._handleSpawnedPtyExit(event.exitCode, event.signal);
+  }
+
+  _stepAcpStatus(input: AcpStatusInput): void {
+    const { turn, signal } = stepAcpStatus(this._acpTurn, input);
+    this._acpTurn = turn;
+    const event = acpStatusEventFor(signal, this.state);
+    if (event !== null) this.transition(event, { source: "acp", signal });
+  }
+
+  _answerTracked<Ask extends DriverPermissionRequest | DriverQuestion>(ask: Ask): Ask {
+    type Answer = Parameters<Ask["respond"]>[0];
+    const askedInTurn = this._acpTurn.turnNumber;
+    let unansweredRespond: ((answer: Answer) => void) | null = ask.respond as (answer: Answer) => void;
+    const respond = (answer: Answer) => {
+      const respondToAgent = unansweredRespond;
+      unansweredRespond = null;
+      if (respondToAgent === null) return;
+      respondToAgent(answer);
+      this._stepAcpStatus({ kind: "ask-answered", askedInTurn });
+    };
+    return { ...ask, respond };
+  }
+
+  _failDriver(stage: string, message: string): void {
+    this._stopReason = `the agent failed at ${stage}: ${message}`;
+    console.warn(`[session:${this.name}] ${this._stopReason}`);
+    this.kill();
   }
 
   _isExitHeadedForFailure(event: string): boolean {
@@ -2235,13 +2353,14 @@ class Session extends EventEmitter {
   }
 
   async _handlePtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
-    const exitedPty = this._driver.currentHandle();
+    const exitedPid = this._driver.pid;
+    const exitedPty = this._pty?.currentHandle() ?? (exitedPid === null ? null : { pid: exitedPid, scopeUnit: null });
     this._resetDetectionSources({ quiet: false, clearTracking: true });
     this._dispatchAttention({ type: "teardown" });
 
     this._hooks.cleanup();
-    this._driver.markExited();
-    this._driver.forget();
+    this._pty?.markExited();
+    this._pty?.forget();
     this._lastClaudeSessionReport = null;
     this._promptNotes.dropResumeNote();
 
@@ -2268,23 +2387,23 @@ class Session extends EventEmitter {
   }
 
   getScreenSnapshot(): ScreenSnapshot {
-    return this._output.snapshot();
+    return this._terminal().output.snapshot();
   }
 
   getDeepScreenSnapshot(): Promise<ScreenSnapshot> {
-    return this._output.deepSnapshot();
+    return this._terminal().output.deepSnapshot();
   }
 
   ptySize(): { cols: number; rows: number; seq: number } {
-    return this._driver.ptySize();
+    return this._terminal().ptySize();
   }
 
   getOutputOffset(): number {
-    return this._output.stats().total;
+    return this._terminal().output.stats().total;
   }
 
   getBufferSince(offset: number) {
-    return this._output.since(offset);
+    return this._terminal().output.since(offset);
   }
 
   write(text: string): void {
@@ -2292,9 +2411,9 @@ class Session extends EventEmitter {
       this._recorder.writeInput(text);
     }
 
-    if (!this._driver.write(text)) return;
+    if (this._pty === null || !this._pty.write(text)) return;
     if (!isPromptSubmit(text)) return;
-    if (isComposerSubmit(text, this.state)) this._output.forgetUnsubmittedComposerPaste();
+    if (isComposerSubmit(text, this.state)) this._pty.output.forgetUnsubmittedComposerPaste();
     this._observeCompaction("resume");
     this._titleGate = "open";
   }
@@ -2403,7 +2522,7 @@ class Session extends EventEmitter {
     if (this._recorder) {
       this._recorder.writeResize(cols, rows);
     }
-    const resizeSeq = this._driver.resize(cols, rows);
+    const resizeSeq = this._pty?.resize(cols, rows) ?? null;
     if (resizeSeq === null) return;
     this.emit("resize", { cols, rows, seq: resizeSeq });
   }
@@ -2413,9 +2532,13 @@ class Session extends EventEmitter {
   }
 
   kill(): void {
-    if (!this._driver.process) return;
+    if (this._liveAgentHandle() === null) return;
     this._promptNotes.dropResumeNote();
     this._driver.stop();
+  }
+
+  interrupt(): void {
+    this._driver.interrupt();
   }
 
   dismiss(): boolean {
@@ -2597,7 +2720,7 @@ class Session extends EventEmitter {
       this._recorder.close();
     }
     this.worktreeLifecycle.stopWatching();
-    this._output.disposeScreenKeeper();
+    this._pty?.output.disposeScreenKeeper();
     this._titleSource.destroy();
     this._statusSource.destroy();
     this.emit("teardown", { id: this.id, cause });

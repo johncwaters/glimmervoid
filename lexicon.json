@@ -1760,6 +1760,10 @@
     {
       "name": "login",
       "definition": "An account credential or session an agent CLI or operator is logged in with, such as a Claude subscription, ChatGPT, Google keyring, GitHub or Tailscale login"
+    },
+    {
+      "name": "acp",
+      "definition": "Agent Client Protocol: the JSON-RPC protocol on stdio that a session on the ACP driver speaks with its agent (session/prompt, session/update, session/request_permission, elicitation/create), the way Studio talks to agents while Focus stays on the PTY"
     }
   ],
   "retired": [

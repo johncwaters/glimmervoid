@@ -77,7 +77,7 @@ These areas stay on as today and take fixes for crashes, data loss and security 
 |---|---|
 | Status Detection, Operator Hooks, Session Recording, Session Trace | `detection/AGENTS.md` |
 | Agent Adapters | `session/adapters/AGENTS.md` |
-| Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
+| Session Spawning, Auto-Resume and Shutdown, ACP Status | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
 | Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Review Cases and Claude Tokens, Held Questions, Security: Trust Boundary, Transport and Session Identity, Session Temp Folders, Telemetry | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries, Lane PostHog MCP | `server/lanes/AGENTS.md` |

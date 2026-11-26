@@ -1,4 +1,4 @@
-import type { PermissionOption, SessionUpdate, StopReason } from "@agentclientprotocol/sdk";
+import type { McpServer, PermissionOption, SessionUpdate, StopReason } from "@agentclientprotocol/sdk";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
 
 interface DriverLaunch {
@@ -56,4 +56,35 @@ interface SessionDriver {
   subscribe(listener: DriverListener): () => void;
 }
 
-export type { DriverEvent, DriverFailureStage, DriverLaunch, DriverListener, SessionDriver };
+type SessionDriverChoice =
+  | { kind: "pty" }
+  | { kind: "acp"; command: { file: string; args: string[] }; mcpServers: McpServer[]; clientVersion: string };
+
+const SESSION_DRIVER_EVENTS = Object.freeze({
+  agentSession: "driver-agent-session",
+  update: "driver-update",
+  permission: "driver-permission",
+  question: "driver-question",
+  turnEnd: "driver-turn-end",
+} as const);
+
+interface SessionDriverEventPayloads {
+  [SESSION_DRIVER_EVENTS.agentSession]: { agentSessionId: string; isResumed: boolean };
+  [SESSION_DRIVER_EVENTS.update]: { agentSessionId: string; update: SessionUpdate; isInTurn: boolean };
+  [SESSION_DRIVER_EVENTS.permission]: { request: DriverPermissionRequest };
+  [SESSION_DRIVER_EVENTS.question]: { question: DriverQuestion };
+  [SESSION_DRIVER_EVENTS.turnEnd]: { stopReason: StopReason };
+}
+
+export { SESSION_DRIVER_EVENTS };
+export type {
+  DriverEvent,
+  DriverFailureStage,
+  DriverLaunch,
+  DriverListener,
+  DriverPermissionRequest,
+  DriverQuestion,
+  SessionDriver,
+  SessionDriverChoice,
+  SessionDriverEventPayloads,
+};

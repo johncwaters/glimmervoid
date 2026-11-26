@@ -6,7 +6,12 @@ import path from "node:path";
 import { createAcpDriver } from "../session/drivers/acp-driver.ts";
 import { execFile } from "../server/child-process-safe.ts";
 import { createSessionProcessReaper } from "../session/session-process-reaper.ts";
-import type { DriverEvent } from "../session/drivers/driver.ts";
+import { SESSION_DRIVER_EVENTS } from "../session/drivers/driver.ts";
+import type { DriverEvent, SessionDriverEventPayloads } from "../session/drivers/driver.ts";
+import { Session } from "../session/sessions.ts";
+import { STATES } from "../shared/states.ts";
+import type { SessionState } from "../shared/states.ts";
+import { replayThroughSession } from "./helpers/session-replay.ts";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const fixtures = { recordingPath: (recording: string) => path.join(ROOT, "harness", "acp-spike", "recordings", recording) };
@@ -166,5 +171,127 @@ for (const { recording, launchNumber } of SCENARIOS) {
     const surfaced = `${JSON.stringify(events)}\n${consoleCapture.text()}`;
     assert.equal(surfaced.includes(ACCOUNT_EMAIL), false, "the account email reached a driver event or a log line");
     assert.equal(surfaced.includes(ACCOUNT_PLAN), false, "the account plan reached a driver event or a log line");
+  });
+}
+
+type StateSequence = SessionState[];
+
+interface StatusScenario {
+  recording: string;
+  agent: "claude-code" | "codex";
+  hookFixture: string;
+  acpSequence: StateSequence;
+  hookSequence: StateSequence;
+  difference: string | null;
+  updatesAfterTurnEnd: boolean;
+  cancelsInsteadOfAnsweringAsk?: number;
+}
+
+const { RUNNING, WAITING, COMPLETE, IDLE, DONE } = STATES;
+const TWO_PROMPTS_THREE_ASKS: StateSequence = [RUNNING, WAITING, RUNNING, WAITING, RUNNING, COMPLETE, RUNNING, WAITING, RUNNING, COMPLETE];
+const ANSWER_RETURNS_TO_RUNNING = "the recording runs two prompts with three permission asks, and ACP sees each answer leave the client, so WAITING returns to RUNNING at once; the hook fixture has one ask and no hook between the terminal answer and Stop, so it goes WAITING to COMPLETE";
+const NO_HOOK_INTERRUPT_FIXTURE = "no hook fixture records an operator interrupt, so each ACP turn, the cancelled one and the prompt after it, is compared with one hook turn-complete";
+
+const STATUS_SCENARIOS: readonly StatusScenario[] = [
+  { recording: "claude/setup.jsonl", agent: "claude-code", hookFixture: "v2-claude-code-turn-complete.jsonl", acpSequence: [RUNNING, COMPLETE], hookSequence: [RUNNING, COMPLETE], difference: null, updatesAfterTurnEnd: false },
+  { recording: "codex/setup.jsonl", agent: "codex", hookFixture: "v2-codex-turn-complete.jsonl", acpSequence: [RUNNING, COMPLETE], hookSequence: [RUNNING, COMPLETE], difference: null, updatesAfterTurnEnd: false },
+  { recording: "claude/permissions.jsonl", agent: "claude-code", hookFixture: "v2-claude-code-permission-wait.jsonl", acpSequence: TWO_PROMPTS_THREE_ASKS, hookSequence: [RUNNING, WAITING, COMPLETE], difference: ANSWER_RETURNS_TO_RUNNING, updatesAfterTurnEnd: false },
+  { recording: "codex/permissions.jsonl", agent: "codex", hookFixture: "v2-codex-permission-wait.jsonl", acpSequence: TWO_PROMPTS_THREE_ASKS, hookSequence: [RUNNING, WAITING, COMPLETE], difference: ANSWER_RETURNS_TO_RUNNING, updatesAfterTurnEnd: false },
+  { recording: "codex/permissions.jsonl", agent: "codex", hookFixture: "v2-codex-permission-wait.jsonl", acpSequence: [RUNNING, WAITING, RUNNING, WAITING, RUNNING, COMPLETE, RUNNING, WAITING, COMPLETE], hookSequence: [RUNNING, WAITING, COMPLETE], difference: "the third ask is never answered and the operator cancels instead, so the cancelled turn-end closes the ask and goes WAITING to COMPLETE", updatesAfterTurnEnd: false, cancelsInsteadOfAnsweringAsk: 3 },
+  { recording: "claude/question.jsonl", agent: "claude-code", hookFixture: "v2-claude-code-structured-question-answered.jsonl", acpSequence: [RUNNING, WAITING, RUNNING, COMPLETE], hookSequence: [RUNNING, WAITING, RUNNING, COMPLETE], difference: null, updatesAfterTurnEnd: false },
+  { recording: "codex/question.jsonl", agent: "codex", hookFixture: "v2-codex-request-user-input.jsonl", acpSequence: [RUNNING, WAITING, RUNNING, COMPLETE], hookSequence: [RUNNING, WAITING, RUNNING, COMPLETE], difference: null, updatesAfterTurnEnd: false },
+  { recording: "claude/cancel.jsonl", agent: "claude-code", hookFixture: "v2-claude-code-turn-complete.jsonl", acpSequence: [RUNNING, COMPLETE, RUNNING, COMPLETE], hookSequence: [RUNNING, COMPLETE], difference: NO_HOOK_INTERRUPT_FIXTURE, updatesAfterTurnEnd: false },
+  { recording: "codex/cancel.jsonl", agent: "codex", hookFixture: "v2-codex-turn-complete.jsonl", acpSequence: [RUNNING, COMPLETE, RUNNING, COMPLETE], hookSequence: [RUNNING, COMPLETE], difference: NO_HOOK_INTERRUPT_FIXTURE, updatesAfterTurnEnd: false },
+  { recording: "claude/subagents.jsonl", agent: "claude-code", hookFixture: "v2-claude-code-subagent-gates-completion.jsonl", acpSequence: [RUNNING, COMPLETE], hookSequence: [RUNNING, COMPLETE], difference: null, updatesAfterTurnEnd: true },
+  { recording: "codex/subagents.jsonl", agent: "codex", hookFixture: "v2-codex-subagent.jsonl", acpSequence: [RUNNING, COMPLETE], hookSequence: [RUNNING, COMPLETE], difference: null, updatesAfterTurnEnd: true },
+];
+
+interface AcpSessionReplay {
+  transitions: StateSequence;
+  stopReasons: string[];
+  updatesAfterLastTurnEnd: number;
+}
+
+async function replayThroughAcpSession(scenario: StatusScenario, script: RecordedScript): Promise<AcpSessionReplay> {
+  const session = new Session({
+    id: `acp-${scenario.recording}`,
+    name: scenario.recording,
+    path: ROOT,
+    agent: scenario.agent,
+    driver: {
+      kind: "acp",
+      command: { file: process.execPath, args: [REPLAY_AGENT, fixtures.recordingPath(scenario.recording), "1", ACCOUNT_EMAIL, ACCOUNT_PLAN] },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  const transitions: StateSequence = [];
+  const stopReasons: string[] = [];
+  const pendingReplies = [...script.clientReplies];
+  let promptsSent = 0;
+  let updatesSeen = 0;
+  let updatesAfterLastTurnEnd = 0;
+  let asksSeen = 0;
+  const sendNextPrompt = () => {
+    if (promptsSent >= script.promptCount) return;
+    promptsSent += 1;
+    assert.deepEqual(session.deliver(`replayed prompt ${promptsSent}`, { when: "now", submit: true }), { ok: true, kind: "pasted" });
+  };
+  session.on("state-change", ({ to }: { to: SessionState }) => transitions.push(to));
+  session.on("error", (error: unknown) => assert.fail(String(error)));
+  const exited = new Promise<void>((resolveExit) => session.once("exit", () => resolveExit()));
+  const replayDone = new Promise<void>((resolveReplay) => {
+    const settleWhenReplayed = () => {
+      if (updatesSeen === script.updateKinds.length && stopReasons.length === script.promptCount) resolveReplay();
+    };
+    session.on(SESSION_DRIVER_EVENTS.agentSession, () => sendNextPrompt());
+    session.on(SESSION_DRIVER_EVENTS.turnEnd, ({ stopReason }: SessionDriverEventPayloads["driver-turn-end"]) => {
+      stopReasons.push(stopReason);
+      updatesAfterLastTurnEnd = 0;
+      sendNextPrompt();
+      settleWhenReplayed();
+    });
+    session.on(SESSION_DRIVER_EVENTS.update, ({ isInTurn }: SessionDriverEventPayloads["driver-update"]) => {
+      updatesSeen += 1;
+      if (!isInTurn && stopReasons.length > 0) updatesAfterLastTurnEnd += 1;
+      if (updatesSeen === script.updatesBeforeCancel) session.interrupt();
+      settleWhenReplayed();
+    });
+    session.on(SESSION_DRIVER_EVENTS.permission, ({ request }: SessionDriverEventPayloads["driver-permission"]) => {
+      asksSeen += 1;
+      const reply = pendingReplies.shift();
+      if (asksSeen === scenario.cancelsInsteadOfAnsweringAsk) return session.interrupt();
+      request.respond(reply?.outcome as never);
+    });
+    session.on(SESSION_DRIVER_EVENTS.question, ({ question }: SessionDriverEventPayloads["driver-question"]) => question.respond(pendingReplies.shift() as never));
+  });
+  await session.start();
+  await replayDone;
+  session.kill();
+  await exited;
+  session.destroy();
+  return { transitions, stopReasons, updatesAfterLastTurnEnd };
+}
+
+function turnSequenceOf(transitions: StateSequence): StateSequence {
+  const firstIdle = transitions.indexOf(IDLE);
+  assert.notEqual(firstIdle, -1, `the session never reached IDLE: ${transitions.join(" ")}`);
+  assert.equal(transitions.at(-1), DONE, `the killed session did not end DONE: ${transitions.join(" ")}`);
+  return transitions.slice(firstIdle + 1, -1);
+}
+
+for (const scenario of STATUS_SCENARIOS) {
+  const variant = scenario.cancelsInsteadOfAnsweringAsk === undefined ? "" : ` cancelling ask ${scenario.cancelsInsteadOfAnsweringAsk}`;
+  test(`an ACP Session replaying ${scenario.recording}${variant} walks the state machine like the hook-driven ${scenario.hookFixture}`, { timeout: 30_000 }, async (t) => {
+    const script = scriptOf(scenario.recording, 1);
+    const acp = await replayThroughAcpSession(scenario, script);
+    assert.deepEqual(acp.stopReasons, script.stopReasons);
+    assert.deepEqual(turnSequenceOf(acp.transitions), scenario.acpSequence);
+    assert.equal(acp.updatesAfterLastTurnEnd > 0, scenario.updatesAfterTurnEnd, "updates after the turn ended left the session COMPLETE");
+
+    const hook = replayThroughSession(scenario.hookFixture, t);
+    assert.deepEqual(hook.transitions, scenario.hookSequence);
+    if (scenario.difference === null) assert.deepEqual(scenario.acpSequence, scenario.hookSequence);
+    if (scenario.difference !== null) assert.notDeepEqual(scenario.acpSequence, scenario.hookSequence);
   });
 }
