@@ -50,6 +50,7 @@ const SESSION = {
   workingDirectory: '/repo/glimmervoid',
   agent: 'claude-code',
   agentDrawsAlternateScreen: true,
+  hasTerminal: true,
   state: STATES.RUNNING,
   stateSince: NOW,
   taskTitle: null,
