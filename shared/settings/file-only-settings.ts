@@ -131,6 +131,11 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'json', keywords: ['adapters', 'cli'], defaultValue: [], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
   },
   {
+    id: 'file-acp-agents', path: 'acpAgents', title: 'ACP agents', group: 'machine-detection-sessions',
+    description: 'Extra ACP agents, each with id, label, command and args. Ids colliding with a built-in ACP agent are refused.',
+    control: 'json', keywords: ['acp', 'studio', 'agents', 'cli'], defaultValue: [], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
+  },
+  {
     id: 'file-task-title-refiner-enabled', path: 'taskTitle.refiner.enabled', title: 'Refine task titles', group: 'machine-detection-sessions',
     description: 'Keep session card titles useful when prompts change topic by asking a model for a short title.',
     control: 'toggle', keywords: ['title', 'refiner', 'card'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,

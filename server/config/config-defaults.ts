@@ -1,5 +1,5 @@
 import { DEFAULT_BRANCH_GC_PREFIXES } from '../core/branch-gc-core.ts';
-import type { CustomAgentDeclaration } from '../../shared/contracts/index.ts';
+import type { AcpAgentDeclaration, CustomAgentDeclaration } from '../../shared/contracts/index.ts';
 import { DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS } from '../../shared/contracts/workflows.ts';
 import type { WorkflowRule } from '../../shared/contracts/workflows.ts';
 import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from '../core/memory-admission-core.ts';
@@ -60,6 +60,7 @@ const DEFAULT_CONFIG = {
   repoRoots: [] as string[],
 
   customAgents: [] as CustomAgentDeclaration[],
+  acpAgents: [] as AcpAgentDeclaration[],
   packs: [] as string[],
 
   remote: {

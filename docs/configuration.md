@@ -221,6 +221,7 @@ Config-file-only detection, timing and process settings.
 | `reactions.cooldownMinutes` | Reaction cooldown | `10` | How long one reaction waits before reacting to the same session again. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `customAgents` | Custom agents | `[]` | Extra agent CLIs a session can be spawned with. The Sessions section lists the declared agents and whether each command resolves. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
+| `acpAgents` | ACP agents | `[]` | Extra ACP agents, each with id, label, command and args. Ids colliding with a built-in ACP agent are refused. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `taskTitle.refiner.enabled` | Refine task titles | `true` | Keep session card titles useful when prompts change topic by asking a model for a short title. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Packs

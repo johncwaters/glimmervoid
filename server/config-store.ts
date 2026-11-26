@@ -387,6 +387,7 @@ function createConfigStore({
     if (newConfig.coder == null) delete config.coder;
     if (newConfig.coder != null) config.coder = newConfig.coder;
     config.customAgents = newConfig.customAgents ?? [];
+    config.acpAgents = newConfig.acpAgents ?? [];
     if (newConfig.secrets == null) delete config.secrets;
     if (newConfig.secrets != null) config.secrets = newConfig.secrets;
     if (newConfig.agentAccounts == null) delete config.agentAccounts;

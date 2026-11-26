@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { AGENT_API_VERBS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
-import type { CustomAgentDeclaration } from '../shared/contracts/config.ts';
+import type { AcpAgentDeclaration, CustomAgentDeclaration } from '../shared/contracts/config.ts';
 import { execSync } from '../server/child-process-safe.ts';
 import { agentCommandHelpLines } from '../server/core/agent-api-core.ts';
 import { renderTable } from '../server/core/ascii-figure-core.ts';
@@ -258,16 +258,24 @@ function resolveConfigPathReadOnly(): string {
   return `${decided.homePath} (created on first run)`;
 }
 
-async function readDeclaredCustomAgents(): Promise<{ declared: readonly CustomAgentDeclaration[]; error: string | null }> {
+async function readDeclaredDoctorAgents(): Promise<{
+  customAgents: readonly CustomAgentDeclaration[];
+  acpAgents: readonly AcpAgentDeclaration[];
+  error: string | null;
+}> {
   const decided = decideReadOnlyConfigPath();
-  if (!decided.path) return { declared: [], error: null };
+  if (!decided.path) return { customAgents: [], acpAgents: [], error: null };
   const { loadConfigFile } = await import('../server/config-store.ts');
   try {
     const loaded = loadConfigFile(decided.path, { exitOnError: false });
-    if (!loaded.config) return { declared: [], error: loaded.message };
-    return { declared: loaded.config.customAgents ?? [], error: null };
+    if (!loaded.config) return { customAgents: [], acpAgents: [], error: loaded.message };
+    return {
+      customAgents: loaded.config.customAgents ?? [],
+      acpAgents: loaded.config.acpAgents ?? [],
+      error: null,
+    };
   } catch (err) {
-    return { declared: [], error: `could not read ${decided.path}: ${firstLine(errorText(err))}` };
+    return { customAgents: [], acpAgents: [], error: `could not read ${decided.path}: ${firstLine(errorText(err))}` };
   }
 }
 
@@ -328,11 +336,11 @@ async function runDoctor(): Promise<boolean> {
 
   switchSection('Agents');
 
+  const declaredDoctorAgents = await readDeclaredDoctorAgents();
   try {
     const { listAgentIds, describeAgentResolvability, setCustomAgents } = await import('../session/adapters/index.ts');
-    const declaredCustomAgents = await readDeclaredCustomAgents();
-    if (declaredCustomAgents.error) line('config', declaredCustomAgents.error);
-    setCustomAgents(declaredCustomAgents.declared);
+    if (declaredDoctorAgents.error) line('config', declaredDoctorAgents.error);
+    setCustomAgents(declaredDoctorAgents.customAgents);
     for (const id of listAgentIds()) {
       const { label, path: resolvedPath } = describeAgentResolvability(id);
       line(`${id} (${label})`, resolvedPath ?? missingAgentText(id));
@@ -353,6 +361,21 @@ async function runDoctor(): Promise<boolean> {
     }
   } catch (err) {
     line('agents', `probe failed: ${firstLine(errorText(err))}`);
+  }
+
+  switchSection('ACP agents');
+  try {
+    const { buildAcpAgentTable, describeAcpAgentResolvability } = await import('../session/drivers/acp-agents.ts');
+    if (declaredDoctorAgents.error) line('config', declaredDoctorAgents.error);
+    const table = buildAcpAgentTable(declaredDoctorAgents.acpAgents);
+    if (!table.ok) line('config', table.error);
+    const entries = table.ok ? table.entries : [];
+    for (const entry of entries) {
+      const resolved = describeAcpAgentResolvability(entry);
+      line(`${resolved.id} (${resolved.label})`, resolved.doctorValue);
+    }
+  } catch (err) {
+    line('ACP agents', `probe failed: ${firstLine(errorText(err))}`);
   }
 
   switchSection('Relay');

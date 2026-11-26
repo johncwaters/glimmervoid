@@ -30,6 +30,8 @@ export const ConfigUpdate = z.object({
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 export const SHELL_AGENT_ID = 'shell';
 export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'gemini', 'grok', 'kimi', 'qwen', 'copilot', 'opencode', 'pi', 'antigravity', 'goose', 'cursor', SHELL_AGENT_ID] as const);
+export const BUILTIN_ACP_AGENT_IDS = Object.freeze(['claude-code', 'codex'] as const);
+const BUILTIN_ACP_AGENT_ID_SET = new Set<string>(BUILTIN_ACP_AGENT_IDS);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
 
 const AGENT_COMMAND_BASENAME_RE = /^[A-Za-z0-9._+-]+$/;
@@ -37,6 +39,7 @@ const AGENT_COMMAND_ABSOLUTE_RE = /^(?:\/|[A-Za-z]:[\\/])[A-Za-z0-9._+\-\\/]*[A-
 const AGENT_COMMAND_SHAPE_MESSAGE = 'a bare command name or an absolute path, built only from letters, digits, dot, underscore, plus, dash and path separators';
 
 function isSpawnableCommand(command: string): boolean {
+  if (command === '.' || command === '..' || command.startsWith('-')) return false;
   if (AGENT_COMMAND_BASENAME_RE.test(command)) return true;
   return AGENT_COMMAND_ABSOLUTE_RE.test(command);
 }
@@ -83,6 +86,38 @@ const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'custom
         continue;
       }
       ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `customAgents[${index}].id "${declaration.id}" is declared more than once` });
+    }
+  });
+
+export const AcpAgentDeclaration = z.object({
+  id: z.string({ error: 'acpAgents[].id must be a string' }).regex(AGENT_ID_RE, { error: `acpAgents[].id must be ${AGENT_ID_SHAPE_MESSAGE}` }),
+  label: z.string({ error: 'acpAgents[].label must be a string' })
+    .min(1, { error: 'acpAgents[].label must not be empty' })
+    .max(60, { error: 'acpAgents[].label must be at most 60 characters' }),
+  command: z.string({ error: 'acpAgents[].command must be a string' })
+    .min(1, { error: 'acpAgents[].command must not be empty' })
+    .refine((command) => command.trim().length > 0, { error: 'acpAgents[].command must not be blank' })
+    .refine(isSpawnableCommand, { error: `acpAgents[].command must be ${AGENT_COMMAND_SHAPE_MESSAGE}` }),
+  args: z.array(
+    z.string({ error: 'acpAgents[].args must be an array of strings' })
+      .refine((argument) => !argument.includes('\0'), { error: 'acpAgents[].args must not contain null bytes' }),
+    { error: 'acpAgents[].args must be an array of strings' },
+  ).default([]),
+}).strict();
+
+export const AcpAgentDeclarations = z.array(AcpAgentDeclaration, { error: 'acpAgents must be an array' })
+  .superRefine((declarations, ctx) => {
+    const claimedIds = new Set<string>();
+    for (const [index, declaration] of declarations.entries()) {
+      if (BUILTIN_ACP_AGENT_ID_SET.has(declaration.id)) {
+        ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `acpAgents[${index}].id "${declaration.id}" collides with a built-in ACP agent; pick a different id` });
+        continue;
+      }
+      if (!claimedIds.has(declaration.id)) {
+        claimedIds.add(declaration.id);
+        continue;
+      }
+      ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `acpAgents[${index}].id "${declaration.id}" is declared more than once` });
     }
   });
 
@@ -167,6 +202,7 @@ const FILE_CONFIG_SHAPE = {
   sessionSandbox: optionalBoolean('sessionSandbox'),
   telemetry: TelemetryFileSettings,
   customAgents: CustomAgentDeclarations.optional(),
+  acpAgents: AcpAgentDeclarations.optional(),
   agentAccounts: AgentAccounts.optional(),
   agentAccountDefaults: AgentAccountDefaults.optional(),
   laneAccounts: LaneAccounts.optional(),
@@ -234,5 +270,6 @@ export type ConfigUpdate = z.infer<typeof ConfigUpdate>;
 export type WorktreeSettings = z.infer<typeof WorktreeFileSettings>;
 export type ProjectConfig = z.infer<typeof ProjectConfig>;
 export type CustomAgentDeclaration = z.infer<typeof CustomAgentDeclaration>;
+export type AcpAgentDeclaration = z.infer<typeof AcpAgentDeclaration>;
 export type TaskTitleSources = z.infer<typeof TaskTitleSources>;
 export type PersistedTaskTitle = z.infer<typeof PersistedTaskTitle>;
