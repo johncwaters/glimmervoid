@@ -375,11 +375,12 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     },
   };
   const packLaunchers = createPackLaunchers(launcherDeps);
+  let restarted: ReturnType<typeof createPackLaunchers> | null = null;
   createControlServer(controlDeps(config, { packLaunchers, generateProjectId: () => `scheduled-${config.projects.length}` }));
-  const fireArmedTimer = async (atMs: number) => {
+  const fireArmedTimer = async (atMs: number, timer = armedTimers.at(-1)) => {
     nowMs = atMs;
     const timersBefore = armedTimers.length;
-    armedTimers.at(-1)?.fire();
+    timer?.fire();
     await waitFor(() => armedTimers.length > timersBefore);
   };
   try {
@@ -407,27 +408,36 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     const secondRunSessionId = config.projects[1]?.id ?? '';
     assert.ok(armedTimers.at(-1)?.savedRunsAtArm.includes(secondRunSessionId), 'the run is saved before the next run is armed, so a restart cannot start it again');
 
+    await packLaunchers.stop();
+    const runsPath = packLauncherRunsPath(homeDir);
+    const savedRunsPath = `${runsPath}.saved`;
+    fs.renameSync(runsPath, savedRunsPath);
+    fs.mkdirSync(runsPath);
+
     nowMs = firstFireAt + 96 * hourMs + hourMs / 2;
-    const restarted = createPackLaunchers(launcherDeps);
+    const restartWarnings: string[] = [];
+    restarted = createPackLaunchers({ ...launcherDeps, log: { warn: (message) => restartWarnings.push(message) } });
     const startedAfterRestart: string[] = [];
     await restarted.refresh();
     restarted.attachSessionStarter(async (request) => {
       startedAfterRestart.push(request.name);
       return { ok: true, sessionId: request.name };
     });
-    assert.equal(armedTimers.at(-1)?.delayMs, 24 * hourMs - hourMs / 2, 'after downtime the next run is the next cron time, not the missed ones');
+    const firstTimerAfterRestart = armedTimers.at(-1);
+    assert.equal(firstTimerAfterRestart?.delayMs, 24 * hourMs - hourMs / 2, 'after downtime the next run is the next cron time, not the missed ones');
     assert.deepEqual(startedAfterRestart, []);
+    const unreadableWarnings = () => restartWarnings.filter((message) => message.includes('could not read the scheduled launcher runs'));
+    await waitFor(() => unreadableWarnings().length === 1 && armedTimers.at(-1) !== firstTimerAfterRestart);
 
-    const runsPath = packLauncherRunsPath(homeDir);
-    const savedRunsPath = `${runsPath}.saved`;
-    fs.renameSync(runsPath, savedRunsPath);
-    fs.mkdirSync(runsPath);
-    await fireArmedTimer(firstFireAt + 120 * hourMs);
+    await fireArmedTimer(firstFireAt + 120 * hourMs, firstTimerAfterRestart);
+    const unreadableWarningsAfterFire = unreadableWarnings().length;
+    assert.ok(unreadableWarningsAfterFire > 1, 'firing while the runs record is unreadable retries the read and logs the failure');
     assert.deepEqual(startedAfterRestart, [], 'an unreadable record of past runs skips the run instead of starting a second session');
     fs.rmdirSync(runsPath);
     fs.renameSync(savedRunsPath, runsPath);
 
     await fireArmedTimer(firstFireAt + 144 * hourMs);
+    assert.equal(unreadableWarnings().length, unreadableWarningsAfterFire, 'restoring the runs record lets the next fire read it cleanly');
     assert.deepEqual(startedAfterRestart, [], 'the run started before the restart is still live, so this one is skipped');
 
     endedSessionIds.add(config.projects[1]?.id ?? '');
@@ -446,6 +456,8 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     await fireArmedTimer(firstFireAt + 216 * hourMs - hourMs);
     assert.equal(startedAfterRestart.length, 1, 'the next run after the hold lifts starts');
   } finally {
+    await restarted?.stop();
+    await packLaunchers.stop();
     packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
