@@ -963,4 +963,3 @@ function createUsageWiring({
 }
 
 export { createUsageWiring, resolveUsageConfig, USAGE_WAREHOUSE_RETAIN_DAYS };
-export type { UsageWiringOptions };

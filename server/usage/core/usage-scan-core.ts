@@ -10,23 +10,6 @@ import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
 
-type LaneSpend =
-  | { status: 'tracking-off' }
-  | { status: 'scanner-missing' }
-  | { status: 'catching-up' }
-  | { status: 'read-failing' }
-  | { status: 'known'; amountUsd: number };
-
-export function laneSpendStatus({ isTrackingEnabled, scan }: {
-  isTrackingEnabled: boolean; scan: { isHistoryCaughtUp: boolean; lastOutcome: PassOutcome | null } | null;
-}): LaneSpend['status'] {
-  if (!isTrackingEnabled) return 'tracking-off';
-  if (scan === null) return 'scanner-missing';
-  if (scan.lastOutcome === 'io-failed') return 'read-failing';
-  if (!scan.isHistoryCaughtUp || scan.lastOutcome === null) return 'catching-up';
-  return 'known';
-}
-
 interface FileReadCursor {
   offset?: number;
   size?: number;
@@ -101,7 +84,7 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = 'cbdee9aacf50188e';
+const SCAN_SNAPSHOT_INGEST_DIGEST = 'f8230d533d234ba9';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(
