@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { isPathInside } from '../../../shared/paths.ts';
+import { WORKTREE_UNWRITABLE_FILE_NAMES, WORKTREE_UNWRITABLE_FOLDER_NAMES } from './seatbelt-profile-core.ts';
 
 const INGRESS_SOCKET_NAME = 'ingress.sock';
 const SRT_SETTINGS_NAME = 'srt.json';
@@ -22,7 +23,7 @@ const DEFAULT_ALLOWED_HOSTS: readonly string[] = Object.freeze([
 const PRIVATE_NETWORK_RANGES: readonly string[] = Object.freeze(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', 'fc00::/7']);
 
 const GLIMMERVOID_HOME_READABLE_FOLDERS: readonly string[] = Object.freeze([
-  'bin', 'runtime', 'sane-yolo', path.join('scratch', 'glimmervoid-hooks'), 'packs', 'pack-session-files', 'uploads', 'agent-homes',
+  'acp', 'bin', 'runtime', 'sane-yolo', path.join('scratch', 'glimmervoid-hooks'), 'packs', 'pack-session-files', 'uploads', 'agent-homes',
 ]);
 
 const GLIMMERVOID_HOME_WRITABLE_FOLDERS: readonly string[] = Object.freeze(['agent-homes']);
@@ -112,6 +113,10 @@ function gitMetadataDeniedWrites(repository: GitRepositoryLayout): string[] {
   return [...commonDirWrites, ...pointerWrites, ...(repository.dotGitFile === null ? [] : [repository.dotGitFile])];
 }
 
+function worktreeDeniedWrites(worktree: string): string[] {
+  return [...WORKTREE_UNWRITABLE_FILE_NAMES, ...WORKTREE_UNWRITABLE_FOLDER_NAMES].map((relativePath) => path.join(worktree, relativePath));
+}
+
 function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
   const underHome = (relativePath: string) => path.join(input.homeDir, relativePath);
   const glimmervoidFolders = [...new Set([input.glimmervoidHome, input.configFolder])];
@@ -143,7 +148,7 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
         ...writableHomePaths,
         ...revealedOwnFolders,
       ],
-      denyWrite: [...new Set(input.gitRepositories.flatMap(gitMetadataDeniedWrites))],
+      denyWrite: [...new Set([...input.gitRepositories.flatMap(gitMetadataDeniedWrites), ...worktreeDeniedWrites(input.worktree)])],
     },
     enableWeakerNetworkIsolation: input.enableWeakerNetworkIsolation,
   };

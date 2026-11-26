@@ -1,9 +1,12 @@
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { client, methods, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { ClientConnection, CreateElicitationResponse, McpServer, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "../../server/child-process-safe.ts";
+import { glimmervoidHomeDir } from "../../server/core/config-path-core.ts";
 import { errorMessage } from "../../shared/text.ts";
 import { decideAcpSend, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
 import type { AcpPhase } from "../core/acp-driver-core.ts";
@@ -29,6 +32,23 @@ function signalNumberOf(signalName: NodeJS.Signals | null): number | undefined {
 }
 
 function dropAccountPrivateExtensionNotification(): void {}
+
+const ACP_SPAWN_DIR_MODE = 0o700;
+const NPM_CONFIG_ENV_PREFIX = "npm_config_";
+
+function ensureAcpSpawnCwd(): string {
+  const spawnCwd = path.join(glimmervoidHomeDir(os.homedir(), process.env), "acp");
+  fs.mkdirSync(spawnCwd, { recursive: true, mode: ACP_SPAWN_DIR_MODE });
+  return spawnCwd;
+}
+
+function acpSpawnEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const scrubbed = withoutGlimmervoidSecrets(env);
+  for (const key of Object.keys(scrubbed)) {
+    if (key.toLowerCase().startsWith(NPM_CONFIG_ENV_PREFIX)) delete scrubbed[key];
+  }
+  return scrubbed;
+}
 
 function createAcpDriver(options: AcpDriverOptions): SessionDriver {
   const listeners = new Set<DriverListener>();
@@ -117,6 +137,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
   }
 
   function start(launch: DriverLaunch): void {
+    const spawnCwd = ensureAcpSpawnCwd();
     if (child !== null && child.pid !== undefined && (phase === "opening" || phase === "ready")) {
       options.killTree(child.pid);
     }
@@ -125,8 +146,8 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     isPromptOpen = false;
     dropQueuedPrompt();
     const agentProcess = spawn(launch.file, launch.args, {
-      cwd: launch.cwd,
-      env: withoutGlimmervoidSecrets(launch.env),
+      cwd: spawnCwd,
+      env: acpSpawnEnv(launch.env),
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });

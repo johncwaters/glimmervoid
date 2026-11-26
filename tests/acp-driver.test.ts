@@ -614,3 +614,82 @@ child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
     fs.rmSync(launchCounterDir, { recursive: true, force: true });
   }
 });
+
+test("createAcpDriver spawns the adapter in the neutral Glimmervoid folder with npm_config_* scrubbed while session/new carries the repository path", { timeout: 30_000 }, async () => {
+  const repositoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-untrusted-repo-"));
+  const reportFile = path.join(repositoryDir, "spawn-report.json");
+  const probeScript = `
+import fs from "node:fs";
+import readline from "node:readline";
+const reportPath = process.argv[1];
+const input = readline.createInterface({ input: process.stdin });
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+input.on("line", (line) => {
+  if (!line.trim()) return;
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    return;
+  }
+  if (message.method === "session/new") {
+    const npmConfigKeys = Object.keys(process.env).filter((key) => key.toLowerCase().startsWith("npm_config_"));
+    fs.writeFileSync(reportPath, JSON.stringify({
+      processCwd: process.cwd(),
+      sessionNewCwd: message.params?.cwd ?? null,
+      npmConfigKeys,
+    }), "utf8");
+    send({ jsonrpc: "2.0", id: message.id, result: { sessionId: "probe-session-1" } });
+  }
+});
+`;
+  const reaper = createSessionProcessReaper({
+    platform: process.platform,
+    killProc: (args, options, callback) => execFile("taskkill", args, options, callback),
+    signalProc: (pid, signal) => process.kill(pid, signal),
+    stopScope: async () => {},
+    port: { isDestroyed: () => false, emitError: (error) => assert.fail(String(error)) },
+  });
+  const driver = createAcpDriver({
+    clientName: "glimmervoid",
+    clientVersion: "test",
+    mcpServers: [],
+    killTree: (pid) => reaper.kill(pid),
+  });
+  try {
+    const openedAndExited = new Promise<void>((resolve) => {
+      driver.subscribe((event) => {
+        if (event.kind === "failure") assert.fail(`driver failure at ${event.stage}: ${event.message}`);
+        if (event.kind === "agent-session") assert.equal(driver.stop(), true);
+        if (event.kind === "exit") resolve();
+      });
+    });
+    driver.start({
+      file: process.execPath,
+      args: ["--input-type=module", "-e", probeScript, "--", reportFile],
+      cwd: repositoryDir,
+      env: {
+        ...process.env,
+        npm_config_registry: "http://127.0.0.1:1/",
+        NPM_CONFIG_USERCONFIG: path.join(repositoryDir, "untrusted-config"),
+      },
+      scopeUnit: null,
+      resumeAgentSessionId: null,
+    });
+    await openedAndExited;
+
+    const report = JSON.parse(fs.readFileSync(reportFile, "utf8")) as {
+      processCwd: string;
+      sessionNewCwd: string | null;
+      npmConfigKeys: string[];
+    };
+    const glimmervoidHome = process.env.GLIMMERVOID_HOME ?? "";
+    assert.ok(glimmervoidHome.length > 0);
+    const expectedNeutralDir = path.join(glimmervoidHome, "acp");
+    assert.notEqual(fs.realpathSync(report.processCwd), fs.realpathSync(repositoryDir));
+    assert.equal(fs.realpathSync(report.processCwd), fs.realpathSync(expectedNeutralDir));
+    assert.equal(report.sessionNewCwd, repositoryDir);
+    assert.deepEqual(report.npmConfigKeys, []);
+  } finally {
+    fs.rmSync(repositoryDir, { recursive: true, force: true });
+  }
+});

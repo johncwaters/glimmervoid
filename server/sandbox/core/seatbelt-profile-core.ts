@@ -254,4 +254,4 @@ function buildSeatbeltProfile(policy: SeatbeltPolicy): string {
   ].join('\n');
 }
 
-export { buildSeatbeltProfile };
+export { WORKTREE_UNWRITABLE_FILE_NAMES, WORKTREE_UNWRITABLE_FOLDER_NAMES, buildSeatbeltProfile };
