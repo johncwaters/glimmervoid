@@ -10,6 +10,7 @@ import {
   DEFAULT_COW_SHARED_HIDDEN_DIRS,
   DEFAULT_COW_WARM_INTERVAL_MS,
   filterIgnoredBuildDirs,
+  hasDisallowedResolvedSegment,
   isCowDisabledByEnv,
   isDisallowedStagedEntry,
   isWarmStale,
@@ -71,9 +72,37 @@ async function pathExists(targetPath: string): Promise<boolean> {
   return fsp.lstat(targetPath).then(() => true, () => false);
 }
 
+async function makeDirsWritable(targetPath: string): Promise<void> {
+  const pendingDirs = [targetPath];
+  while (pendingDirs.length > 0) {
+    const currentDir = pendingDirs.pop();
+    if (currentDir === undefined) break;
+    const stat = await fsp.lstat(currentDir).catch(() => null);
+    if (!stat?.isDirectory()) continue;
+    await fsp.chmod(currentDir, stat.mode | 0o700).catch(() => {});
+    const entries = await fsp.readdir(currentDir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (entry.isDirectory()) pendingDirs.push(path.join(currentDir, entry.name));
+    }
+  }
+}
+
+async function removeTreeStrict(targetPath: string): Promise<void> {
+  try {
+    await fsp.rm(targetPath, { recursive: true, force: true });
+  } catch {
+    await makeDirsWritable(targetPath);
+    await fsp.rm(targetPath, { recursive: true, force: true });
+  }
+}
+
+async function removeTreeForce(targetPath: string): Promise<void> {
+  await removeTreeStrict(targetPath).catch(() => {});
+}
+
 async function removeWorktreeDir(gitOps: Pick<CowWorktreeGitOps, 'removeWorktreeForce'>, targetPath: string): Promise<void> {
   await gitOps.removeWorktreeForce(targetPath).catch(() => {});
-  await fsp.rm(targetPath, { recursive: true, force: true }).catch(() => {});
+  await removeTreeForce(targetPath);
 }
 
 async function defaultCanCloneDirs(sourceDir: string, targetDir: string): Promise<boolean> {
@@ -212,15 +241,33 @@ async function stripDisallowedStagedEntries(stagingPath: string, allowedHiddenDi
     const currentDir = pendingDirs.pop();
     if (currentDir === undefined) break;
     const entries = await fsp.readdir(currentDir, { withFileTypes: true }).catch(() => []);
+    const disallowedPaths: string[] = [];
     for (const entry of entries) {
       const entryPath = path.join(currentDir, entry.name);
-      if (isDisallowedStagedEntry(entry.name, entry.isDirectory(), allowedHiddenDirs)) {
-        await fsp.rm(entryPath, { recursive: true, force: true }).catch(() => {});
+      if (isDisallowedStagedEntry(entry.name, entry.isDirectory() || entry.isSymbolicLink(), allowedHiddenDirs)) {
+        disallowedPaths.push(entryPath);
         continue;
       }
       if (entry.isDirectory()) pendingDirs.push(entryPath);
     }
+    if (disallowedPaths.length === 0) continue;
+    const parentStat = await fsp.lstat(currentDir);
+    const parentWasReadOnly = (parentStat.mode & 0o200) === 0;
+    if (parentWasReadOnly) await fsp.chmod(currentDir, parentStat.mode | 0o700);
+    try {
+      for (const disallowedPath of disallowedPaths) await removeTreeStrict(disallowedPath);
+    } finally {
+      if (parentWasReadOnly) await fsp.chmod(currentDir, parentStat.mode).catch(() => {});
+    }
   }
+}
+
+async function renameStagedDir(stagingPath: string, destinationDir: string): Promise<void> {
+  const stagingStat = await fsp.lstat(stagingPath);
+  const stagingWasReadOnly = stagingStat.isDirectory() && (stagingStat.mode & 0o200) === 0;
+  if (stagingWasReadOnly) await fsp.chmod(stagingPath, stagingStat.mode | 0o700);
+  await fsp.rename(stagingPath, destinationDir);
+  if (stagingWasReadOnly) await fsp.chmod(destinationDir, stagingStat.mode).catch(() => {});
 }
 
 async function warmTemplateBuildDirs(options: {
@@ -240,29 +287,30 @@ async function warmTemplateBuildDirs(options: {
   const trackedAncestors = trackedAncestorDirsFrom(trackedListing.out);
   const candidateDirs = filterIgnoredBuildDirs(ignoredListing.out, sharedHiddenDirs, trackedAncestors);
   const allowedHiddenDirs = new Set(sharedHiddenDirs);
+  const isDisallowedTarget = (resolvedSegments: readonly string[]) => hasDisallowedResolvedSegment(resolvedSegments, allowedHiddenDirs);
   for (const relativeDir of candidateDirs) {
     const sourceDir = path.join(sourceCheckoutDir, relativeDir);
     if (!(await pathExists(sourceDir))) continue;
     if (await hasSymlinkAncestorInTemplate(templatePaths.templateDir, relativeDir)) continue;
     const stagingPath = path.join(templatePaths.warmStagingDir, path.basename(relativeDir));
     const markerPath = `${templatePaths.warmStagingDir}.started`;
-    await fsp.rm(templatePaths.warmStagingDir, { recursive: true, force: true }).catch(() => {});
+    await removeTreeForce(templatePaths.warmStagingDir);
     await fsp.mkdir(templatePaths.warmStagingDir, { recursive: true });
     await fsp.writeFile(markerPath, '');
     try {
       if (!(await cloneEntry(sourceDir, stagingPath, cloneFlags))) continue;
       await stripDisallowedStagedEntries(stagingPath, allowedHiddenDirs);
-      if ((await findEscapingSymlink(relativeDir, stagingPath)) !== null) continue;
+      if ((await findEscapingSymlink(relativeDir, stagingPath, isDisallowedTarget)) !== null) continue;
       if ((await checkSourceChangedSince(sourceDir, markerPath)) !== null) continue;
       if (await hasSymlinkAncestorInTemplate(templatePaths.templateDir, relativeDir)) continue;
       const destinationDir = path.join(templatePaths.templateDir, relativeDir);
-      await fsp.rm(destinationDir, { recursive: true, force: true }).catch(() => {});
+      await removeTreeForce(destinationDir);
       await fsp.mkdir(path.dirname(destinationDir), { recursive: true });
-      await fsp.rename(stagingPath, destinationDir);
+      await renameStagedDir(stagingPath, destinationDir);
     } catch {
     } finally {
       await fsp.rm(markerPath, { force: true }).catch(() => {});
-      await fsp.rm(templatePaths.warmStagingDir, { recursive: true, force: true }).catch(() => {});
+      await removeTreeForce(templatePaths.warmStagingDir);
     }
   }
 }

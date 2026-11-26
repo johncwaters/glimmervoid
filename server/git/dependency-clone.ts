@@ -470,13 +470,14 @@ async function resolveStagedSymlinkChain(
   stagingPath: string,
   linkPathInCheckout: string,
   initialTarget: string,
+  isDisallowedResolvedPath?: (resolvedSegments: readonly string[]) => boolean,
 ): Promise<boolean> {
   const normalizedPrefix = normalizePosixRelative(pathPrefixInCheckout).replace(/\/+$/, '');
   const prefixSegments = normalizedPrefix ? normalizedPrefix.split('/').filter(Boolean) : [];
   if (!isLinkInsideCheckout(linkPathInCheckout, initialTarget)) return false;
 
   const linkSegments = normalizePosixRelative(linkPathInCheckout).split('/').filter(Boolean);
-  let resolvedSegments = linkSegments.slice(0, -1);
+  const resolvedSegments = linkSegments.slice(0, -1);
   let pendingSegments = initialTarget.replace(/\\/g, '/').split('/').filter(Boolean);
   let hops = 0;
 
@@ -503,17 +504,22 @@ async function resolveStagedSymlinkChain(
     resolvedSegments.pop();
     pendingSegments = [...nextTarget.replace(/\\/g, '/').split('/').filter(Boolean), ...pendingSegments];
   }
+  if (isDisallowedResolvedPath?.(resolvedSegments)) return false;
   return true;
 }
 
-export async function findEscapingSymlink(pathPrefixInCheckout: string, stagingPath: string): Promise<'failed' | 'outside-link' | null> {
+export async function findEscapingSymlink(
+  pathPrefixInCheckout: string,
+  stagingPath: string,
+  isDisallowedResolvedPath?: (resolvedSegments: readonly string[]) => boolean,
+): Promise<'failed' | 'outside-link' | null> {
   const links = await runCommand('find', [stagingPath, '-type', 'l', '-print0'], { timeoutMs: CLONE_TIMEOUT_MS, maxBuffer: LINK_LIST_MAX_BYTES, trim: false });
   if (!links.ok) return 'failed';
   for (const linkPath of links.out.split('\0').filter(Boolean)) {
     const linkTarget = await fsp.readlink(linkPath).catch(() => null);
     if (linkTarget === null) return 'failed';
     const linkPathInCheckout = path.join(pathPrefixInCheckout, path.relative(stagingPath, linkPath));
-    if (!(await resolveStagedSymlinkChain(pathPrefixInCheckout, stagingPath, linkPathInCheckout, linkTarget))) return 'outside-link';
+    if (!(await resolveStagedSymlinkChain(pathPrefixInCheckout, stagingPath, linkPathInCheckout, linkTarget, isDisallowedResolvedPath))) return 'outside-link';
   }
   return null;
 }

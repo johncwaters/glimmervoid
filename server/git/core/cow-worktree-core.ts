@@ -81,10 +81,19 @@ export function trackedAncestorDirsFrom(lsFilesNulOutput: string): Set<string> {
   return trackedPaths;
 }
 
-export function isDisallowedStagedEntry(entryName: string, isDirectory: boolean, allowedHiddenDirs: ReadonlySet<string>): boolean {
+export function isDisallowedStagedEntry(entryName: string, isDirectoryOrLink: boolean, allowedHiddenDirs: ReadonlySet<string>): boolean {
   if (EXCLUDED_BUILD_DIRS.has(entryName)) return true;
   if (entryName.startsWith('.env')) return true;
-  if (isDirectory && entryName.startsWith('.') && !allowedHiddenDirs.has(entryName)) return true;
+  if (isDirectoryOrLink && entryName.startsWith('.') && !allowedHiddenDirs.has(entryName)) return true;
+  return false;
+}
+
+export function hasDisallowedResolvedSegment(resolvedSegments: readonly string[], allowedHiddenDirs: ReadonlySet<string>): boolean {
+  for (let segmentIndex = 0; segmentIndex < resolvedSegments.length; segmentIndex += 1) {
+    const segment = resolvedSegments[segmentIndex];
+    const isDirOrHiddenSegment = segmentIndex < resolvedSegments.length - 1 || segment.startsWith('.');
+    if (isDisallowedStagedEntry(segment, isDirOrHiddenSegment, allowedHiddenDirs)) return true;
+  }
   return false;
 }
 

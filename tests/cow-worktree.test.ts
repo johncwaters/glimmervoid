@@ -329,3 +329,72 @@ test('createGitWorkspace blocks chained symlink escapes, symlink template ancest
   });
   assert.equal(blockedFallbackWorkspace.isGit, true);
 });
+
+test('createGitWorkspace blocks symlinks targeting hidden/secret paths inside build dirs and re-warms read-only 0555 build caches', async (context) => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-cow-gaps-'));
+  context.after(() => {
+    try { execFileSync('chmod', ['-R', 'u+w', sandbox]); } catch {}
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  const repoDir = createTestRepo(sandbox);
+  fs.appendFileSync(path.join(repoDir, '.gitignore'), 'dist/\ngocache/\nro-root/\n');
+  gitSync(repoDir, ['add', '.gitignore']);
+  gitSync(repoDir, ['commit', '-m', 'ignore dist, gocache, and ro-root']);
+
+  fs.mkdirSync(path.join(repoDir, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, '.claude', 'creds.json'), 'SECRET_AGENT_CRED');
+  fs.mkdirSync(path.join(repoDir, 'dist'), { recursive: true });
+  fs.symlinkSync('../.claude/creds.json', path.join(repoDir, 'dist', 'alias.json'));
+
+  const readOnlyCacheDir = path.join(repoDir, 'gocache', 'mod');
+  fs.mkdirSync(path.join(readOnlyCacheDir, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(readOnlyCacheDir, '.claude', 'creds.json'), 'NESTED_SECRET');
+  fs.writeFileSync(path.join(readOnlyCacheDir, 'file.go'), 'v1');
+  fs.chmodSync(path.join(readOnlyCacheDir, 'file.go'), 0o444);
+  fs.chmodSync(readOnlyCacheDir, 0o555);
+
+  const readOnlyRootDir = path.join(repoDir, 'ro-root');
+  fs.mkdirSync(readOnlyRootDir, { recursive: true });
+  fs.writeFileSync(path.join(readOnlyRootDir, 'data.bin'), 'ro-ok');
+  fs.chmodSync(path.join(readOnlyRootDir, 'data.bin'), 0o444);
+  fs.chmodSync(readOnlyRootDir, 0o555);
+
+  const worktreeBase = path.join(sandbox, 'worktrees');
+  const gitWorkspace = createGitWorkspace({
+    cow: {
+      canClone: async () => true,
+      cloneDir: copyEntryForTest,
+      warmIntervalMs: 0,
+    },
+  });
+
+  const firstWorkspace = await gitWorkspace.create({
+    projectPath: repoDir,
+    owner: 'session:gap1',
+    teamId: 'session',
+    label: 'gap1',
+    worktreeBase,
+  });
+  assert.equal(firstWorkspace.isGit, true);
+  assert.equal(fs.existsSync(path.join(firstWorkspace.cwd, 'dist')), false);
+  assert.equal(fs.existsSync(path.join(firstWorkspace.cwd, 'gocache', 'mod', '.claude')), false);
+  assert.equal(fs.readFileSync(path.join(firstWorkspace.cwd, 'gocache', 'mod', 'file.go'), 'utf8'), 'v1');
+  assert.equal(fs.readFileSync(path.join(firstWorkspace.cwd, 'ro-root', 'data.bin'), 'utf8'), 'ro-ok');
+
+  fs.chmodSync(readOnlyCacheDir, 0o755);
+  fs.chmodSync(path.join(readOnlyCacheDir, 'file.go'), 0o644);
+  fs.writeFileSync(path.join(readOnlyCacheDir, 'file.go'), 'v2');
+  fs.chmodSync(path.join(readOnlyCacheDir, 'file.go'), 0o444);
+  fs.chmodSync(readOnlyCacheDir, 0o555);
+
+  const secondWorkspace = await gitWorkspace.create({
+    projectPath: repoDir,
+    owner: 'session:gap2',
+    teamId: 'session',
+    label: 'gap2',
+    worktreeBase,
+  });
+  assert.equal(secondWorkspace.isGit, true);
+  assert.equal(fs.readFileSync(path.join(secondWorkspace.cwd, 'gocache', 'mod', 'file.go'), 'utf8'), 'v2');
+});

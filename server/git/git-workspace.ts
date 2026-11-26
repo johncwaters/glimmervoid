@@ -639,6 +639,7 @@ function createGitWorkspace(opts: {
   async function tearDownWorktree(projectPath: string, wt: string, branch: string | null | undefined): Promise<void> {
     const admission = await admitRemoval({ cause: 'merge', kind: 'worktree', projectPath, path: wt, branch: branch ?? null });
     if (!admission.admitted) return;
+    removeWorktreeLinks(wt);
     await warmCowTemplateFromWorktree({
       projectPath,
       worktreePath: wt,
@@ -646,7 +647,6 @@ function createGitWorkspace(opts: {
       gitOps: { runGit: run },
       ...opts.cow,
     }).catch(() => {});
-    removeWorktreeLinks(wt);
     await removeWorktreeEntry(runInProject(projectPath), wt, ['--force']);
     await pruneWorktreeEntries(runInProject(projectPath));
     if (branch) await run(['branch', '-D', branch], projectPath);
