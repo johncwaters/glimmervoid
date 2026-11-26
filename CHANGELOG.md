@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-11-26
+
 ### Added
 
 - **Attach any file type from the Chat view.** Clicking the paperclip button in Chat now opens an unrestricted file picker instead of photos only, and non-image attachments render as compact file chips in the composer and chat history.
