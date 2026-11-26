@@ -59,7 +59,7 @@ These areas stay on as today and take fixes for crashes, data loss and security 
 - Arena: `public/arena/`, `server/race/`
 - Radar: `server/radar/`, `public/radar/`
 - Community: `server/community/`, `public/community/`
-- Team Review: `server/github/`, `server/review/`, `public/github/`, `public/review/`
+- Team Review: `server/github/`, `public/github/`
 - Usage: `server/usage/`, `public/usage/`
 - Celebration extras (flying animals, nyan cat, merge celebration): `public/animals/`, `public/flying-animal*`, `public/nyan-*`, `public/merge-celebration*`
 
