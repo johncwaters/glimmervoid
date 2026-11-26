@@ -22,6 +22,8 @@ import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } fro
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { createCodemapService } from '../server/codemap/codemap-wiring.ts';
+import { createBoardAsks } from '../server/whiteboard/board-ask.ts';
+import { CODEMAP_AUTHOR } from '../shared/contracts/whiteboard-ops-core.ts';
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { openBoardStore, openWhiteboardWiring, restartWhiteboardWiring } from './helpers/whiteboard-closables.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
@@ -2928,4 +2930,75 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   const looped = await runs.run(boardId, ports);
   assert.equal(looped.status, 409);
   assert.match(String((looped.body as { error?: string }).error), /never finishes/);
+});
+
+test('whiteboard ask does not fail the asking session board-layout check when its about wire crosses codemap wires', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-ask-layout-'));
+  const repoDir = path.join(boardsRoot, 'repo');
+  fs.mkdirSync(repoDir, { recursive: true });
+  const wiring = openWhiteboardWiring({ boardsRoot });
+  const codemapCaller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
+  const asker = { id: 'asker-session', name: 'dispatcher', path: repoDir };
+
+  const createdMap = await wiring.handleAgent(codemapCaller, { sub: 'new', title: 'Code map' });
+  assert.equal(createdMap.status, 200);
+  const mapBoardId = (createdMap.body as { board: { id: string } }).board.id;
+  const mapOps = z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'cm-target', title: 'server/whiteboard', place: { at: { x: 40, y: 240 } } } },
+    { op: 'add', element: { kind: 'box', id: 'cm-north-1', title: 'north 1', place: { at: { x: 360, y: 40 } } } },
+    { op: 'add', element: { kind: 'box', id: 'cm-south-1', title: 'south 1', place: { at: { x: 360, y: 460 } } } },
+    { op: 'add', element: { kind: 'wire', id: 'cm-wall-1', from: 'cm-north-1', to: 'cm-south-1' } },
+    { op: 'add', element: { kind: 'box', id: 'cm-north-2', title: 'north 2', place: { at: { x: 520, y: 40 } } } },
+    { op: 'add', element: { kind: 'box', id: 'cm-south-2', title: 'south 2', place: { at: { x: 520, y: 460 } } } },
+    { op: 'add', element: { kind: 'wire', id: 'cm-wall-2', from: 'cm-north-2', to: 'cm-south-2' } },
+  ]);
+  assert.equal((await wiring.putWithoutReadCheck(codemapCaller, mapBoardId, mapOps)).status, 200);
+
+  const delivered: Array<{ sessionId: string; text: string }> = [];
+  const boardAsks = createBoardAsks({
+    boards: wiring,
+    mapOf: async () => ({ ok: true, boardId: mapBoardId, boxIdByPath: { 'server/whiteboard/board-ask.ts': 'cm-target' } }),
+    sendToSession: (sessionId, text) => {
+      delivered.push({ sessionId, text });
+      return { ok: true };
+    },
+  });
+
+  const asked = await boardAsks.ask(asker, { about: 'server/whiteboard/board-ask.ts', question: 'Keep the dashed about wire?', options: ['Yes', 'No'] });
+  assert.equal(asked.status, 200);
+  assert.equal(asked.body.ok, true);
+  const askId = (asked.body as { ok: true; ask: string }).ask;
+  const aboutWireId = `${askId}-about`;
+
+  const mapBoard = await wiring.boardOf(mapBoardId);
+  assert.ok(mapBoard);
+  const askBox = mapBoard.elements.get(askId);
+  const aboutWire = mapBoard.elements.get(aboutWireId);
+  assert.ok(askBox?.kind === 'box' && askBox.author === asker.name && askBox.ask?.sessionId === asker.id);
+  assert.ok(aboutWire?.kind === 'wire' && aboutWire.from === askId && aboutWire.to === 'cm-target' && aboutWire.dashed === true);
+  const mapWarnings = layoutBoard(mapBoard).warnings;
+  assert.ok(mapWarnings.some((warning) => warning.includes(aboutWireId) && warning.includes('crosses wire')), `expected crossing warning naming ${aboutWireId}, got: ${JSON.stringify(mapWarnings)}`);
+
+  assert.deepEqual(await wiring.layoutChecksOf(asker.id), []);
+  assert.deepEqual(await openWhiteboardWiring({ boardsRoot }).layoutChecksOf(asker.id), []);
+
+  assert.equal((await wiring.handleAgent({ id: asker.id, name: asker.name, project: repoDir }, { sub: 'connect', board: mapBoardId })).status, 200);
+  assert.equal((await wiring.handleAgent({ id: asker.id, name: asker.name, project: repoDir }, { sub: 'get', board: mapBoardId })).status, 200);
+  assert.equal((await wiring.handleAgent({ id: asker.id, name: asker.name, project: repoDir }, { sub: 'put', board: mapBoardId, ops: z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'plan-north', title: 'Plan north', place: { at: { x: 780, y: 40 } } } },
+    { op: 'add', element: { kind: 'box', id: 'plan-south', title: 'Plan south', place: { at: { x: 780, y: 460 } } } },
+    { op: 'add', element: { kind: 'wire', id: 'plan-wire', from: 'plan-north', to: 'plan-south' } },
+  ]) })).status, 200);
+  const mapBoardWithPlan = await wiring.boardOf(mapBoardId);
+  assert.ok(mapBoardWithPlan);
+  assert.ok(layoutBoard(mapBoardWithPlan).warnings.some((warning) => warning.includes(aboutWireId) && warning.includes('plan-wire')));
+  const [layoutCheck] = await wiring.layoutChecksOf(asker.id);
+  assert.equal(layoutCheck?.status, 'pass', `expected board-layout pass with about wire crossing session wire on map, got: ${JSON.stringify(layoutCheck)}`);
+
+  const answered = await boardAsks.answer(mapBoardId, askId, 'Yes');
+  assert.deepEqual(answered, { ok: true });
+  assert.deepEqual(delivered, [{ sessionId: asker.id, text: 'Answer to your board question "Keep the dashed about wire?": Yes' }]);
+  const mapBoardAfterAnswer = await wiring.boardOf(mapBoardId);
+  assert.equal(mapBoardAfterAnswer?.elements.has(askId), false);
+  assert.equal(mapBoardAfterAnswer?.elements.has(aboutWireId), false);
 });

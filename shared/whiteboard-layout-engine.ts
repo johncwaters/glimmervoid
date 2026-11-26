@@ -877,10 +877,30 @@ function bookUnbookedWarnings(world: LayoutWorld): void {
   world.unbookedWarningLists = null;
 }
 
+function askElementIdsOf(board: Board): Set<string> {
+  const askBoxIds = new Set<string>();
+  for (const box of board.elements.valuesOfKind('box')) {
+    if (box.ask !== null) askBoxIds.add(box.id);
+  }
+  if (askBoxIds.size === 0) return askBoxIds;
+  const askIds = new Set(askBoxIds);
+  for (const wire of board.elements.valuesOfKind('wire')) {
+    if ((typeof wire.from === 'string' && askBoxIds.has(wire.from)) || (typeof wire.to === 'string' && askBoxIds.has(wire.to))) askIds.add(wire.id);
+  }
+  return askIds;
+}
+
 function warningsNamingOfWorld(world: LayoutWorld, elementIds: readonly string[]): string[] {
   bookUnbookedWarnings(world);
+  const askIds = askElementIdsOf(world.board);
   const books = [world.routeWarnings, world.placementWarnings];
-  return [...new Set(elementIds.flatMap((elementId) => books.flatMap((book) => [...book.textsById.get(elementId) ?? []])))];
+  return [...new Set(elementIds.flatMap((elementId) => books.flatMap((book) =>
+    [...book.textsById.get(elementId) ?? []].filter((text) => {
+      if (askIds.size === 0) return true;
+      const warning = book.warningByText.get(text);
+      return !warning || !warning.elementIds.some((id) => askIds.has(id));
+    }),
+  )))];
 }
 
 function warningsOfWorld(world: LayoutWorld): string[] {

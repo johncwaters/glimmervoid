@@ -846,14 +846,14 @@ function createWhiteboardWiring({
     return applyPut(boardId, () => ops, author, { refusalOf });
   }
 
-  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author, { confirmsRefs = true, refusalOf = noPutRefusal }: { confirmsRefs?: boolean; refusalOf?: PutRefusalCheck } = {}): Promise<WhiteboardReply> {
+  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author, { confirmsRefs = true, isAuthoring, refusalOf = noPutRefusal }: { confirmsRefs?: boolean; isAuthoring?: boolean; refusalOf?: PutRefusalCheck } = {}): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const ops = opsOf(record.board);
       const linkProblem = ops.flatMap((op) => (op.op === 'board' && typeof op.link === 'string' ? [linkPathProblem(op.link)] : [])).find((problemText) => problemText !== null);
       if (linkProblem) return { ok: false, reply: refusal(400, `${linkProblem}, so nothing changed`) };
       if (ops.length === 0) return { ok: true, record, reply: { status: 200, body: { ok: true, version: record.board.version } } };
       const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
-      const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author, { confirmsRefs });
+      const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author, { confirmsRefs, ...(isAuthoring === undefined ? {} : { isAuthoring }) });
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const putRefusal = refusalOf(record, applied.staged.afterById);
       if (putRefusal) return { ok: false, reply: refusal(409, `${putRefusal}, so nothing changed`) };
@@ -1870,7 +1870,7 @@ function createWhiteboardWiring({
 
   async function putAsks(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
     await loaded;
-    return applyPut(boardId, () => ops, { ...author, setsAsks: true }, { confirmsRefs: false });
+    return applyPut(boardId, () => ops, { ...author, setsAsks: true }, { confirmsRefs: false, isAuthoring: false });
   }
 
   async function anchorNear(board: Board, card: ServerCard, pinnedOffsetY: number): Promise<{ rect: Rect; boxesNear: Rect[] } | null> {
