@@ -308,7 +308,7 @@ function boardChangeTextOf(card: ChatCardByType['board-change']): HTMLElement {
   return text;
 }
 
-export function showOnBoardButton(onShow: () => void, shortcutKey?: string): HTMLButtonElement {
+function showOnBoardButton(onShow: () => void, shortcutKey?: string): HTMLButtonElement {
   return button({ variant: 'primary', size: 'small', textCase: 'inline', label: 'Show on board', shortcutKey, onClick: onShow });
 }
 

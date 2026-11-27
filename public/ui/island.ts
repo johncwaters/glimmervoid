@@ -86,19 +86,28 @@ function registerIslandWatch(rootNode: WatchRoot, entry: MountedIslandEntry): ()
   };
 }
 
-export function mountIsland(host: HTMLElement, renderRoot: () => JSX.Element): () => void {
-  const initialLifecycle: IslandLifecycle = host.isConnected ? 'connected' : 'pending';
+interface MountIslandOptions {
+  lifecycleHost?: HTMLElement;
+}
+
+export function mountIsland(
+  host: HTMLElement,
+  renderRoot: () => JSX.Element,
+  options?: MountIslandOptions,
+): () => void {
+  const watchedHost = options?.lifecycleHost ?? host;
+  const initialLifecycle: IslandLifecycle = watchedHost.isConnected ? 'connected' : 'pending';
   const disposeSolid = render(renderRoot, host);
 
-  if (initialLifecycle === 'connected' && !host.isConnected) {
+  if (initialLifecycle === 'connected' && !watchedHost.isConnected) {
     disposeSolid();
     return () => {};
   }
 
-  const rootNode = watchRootOf(host);
+  const rootNode = watchRootOf(watchedHost);
   const entry: MountedIslandEntry = {
-    host,
-    lifecycle: host.isConnected ? 'connected' : initialLifecycle,
+    host: watchedHost,
+    lifecycle: watchedHost.isConnected ? 'connected' : initialLifecycle,
     rootNode,
     unregister: () => {},
     dispose: () => {},

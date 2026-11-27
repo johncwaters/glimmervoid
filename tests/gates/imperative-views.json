@@ -7,7 +7,6 @@
   "public/board-session/agent-waits.ts",
   "public/board-session/ask-card.ts",
   "public/board-session/board-session-view.ts",
-  "public/board-session/dock.ts",
   "public/board-session/presence-layer.ts",
   "public/board-session/studio-diff-panel.ts",
   "public/board-session/studio-guide.ts",

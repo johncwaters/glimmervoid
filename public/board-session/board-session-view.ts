@@ -30,7 +30,7 @@ import { firstViewCamera, readableFloorScale, viewMovedToShow } from './board-se
 import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
-import { createDock } from './dock.ts';
+import { mountDockIsland } from './Dock.tsx';
 import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
@@ -52,7 +52,7 @@ import { RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
 import { createAgentWaits } from './agent-waits.ts';
 import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
-import type { Dock, DockBranch } from './dock.ts';
+import type { DockBranch, DockHandle } from './Dock.tsx';
 import { branchSessionIdsOf, placeTitleOf } from './branch-core.ts';
 import { isStudioSession } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
@@ -128,7 +128,7 @@ const ASK_VIEW_TOP_MARGIN_PX = 64;
 const ASK_VIEW_SIDE_MARGIN_PX = 24;
 let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let shownFixedAreas: readonly Rect[] = [];
-let dock: Dock | null = null;
+let dock: DockHandle | null = null;
 let boxesRequestSerial = 0;
 let inFlightBoxesSessionId: string | null = null;
 let lastSeenBoardVersion: number | null = null;
@@ -776,7 +776,7 @@ function mountDock(): void {
   const sessionId = studioCollection.state.shownSessionId;
   if (!parts || sessionId === null) return;
   const ui = sessionUIs.get(sessionId);
-  dock = createDock({
+  dock = mountDockIsland(parts.dockSlot, parts.root, {
     sessionId,
     name: ORCHESTRATOR_TEXT,
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? ui?.path ?? null,
@@ -796,7 +796,6 @@ function mountDock(): void {
     mapBoardId: () => studioCollection.state.boardId,
     showBoardChange,
   });
-  parts.dockSlot.append(dock.element);
   staleRequests.add('dock');
   syncBranches();
 }
