@@ -1780,6 +1780,14 @@
     {
       "name": "verification",
       "definition": "The per-repository commands and built-in checks (such as board layout and codemap imports) Glimmervoid runs in a session worktree at turn end and before landing, configured under verification in config.json and shown in the Checked at turn end panel"
+    },
+    {
+      "name": "op",
+      "definition": "One whiteboard mutation operation (add, set, remove, board, align, or order) sent in a whiteboard put call, defined by the Op discriminated union in shared/contracts/whiteboard.ts."
+    },
+    {
+      "name": "initialize",
+      "definition": "The first Agent Client Protocol (ACP) JSON-RPC request Glimmervoid sends an ACP agent process on stdio to negotiate protocol version and capabilities before session/new or session/load, sent in session/drivers/acp-driver.ts."
     }
   ],
   "retired": [
