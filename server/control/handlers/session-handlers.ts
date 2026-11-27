@@ -307,8 +307,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT }, { alwaysSendError: true });
       return;
     }
-    const approvalId = msg.approvalRequestId ?? msg.requestId;
-    if (approvalId !== null && approvalId !== undefined && session.answerConversationApproval(approvalId, msg.answers)) {
+    if (session.answerConversationApproval(msg.approvalRequestId, msg.answers)) {
       replySessionAction(ws, msg, { id: session.id, ok: true });
       return;
     }
@@ -321,8 +320,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT }, { alwaysSendError: true });
       return;
     }
-    const approvalId = msg.approvalRequestId ?? msg.requestId;
-    if (approvalId !== null && approvalId !== undefined && session.decideConversationApproval(approvalId, msg.decision, msg.message ?? null)) {
+    if (session.decideConversationApproval(msg.approvalRequestId, msg.decision, msg.message ?? null)) {
       replySessionAction(ws, msg, { id: session.id, ok: true });
       return;
     }

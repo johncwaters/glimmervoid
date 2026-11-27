@@ -79,7 +79,7 @@ export const ElicitationRequest = z.strictObject({
 });
 
 export const ConversationApproval = z.object({
-  requestId: z.union([z.string().min(1).max(128), z.number().int()]),
+  requestId: z.string().min(1).max(128),
   kind: z.enum(['question', 'permission', 'elicitation']),
   toolName: z.string().min(1).max(200).optional(),
   summary: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),

@@ -61,7 +61,7 @@ test('Chat reads a held question from the session status and answers it and send
     assert.equal(approval?.questions?.[0]?.question, 'Which store?');
     await new Promise((resolve) => setImmediate(resolve));
 
-    connection.send({ type: 'answer-approval', id: session.id, requestId: approval?.requestId, answers: { 'Which store?': 'postgres' } });
+    connection.send({ type: 'answer-approval', id: session.id, approvalRequestId: approval?.requestId, answers: { 'Which store?': 'postgres' } });
     const reply = await held;
     assert.deepEqual(permissionRequestDecisionOf(reply)?.behavior, 'allow');
     assert.match(JSON.stringify(reply), /postgres/);
@@ -69,7 +69,7 @@ test('Chat reads a held question from the session status and answers it and send
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(approvalFrames.map((frame) => (frame === null ? null : (frame as { kind: string }).kind)), ['question', null]);
 
-    connection.send({ type: 'answer-approval', id: session.id, requestId: approval?.requestId, answers: { 'Which store?': 'sqlite' } });
+    connection.send({ type: 'answer-approval', id: session.id, approvalRequestId: approval?.requestId, answers: { 'Which store?': 'sqlite' } });
     assert.equal(connection.sent.at(-1)?.type, 'error');
 
     const heldToDismiss = session.holdConversationPermission(QUESTION_REQUEST, new AbortController().signal);
@@ -78,10 +78,10 @@ test('Chat reads a held question from the session status and answers it and send
     session.transition('prompt_detected');
     assert.equal(session.state, 'WAITING');
     const errorsBeforeAllow = connection.sent.filter((sent) => sent.type === 'error').length;
-    connection.send({ type: 'decide-approval', id: session.id, requestId: dismissedRequestId, decision: 'allow' });
+    connection.send({ type: 'decide-approval', id: session.id, approvalRequestId: dismissedRequestId, decision: 'allow' });
     assert.equal(connection.sent.filter((sent) => sent.type === 'error').length, errorsBeforeAllow + 1);
     const dismissalStateChange = once(session, 'state-change');
-    connection.send({ type: 'decide-approval', id: session.id, requestId: dismissedRequestId, decision: 'deny' });
+    connection.send({ type: 'decide-approval', id: session.id, approvalRequestId: dismissedRequestId, decision: 'deny' });
     const dismissal = permissionRequestDecisionOf(await heldToDismiss);
     assert.equal(dismissal?.behavior, 'deny');
     assert.equal(dismissal?.interrupt, true);

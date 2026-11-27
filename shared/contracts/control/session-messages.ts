@@ -12,7 +12,7 @@ import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, looseCollect
 
 export const CHAT_SEND_MAX_CHARS = CHAT_OUTBOX_TEXT_MAX_CHARS;
 
-const approvalRequestId = z.union([z.string().min(1).max(128), z.number().int()]);
+const approvalRequestId = z.string().min(1).max(128);
 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional(), requestId };
 
@@ -54,8 +54,8 @@ export const sessionClientVariants = [
   loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1), requestId }),
   loose('set-session-question-manager', { id: sessionId, isOn: z.boolean(), requestId }),
   loose('plan-decision', { id: sessionId, decision: PlanDecision, feedback: z.string().max(PLAN_GATE_FEEDBACK_MAX_CHARS).optional(), requestId }),
-  loose('answer-approval', { id: sessionId, approvalRequestId: approvalRequestId.optional(), requestId, answers: ConversationAnswers }),
-  loose('decide-approval', { id: sessionId, approvalRequestId: approvalRequestId.optional(), requestId, decision: PermissionDecision, message: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS).optional() }),
+  loose('answer-approval', { id: sessionId, approvalRequestId, requestId, answers: ConversationAnswers }),
+  loose('decide-approval', { id: sessionId, approvalRequestId, requestId, decision: PermissionDecision, message: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS).optional() }),
   loose('chat-send', { id: sessionId, text: z.string().trim().max(CHAT_SEND_MAX_CHARS), attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]), requestId })
     .refine((send) => send.text.length > 0 || send.attachments.length > 0, { message: 'chat-send needs text or an attachment' }),
   loose('sign-in-start', { id: sessionId, requestId }),
