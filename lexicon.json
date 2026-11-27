@@ -1808,6 +1808,10 @@
     {
       "name": "content",
       "definition": "The payload text, bytes, or rendered body inside a file, terminal screen, whiteboard box, or config record, as distinct from structural signals or metadata (such as content-signature checks and never deriving session status from screen content)."
+    },
+    {
+      "name": "tool",
+      "definition": "An external build or package-manager CLI required or invoked on the host (such as C++ build tools, npm, or pnpm), or an MCP capability Glimmervoid exposes to an agent session."
     }
   ],
   "retired": [
