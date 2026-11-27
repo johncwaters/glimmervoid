@@ -1828,6 +1828,46 @@
     {
       "name": "control socket",
       "definition": "The authenticated WebSocket a dashboard opens to the server for JSON control messages: requests and replies, collection frames stamped with seq, and the snapshot and since replay on reconnect (ControlSocket in server/backend/backend-websockets.ts)"
+    },
+    {
+      "name": "switch",
+      "definition": "A boolean setting control on the dashboard that takes effect at once, drawn as a checkbox with role switch by switchInput in public/ui/switch.ts and Switch in public/ui/Switch.tsx; elsewhere ordinary English"
+    },
+    {
+      "name": "checkbox",
+      "definition": "A labelled dashboard checkbox control for picking items or choices, built by checkbox in public/ui/checkbox.ts and Checkbox in public/ui/Checkbox.tsx; boolean settings that take effect at once use switch instead"
+    },
+    {
+      "name": "meter",
+      "definition": "A horizontal track and fill bar on the dashboard showing one value from 0 to 1 (such as a plan limit, context usage or share bar), built by meter in public/ui/meter.ts and Meter in public/ui/Meter.tsx"
+    },
+    {
+      "name": "disclosure",
+      "definition": "A collapsible dashboard section built on native details and summary elements by disclosure in public/ui/disclosure.ts and Disclosure in public/ui/Disclosure.tsx, with plus or chevron markers and lazy body rendering; in the ship pack landing skill, disclosure check is a separate check before pushing"
+    },
+    {
+      "name": "radio",
+      "definition": "One choice of a dashboard radio group, built by radio in public/ui/checkbox.ts and Radio in public/ui/Checkbox.tsx"
+    },
+    {
+      "name": "deny",
+      "definition": "The operator refusal answer on a secret request card or a held Chat permission card (server/AGENTS.md:76), beside Allow, which declines the request and in Chat can carry a message telling the agent what to do instead"
+    },
+    {
+      "name": "reject",
+      "definition": "The operator action to decline a held ExitPlanMode plan on the dashboard (session/core/plan-gate-core.ts) or reject a CriticMarkup edit in the doc editor Markup mode (public/doc-editor/markup-pane.ts)"
+    },
+    {
+      "name": "acts",
+      "definition": "The list of grant scopes (reviews or sessions) declared on a pack panel in pack.json (shared/contracts/pack.ts) naming which server actions that sandboxed panel may send as the operator once the pack is approved"
+    },
+    {
+      "name": "ref",
+      "definition": "A code anchor on a whiteboard box or unit (path, path#L12 or path#L12-L30, up to refsPerElement per element in shared/contracts/whiteboard.ts) that points the element at source code; in Solid JSX components, ref is Solid standard element callback attribute"
+    },
+    {
+      "name": "menu",
+      "definition": "A dashboard action menu panel: either the header dropdown menu (DESIGN.md:223) or a trigger-opened popup menu wired by popupMenu and buildMenuItem in public/ui/popup-menu.ts (such as Session actions and Board actions); the whiteboard right-click menu is context menu"
     }
   ],
   "retired": [
