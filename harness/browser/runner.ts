@@ -14,6 +14,7 @@ import type { TypingSearchOptions } from './typing-search.ts';
 import { verifyBoardSession } from './board-session.ts';
 import { verifyChatApprovals, verifyChatAwayReply, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal, verifyChatPlan, verifyChatElicitation } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
+import { verifySolidHello } from './solid-hello.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
@@ -1373,6 +1374,11 @@ export async function runCase({
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
     if (step.kind === 'remove-session') return runRemoveSession(viewer, sessionId);
     if (step.kind === 'assert-undo-close') return runAssertUndoClose(viewer, projectDirectory, deadlines);
+    if (step.kind === 'assert-solid-hello') {
+      const check = await verifySolidHello(viewer.page);
+      if (!check.ok) return failedOutcome('solid-hello', check.detail);
+      return passedOutcome('solid-hello', check.detail);
+    }
     if (step.kind === 'assert-added-session-shown') return runAssertAddedSessionShown(viewer, deadlines);
     if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);
     if (step.kind === 'expect-session-gone') return runExpectSessionGone(viewer, sessionId, deadlines);

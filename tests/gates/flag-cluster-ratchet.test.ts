@@ -3,9 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readTracked, trackedFiles } from '../helpers/tracked-files.ts';
 
-const SCANNED_SOURCE = /^(?:server|session|detection|notifications|mcp|cloud|public|shared)\/(?!.*\.test\.ts$).*\.ts$/;
+const SCANNED_SOURCE = /^(?:server|session|detection|notifications|mcp|cloud|public|shared)\/(?!.*\.test\.ts$).*\.tsx?$/;
 const NEW_FILE_FLAG_LIMIT = 3;
 const BOOLEAN_FLAG_DECLARATION = /(?:\blet\s+|,\s*)[A-Za-z_$][\w$]*\s*(?::\s*boolean\s*)?=\s*(?:true|false)\b/g;
+const BOOLEAN_SIGNAL_DECLARATION = /\bcreateSignal(?:<\s*boolean\s*>)?\(\s*(?:true|false)\s*\)/g;
 const BOOLEAN_FIELD_WRITE = /\.(?!(?:hidden|disabled|checked|spellcheck|draggable|open|readOnly|indeterminate|inert|multiple|required|selected|autofocus|defaultChecked|imageSmoothingEnabled)\b)\w+\s*=\s*(?:true|false)\b(?!\s*[=!&|?.])/g;
 
 const RECORDED_FLAG_COUNTS = new Map<string, number>([
@@ -67,7 +68,11 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
 
 function booleanFlagCountOf(repoPath: string): number {
   const sourceText = readTracked(repoPath);
-  return (sourceText.match(BOOLEAN_FLAG_DECLARATION) ?? []).length + (sourceText.match(BOOLEAN_FIELD_WRITE) ?? []).length;
+  return (
+    (sourceText.match(BOOLEAN_FLAG_DECLARATION) ?? []).length
+    + (sourceText.match(BOOLEAN_SIGNAL_DECLARATION) ?? []).length
+    + (sourceText.match(BOOLEAN_FIELD_WRITE) ?? []).length
+  );
 }
 
 test('no file grows a boolean flag cluster past its recorded count', () => {

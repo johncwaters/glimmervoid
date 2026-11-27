@@ -7,8 +7,8 @@ import path from 'node:path';
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
 const CLOCK_OWNER = 'shared/clock.ts';
 const SCANNED_DIRECTORIES = ['bin', 'cloud', 'detection', 'mcp', 'notifications', 'public', 'scripts', 'server', 'session', 'shared'];
-const SOURCE_FILE = /\.(?:[cm]?ts|[cm]?js)$/;
-const TEST_FILE = /\.test\.[cm]?[jt]s$/;
+const SOURCE_FILE = /\.(?:[cm]?tsx?|[cm]?jsx?)$/;
+const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 const DIRECT_TIME_READS = [
   /\bDate\.now\b/,
   /\bnew\s+Date\(\s*\)/,

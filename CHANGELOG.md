@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **ACP sessions now enforce Sane YOLO coverage on Claude Code, report `saneYolo` honestly, route ACP questions through the question manager, and keep Codex async questions open past turn-end.** On Claude Code over ACP, Glimmervoid now passes the Sane YOLO `PreToolUse` hook and env in `session/new` and `session/load` `_meta`, opens in `default` mode, auto-allows safe asks when skip-permissions is on, and reports `saneYolo` active only when coverage holds (staying off on Codex over ACP where the adapter cannot gate sandbox-allowed commands). ACP form questions now go to the question manager before holding for the operator, and Codex async questions survive turn-end instead of being cancelled before you can answer.
+- **New dependencies: Solid 2 (`solid-js` 2.0.4, `@solidjs/web` 2.0.4, and `@solidjs/vite-plugin` 3.0.1).** Prepares the browser dashboard build, typecheck, linter, and gate checks for Solid 2 `.tsx` component islands. No operator-visible view uses Solid yet, so nothing in the dashboard changes in this release.
 
 ### Changed
 
@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ACP sessions now enforce Sane YOLO coverage on Claude Code, report `saneYolo` honestly, route ACP questions through the question manager, and keep Codex async questions open past turn-end.** On Claude Code over ACP, Glimmervoid now passes the Sane YOLO `PreToolUse` hook and env in `session/new` and `session/load` `_meta`, opens in `default` mode, auto-allows safe asks when skip-permissions is on, and reports `saneYolo` active only when coverage holds (staying off on Codex over ACP where the adapter cannot gate sandbox-allowed commands). ACP form questions now go to the question manager before holding for the operator, and Codex async questions survive turn-end instead of being cancelled before you can answer.
 - **Child-session turn-end notices are no longer tripped by nested Antigravity runs, idle compaction restores, or withheld wake lines, and wake-cap banners stay visible across card dismiss.** Hooks posted by a nested `agy` process that inherited `GLIMMERVOID_HOOK_URL` are now ignored once the main conversation is active instead of ending the parent turn; `compaction_restore_*` transitions no longer post a duplicate "finished a turn" note; a wake line left unsubmitted in the terminal composer after an idle-compaction flicker is submitted with Enter instead of pasted a second time; and dismissing a session card no longer clears an active `child-wake-cap` or `self-wake-cap` banner before you type in the session.
 
 ## [0.66.0] - 2026-11-26

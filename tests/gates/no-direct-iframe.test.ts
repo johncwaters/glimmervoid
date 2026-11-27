@@ -18,7 +18,7 @@ function collectDashboardSources(dir: string, acc: string[]): string[] {
       collectDashboardSources(full, acc);
       continue;
     }
-    if (entry.isFile() && /\.(ts|html)$/.test(entry.name)) acc.push(full);
+    if (entry.isFile() && /\.(tsx?|html)$/.test(entry.name)) acc.push(full);
   }
   return acc;
 }

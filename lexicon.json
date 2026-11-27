@@ -1788,6 +1788,10 @@
     {
       "name": "initialize",
       "definition": "The first Agent Client Protocol (ACP) JSON-RPC request Glimmervoid sends an ACP agent process on stdio to negotiate protocol version and capabilities before session/new or session/load, sent in session/drivers/acp-driver.ts."
+    },
+    {
+      "name": "solid",
+      "definition": "The Solid 2 component model (solid-js, @solidjs/web, and @solidjs/vite-plugin) used for .tsx dashboard islands"
     }
   ],
   "retired": [

@@ -8,10 +8,13 @@
     ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
     "types": []
   },
   "include": [
     "public/**/*.ts",
+    "public/**/*.tsx",
     "public/**/*.d.ts"
   ],
   "exclude": [

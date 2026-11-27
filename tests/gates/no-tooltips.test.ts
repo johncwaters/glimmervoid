@@ -21,12 +21,57 @@ const TITLE_WRITES = [
   /\[\s*['"`]title['"`]\s*\]\s*(?:\+|\?\?|\|\||&&)?=(?!=)/gi,
   /\w*(?:Attribute\w*|Element(?:NS)?|Shape\w*)\([^;]*?(?:['"`]title['"`]|(?<!\$\{)(?<![.\w$'"`-])title\s*[:,}])/gi,
   /<svg\b[\s\S]*?<title\b/gi,
-  /<[a-z][^>]*\stitle\s*=/gi,
+  /<[a-z](?:=>|[^>])*\stitle\s*=/gi,
   /Object\.assign\([^;]*?\btitle\b/g,
 ];
 
-function titleWritesIn(source: string): string[] {
-  return TITLE_WRITES.flatMap((pattern) => source.match(pattern) ?? []);
+function jsxTitleAttributesIn(source: string): string[] {
+  const matches: string[] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== "<" || !/[a-zA-Z]/.test(source[index + 1] ?? "")) continue;
+    let braceDepth = 0;
+    let quote: string | null = null;
+    let end = index + 1;
+    while (end < source.length) {
+      const ch = source[end];
+      if (quote) {
+        if (ch === "\\" && end + 1 < source.length) {
+          end += 2;
+          continue;
+        }
+        if (ch === quote) quote = null;
+        end += 1;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") {
+        quote = ch;
+        end += 1;
+        continue;
+      }
+      if (ch === "{") {
+        braceDepth += 1;
+        end += 1;
+        continue;
+      }
+      if (ch === "}" && braceDepth > 0) {
+        braceDepth -= 1;
+        end += 1;
+        continue;
+      }
+      if (ch === ">" && braceDepth === 0) break;
+      end += 1;
+    }
+    const tag = source.slice(index, end + 1);
+    if (/\btitle\s*=/.test(tag)) matches.push(tag.slice(0, 80));
+    index = end;
+  }
+  return matches;
+}
+
+function titleWritesIn(source: string, isTsx = false): string[] {
+  const regexMatches = TITLE_WRITES.flatMap((pattern) => source.match(pattern) ?? []);
+  if (!isTsx) return regexMatches;
+  return [...regexMatches, ...jsxTitleAttributesIn(source)];
 }
 
 function collectDashboardSources(dir: string, acc: string[]): string[] {
@@ -37,7 +82,7 @@ function collectDashboardSources(dir: string, acc: string[]): string[] {
       collectDashboardSources(full, acc);
       continue;
     }
-    if (entry.isFile() && /\.(ts|html|css)$/.test(entry.name)) acc.push(full);
+    if (entry.isFile() && /\.(tsx?|html|css)$/.test(entry.name)) acc.push(full);
   }
   return acc;
 }
@@ -52,7 +97,7 @@ test("a title attribute is set only by labelIconPressable, as an icon-only butto
   }
 
   const offenders = files
-    .filter((file) => !OWNER_TITLE_WRITE_BY_FILE.has(file) && !NEVER_RENDERED_SOURCES.has(file) && titleWritesIn(fs.readFileSync(file, "utf8")).length > 0)
+    .filter((file) => !OWNER_TITLE_WRITE_BY_FILE.has(file) && !NEVER_RENDERED_SOURCES.has(file) && titleWritesIn(fs.readFileSync(file, "utf8"), file.endsWith(".tsx")).length > 0)
     .map((file) => path.relative(ROOT, file));
 
   assert.deepEqual(offenders, [], `A title attribute is a hover tooltip, which touch screens cannot show. Name an icon-only button with labelIconPressable (public/ui/pressable.ts); otherwise put the text on the page, or in aria-label when it only names a control:\n  ${offenders.join("\n  ")}`);

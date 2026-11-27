@@ -9,7 +9,7 @@ const builderAsFourthArgument = /\bcreateSessionCard\([^;]*,\s*buildSessionCardO
 const aliasedCardImport = /\bcreateSessionCard\s+as\b/;
 
 test('every session card is created with options from buildSessionCardOptions', () => {
-  const creationLines = trackedFiles(/^public\/.+\.ts$/).flatMap((repoPath) =>
+  const creationLines = trackedFiles(/^public\/.+\.tsx?$/).flatMap((repoPath) =>
     readTracked(repoPath)
       .split('\n')
       .map((line, index) => ({ line, location: `${repoPath}:${index + 1}` }))
@@ -22,6 +22,6 @@ test('every session card is created with options from buildSessionCardOptions', 
 });
 
 test('createSessionCard is never imported under another name', () => {
-  const aliasers = trackedFiles(/^public\/.+\.ts$/).filter((repoPath) => aliasedCardImport.test(readTracked(repoPath)));
+  const aliasers = trackedFiles(/^public\/.+\.tsx?$/).filter((repoPath) => aliasedCardImport.test(readTracked(repoPath)));
   assert.deepEqual(aliasers, [], 'an aliased createSessionCard escapes the options gate');
 });

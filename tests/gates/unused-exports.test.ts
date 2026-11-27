@@ -8,7 +8,7 @@ import path from 'node:path';
 const ROOT = path.join(import.meta.dirname, '../..');
 const EXPORTING_ROOTS = new Set(['server', 'session', 'detection', 'notifications', 'shared', 'public',]);
 const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|astro|html)$/;
-const MODULE_FILE = /\.(?:[cm]?[jt]s)$/;
+const MODULE_FILE = /\.(?:[cm]?[jt]sx?)$/;
 const IDENTIFIER = /[A-Za-z_$][\w$]*/g;
 const EXPORTED_DECLARATION = /^export\s+(?:declare\s+)?(?:async\s+)?(?:abstract\s+)?(?:function\s*\*?|const|let|var|class|type|interface)\s+([A-Za-z_$][\w$]*)/gm;
 const EXPORT_LIST = /^export\s+(?:type\s+)?\{([^}]*)\}/gm;

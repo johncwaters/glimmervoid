@@ -38,7 +38,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Node >=24.15.0 (type stripping for source mode and the `.test.ts` suite; `node:sqlite` for the whiteboard store). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - A feature ships only when it works on every first-class agent (Claude Code, Codex, Antigravity CLI), pinned by the agent parity matrix: each scenario row needs a live-captured fixture per agent or a stated reason none can exist. Other agents are best effort.
-- A PTY session spawns only by `pty.spawn` in `session/drivers/pty-driver.ts`; an ACP session spawns its agent on stdio only in `session/drivers/acp-driver.ts`, through `server/child-process-safe.ts`. Never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
 - All sessions share one event loop: no sync git or fs on recurring paths (polls, turn-end, watchers). Use async `execFile` with yields. One-shot cold paths may stay sync.
 - House character style: no literal em dash, en dash, ellipsis character, or emoji anywhere (source, tests, docs, commits). When code must emit one, build it via `String.fromCharCode`.
 - Prefer the seam pattern: pure logic in `session/core/` or a `*-core` module, thin IO shells around it. A pure core imports no Session and reads no clock.
@@ -119,3 +118,5 @@ Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Buil
 `@vscode/tree-sitter-wasm` runs `tree-sitter-wasms` import grammars past TS/JS and Python: WASM, one build per platform.
 
 `@anthropic-ai/sandbox-runtime` sandboxes sessions (`sessionSandbox`; on macOS only its proxy), keeping the server's home, vault and credentials from agents.
+
+`solid-js` and `@solidjs/web` provide the Solid 2 component model for dashboard islands (client-only; compiled by `@solidjs/vite-plugin`).

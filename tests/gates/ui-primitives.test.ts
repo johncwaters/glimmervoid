@@ -9,7 +9,7 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const UI_DIR = path.join(PUBLIC_DIR, 'ui');
 const PRESSABLE_OWNER = path.join(UI_DIR, 'pressable.ts');
 const SKIP_DIRS = new Set(['node_modules', 'dist']);
-const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b/i;
+const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b|\bcomponent\s*=\s*(?:['"`]button['"`]|\{\s*['"`]button['"`]\s*\})/i;
 const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size|outline-state)\b/;
 const PRIMITIVE_LAYOUT_PROPERTY = /^(?:display|visibility|order|position|inset|top|right|bottom|left|z-index|(?:min-|max-)?width|margin(?:-[a-z-]+)?|flex(?:-[a-z]+)?|grid-(?:area|column|row)(?:-[a-z]+)?|(?:align|justify|place)-self)$/;
 const OUTLINE_STATE_WRITE = /outline-?state|(?:\.element|\bbtn(?:Mute|Help))\.(?:(?:setAttribute|removeAttribute|toggleAttribute)\(\s*['"`]aria-pressed|ariaPressed\b)/i;
@@ -98,7 +98,7 @@ const withoutCssComments = (stylesheet: string) => stylesheet.replace(/\/\*[\s\S
 const selectorsOf = (stylesheet: string) => [...withoutCssComments(stylesheet).matchAll(/([^{};]+)\{/g)].map((match) => match[1].trim());
 
 test('only public/ui/pressable.ts creates buttons in the dashboard', () => {
-  const sources = collectFiles(PUBLIC_DIR, /\.(ts|html)$/);
+  const sources = collectFiles(PUBLIC_DIR, /\.(tsx?|html)$/);
   assert.match(fs.readFileSync(PRESSABLE_OWNER, 'utf8'), BUTTON_CREATION, 'public/ui/pressable.ts no longer matches the button pattern, so the gate would pass vacuously');
 
   const offenders = sources
@@ -116,7 +116,7 @@ test('only public/ui/ styles the button component', () => {
 });
 
 test('retired button classes are gone from every stylesheet and source', () => {
-  const offenders = collectFiles(PUBLIC_DIR, /\.(css|ts|html)$/).flatMap((file) => {
+  const offenders = collectFiles(PUBLIC_DIR, /\.(css|tsx?|html)$/).flatMap((file) => {
     const contents = fs.readFileSync(file, 'utf8');
     return RETIRED_CLASSES.filter((className) => new RegExp(`(?<![\\w-])${className}(?![\\w-])`).test(contents)).map((className) => `${relativeToRoot(file)}: ${className}`);
   });
@@ -124,7 +124,7 @@ test('retired button classes are gone from every stylesheet and source', () => {
 });
 
 test('only public/ui/ sets an outlined button state', () => {
-  const offenders = collectFiles(PUBLIC_DIR, /\.(ts|html)$/)
+  const offenders = collectFiles(PUBLIC_DIR, /\.(tsx?|html)$/)
     .filter((file) => !file.startsWith(UI_DIR + path.sep))
     .filter((file) => OUTLINE_STATE_WRITE.test(fs.readFileSync(file, 'utf8')))
     .map(relativeToRoot);

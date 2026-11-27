@@ -6,6 +6,7 @@ export type ViewerId = 'a' | 'b';
 
 export type Step =
   | { kind: 'assert-undo-close'; viewer?: ViewerId }
+  | { kind: 'assert-solid-hello'; viewer?: ViewerId }
   | { kind: 'assert-added-session-shown'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-pane'; viewer?: ViewerId }
@@ -750,6 +751,11 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'burst', lines: 5 },
       { kind: 'settle' },
     ],
+  },
+  {
+    name: 'solid-hello',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'assert-solid-hello' }],
   },
   {
     name: 'self-check-must-fail',

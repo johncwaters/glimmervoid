@@ -10,7 +10,7 @@ const WATCHED_ROOTS = [
   { label: 'server/ with server/core/', directories: ['server', 'server/core'] },
   { label: 'public/', directories: ['public'] },
 ];
-const MODULE_EXTENSIONS = new Set(['.ts', '.mjs', '.js']);
+const MODULE_EXTENSIONS = new Set(['.ts', '.tsx', '.mjs', '.js']);
 
 function moduleNamesIn(directory: string): string[] {
   return fs.readdirSync(path.join(ROOT, directory), { withFileTypes: true })

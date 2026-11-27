@@ -23,7 +23,7 @@ function filesUnder(dir: string, extensions: string[]): string[] {
 
 function markupCorpus(): string {
   const html = filesUnder(publicDir, ['.html']).map((file) => fs.readFileSync(file, 'utf8'));
-  const scripts = filesUnder(publicDir, ['.js', '.mjs', '.ts']).map((file) => fs.readFileSync(file, 'utf8'));
+  const scripts = filesUnder(publicDir, ['.js', '.mjs', '.ts', '.tsx']).map((file) => fs.readFileSync(file, 'utf8'));
   return [...html, ...scripts].join('\n');
 }
 
@@ -45,7 +45,7 @@ test('every queryTag selector matches an element of that tag in the shipped mark
   const corpus = markupCorpus();
   const seen = new Set<string>();
   const unmatched: string[] = [];
-  for (const file of filesUnder(publicDir, ['.js', '.mjs', '.ts'])) {
+  for (const file of filesUnder(publicDir, ['.js', '.mjs', '.ts', '.tsx'])) {
     for (const [, selector, tag] of fs.readFileSync(file, 'utf8').matchAll(CALL_PATTERN)) {
       const key = `${selector}|${tag}`;
       if (seen.has(key)) continue;

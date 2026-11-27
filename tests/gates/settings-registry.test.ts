@@ -330,7 +330,7 @@ function browserSourceFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : browserSourceFiles(absolutePath);
-    return entry.name.endsWith('.ts') ? [absolutePath] : [];
+    return entry.name.endsWith('.ts') || entry.name.endsWith('.tsx') ? [absolutePath] : [];
   });
 }
 

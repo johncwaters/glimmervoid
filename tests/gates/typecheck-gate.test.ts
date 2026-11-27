@@ -21,7 +21,7 @@ const SERVER_INCLUDE_GLOBS = [
   '*.ts',
 ];
 
-const PUBLIC_INCLUDE_GLOBS = ['public/**/*.ts', 'public/**/*.d.ts'];
+const PUBLIC_INCLUDE_GLOBS = ['public/**/*.ts', 'public/**/*.tsx', 'public/**/*.d.ts'];
 
 const STRICT_REQUIRED_OPTIONS: Record<string, boolean> = {
   strict: true,
@@ -37,7 +37,7 @@ const STRICT_REQUIRED_OPTIONS: Record<string, boolean> = {
 const CHECKED_TREES = ['server', 'cloud', 'session', 'detection', 'notifications', 'shared', 'public', 'bin', 'scripts', 'tools', 'harness', 'tests'];
 const SUPPRESSIONS = ['nocheck', 'ignore', 'expect-error'].map((tail) => `@ts-${tail}`).concat(['biome-' + 'ignore']);
 const CAST_ESCAPES = [/\bas\s+any\b/, /\bas\s+unknown\s+as\b/];
-const COMMENT_LINE = /^\s*(\/\/|\/\*)/;
+const COMMENT_LINE = /^\s*(?:\/\/|\{?\s*\/\*)/;
 const SELF_EXEMPT = ['typecheck-gate.test'];
 
 interface TsconfigShape {
@@ -74,7 +74,7 @@ function sourceFilesUnder(dir: string): string[] {
       found.push(...sourceFilesUnder(full));
       continue;
     }
-    if (/\.(js|mjs|cjs|ts|mts|cts)$/.test(entry.name)) found.push(full);
+    if (/\.(js|mjs|cjs|ts|tsx|mts|cts)$/.test(entry.name)) found.push(full);
   }
   return found;
 }
@@ -137,7 +137,7 @@ test('no source tree holds a non-TypeScript module', () => {
   const allowedPlainJs = new Set(['scripts/prepare-build.js', 'scripts/postinstall.mjs', 'scripts/build.mjs', 'scripts/recover-handoff.mjs', 'harness/container/ws-check.js']);
   const offenders: string[] = [];
   for (const file of checkedSourceFiles()) {
-    if (/\.ts$|\.mts$|\.cts$/.test(file)) continue;
+    if (/\.tsx?$|\.mts$|\.cts$/.test(file)) continue;
     const rel = path.relative(repoRoot, file).replace(/\\/g, '/');
     if (allowedPlainJs.has(rel)) continue;
     offenders.push(rel);

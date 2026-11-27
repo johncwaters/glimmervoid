@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
+import solid from '@solidjs/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 import { build, defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
@@ -125,6 +126,7 @@ function brotliOutputPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [
+    solid({ include: /\.tsx(?:\?|$)/ }),
     tailwindcss(),
     glimmervoidBackendPlugin(),
     deckViewerSourcePlugin(),

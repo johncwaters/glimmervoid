@@ -134,7 +134,7 @@ test('the dashboard shell and the login page set sizes only on the type scale, e
 test('Tailwind text sizes are only the type roles, and no markup or script reaches for another', () => {
   const themeTextSizes = [...tailwindStylesheet.matchAll(/^\s*--text-([\w*-]+):\s*([^;]+);/gm)].map((match) => `${match[1]}: ${match[2].trim()}`);
   assert.deepEqual(themeTextSizes, ['*: initial', 'meta: var(--type-meta)', 'body: var(--type-body)', 'title: var(--type-title)', 'display: var(--type-display)']);
-  const sourcePaths = fs.globSync('public/**/*.{ts,html}', { cwd: REPO_ROOT });
+  const sourcePaths = fs.globSync('public/**/*.{ts,tsx,html}', { cwd: REPO_ROOT });
   const strayUtilities = sourcePaths.flatMap((sourcePath) => [...readRepoFile(sourcePath).matchAll(TAILWIND_SIZE_UTILITY)].map((match) => `${sourcePath}: ${match[0]}`));
   assert.deepEqual(strayUtilities, []);
 });
