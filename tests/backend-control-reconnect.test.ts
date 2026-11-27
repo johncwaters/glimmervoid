@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import NodeWebSocket from 'ws';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { ServerMessage } from '../shared/contracts/control-messages.ts';
@@ -182,3 +183,131 @@ test('a request resent under the same requestId on a new control socket gets the
   assert.ok((firstAnswer.appliedSeq ?? 0) > 0, 'first mutating reply appliedSeq reflects the sent stream');
   assert.equal(resentAnswer.appliedSeq, firstAnswer.appliedSeq, 'replayed reply preserves the original appliedSeq');
 }));
+
+type HandshakeDropPoint = 'after-snapshot' | 'after-client-trust' | 'during-replay';
+
+const HANDSHAKE_DROP_POINTS: readonly HandshakeDropPoint[] = ['after-snapshot', 'after-client-trust', 'during-replay'];
+
+for (const dropPoint of HANDSHAKE_DROP_POINTS) {
+  test(`dropping a reconnecting control client ${dropPoint} loses and doubles zero replayable frames`, async (testContext) => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `glimmervoid-drop-${dropPoint}-`));
+    const configPath = path.join(tmpDir, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      projects: [{ id: SESSION_ID, name: 'drop probe', path: tmpDir }],
+      teams: [], repoRoots: [],
+    }, null, 2), 'utf8');
+    const previousConfigPath = process.env.GLIMMERVOID_CONFIG;
+    process.env.GLIMMERVOID_CONFIG = configPath;
+
+    const server = http.createServer();
+    const backend = createBackend(server, { staticDir: null });
+    server.on('request', backend.app);
+    await listenOnLoopback(server);
+
+    const port = boundPort(server);
+    const origin = `http://127.0.0.1:${port}`;
+    const realFetch = globalThis.fetch;
+    const previousGlobals = { location: Reflect.get(globalThis, 'location'), fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+    Object.assign(globalThis, {
+      location: new URL(`${origin}/`),
+      fetch: (input: string, init?: RequestInit) => realFetch(new URL(input, origin), { ...init, headers: { origin } }),
+      WebSocket: class extends NodeWebSocket {
+        constructor(url: string) {
+          super(url, { origin });
+        }
+      },
+    });
+
+    const control = await import(`../public/control-ws.ts?drop=${dropPoint}`);
+    const wsToken = await import('../public/ws-token.ts');
+    wsToken.clearPageToken();
+    const observerClient = await dashboardClient(port);
+    const dataConnection = await openSocket(observerClient, `/terminals/${SESSION_ID}?probe=1`);
+    const observer = await openRecordingSocket<ControlFrame>(observerClient, '/control');
+
+    testContext.after(async () => {
+      control.abandonControlSocket();
+      Object.assign(globalThis, previousGlobals);
+      await closeSocket(observer.ws);
+      await closeSocket(dataConnection);
+      await settleBackendShutdown(backend);
+      server.closeAllConnections();
+      await closeServer(server);
+      if (previousConfigPath == null) delete process.env.GLIMMERVOID_CONFIG;
+      if (previousConfigPath != null) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    const deliveredTimestamps: number[] = [];
+    let shouldDropOnNextMatch = false;
+    let hasDroppedOnce = false;
+
+    control.onControlMessage((message: { type: string; timestamp?: number }) => {
+      if (message.type === 'session-error' && typeof message.timestamp === 'number') {
+        deliveredTimestamps.push(message.timestamp);
+      }
+      if (!shouldDropOnNextMatch || hasDroppedOnce) return;
+      const matchesDropPoint = (dropPoint === 'after-snapshot' && message.type === 'snapshot')
+        || (dropPoint === 'after-client-trust' && message.type === 'client-trust')
+        || (dropPoint === 'during-replay' && message.type === 'session-error');
+      if (!matchesDropPoint) return;
+      hasDroppedOnce = true;
+      shouldDropOnNextMatch = false;
+      control.replaceControlSocket();
+    });
+
+    control.connectControl();
+    assert.equal(await control.probeControl(5000, false), true, 'initial control socket connects');
+
+    dataConnection.send(JSON.stringify({ type: 'input', data: OVERSIZED_INPUT }));
+    const baselineError = await waitForMessage(observer.received, isSessionError, 'baseline session-error');
+    const baselineTimestamp = (baselineError as { timestamp?: number }).timestamp ?? 0;
+    await waitForMessage(deliveredTimestamps, (ts) => ts === baselineTimestamp, 'client received baseline session-error');
+
+    control.abandonControlSocket();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    dataConnection.send(JSON.stringify({ type: 'input', data: OVERSIZED_INPUT }));
+    const missedFirst = await waitForMessage(
+      observer.received,
+      (frame) => isSessionError(frame) && (frame.seq ?? 0) > (baselineError.seq ?? 0),
+      'first missed session-error',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    dataConnection.send(JSON.stringify({ type: 'input', data: OVERSIZED_INPUT }));
+    const missedSecond = await waitForMessage(
+      observer.received,
+      (frame) => isSessionError(frame) && (frame.seq ?? 0) > (missedFirst.seq ?? 0),
+      'second missed session-error',
+    );
+    const expectedMissedTimestamps = [
+      (missedFirst as { timestamp?: number }).timestamp ?? 0,
+      (missedSecond as { timestamp?: number }).timestamp ?? 0,
+    ];
+
+    shouldDropOnNextMatch = true;
+    control.connectControl();
+
+    const deadline = Date.now() + 5000;
+    while (!hasDroppedOnce && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(hasDroppedOnce, true, `handshake dropped at ${dropPoint}`);
+    assert.equal(await control.probeControl(5000, false), true, 'control socket recovers after mid-handshake drop');
+
+    const missedDelivered = deliveredTimestamps.filter((ts) => ts !== baselineTimestamp);
+    assert.deepEqual(
+      missedDelivered,
+      expectedMissedTimestamps,
+      `${dropPoint}: expected every missed session-error once without loss or duplication`,
+    );
+
+    control.replaceControlSocket();
+    assert.equal(await control.probeControl(5000, false), true, 'same-process reconnect after replay completes');
+    assert.deepEqual(
+      deliveredTimestamps.filter((ts) => ts !== baselineTimestamp),
+      expectedMissedTimestamps,
+      `${dropPoint}: subsequent reconnect past replay must not double already-delivered frames`,
+    );
+  });
+}

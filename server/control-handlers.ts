@@ -286,19 +286,35 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     const ws = socket as ControlSocket;
     attachControlSeq(ws, seqLog);
     replyLedger.watch(ws);
-    ws.send(JSON.stringify(buildSnapshot()));
 
-    ws.send(JSON.stringify({ type: 'client-trust', trust: normalizeClientTrust(ws.glimmervoidTrust) }));
+    const since = parseSinceParam(req?.url);
+    const replay = controlReplayLog && since !== null ? controlReplayLog.entriesSince(since) : null;
+    const handshakeCursor = replay && replay.entries.length > 0 && controlReplayLog && since !== null
+      ? controlReplayLog.resolveSince(since)
+      : null;
+    const handshakeCursors: { sentSeq: number; cursor: number }[] = [];
+    const sendHandshakeFrame = (frame: unknown, cursor: number | null) => {
+      const seqBefore = lastSentSeqOf(ws);
+      ws.send(JSON.stringify(frame));
+      const seqAfter = lastSentSeqOf(ws);
+      if (cursor !== null && seqAfter > seqBefore) {
+        handshakeCursors.push({ sentSeq: seqAfter, cursor });
+      }
+    };
+
+    sendHandshakeFrame(buildSnapshot(), handshakeCursor);
+    sendHandshakeFrame({ type: 'client-trust', trust: normalizeClientTrust(ws.glimmervoidTrust) }, handshakeCursor);
     for (const step of merged.connectSteps) {
-      for (const frame of step.connectFrames?.() ?? []) ws.send(JSON.stringify(frame));
+      for (const frame of step.connectFrames?.() ?? []) sendHandshakeFrame(frame, handshakeCursor);
       step.afterConnect?.();
     }
 
-    const since = parseSinceParam(req?.url);
-    if (controlReplayLog && since !== null) {
-      const { entries, evicted } = controlReplayLog.entriesSince(since);
-      for (const entry of entries) ws.send(JSON.stringify(entry));
-      if (evicted) console.log(`[control] replay cursor since=${since} is stale; some transient broadcasts were dropped`);
+    if (replay) {
+      for (const entry of replay.entries) sendHandshakeFrame(entry, entry.seq);
+      if (replay.evicted) console.log(`[control] replay cursor since=${since} is stale; some transient broadcasts were dropped`);
+    }
+    if (handshakeCursors.length > 0 && controlReplayLog) {
+      controlReplayLog.recordHandshakeCursors(handshakeCursors);
     }
 
     ws.on('message', (raw) => {

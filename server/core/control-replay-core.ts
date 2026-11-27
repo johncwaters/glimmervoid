@@ -10,10 +10,18 @@ interface ReplayEntry {
   msg: StampedControlMessageRecord;
 }
 
+interface HandshakeCursorRecord {
+  sentSeqs: number[];
+  maxSentSeq: number;
+  ts: number;
+}
+
 interface ReplayLog {
   stamp(msg: ControlMessageRecord, now?: number): StampedControlMessageRecord;
   nextSeq(): number;
-  entriesSince(since: number, now?: number): { entries: ControlMessageRecord[]; evicted: boolean };
+  resolveSince(since: number, now?: number): number;
+  recordHandshakeCursors(mappings: ReadonlyArray<{ sentSeq: number; cursor: number }>, now?: number): void;
+  entriesSince(since: number, now?: number): { entries: StampedControlMessageRecord[]; evicted: boolean };
   currentSeq(): number;
 }
 
@@ -36,9 +44,17 @@ function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = c
   firstSeq?: number;
 } = {}): ReplayLog {
   const ring: ReplayEntry[] = [];
+  const cursorRecords: HandshakeCursorRecord[] = [];
+  const cursorBySentSeq = new Map<number, number>();
+  let sizeEvictedCursorMaxSeq = 0;
+  let sizeEvictedCursorAtMs = 0;
   let seq = firstSeq;
 
   let evictedUpTo = firstSeq;
+
+  function dropCursorRecord(record: HandshakeCursorRecord): void {
+    for (const sentSeq of record.sentSeqs) cursorBySentSeq.delete(sentSeq);
+  }
 
   function evictStale(now: number): void {
     while (ring.length && now - ring[0].ts > maxAgeMs) {
@@ -48,6 +64,21 @@ function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = c
     while (ring.length > maxEntries) {
       evictedUpTo = ring[0].seq;
       ring.shift();
+    }
+    while (cursorRecords.length && now - cursorRecords[0].ts > maxAgeMs) {
+      const expired = cursorRecords.shift();
+      if (expired) dropCursorRecord(expired);
+    }
+    while (cursorRecords.length > maxEntries) {
+      const evictedRecord = cursorRecords.shift();
+      if (!evictedRecord) continue;
+      dropCursorRecord(evictedRecord);
+      sizeEvictedCursorMaxSeq = Math.max(sizeEvictedCursorMaxSeq, evictedRecord.maxSentSeq);
+      sizeEvictedCursorAtMs = now;
+    }
+    if (sizeEvictedCursorMaxSeq > 0 && now - sizeEvictedCursorAtMs > maxAgeMs) {
+      sizeEvictedCursorMaxSeq = 0;
+      sizeEvictedCursorAtMs = 0;
     }
   }
 
@@ -65,18 +96,42 @@ function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = c
     return stamped;
   }
 
-  function entriesSince(since: number, now: number = clock.nowMs()): { entries: ControlMessageRecord[]; evicted: boolean } {
+  function resolveSince(since: number, now: number = clock.nowMs()): number {
+    evictStale(now);
+    return cursorBySentSeq.get(since) ?? since;
+  }
+
+  function recordHandshakeCursors(mappings: ReadonlyArray<{ sentSeq: number; cursor: number }>, now: number = clock.nowMs()): void {
+    const sentSeqs: number[] = [];
+    let maxSentSeq = 0;
+    for (const { sentSeq, cursor } of mappings) {
+      if (!Number.isFinite(sentSeq) || !Number.isFinite(cursor) || cursor < 0 || cursor >= sentSeq) continue;
+      cursorBySentSeq.set(sentSeq, cursor);
+      sentSeqs.push(sentSeq);
+      if (sentSeq > maxSentSeq) maxSentSeq = sentSeq;
+    }
+    if (sentSeqs.length === 0) return;
+    cursorRecords.push({ sentSeqs, maxSentSeq, ts: now });
+    evictStale(now);
+  }
+
+  function entriesSince(since: number, now: number = clock.nowMs()): { entries: StampedControlMessageRecord[]; evicted: boolean } {
     evictStale(now);
     if (!Number.isFinite(since) || since < 0) return { entries: [], evicted: false };
-    const entries = ring.filter((e) => e.seq > since).map((e) => e.msg);
-    return { entries, evicted: since < evictedUpTo };
+    const mappedCursor = cursorBySentSeq.get(since);
+    if (mappedCursor === undefined && sizeEvictedCursorMaxSeq > 0 && since <= sizeEvictedCursorMaxSeq && ring.length > 0) {
+      return { entries: ring.map((entry) => entry.msg), evicted: true };
+    }
+    const effectiveSince = mappedCursor ?? since;
+    const entries = ring.filter((entry) => entry.seq > effectiveSince).map((entry) => entry.msg);
+    return { entries, evicted: effectiveSince < evictedUpTo };
   }
 
   function currentSeq(): number {
     return seq;
   }
 
-  return { stamp, nextSeq, entriesSince, currentSeq };
+  return { stamp, nextSeq, resolveSince, recordHandshakeCursors, entriesSince, currentSeq };
 }
 
 function stampSerializedControlFrameWithSeq(rawFrame: string, replayLog: ReplayLog): { frame: string; seq: number | null } {
