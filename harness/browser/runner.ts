@@ -30,6 +30,7 @@ import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dro
 import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
 import type { CaseRecord, GridSnapshot, Outcome, StepRecord } from './report-core.ts';
+import { captureCaseBaseline, teardownCaseServerState } from './case-teardown.ts';
 
 export interface Deadlines {
   pageReadyMs: number;
@@ -1718,7 +1719,9 @@ export async function runCase({
     return shot;
   };
 
+  let baselineSessionIds: ReadonlySet<string> | null = null;
   try {
+    baselineSessionIds = (await captureCaseBaseline(baseUrl, deadlines.pageReadyMs)).sessionIds;
     for (const [index, step] of harnessCase.scenario.steps.entries()) {
       const stepStartedAt = Date.now();
       let result: StepOutcome;
@@ -1781,9 +1784,44 @@ export async function runCase({
   await closeViewer(viewerB);
   await closeViewer(viewerA);
 
+  let teardownFailed = false;
+  if (baselineSessionIds !== null) {
+    const teardownStartedAt = Date.now();
+    let teardownOutcome: { ok: boolean; detail: string };
+    try {
+      teardownOutcome = await teardownCaseServerState({
+        baseUrl,
+        caseSessionId: sessionId,
+        baselineSessionIds,
+      });
+    } catch (error) {
+      teardownOutcome = { ok: false, detail: driverFailureTextOf(error) };
+    }
+    if (!teardownOutcome.ok) {
+      teardownFailed = true;
+      outcome = 'failed';
+      steps.push({
+        index: steps.length,
+        source: 'teardown',
+        outcome: 'failed',
+        durationMs: Date.now() - teardownStartedAt,
+        grid: null,
+        shot: null,
+        failure: {
+          predicate: 'case-teardown',
+          detail: teardownOutcome.detail,
+          firstDifferingRow: null,
+          expectedRow: null,
+          actualRow: null,
+          diffPath: null,
+        },
+      });
+    }
+  }
+
   fs.writeFileSync(logPath, `${log.lines.join('\n')}\n`, 'utf8');
 
-  if (outcome === 'failed' && harnessCase.scenario.optional === true) outcome = 'skipped';
+  if (outcome === 'failed' && !teardownFailed && harnessCase.scenario.optional === true) outcome = 'skipped';
 
   return {
     viewport: harnessCase.viewport.name,
