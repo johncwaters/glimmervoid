@@ -357,7 +357,6 @@
     "server/control/handlers/race-handlers.ts": 4,
     "server/control/handlers/radar-handlers.ts": 5,
     "server/control/handlers/review-handlers.ts": 3,
-    "server/control/handlers/settings-handlers.ts": 8,
     "server/control/handlers/wargames-handlers.ts": 2,
     "server/control/handlers/worktree-handlers.ts": 1
   },
@@ -374,10 +373,6 @@
     "my-pr-merge-when-ready-result",
     "open-community-session-result",
     "open-team-review-session-result",
-    "pack-data-result",
-    "pack-request-dismiss-result",
-    "pack-settings-result",
-    "pack-source-result",
     "pr-flow-dispose-result",
     "race-judge-result",
     "race-mine-cases-result",

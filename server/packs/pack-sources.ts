@@ -40,7 +40,7 @@ type PackSourcesDeps = {
   log: { warn: (text: string) => void };
   packRows: () => readonly PackRow[];
   isApproved: (fingerprint: string) => boolean;
-  onChange: () => void;
+  onChange: () => Promise<void> | void;
   runGitFn?: GitRunner;
 };
 
@@ -108,7 +108,7 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
   function serialized(change: () => Promise<SourceOutcome>): Promise<SourceOutcome> {
     const running = changes.then(change).then(async (outcome) => {
       await refreshRows();
-      onChange();
+      await onChange();
       return outcome;
     });
     changes = running.catch(() => undefined);

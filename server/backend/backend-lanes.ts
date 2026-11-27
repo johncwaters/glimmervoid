@@ -291,7 +291,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   packStore.setProviderStatuses(providerStatus.statuses);
   const packSources = createPackSources({
     homeDir: glimmervoidHome, env: process.env, examplePacksDir, log: logger, packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
-    onChange: () => broadcastPacksIfChanged(),
+    onChange: async () => {
+      await packStore.rescanHomePacks();
+      broadcastPacksIfChanged();
+    },
   });
   packStore.setSourceRows(packSources.rows);
   const packSettings = createPackSettings({ homeDir: glimmervoidHome, vault: packVault, approvedPack: (packName) => packStore.packInUse(packName) });

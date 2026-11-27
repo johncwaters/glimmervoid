@@ -27,6 +27,7 @@ type PackApproveResult = { ok: true } | { ok: false; error: string };
 type PackStore = EventEmitter & {
   start(): Promise<void>;
   stop(): void;
+  rescanHomePacks(): Promise<void>;
   setListedPaths(listedPaths: readonly string[]): void;
   statusFrame(): PacksStatus;
   servableFile(packName: string, fingerprint: string, filePath: string): Buffer | null;
@@ -65,6 +66,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   let approvedFingerprints = new Set<string>();
   let approvalsLoadError: string | null = null;
   let approvalWrites: Promise<unknown> = Promise.resolve();
+  let scanQueue: Promise<void> = Promise.resolve();
   const dismissedFingerprintByPackName = new Map<string, string>();
   const packsDir = path.join(homeDir, PACKS_DIR_NAME);
   const readsByDir = new Map<string, PackRead>();
@@ -89,7 +91,13 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     log.warn(`[packs] could not watch ${target}: ${reason}`);
   }
 
-  async function rereadPack(packDir: string): Promise<void> {
+  function serializeScan(scan: () => Promise<void>): Promise<void> {
+    const run = scanQueue.then(scan);
+    scanQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  async function rereadPackNow(packDir: string): Promise<void> {
     const isListed = listedWatchersByDir.has(packDir);
     const isUnderHome = path.dirname(packDir) === packsDir;
     const hasManifest = await fs.promises.access(path.join(packDir, PACK_FILE_NAME)).then(() => true, () => false);
@@ -108,6 +116,10 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     if (!isStopped) emitter.emit('changed');
   }
 
+  function rereadPack(packDir: string): Promise<void> {
+    return serializeScan(() => rereadPackNow(packDir));
+  }
+
   function scheduleReread(packDir: string): void {
     const pending = reloadTimersByDir.get(packDir);
     if (pending) clearTimeout(pending);
@@ -117,7 +129,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     }, reloadDebounceMs));
   }
 
-  async function refresh(): Promise<void> {
+  async function refreshNow(): Promise<void> {
     const found = await packDirsUnder(homeDir);
     const knownDirs = [...new Set([...found.packDirs, ...listedWatchersByDir.keys()])];
     const [freshReads] = await Promise.all([
@@ -132,6 +144,10 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     readsByDir.clear();
     for (const [packDir, read] of freshReads) readsByDir.set(packDir, read);
     if (hasDroppedPack) emitter.emit('removed');
+  }
+
+  function refresh(): Promise<void> {
+    return serializeScan(refreshNow);
   }
 
   async function rescanHomePacks(): Promise<void> {
@@ -327,7 +343,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   }
 
   return Object.assign(emitter, {
-    start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, packsInUse, packInUse: (packName: string) => packsInUse().find((pack) => pack.header.name === packName) ?? null, packDirInUse: (packName: string) => packEntriesInUse().find(({ pack }) => pack.header.name === packName)?.packDir ?? null, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
+    start, stop, rescanHomePacks, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, packsInUse, packInUse: (packName: string) => packsInUse().find((pack) => pack.header.name === packName) ?? null, packDirInUse: (packName: string) => packEntriesInUse().find(({ pack }) => pack.header.name === packName)?.packDir ?? null, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
     dismissRequest, reopenRequest: (packName: string) => { dismissedFingerprintByPackName.delete(packName); }, isRequestDismissed,
     setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
     setProviderStatuses: (statusesOf: (urls: readonly string[]) => ProviderStatus[]) => { providerStatusesOf = statusesOf; },

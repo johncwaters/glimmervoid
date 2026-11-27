@@ -18,8 +18,6 @@ type DataFileRead = { ok: true; file: PackDataFile | null } | { ok: false; error
 
 export function createPackData({ homeDir, panelPackDir, packDirInUse = () => null, onWritten = () => {} }: { homeDir: string; panelPackDir: (packName: string) => string | null; packDirInUse?: (packName: string) => string | null; onWritten?: (packName: string, data: PackStoreData) => void }) {
   const writes = createKeyedSerialQueue();
-  const queuedWriteCountByPack = new Map<string, number>();
-  const unannouncedDataByPack = new Map<string, PackStoreData>();
   const dataDir = path.join(homeDir, PACK_DATA_DIR_NAME);
   const dataPathOf = (packName: string) => path.join(dataDir, `${packName}${DATA_FILE_SUFFIX}`);
 
@@ -59,27 +57,12 @@ export function createPackData({ homeDir, panelPackDir, packDirInUse = () => nul
     return { ok: true, data: next };
   }
 
-  function announceOnceDrained(packName: string): void {
-    const queuedWriteCount = (queuedWriteCountByPack.get(packName) ?? 1) - 1;
-    if (queuedWriteCount > 0) {
-      queuedWriteCountByPack.set(packName, queuedWriteCount);
-      return;
-    }
-    queuedWriteCountByPack.delete(packName);
-    const written = unannouncedDataByPack.get(packName);
-    unannouncedDataByPack.delete(packName);
-    if (written) onWritten(packName, written);
-  }
-
-  async function queueWrite(packName: string, write: () => Promise<PackDataRead>): Promise<PackDataRead> {
-    queuedWriteCountByPack.set(packName, (queuedWriteCountByPack.get(packName) ?? 0) + 1);
-    try {
-      const outcome = await writes.run(packName, write);
-      if (outcome.ok) unannouncedDataByPack.set(packName, outcome.data);
+  function queueWrite(packName: string, write: () => Promise<PackDataRead>): Promise<PackDataRead> {
+    return writes.run(packName, async () => {
+      const outcome = await write();
+      if (outcome.ok) onWritten(packName, outcome.data);
       return outcome;
-    } finally {
-      announceOnceDrained(packName);
-    }
+    });
   }
 
   function set(packName: string, key: string, value: unknown): Promise<PackDataRead> {

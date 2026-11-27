@@ -127,7 +127,8 @@ const lastStoreByPackName = new Map<string, PackStoreData>();
 async function requestPackData(type: 'pack-data-get' | 'pack-data-set', payload: Record<string, unknown>): Promise<PackDataReply> {
   const reply = await sendControlRequest(type, payload).catch((error: unknown) => errorMessage(error));
   if (typeof reply === 'string') return { ok: false, error: reply };
-  if (reply.type !== 'pack-data-result') return { ok: false, error: `unexpected ${reply.type} reply` };
+  const expectedReplyType = type === 'pack-data-set' ? 'pack-data-set-result' : 'pack-data-result';
+  if (reply.type !== expectedReplyType) return { ok: false, error: `unexpected ${reply.type} reply` };
   if (reply.ok && reply.data) return { ok: true, data: reply.data };
   return { ok: false, error: reply.error ?? 'the pack store did not answer' };
 }

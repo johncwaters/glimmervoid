@@ -2,6 +2,7 @@ import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +12,11 @@ import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/co
 import { createReplayLog } from '../server/core/control-replay-core.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { sendStampedControlFrame } from '../server/control/control-seq.ts';
+import { createPackData } from '../server/packs/pack-data.ts';
+import { packsStatePath } from '../server/packs/pack-files.ts';
+import { createPackSettings } from '../server/packs/pack-settings.ts';
+import { createPackSources, EXAMPLES_SOURCE_SLUG } from '../server/packs/pack-sources.ts';
+import { createPackStore } from '../server/packs/pack-store.ts';
 import { settingsBlockSpecFor, validateSettingsBlock } from '../server/core/settings-block-core.ts';
 import { configSecretsPath } from '../server/secrets/core/secret-files-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
@@ -563,4 +569,124 @@ test('mutating settings and hook handlers broadcast before replying with applied
   assert.ok(typeof connection.sent[hookDeleteBroadcastIndex]?.seq === 'number');
   assert.ok(typeof connection.sent[hookDeleteReplyIndex]?.appliedSeq === 'number');
   assert.ok(connection.sent[hookDeleteReplyIndex].appliedSeq >= connection.sent[hookDeleteBroadcastIndex].seq);
+});
+
+test('pack-data-set and pack-source-enable broadcast before replying with appliedSeq while signal pack handlers omit appliedSeq', async () => {
+  const homeDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pack-control-')));
+  const examplePacksDir = path.join(homeDir, 'examples');
+  const demoPackDir = path.join(examplePacksDir, 'demo-pack');
+  fs.mkdirSync(demoPackDir, { recursive: true });
+  fs.writeFileSync(path.join(demoPackDir, 'pack.json'), JSON.stringify({
+    name: 'demo-pack',
+    version: 1,
+    description: 'Demo pack',
+    settings: [{ key: 'API_HOST', label: 'API host', kind: 'text' }],
+  }));
+  const replayLog = createReplayLog();
+  const cfg: GlimmervoidConfig = { projects: [] };
+  const store = testConfigStore(cfg);
+  const sockets: Parameters<typeof sendStampedControlFrame>[0][] = [];
+  const broadcastControl = (message: ControlMessageRecord) => {
+    const stamped = replayLog.stamp(message);
+    const payload = JSON.stringify(stamped);
+    for (const socket of sockets) sendStampedControlFrame(socket, payload, stamped.seq);
+  };
+  const packStore = createPackStore({ homeDir, statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, frameSecret: crypto.randomBytes(32) });
+  let lastPacksFrameText = '';
+  const broadcastPacksIfChanged = () => {
+    const frame = packStore.statusFrame();
+    const frameText = JSON.stringify(frame);
+    if (frameText === lastPacksFrameText) return;
+    lastPacksFrameText = frameText;
+    broadcastControl(frame);
+  };
+  const packSources = createPackSources({
+    homeDir,
+    env: process.env,
+    examplePacksDir,
+    log: { warn: () => {} },
+    packRows: () => packStore.statusFrame().packs,
+    isApproved: (fingerprint) => packStore.isApproved(fingerprint),
+    onChange: async () => {
+      await packStore.rescanHomePacks();
+      broadcastPacksIfChanged();
+    },
+  });
+  packStore.setSourceRows(packSources.rows);
+  packStore.on('changed', broadcastPacksIfChanged);
+  const packData = createPackData({
+    homeDir,
+    panelPackDir: (packName) => (packName === 'demo-pack' ? demoPackDir : null),
+    onWritten: (pack, storedPackData) => broadcastControl({ type: 'pack-data-changed', pack, data: storedPackData }),
+  });
+  const packSettings = createPackSettings({
+    homeDir,
+    vault: { source: () => null, read: async () => ({ failure: { kind: 'not-found', message: 'none', detail: '' } }), saveToAgeFile: async () => null },
+    approvedPack: (packName) => packStore.packInUse(packName),
+  });
+  try {
+    await packStore.start();
+    await packSources.start();
+    const server = createControlServer(controlDeps(cfg, {
+      configStore: store,
+      controlReplayLog: replayLog,
+      broadcastControl,
+      packs: packStore,
+      packData,
+      packSettings,
+      packSources,
+    }));
+    server.on('connection', (ws) => { sockets.push(ws); });
+    const connection = connectControl<SettingsFrame & { seq?: number; appliedSeq?: number; requestId?: string | null; ok?: boolean; packs?: { name: string }[]; data?: Record<string, unknown> }>(server);
+    connection.sent.length = 0;
+
+    await Promise.all([
+      connection.send({ type: 'pack-data-set', requestId: 'data-1', pack: 'demo-pack', key: 'first', value: 1 }),
+      connection.send({ type: 'pack-data-set', requestId: 'data-2', pack: 'demo-pack', key: 'second', value: 2 }),
+    ]);
+    const firstChangedIndex = connection.sent.findIndex((frame) => frame.type === 'pack-data-changed' && frame.data?.first === 1);
+    const firstReplyIndex = connection.sent.findIndex((frame) => frame.type === 'pack-data-set-result' && frame.requestId === 'data-1');
+    const secondChangedIndex = connection.sent.findIndex((frame) => frame.type === 'pack-data-changed' && frame.data?.second === 2);
+    const secondReplyIndex = connection.sent.findIndex((frame) => frame.type === 'pack-data-set-result' && frame.requestId === 'data-2');
+    assert.ok(firstChangedIndex >= 0 && firstReplyIndex > firstChangedIndex, 'first pack-data-changed precedes its pack-data-set-result');
+    assert.ok(secondChangedIndex >= 0 && secondReplyIndex > secondChangedIndex, 'second pack-data-changed precedes its pack-data-set-result');
+    assert.ok(typeof connection.sent[firstChangedIndex]?.seq === 'number' && typeof connection.sent[firstReplyIndex]?.appliedSeq === 'number');
+    assert.ok(connection.sent[firstReplyIndex].appliedSeq >= connection.sent[firstChangedIndex].seq);
+    assert.ok(typeof connection.sent[secondChangedIndex]?.seq === 'number' && typeof connection.sent[secondReplyIndex]?.appliedSeq === 'number');
+    assert.ok(connection.sent[secondReplyIndex].appliedSeq >= connection.sent[secondChangedIndex].seq);
+
+    connection.sent.length = 0;
+    await connection.send({ type: 'pack-data-get', requestId: 'data-get', pack: 'demo-pack' });
+    const dataGetReply = connection.sent.find((frame) => frame.type === 'pack-data-result' && frame.requestId === 'data-get');
+    assert.equal(dataGetReply?.ok, true);
+    assert.equal('appliedSeq' in (dataGetReply ?? {}), false);
+
+    connection.sent.length = 0;
+    await connection.send({ type: 'pack-source-enable', requestId: 'enable-1', slug: EXAMPLES_SOURCE_SLUG, pack: 'demo-pack', isEnabled: true });
+    const statusBroadcastIndex = connection.sent.findIndex((frame) => frame.type === 'packs-status' && frame.packs?.some((row) => row.name === 'demo-pack'));
+    const enableReplyIndex = connection.sent.findIndex((frame) => frame.type === 'pack-source-result' && frame.requestId === 'enable-1');
+    assert.ok(statusBroadcastIndex >= 0 && enableReplyIndex > statusBroadcastIndex, 'packs-status with enabled pack precedes pack-source-result');
+    assert.ok(typeof connection.sent[statusBroadcastIndex]?.seq === 'number' && typeof connection.sent[enableReplyIndex]?.appliedSeq === 'number');
+    assert.ok(connection.sent[enableReplyIndex].appliedSeq >= connection.sent[statusBroadcastIndex].seq);
+
+    connection.sent.length = 0;
+    await connection.send({ type: 'pack-request-dismiss', requestId: 'dismiss-1', pack: 'demo-pack' });
+    const dismissReply = connection.sent.find((frame) => frame.type === 'pack-request-dismiss-result' && frame.requestId === 'dismiss-1');
+    assert.equal(dismissReply?.ok, true);
+    assert.equal('appliedSeq' in (dismissReply ?? {}), false);
+
+    const fingerprint = packStore.statusFrame().packs.find((row) => row.name === 'demo-pack')?.fingerprint;
+    assert.ok(fingerprint);
+    await connection.send({ type: 'pack-approve', requestId: 'approve-1', fingerprint });
+
+    connection.sent.length = 0;
+    await connection.send({ type: 'pack-settings-save', requestId: 'settings-save-1', pack: 'demo-pack', valuesByKey: { API_HOST: 'api.example' } });
+    const settingsSaveReply = connection.sent.find((frame) => frame.type === 'pack-settings-result' && frame.requestId === 'settings-save-1');
+    assert.equal(settingsSaveReply?.ok, true);
+    assert.equal('appliedSeq' in (settingsSaveReply ?? {}), false);
+  } finally {
+    packSources.stop();
+    packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
 });
