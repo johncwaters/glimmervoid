@@ -118,10 +118,16 @@ let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let shownFixedAreas: readonly Rect[] = [];
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
+let inFlightBoxesSessionId: string | null = null;
+let lastSeenBoardVersion: number | null = null;
 type MissingMap = { boardId: string | null; boardVersion: number | null; knownBoardIds: ReadonlySet<string> };
 
 let missingMap: MissingMap | null = null;
 let digestsRequestSerial = 0;
+let fetchedDigestsKey: string | null = null;
+let inFlightDigestsKey: string | null = null;
+const staleRequests = new Set<'boxes' | 'dock'>();
+const dirtyTraceSessionIds = new Set<string>();
 let watchBySessionId = new Map<string, SessionWatch>();
 const openedBranchIds = new Set<string>();
 
@@ -245,17 +251,26 @@ function catchUpWatch(watch: SessionWatch): void {
 
 function syncWatches(): void {
   const wantedIds = new Set(studioSessionIds());
+  let watchChangeCount = 0;
   for (const [sessionId, watch] of watchBySessionId) {
     if (wantedIds.has(sessionId)) continue;
     watch.feed.close();
     watch.waits.close();
     watchBySessionId.delete(sessionId);
+    dirtyTraceSessionIds.delete(sessionId);
+    watchChangeCount += 1;
   }
   for (const sessionId of wantedIds) {
     if (watchBySessionId.has(sessionId)) continue;
     const watch = openWatch(sessionId);
     watchBySessionId.set(sessionId, watch);
+    dirtyTraceSessionIds.delete(sessionId);
     watch.feed.refresh();
+    watchChangeCount += 1;
+  }
+  if (watchChangeCount > 0) {
+    staleRequests.add('dock');
+    if (studioCollection.state.boxesAnsweredSessionId !== null) staleRequests.add('boxes');
   }
 }
 
@@ -359,7 +374,7 @@ onAgentChange((_sessionId, boardChange) => {
 
 function requestOpenAsksIfStale(): void {
   const askedBoardId = studioCollection.state.boardId;
-  const heldVersion = askedBoardId === null ? null : tiledBoardOf(askedBoardId)?.version ?? null;
+  const heldVersion = askedBoardId === null ? null : (tiledBoardOf(askedBoardId)?.version ?? boardSummariesOf().find((summary) => summary.id === askedBoardId)?.version ?? null);
   if (askedBoardId === null || heldVersion === null) return;
   const versionKey = `${askedBoardId}@${heldVersion}`;
   if (requestedAsksKey === versionKey) return;
@@ -543,20 +558,41 @@ function directorChatLineOf(sessionId: string, openedAt: number): string | null 
   return studioCollection.state.verdictByKey[directorDigestKeyOf(sessionId, openedAt)]?.chatLine ?? null;
 }
 
+function digestsCacheKeyFor(shownId: string): string {
+  const revisions = studioCollection.state.digestRevisionBySessionId;
+  const sessionIds = [shownId, ...watchBySessionId.keys()].slice(0, DIRECTOR_DIGEST_SESSIONS_MAX);
+  return sessionIds.map((sessionId) => `${sessionId}@${revisions[sessionId] ?? 0}`).join(',');
+}
+
 function requestDigests(): void {
   const shownId = studioCollection.state.shownSessionId;
   if (shownId === null) return;
+  const cacheKey = digestsCacheKeyFor(shownId);
   digestsRequestSerial += 1;
   const serial = digestsRequestSerial;
+  inFlightDigestsKey = cacheKey;
   const sessionIds = [shownId, ...watchBySessionId.keys()].slice(0, DIRECTOR_DIGEST_SESSIONS_MAX);
   sendControlRequest('director-digests', { id: shownId, sessionIds }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
-      if (serial !== digestsRequestSerial || reply.type !== 'director-digests-result' || !reply.ok) return;
+      if (serial !== digestsRequestSerial) return;
+      inFlightDigestsKey = null;
+      if (reply.type !== 'director-digests-result' || !reply.ok) return;
+      fetchedDigestsKey = cacheKey;
       applyStudioReply(reply);
       dock?.refreshDigests();
       paintPresence();
     })
-    .catch(() => {});
+    .catch(() => {
+      if (serial === digestsRequestSerial) inFlightDigestsKey = null;
+    });
+}
+
+function requestDigestsIfStale(): void {
+  const shownId = studioCollection.state.shownSessionId;
+  if (shownId === null) return;
+  const nextKey = digestsCacheKeyFor(shownId);
+  if (fetchedDigestsKey === nextKey || inFlightDigestsKey === nextKey) return;
+  requestDigests();
 }
 
 async function setFolderOpen(folderBoardId: string, frameId: string, isOpen: boolean): Promise<boolean> {
@@ -580,6 +616,10 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
   const hasNewPath = presencePathsOf(nextPresence).some((presencePath) => isUnaskedPath(sessionId, presencePath));
   watch.presence = nextPresence;
   if (hasNewPath) {
+    if (!isActive) {
+      staleRequests.add('boxes');
+      return;
+    }
     requestBoxes();
     return;
   }
@@ -623,11 +663,21 @@ function showMapMissing(text: string, isMapFailed: boolean, mapBoardId: string |
   missingMap = missingMapOf(mapBoardId);
 }
 
+function shouldRequestBoxes(sessionId: string): boolean {
+  if (inFlightBoxesSessionId === sessionId && !staleRequests.has('boxes')) return false;
+  if (studioCollection.state.boxesAnsweredSessionId !== sessionId) return true;
+  if (missingMap !== null) return true;
+  if (staleRequests.has('boxes')) return true;
+  return hasUnaskedPaths();
+}
+
 function requestBoxes(): void {
   const sessionId = studioCollection.state.shownSessionId;
   if (sessionId === null) return;
   boxesRequestSerial += 1;
   const serial = boxesRequestSerial;
+  inFlightBoxesSessionId = sessionId;
+  staleRequests.delete('boxes');
   const askedPathsBySessionId = unaskedPathsBySessionId();
   const showMissingAndFirstView = (text: string, isMapFailed: boolean) => {
     showMapMissing(text, isMapFailed, studioCollection.state.boardId ?? titledMapBoardIdOf());
@@ -636,11 +686,13 @@ function requestBoxes(): void {
   sendControlRequest('codemap-boxes-of', { id: sessionId, pathsBySessionId: askedPathsBySessionId }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== boxesRequestSerial) return;
+      inFlightBoxesSessionId = null;
       if (reply.type !== 'codemap-boxes-of-response') return paintBoard();
       applyStudioReply(reply, { watchedSessionIds: new Set(watchBySessionId.keys()) });
       if (!reply.ok) return showMissingAndFirstView(reply.error ?? NO_MAP_TEXT, reply.isMapFailed);
       if (reply.boardId === null || reply.areas.length === 0) return showMissingAndFirstView(NO_MAP_TEXT, false);
       missingMap = null;
+      lastSeenBoardVersion = boardSummariesOf().find((summary) => summary.id === reply.boardId)?.version ?? null;
       const unmappedArea = reply.areas.find((area) => area.mapError !== null);
       showNotice(unmappedArea ? `${unmappedArea.repoName}: ${unmappedArea.mapError}` : null);
       showMapState('drawn');
@@ -653,6 +705,8 @@ function requestBoxes(): void {
     })
     .catch(() => {
       if (serial !== boxesRequestSerial) return;
+      inFlightBoxesSessionId = null;
+      staleRequests.add('boxes');
       applyStudioReply({
         type: 'codemap-boxes-of-response',
         id: sessionId,
@@ -697,6 +751,7 @@ function mountDock(): void {
     showBoardChange,
   });
   parts.dockSlot.append(dock.element);
+  staleRequests.add('dock');
   syncBranches();
 }
 
@@ -705,7 +760,12 @@ function showSession(sessionId: string | null): void {
   if (parts) parts.noRepoChip.hidden = sessionId !== null;
   if (sessionId === null) {
     boxesRequestSerial += 1;
+    inFlightBoxesSessionId = null;
+    staleRequests.clear();
+    lastSeenBoardVersion = null;
     digestsRequestSerial += 1;
+    fetchedDigestsKey = null;
+    inFlightDigestsKey = null;
     mountedDockSessionId = null;
     seatOnHost();
     mountDock();
@@ -716,13 +776,14 @@ function showSession(sessionId: string | null): void {
   if (!isSameSession) {
     mountedDockSessionId = sessionId;
     answeredPathKeys = new Set();
+    fetchedDigestsKey = null;
     peekedBoxId = null;
     parts?.changesPeek.hide();
     parts?.diffPanel.close();
     mountDock();
-    requestDigests();
+    requestDigestsIfStale();
   }
-  requestBoxes();
+  if (shouldRequestBoxes(sessionId)) requestBoxes();
 }
 
 function closeMenu(): void {
@@ -888,8 +949,23 @@ function mountBoardSessionView(panel: HTMLElement): void {
     if (menu.hidden || !(event.target instanceof Node) || menu.contains(event.target) || parts?.menuOpener?.contains(event.target)) return;
     closeMenu();
   });
-  onBoardListChanged(followMissingMap);
+  onBoardListChanged(() => {
+    const currentBoardId = studioCollection.state.boardId;
+    if (currentBoardId !== null) {
+      const currentVersion = boardSummariesOf().find((summary) => summary.id === currentBoardId)?.version ?? null;
+      if (lastSeenBoardVersion !== null && currentVersion !== lastSeenBoardVersion) staleRequests.add('boxes');
+      lastSeenBoardVersion = currentVersion;
+    }
+    followMissingMap();
+  });
   onStudioServerMessage((message) => {
+    if (message.type === 'snapshot') {
+      fetchedDigestsKey = null;
+      staleRequests.add('boxes');
+      staleRequests.add('dock');
+      for (const sessionId of watchBySessionId.keys()) dirtyTraceSessionIds.add(sessionId);
+      return;
+    }
     if (message.type !== 'director-digest-kept') return;
     if (isActive && (message.id === studioCollection.state.shownSessionId || watchBySessionId.has(message.id))) requestDigests();
   });
@@ -901,13 +977,24 @@ function mountBoardSessionView(panel: HTMLElement): void {
     },
   );
   onBoardSessionStatusChanged((sessionId) => {
-    if (!isActive) return;
+    if (!isActive) {
+      if (sessionId === studioCollection.state.shownSessionId || isBranchOfShownSession(sessionId)) staleRequests.add('dock');
+      return;
+    }
     if (watchBySessionId.has(sessionId)) paintPresence();
     if (sessionId !== studioCollection.state.shownSessionId && !isBranchOfShownSession(sessionId)) return;
     dock?.refresh();
   });
   onBoardSessionTraceChanged((sessionId) => {
-    if (!isActive) return;
+    if (!isActive) {
+      if (watchBySessionId.has(sessionId)) dirtyTraceSessionIds.add(sessionId);
+      if (sessionId === studioCollection.state.shownSessionId) {
+        staleRequests.add('dock');
+        staleRequests.add('boxes');
+      }
+      if (isBranchOfShownSession(sessionId)) staleRequests.add('dock');
+      return;
+    }
     watchBySessionId.get(sessionId)?.feed.refresh();
     if (isBranchOfShownSession(sessionId)) return dock?.refresh();
     if (sessionId !== studioCollection.state.shownSessionId) return;
@@ -923,16 +1010,25 @@ function activateBoardSessionView(): void {
   if (host.parentElement !== parts.root) parts.root.replaceChildren(host);
   placeBoardTitle(null);
   seatOnHost();
-  for (const watch of watchBySessionId.values()) catchUpWatch(watch);
+  for (const [sessionId, watch] of watchBySessionId) {
+    if (!dirtyTraceSessionIds.delete(sessionId)) continue;
+    catchUpWatch(watch);
+  }
+  dirtyTraceSessionIds.clear();
   showStudio();
-  requestDigests();
-  reopenSelectedBoard();
+  requestDigestsIfStale();
+  reopenSelectedBoard({ refreshReview: false });
 }
 
 function deactivateBoardSessionView(): void {
   isActive = false;
+  if (inFlightBoxesSessionId !== null || missingMap !== null) {
+    inFlightBoxesSessionId = null;
+    staleRequests.add('boxes');
+  }
   boxesRequestSerial += 1;
   digestsRequestSerial += 1;
+  inFlightDigestsKey = null;
   missingMap = null;
   for (const watch of watchBySessionId.values()) watch.waits.close();
   ensuredAnchorId = null;
@@ -945,6 +1041,7 @@ function refreshBoardSessionView(): void {
   showStudio();
   syncBranches();
   paintPresence();
+  if (!staleRequests.delete('dock')) return;
   dock?.refresh();
 }
 

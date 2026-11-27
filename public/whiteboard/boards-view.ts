@@ -1865,9 +1865,9 @@ export function showBoardBeside(boardId: string | null, sessionId: string | null
   paintPairedSession();
 }
 
-export function reopenSelectedBoard(): void {
+export function reopenSelectedBoard({ refreshReview = true }: { refreshReview?: boolean } = {}): void {
   paintList();
-  reviewRequestKey = null;
+  if (refreshReview) reviewRequestKey = null;
   renderer?.resendView();
   resendTilesView();
   paintBoard();

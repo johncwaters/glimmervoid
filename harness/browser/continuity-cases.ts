@@ -1268,6 +1268,12 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
       if (check === 'C4' && layout !== 'phone') {
         await openStudioScreen(page, layout);
         await page.locator('#view-board-session .bs-pill textarea.chat-composer-input').first().waitFor({ state: 'visible', timeout: 10000 });
+        const settleDeadline = Date.now() + 3000;
+        while (Date.now() < settleDeadline) {
+          ctx.faults.startCountingClientFrames();
+          await page.waitForTimeout(250);
+          if (ctx.faults.stopCountingClientFrames().length === 0) break;
+        }
       }
       return {
         listSelector: '.board-session-view, #view-board-session',
@@ -1275,7 +1281,6 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
         focusSelector: check === 'C4' && layout !== 'phone'
           ? '#view-board-session .bs-pill textarea.chat-composer-input'
           : '#studio-view button, .board-session-view button',
-        allowControlRequestsOnC4: layout !== 'phone',
         switchAwayAndBack: async () => {
           await openPacksScreen(page, layout);
           await openStudioScreen(page, layout);
