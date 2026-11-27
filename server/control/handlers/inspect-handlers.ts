@@ -7,7 +7,7 @@ import { SESSION_GONE_TEXT, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
-  const { findSession } = context;
+  const { findSession, replyApplied } = context;
   const { readTracePage = null, sessionDocs = null } = deps;
 
   const handlers = {
@@ -50,24 +50,30 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
       }
     },
     'session-doc-save': async (message: ClientMessageOf<'session-doc-save'>, ws: ControlSocket) => {
-      const reply = { type: 'session-doc-save-result', requestId: message.requestId ?? null, id: message.id, path: message.path };
+      const basePayload = { id: message.id, path: message.path };
       const session = findSession(message);
-      if (!sessionDocs || !session) return ws.send(JSON.stringify({ ...reply, ok: false, error: 'Session not found' }));
+      if (!sessionDocs || !session) {
+        replyApplied(ws, message, 'session-doc-save-result', { ...basePayload, ok: false, error: 'Session not found' });
+        return;
+      }
       try {
-        ws.send(JSON.stringify({ ...reply, ...await sessionDocs.save(session, message.path, message.text, message.baseHash) }));
+        replyApplied(ws, message, 'session-doc-save-result', { ...basePayload, ...await sessionDocs.save(session, message.path, message.text, message.baseHash) });
       } catch (error) {
-        ws.send(JSON.stringify({ ...reply, ok: false, error: `Save failed: ${errorMessage(error)}` }));
+        replyApplied(ws, message, 'session-doc-save-result', { ...basePayload, ok: false, error: `Save failed: ${errorMessage(error)}` });
       }
     },
     'session-doc-open': async (message: ClientMessageOf<'session-doc-open'>, ws: ControlSocket) => {
-      const reply = { type: 'session-doc-open-result', requestId: message.requestId ?? null, id: message.id, path: message.path };
+      const basePayload = { id: message.id, path: message.path };
       const session = findSession(message);
-      if (!sessionDocs || !session) return ws.send(JSON.stringify({ ...reply, ok: false, error: 'Session not found' }));
+      if (!sessionDocs || !session) {
+        replyApplied(ws, message, 'session-doc-open-result', { ...basePayload, ok: false, error: 'Session not found' });
+        return;
+      }
       try {
         const opened = await sessionDocs.surface(session, { path: message.path });
-        ws.send(JSON.stringify(opened.ok ? { ...reply, ok: true } : { ...reply, ok: false, error: opened.error }));
+        replyApplied(ws, message, 'session-doc-open-result', opened.ok ? { ...basePayload, ok: true } : { ...basePayload, ok: false, error: opened.error });
       } catch (error) {
-        ws.send(JSON.stringify({ ...reply, ok: false, error: `Open failed: ${errorMessage(error)}` }));
+        replyApplied(ws, message, 'session-doc-open-result', { ...basePayload, ok: false, error: `Open failed: ${errorMessage(error)}` });
       }
     },
   } satisfies ControlHandlerTable;

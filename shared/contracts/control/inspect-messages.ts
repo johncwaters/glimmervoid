@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { SessionPreviewPorts } from '../session-previews.ts';
 import { SessionDoc } from '../session.ts';
 import { TraceRecord } from '../trace.ts';
-import { requestId, sessionId, loose, looseCollection, optionalError, opaqueObject, sessionDocPath } from './control-fields.ts';
+import { requestId, sessionId, loose, looseCollection, looseMutatingReply, optionalError, opaqueObject, sessionDocPath } from './control-fields.ts';
 
 export const inspectClientVariants = [
   loose('session-trace', {
@@ -33,8 +33,8 @@ export const inspectServerVariants = [
   looseCollection('session-docs-snapshot', { sessions: z.record(z.string(), z.array(SessionDoc)) }),
   loose('session-doc-response', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), text: z.string().optional(), hash: z.string().optional(), error: optionalError }),
   loose('session-doc-asset-response', { requestId, id: sessionId, path: z.string(), src: z.string(), ok: z.boolean(), mime: z.string().optional(), base64: z.string().optional(), error: optionalError }),
-  loose('session-doc-open-result', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), error: optionalError }),
-  loose('session-doc-save-result', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), hash: z.string().optional(), conflict: z.boolean().optional(), error: optionalError }),
+  looseMutatingReply('session-doc-open-result', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('session-doc-save-result', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), hash: z.string().optional(), conflict: z.boolean().optional(), error: optionalError }),
   looseCollection('session-preview-changed', { id: sessionId, port: z.number().int().min(1).max(65535).nullable() }),
   looseCollection('session-previews-snapshot', { ports: SessionPreviewPorts }),
 ] as const;
