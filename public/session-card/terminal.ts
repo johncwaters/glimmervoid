@@ -41,7 +41,7 @@ function wireTerminalIO(ui: SessionUi, sessionId: string) {
 }
 
 function ensureTerminalSetup(ui: SessionUi, sessionId: string) {
-  if (ui.term || sessionUisAwaitingXterm.has(ui)) return;
+  if (ui.hasTerminal === false || ui.term || sessionUisAwaitingXterm.has(ui)) return;
   const loadedRuntime = readLoadedXtermRuntime();
   if (loadedRuntime) {
     attachTerminal(ui, sessionId, loadedRuntime);
@@ -55,7 +55,10 @@ function ensureTerminalSetup(ui: SessionUi, sessionId: string) {
   refreshTerminalLink(ui);
   loadXtermRuntime().then((xtermRuntime) => {
     sessionUisAwaitingXterm.delete(ui);
-    if (ui.term || ui.abortController.signal.aborted || sessionUIs.get(sessionId) !== ui) return;
+    if (ui.hasTerminal === false || ui.term || ui.abortController.signal.aborted || sessionUIs.get(sessionId) !== ui) {
+      refreshTerminalLink(ui);
+      return;
+    }
     attachTerminal(ui, sessionId, xtermRuntime);
     ui._setActiveViewer?.(isActiveViewerRequested);
   }, () => {

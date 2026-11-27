@@ -106,6 +106,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     path: asText(options.path),
     parent: options.parent ?? null,
     isStudioMain: options.isStudioMain === true,
+    hasTerminal: options.hasTerminal !== false,
     attentionOwner: options.attentionOwner ?? 'operator',
 
     stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : clock.nowMs(),
@@ -160,6 +161,7 @@ export function setSessionAgent(sessionId: unknown, agent: unknown, agentDrawsAl
   ui.agent = typeof agent === 'string' ? agent : null;
   ui.agentDrawsAlternateScreen = agentDrawsAlternateScreen === true;
   ui.hasTerminal = hasTerminal !== false;
+  if (!ui.hasTerminal) closeDataWs(ui, sessionIdOf(sessionId));
   const agentMarkEl = queryCardPart(ui.card, '.session-agent-mark');
   if (agentMarkEl) paintAgentMark(agentMarkEl, ui.agent);
   paintSessionAccount(ui);

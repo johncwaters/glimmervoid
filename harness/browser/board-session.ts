@@ -649,6 +649,34 @@ async function verifyStudioModelSwitch(page: Page, root: Locator): Promise<void>
 }
 
 export async function verifyBoardSession(page: Page, projectDirectory: string): Promise<void> {
+  const openedTerminalSessionIds: string[] = [];
+  const recordTerminalSocket = (socket: { url(): string }) => {
+    const match = /\/terminals\/([^/?#]+)/.exec(socket.url());
+    if (match?.[1]) openedTerminalSessionIds.push(decodeURIComponent(match[1]));
+  };
+  page.on('websocket', recordTerminalSocket);
+  const studioSessionIds = new Set<string>();
+  const collectStudioSessionIds = async (root: Locator) => {
+    const cardIds = await root.locator('.bs-card[data-session-id]').evaluateAll((cards) => cards.flatMap((card) => card.getAttribute('data-session-id') ?? []));
+    for (const cardId of cardIds) studioSessionIds.add(cardId);
+  };
+  const assertNoStudioTerminalAttach = (stage: string) => {
+    const studioTerminalAttaches = openedTerminalSessionIds.filter((sessionId) => studioSessionIds.has(sessionId));
+    assert.deepEqual(studioTerminalAttaches, [], `Studio ACP sessions never open a /terminals/ socket (${stage})`);
+  };
+  try {
+    await verifyBoardSessionBody(page, projectDirectory, collectStudioSessionIds, assertNoStudioTerminalAttach);
+  } finally {
+    page.off('websocket', recordTerminalSocket);
+  }
+}
+
+async function verifyBoardSessionBody(
+  page: Page,
+  projectDirectory: string,
+  collectStudioSessionIds: (root: Locator) => Promise<void>,
+  assertNoStudioTerminalAttach: (stage: string) => void,
+): Promise<void> {
   const root = page.locator('.board-session-view');
   await page.locator('#tab-board-session').click();
   const chip = root.locator('button.bs-chip');
@@ -664,6 +692,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await picker.getByRole('button', { name: 'Start session', exact: true }).click();
   const repoButton = root.locator('.bs-card[data-main] .bs-card-repo');
   await page.waitForFunction(() => document.querySelector('.board-session-view .bs-card[data-main] .bs-card-repo-name')?.textContent === 'Orchestrator', undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await collectStudioSessionIds(root);
+  assertNoStudioTerminalAttach('after Orchestrator start');
   assert.equal(await chip.isHidden(), true, 'the Orchestrator card holds the menu, so the repo pill hides');
   await root.locator('.bs-guide:not([hidden])').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.waitForFunction(() => {
@@ -925,6 +955,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await verifyShownPageOnMap(page);
   await verifyPrCardOnMap(page);
   await verifyStalledAgentShowsFailureWithoutTerminal(root);
+  await collectStudioSessionIds(root);
+  assertNoStudioTerminalAttach('across model switch, branch, reload, restart, and stall');
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');

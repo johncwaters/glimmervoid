@@ -32,6 +32,12 @@ const sessionUisReattachingQuietly = new WeakSet<SessionUi>();
 
 const sessionUisReconnectingWhenShown = new WeakSet<SessionUi>();
 
+const sessionUisWithoutTerminal = new WeakSet<SessionUi>();
+
+function hasNoTerminal(ui: SessionUi): boolean {
+  return ui.hasTerminal === false || sessionUisWithoutTerminal.has(ui);
+}
+
 type TerminalDrainKind = 'none' | 'reset-snapshot' | 'catchup';
 
 type OutputFlowState = 'paused' | 'resuming' | 'flowing';
@@ -191,7 +197,7 @@ function countShownConnectingTerminals() {
 
 function refreshTerminalLink(ui: SessionUi) {
   const decidedLinkState = decideTerminalLinkState({
-    hasTerminal: ui.term !== null || sessionUisAwaitingXterm.has(ui),
+    hasTerminal: !hasNoTerminal(ui) && (ui.term !== null || sessionUisAwaitingXterm.has(ui)),
     isSocketOpen: ui.dataWs?.readyState === WebSocket.OPEN,
     isInputHeld: isInputHeldForWakeCheck,
   });
@@ -255,6 +261,7 @@ function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, d
 }
 
 function reconnectIfDeferredAndShown(ui: SessionUi, sessionId: string) {
+  if (hasNoTerminal(ui)) return false;
   const isDeferred = sessionUisReconnectingWhenShown.has(ui);
   const isWaitingOnRetry = !ui.dataWs && sessionUIs.get(sessionId) === ui;
   if (!(isDeferred || isWaitingOnRetry) || !ui.term || !isTerminalOutputWanted(sessionId)) return false;
@@ -346,6 +353,7 @@ function reportFastTerminalClose(ui: SessionUi, life: TerminalSocketLife, event:
 }
 
 function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
+  if (hasNoTerminal(ui)) return;
   sessionUisReconnectingWhenShown.delete(ui);
   const deepHistoryLinesFromBottom = deepHistoryLinesFromBottomBySessionUi.get(ui);
   deepHistoryLinesFromBottomBySessionUi.delete(ui);
@@ -441,6 +449,14 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
   ws.addEventListener('close', (event) => {
     clearTimeout(handshakeTimer);
+    if (hasNoTerminal(ui) || (event.code === 1008 && event.reason === 'Session has no terminal')) {
+      sessionUisWithoutTerminal.add(ui);
+      sessionUisReattachingQuietly.delete(ui);
+      sessionUisReconnectingWhenShown.delete(ui);
+      detachDataWs(sessionId, ui, term);
+      cancelPendingRetry(ui);
+      return;
+    }
     const wasRacing = handshakeRace.isRacing(ws);
     if (wasRacing && handshakeRace.drop(ws) > 0) {
       if (ui.dataWs === ws) raceAgainAfterBackoff();
@@ -484,7 +500,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
 function reconnectDataWs(id: unknown) {
   const ui = findSessionUi(id);
-  if (typeof id !== 'string' || !ui?.term) return;
+  if (typeof id !== 'string' || !ui?.term || hasNoTerminal(ui)) return;
   const abandonedSocket = ui.dataWs;
   ui._dataWsRetryAttempt = 0;
   detachThenReconnect(id, ui, ui.term, 0);
@@ -516,6 +532,8 @@ function closeEveryTerminalUntilShown() {
 }
 
 function closeDataWs(ui: SessionUi, sessionId: string) {
+  cancelPendingRetry(ui);
+  sessionUisReconnectingWhenShown.delete(ui);
   handshakeRaceOf(ui).closeAll();
   const closingSocket = ui.dataWs;
   ui.dataWs = null;

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Non-terminal ACP sessions no longer open `/terminals/` WebSockets.** Dashboard cards now carry `hasTerminal` at creation and skip terminal setup, data-socket attachment, and reconnect retries for sessions with `hasTerminal: false`, eliminating spurious `1008 Session has no terminal` closes in Studio.
 - **Middle-button dragging to pan a whiteboard on Linux no longer pastes the primary selection onto the board.** `armAuxiliaryClickSuppression` in `public/whiteboard/board-edit.ts` now also suppresses the follow-up `paste` event fired on middle-button release until the current event turn clears.
 - **Trackpad pinch zoom over embedded whiteboard page cards now scales continuously with `deltaY` and `deltaMode`.** Embedded page frames now forward `event.deltaMode` in wheel gesture messages so pinching or wheel-zooming over a page card on the board or in the media viewer matches canvas zoom instead of stepping a fixed 1.1x per wheel event.
 - **Studio and other ACP sessions stay awake while the dashboard is open, and sending a chat message wakes a dormant session.** Idle memory-pressure hibernation previously checked only for an open `/terminals/` viewer socket, which ACP sessions do not have, so low host memory could snooze active Studio sessions mid-conversation. Sending a message in Chat or Studio to a snoozed session now wakes it so the queued prompt is delivered.
