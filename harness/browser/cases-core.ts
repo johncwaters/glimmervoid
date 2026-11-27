@@ -707,7 +707,7 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'offline', viewer: 'a' },
       { kind: 'online', viewer: 'a' },
       { kind: 'settle', viewer: 'b', expectGrid: 'exact' },
-      { kind: 'settle', viewer: 'a', expectGrid: 'following' },
+      { kind: 'expect-link', value: 'connecting', viewer: 'a' },
     ],
   },
   {

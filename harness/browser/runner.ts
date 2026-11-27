@@ -598,6 +598,17 @@ async function runOffline(viewer: Viewer, sessionId: string, deadlines: Deadline
 
 async function runOnline(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
   await viewer.context.setOffline(false);
+  const engagement = await viewer.page.evaluate(readDocumentEngagement);
+  if (engagement.visibilityState === 'hidden') {
+    const deferred = await pollUntil(async () => {
+      const reading = await readGridOf(viewer, sessionId);
+      if (!reading || reading.dataWsState === null) {
+        return { ok: true, reading, detail: 'network restored while hidden; data socket stays detached until shown' };
+      }
+      return { ok: false, reading, detail: `hidden viewer data socket state ${String(reading.dataWsState)}` };
+    }, { label: `viewer ${viewer.id} stays detached while hidden`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+    return outcomeFor('socket-deferred-while-hidden', deferred);
+  }
   const reattached = await pollUntil(
     () => probeCardLive(viewer, sessionId),
     { label: `viewer ${viewer.id} reattached`, timeoutMs: deadlines.reattachMs, intervalMs: deadlines.pollIntervalMs },
