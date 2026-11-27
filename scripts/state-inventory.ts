@@ -100,6 +100,8 @@ export interface StateInventory {
   unconvertedMutatingHandlers: Record<string, number>;
   legacyMutatingWithoutRequestId: string[];
   legacyMutatingRepliesWithoutAppliedSeq: string[];
+  collectionModules: string[];
+  actionModules: string[];
 }
 
 export interface SocketCallRatchetEntry {
@@ -115,12 +117,18 @@ export interface StateRatchetData {
   unconvertedMutatingHandlers: Record<string, number>;
   legacyMutatingWithoutRequestId: string[];
   legacyMutatingRepliesWithoutAppliedSeq: string[];
+  legacyCollections: string[];
+  legacyMutatingActions: string[];
 }
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 export const STATE_RATCHETS_RELATIVE_PATH = 'tests/gates/state-ratchets.json';
 export const PUBLIC_SOURCE_PATTERN = /^public\/.*\.tsx?$/;
 export const CONTROL_HANDLER_PATTERN = /^server\/control\/handlers\/.*-handlers\.ts$/;
+export const STATE_COLLECTIONS_DIR_PATTERN = /^public\/state\/collections\//;
+export const STATE_ACTIONS_DIR_PATTERN = /^public\/state\/actions\//;
+export const STATE_COLLECTION_MODULE_PATTERN = /^public\/state\/collections\/([a-z0-9-]+)\.ts$/;
+export const STATE_ACTION_MODULE_PATTERN = /^public\/state\/actions\/([a-z0-9-]+)\.ts$/;
 
 const IMPORT_STATEMENT_PATTERN = /^\s*import\s+(?:type\s+)?[^;]*?\bfrom\s+['"][^'"]+['"];?/gm;
 const NAMED_CONTROL_WS_IMPORT_PATTERN = /\bimport\s+(?!type\b)(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]+)\}\s*from\s*['"][^'"]*\/control-ws(?:\.[cm]?[jt]s)?['"]/g;
@@ -908,6 +916,16 @@ function collectReplyAppliedRatchets(
   };
 }
 
+function collectNamedStateModules(sourceFiles: readonly TrackedSourceFile[], pattern: RegExp): string[] {
+  const names: string[] = [];
+  for (const sourceFile of sourceFiles) {
+    const match = pattern.exec(sourceFile.path);
+    if (!match?.[1]) continue;
+    names.push(match[1]);
+  }
+  return names.sort(compareText);
+}
+
 export function collectStateInventoryFromFiles(
   sourceFiles: readonly TrackedSourceFile[],
   handlerFiles: readonly TrackedSourceFile[] = [],
@@ -923,6 +941,8 @@ export function collectStateInventoryFromFiles(
     clientTypes,
     serverTypes,
     ...replyApplied,
+    collectionModules: collectNamedStateModules(sourceFiles, STATE_COLLECTION_MODULE_PATTERN),
+    actionModules: collectNamedStateModules(sourceFiles, STATE_ACTION_MODULE_PATTERN),
   };
 }
 
@@ -964,6 +984,18 @@ export function buildStateRatchetData(inventory: StateInventory): StateRatchetDa
       .filter((repoPath) => !isStoreModuleExempt(repoPath)),
   )].sort(compareText);
 
+  const collectionModuleSet = new Set(inventory.collectionModules);
+  const collectionNamesInWire = [...new Set(Object.values(COLLECTION_OF))];
+  const legacyCollections = collectionNamesInWire
+    .filter((name) => !collectionModuleSet.has(name))
+    .sort(compareText);
+
+  const actionModuleSet = new Set(inventory.actionModules);
+  const legacyMutatingActions = inventory.clientTypes
+    .filter((variant) => variant.messageClass === 'mutating' && !actionModuleSet.has(variant.type))
+    .map((variant) => variant.type)
+    .sort(compareText);
+
   return {
     socketCalls,
     localStoreImports,
@@ -971,6 +1003,8 @@ export function buildStateRatchetData(inventory: StateInventory): StateRatchetDa
     unconvertedMutatingHandlers: inventory.unconvertedMutatingHandlers,
     legacyMutatingWithoutRequestId: inventory.legacyMutatingWithoutRequestId,
     legacyMutatingRepliesWithoutAppliedSeq: inventory.legacyMutatingRepliesWithoutAppliedSeq,
+    legacyCollections,
+    legacyMutatingActions,
   };
 }
 
