@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trackpad pinch zoom over embedded whiteboard page cards now scales continuously with `deltaY` and `deltaMode`.** Embedded page frames now forward `event.deltaMode` in wheel gesture messages so pinching or wheel-zooming over a page card on the board or in the media viewer matches canvas zoom instead of stepping a fixed 1.1x per wheel event.
 - **Undoing a drawn pen stroke on a whiteboard now removes the stroke, including over later edits to other elements.** `REMOVAL_ORDER` in `shared/contracts/whiteboard-undo-core.ts` previously omitted `'stroke'`, causing pen stroke additions to record zero undo ops so Ctrl+Z skipped the stroke.
 - **Narrow desktop whiteboard panes no longer cover boxes with floating toolbars or the selection panel.** When a desktop board pane is 640 px wide or narrower, the toolbar docks as a flat bar above the viewport and the selection panel docks as a compact flat strip below the viewport instead of floating over boxes.
 - **New whiteboard notes are now typeable immediately without waiting for the server.** Placing a note opens and focuses its inline title editor in the same frame so typed keys go into the note instead of canvas shortcuts, preserves typed text when the save completes, and closes the editor with the server's error if the save is refused.

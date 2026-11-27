@@ -1529,16 +1529,41 @@ async function verifyWheelScrollsIdlePage(open: OpenBoard): Promise<void> {
 
 async function verifyCtrlWheelOverInteractivePageZoomsBoard({ page, panel }: OpenBoard, pageMedia: Locator): Promise<void> {
   const worldScale = () => panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).a);
+  const waitForFrameFlush = () => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const scaleBefore = await worldScale();
   const pageBody = page.frameLocator(`.wb-media[data-box-id="${await pageMedia.getAttribute('data-box-id')}"] iframe`).locator('body');
-  const ctrlWheel = (deltaY: number) => pageBody.dispatchEvent('wheel', { ctrlKey: true, deltaY, clientX: 20, clientY: 20, bubbles: true, cancelable: true });
-  await ctrlWheel(-100);
-  await page.waitForFunction((before) => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.wb-world') ?? document.body).transform).a > before, scaleBefore, { timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('a ctrl wheel inside an interactive page zooms the board in'));
-  await ctrlWheel(100);
-  await pageBody.evaluate(() => parent.postMessage({ type: 'glimmervoid-board-page-gesture', gesture: 'pan', deltaX: 1e308, deltaY: 0 }, '*'));
-  await page.waitForTimeout(100);
+  await pageBody.evaluate((body) => {
+    for (let tick = 0; tick < 20; tick += 1) {
+      body.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -5, deltaMode: 0, clientX: 20, clientY: 20, bubbles: true, cancelable: true }));
+    }
+  });
+  await pollFor('ctrl wheel pinch over an interactive page zooms the board in', BOARD_TIMEOUT_MS, async () => ((await worldScale()) > scaleBefore ? true : null));
+  await waitForFrameFlush();
+  const scaleAfterPinch = await worldScale();
+  assert.ok(
+    Math.abs(scaleAfterPinch / scaleBefore - 1.1) < 0.02,
+    `20 small Ctrl+wheel pinch events over a page card totaling -100 px zoom by ~1.1x (got ${(scaleAfterPinch / scaleBefore).toFixed(4)}x)`,
+  );
+  await pageBody.evaluate((body) => {
+    body.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: 100, deltaMode: 0, clientX: 20, clientY: 20, bubbles: true, cancelable: true }));
+  });
+  await pollFor('a +100 px ctrl wheel back inside the page zooms the board out to where it was', BOARD_TIMEOUT_MS, async () => (Math.abs((await worldScale()) / scaleBefore - 1) < 0.02 ? true : null));
+  await pageBody.evaluate((body) => {
+    body.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -3, deltaMode: 1, clientX: 20, clientY: 20, bubbles: true, cancelable: true }));
+  });
+  await pollFor('a 3-line DOM_DELTA_LINE ctrl wheel over an interactive page zooms the board in', BOARD_TIMEOUT_MS, async () => ((await worldScale()) > scaleBefore * 1.05 ? true : null));
+  await waitForFrameFlush();
+  const scaleAfterLineNotch = await worldScale();
+  assert.ok(
+    Math.abs(scaleAfterLineNotch / scaleBefore - 1.1) < 0.02,
+    `a 3-line DOM_DELTA_LINE Ctrl+wheel notch over a page card zooms by ~1.1x (got ${(scaleAfterLineNotch / scaleBefore).toFixed(4)}x)`,
+  );
+  await pageBody.evaluate((body) => {
+    body.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: 100, deltaMode: 0, clientX: 20, clientY: 20, bubbles: true, cancelable: true }));
+    parent.postMessage({ type: 'glimmervoid-board-page-gesture', gesture: 'pan', deltaX: 1e308, deltaY: 0 }, '*');
+  });
+  await pollFor('a +100 px ctrl wheel after the line notch returns the board zoom', BOARD_TIMEOUT_MS, async () => (Math.abs((await worldScale()) / scaleBefore - 1) < 0.02 ? true : null));
   assert.ok(Number.isFinite(await panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).e)), 'a page cannot pan the board camera to infinity');
-  await page.waitForFunction((before) => Math.abs(new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.wb-world') ?? document.body).transform).a - before) < 0.001, scaleBefore, { timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('a ctrl wheel back inside the page zooms the board out to where it was'));
   const worldOffsetX = () => panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).e);
   const pageBounds = await pageMedia.boundingBox();
   assert.ok(pageBounds, 'the interactive page has bounds');

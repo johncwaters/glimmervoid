@@ -9,6 +9,7 @@ import type { PageOccluder, PageTurn } from '#shared/whiteboard-svg-core.ts';
 import { rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
 import { el } from '../dom-helpers.ts';
 import { WHEEL_ZOOM_STEP } from './board-edit.ts';
+import { wheelViewWidthFactor } from './media-zoom-core.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
@@ -484,7 +485,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
         return;
       case 'wheel':
         if (!gesture.isZoom) return;
-        options.onZoomFromPage(clientXOf(gesture.centerX), clientYOf(gesture.centerY), gesture.deltaY > 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP);
+        options.onZoomFromPage(clientXOf(gesture.centerX), clientYOf(gesture.centerY), wheelViewWidthFactor(gesture.deltaY, gesture.deltaMode, WHEEL_ZOOM_STEP));
         return;
       case 'doubleTap':
         return;

@@ -31,7 +31,7 @@ export function applyPageGesture(control: MediaZoomControl, gesture: BoardPageGe
       return;
     case 'wheel':
       if (gesture.isZoom) {
-        control.zoomAt({ x: gesture.centerX, y: gesture.centerY }, gesture.deltaY > 0 ? 1 / WHEEL_ZOOM_STEP : WHEEL_ZOOM_STEP);
+        control.zoomAt({ x: gesture.centerX, y: gesture.centerY }, wheelZoomFactor(gesture.deltaY, WHEEL_ZOOM_STEP, gesture.deltaMode));
         return;
       }
       control.panBy(-gesture.deltaX, -gesture.deltaY);

@@ -104,7 +104,7 @@ const PagePixels = z.number().finite();
 export const BoardPageGesture = z.discriminatedUnion('gesture', [
   z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('pinch'), centerX: PagePixels, centerY: PagePixels, scaleFactor: z.number().finite().positive() }).strict(),
   z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('pan'), deltaX: PagePixels, deltaY: PagePixels }).strict(),
-  z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('wheel'), centerX: PagePixels, centerY: PagePixels, deltaX: PagePixels, deltaY: PagePixels, isZoom: z.boolean() }).strict(),
+  z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('wheel'), centerX: PagePixels, centerY: PagePixels, deltaX: PagePixels, deltaY: PagePixels, deltaMode: z.number().int().min(0).max(2).default(0), isZoom: z.boolean() }).strict(),
   z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('doubleTap'), centerX: PagePixels, centerY: PagePixels }).strict(),
 ]);
 export type BoardPageGesture = z.infer<typeof BoardPageGesture>;
