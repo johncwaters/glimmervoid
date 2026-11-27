@@ -1,4 +1,4 @@
-import { noteBoardSessionTraceChanged, noteDirectorDigestKept } from '../../board-session/board-session-signals.ts';
+import { noteBoardSessionTraceChanged } from '../../board-session/board-session-signals.ts';
 import { applyChatTraceChanged } from '../../chat/chat-page.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from '../../doc-editor/doc-editor.ts';
 import { applySessionPreviewChanged, applySessionPreviewsSnapshot } from '../../preview/preview-page.ts';
@@ -10,7 +10,6 @@ import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 const messageHandlers = {
   'session-trace-response': (msg) => applyTraceResponse(msg),
   'session-trace-changed': (msg) => { applyTraceChanged(msg); applyChatTraceChanged(msg.id); noteBoardSessionTraceChanged(msg.id); },
-  'director-digest-kept': (msg) => noteDirectorDigestKept(msg.id),
   'session-docs-changed': (msg) => applySessionDocsChanged(msg),
   'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
   'session-preview-changed': (msg) => applySessionPreviewChanged(msg),

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { loose, looseMutatingReply, optionalError, requestId, sessionId } from './control-fields.ts';
+import { loose, looseCollection, looseMutatingReply, optionalError, requestId, sessionId } from './control-fields.ts';
 import { SessionProgressAnswer } from '../director-digests.ts';
 import { StudioGuideStep } from '../studio-guide.ts';
 import { BoardAsk } from '../whiteboard.ts';
@@ -64,7 +64,7 @@ export const boardSessionServerVariants = [
   looseMutatingReply('branch-spawn-result', { id: sessionId, requestId, ok: z.boolean(), branchId: z.string().nullable().default(null), error: optionalError }),
   looseMutatingReply('studio-main-ensure-result', { id: sessionId, requestId, ok: z.boolean(), mainId: z.string().nullable().default(null), error: optionalError }),
   looseMutatingReply('codemap-folder-set-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
-  loose('director-digest-kept', { id: sessionId }),
+  looseCollection('director-digest-kept', { id: sessionId }),
   loose('director-digests-result', {
     id: sessionId,
     requestId,

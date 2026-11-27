@@ -47,7 +47,7 @@
     },
     "public/board-session/board-session-view.ts": {
       "sendControlMsg": 0,
-      "sendControlRequest": 7,
+      "sendControlRequest": 4,
       "onControlMessage": 0
     },
     "public/board-session/dock.ts": {
@@ -407,7 +407,6 @@
   ],
   "legacyMutatingActions": [
     "add-repo-roots",
-    "add-session",
     "age-file-remove",
     "agent-account-add",
     "agent-account-cancel",
@@ -425,7 +424,6 @@
     "chat-cancel",
     "chat-send",
     "chat-stop",
-    "codemap-folder-set",
     "community-action",
     "decide-approval",
     "delete-hook",
@@ -486,7 +484,6 @@
     "start-repository-clones",
     "start-session",
     "studio-guide",
-    "studio-main-ensure",
     "studio-progress-ask",
     "switch-session-account",
     "switch-session-model",

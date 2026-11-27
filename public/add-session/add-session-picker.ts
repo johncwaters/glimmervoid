@@ -21,6 +21,7 @@ import { decidePermissions } from '#shared/session-permissions.ts';
 import { filterRows, lastPathSegment, orderRecentRows, orderWorkspaceRows, sessionNameBase } from '../add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
+import { runStudioAddSession } from '../state/actions/add-session.ts';
 import { clock } from '#shared/clock.ts';
 import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
 import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
@@ -1034,11 +1035,34 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const showRefusal = (text: string) => { errorEl.textContent = text; };
     const replyTimeoutMs = requestType === 'open-issue-session' ? ISSUE_REPLY_TIMEOUT_MS : DEFAULT_REPLY_TIMEOUT_MS;
     const isStudioRequest = onStudioStarted !== null && requestType === 'add-session';
-    requestControl(requestType, isStudioRequest ? { ...message, studio: true } : message, replyTimeoutMs)
+    if (isStudioRequest) {
+      void runStudioAddSession({
+        ...(message as { name: string; path: string }),
+        studio: true,
+        timeoutMs: replyTimeoutMs,
+      })
+        .then((outcome) => {
+          if (outcome.ok && outcome.reply.type === 'add-session-result' && outcome.reply.ok) {
+            onStarted();
+            if (outcome.reply.sessionId) onStudioStarted(outcome.reply.sessionId);
+            return;
+          }
+          if (!outcome.ok) {
+            showRefusal(outcome.error.message);
+            return;
+          }
+          showRefusal(addSessionRefusalText(outcome.reply));
+        })
+        .finally(() => {
+          releaseHold();
+          if (dialog.isConnected && isFocusAdrift()) focusOpenSlot();
+        });
+      return;
+    }
+    requestControl(requestType, message, replyTimeoutMs)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           onStarted();
-          if (isStudioRequest && reply.sessionId) return onStudioStarted(reply.sessionId);
           revealAddedSession(reply.sessionId);
           return;
         }

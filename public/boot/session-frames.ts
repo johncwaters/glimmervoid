@@ -32,6 +32,7 @@ import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { showBoardSessionFeed } from '../whiteboard/board-session-feed.ts';
 import sessionsCollection, { onSessionsServerMessage } from '../state/collections/sessions.ts';
+import '../state/collections/studio.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
 

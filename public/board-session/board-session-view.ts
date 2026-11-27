@@ -1,11 +1,11 @@
 import './board-session.css';
+import { createEffect, createRoot, runWithOwner } from 'solid-js';
 import { branchParentIdOf } from '#shared/parent-link.ts';
 import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { errorMessage } from '#shared/text.ts';
 import { el } from '../dom-helpers.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
@@ -20,13 +20,12 @@ import { boardSummariesOf, onBoardListChanged } from '../whiteboard/board-store.
 import { dismissAgentChange, markAgentChangeShown, onAgentChange, ringAgentChange, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { SHOWN_BOX_ID_RE } from '#shared/whiteboard-constants.ts';
-import { onBoardSessionStatusChanged, onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
+import { onBoardSessionStatusChanged, onBoardSessionTraceChanged } from './board-session-signals.ts';
 import { firstViewCamera, readableFloorScale, viewMovedToShow } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
-import type { SessionProgressAnswer } from '#shared/contracts/director-digests.ts';
 import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
@@ -48,19 +47,21 @@ import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf, placeTitleOf } from './branch-core.ts';
-import type { BoxChoice } from './branch-core.ts';
 import { isStudioSession } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
 import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX, isCodeMapBoardTitle } from '#shared/contracts/control/board-session-messages.ts';
-import type { OpenBoardAsk, SessionMapBoxes, StudioMapArea } from '#shared/contracts/control/board-session-messages.ts';
+import type { OpenBoardAsk } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
 import { standingMisfitOf } from '#shared/director-fit.ts';
 import { createLineIcon } from '../svg-dom.ts';
+import sessionsCollection from '../state/collections/sessions.ts';
+import studioCollection, { applyStudioReply, onStudioServerMessage } from '../state/collections/studio.ts';
+import { runCodemapFolderSet } from '../state/actions/codemap-folder-set.ts';
+import { runStudioMainEnsure } from '../state/actions/studio-main-ensure.ts';
+import removeSessionAction from '../state/actions/remove-session.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
-const MAIN_ENSURE_TIMEOUT_MS = 15000;
-const BRANCH_CLOSE_TIMEOUT_MS = 60000;
 const TITLE_SIZE_FALLBACK_PX = 16;
 const PEEK_OVERLAP_PX = 4;
 const NO_SESSION_TEXT = 'Open a repo from the menu to see its code map.';
@@ -102,14 +103,9 @@ interface ViewParts {
 
 let parts: ViewParts | null = null;
 let isActive = false;
-let shownSessionId: string | null = null;
+let mountedDockSessionId: string | null = null;
 let ensuredAnchorId: string | null = null;
 let answeredPathKeys = new Set<string>();
-let boxesBySessionId: Readonly<Record<string, SessionMapBoxes>> = {};
-let areas: readonly StudioMapArea[] = [];
-let pendingMainId: string | null = null;
-let boardId: string | null = null;
-let changedBoxIds: ReadonlySet<string> = new Set();
 let peekedBoxId: string | null = null;
 let fetchedAsks: { boardId: string; asks: readonly OpenBoardAsk[] } | null = null;
 let requestedAsksKey: string | null = null;
@@ -122,20 +118,18 @@ let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let shownFixedAreas: readonly Rect[] = [];
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
-let boxesAnsweredSessionId: string | null = null;
-let boxRectById: Readonly<Record<string, Rect>> = {};
 type MissingMap = { boardId: string | null; boardVersion: number | null; knownBoardIds: ReadonlySet<string> };
 
 let missingMap: MissingMap | null = null;
 let digestsRequestSerial = 0;
-let progressAnswers: readonly SessionProgressAnswer[] = [];
-let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null; fitsTask: boolean | null; misfit: string | null }>> = {};
 let watchBySessionId = new Map<string, SessionWatch>();
-let moduleChoices: readonly BoxChoice[] = [];
 const openedBranchIds = new Set<string>();
 
-function orchestratorSessionId(): string | null {
-  return [...sessionUIs].find(([, ui]) => ui.isStudioMain)?.[0] ?? null;
+function isBranchOfShownSession(sessionId: string): boolean {
+  const shownId = studioCollection.state.shownSessionId;
+  if (shownId === null) return false;
+  const sessionRecord = sessionsCollection.state.byId[sessionId];
+  return branchParentIdOf(sessionRecord?.parent ?? sessionUIs.get(sessionId)?.parent ?? null) === shownId;
 }
 
 function studioSessionIds(): string[] {
@@ -175,7 +169,7 @@ function boxIdAtPointer(event: PointerEvent, overlayHost: HTMLElement): string |
   const hostRect = overlayHost.getBoundingClientRect();
   const boardX = (event.clientX - hostRect.left) / hostCamera.scale + hostCamera.x;
   const boardY = (event.clientY - hostRect.top) / hostCamera.scale + hostCamera.y;
-  return [...changedBoxIds].find((boxId) => {
+  return studioCollection.state.changedBoxIds.find((boxId) => {
     const bounds = boundsOfHostBox(boxId);
     return bounds !== null && boardX >= bounds.x && boardX <= bounds.x + bounds.width && boardY >= bounds.y && boardY <= bounds.y + bounds.height;
   }) ?? null;
@@ -208,13 +202,13 @@ function moveOverlaysWithCamera(): void {
 }
 
 function peekChangedBox(event: PointerEvent): void {
-  if (!parts || shownSessionId === null || event.buttons !== 0) return;
+  if (!parts || studioCollection.state.shownSessionId === null || event.buttons !== 0) return;
   if (event.target instanceof Node && parts.changesPeek.element.contains(event.target)) return;
   const overlayHost = parts.changesPeek.element.parentElement;
   const boxId = overlayHost === null ? null : boxIdAtPointer(event, overlayHost);
   if (boxId === peekedBoxId) return;
   peekedBoxId = boxId;
-  const changingSessionIds = boxId === null ? [] : Object.entries(boxesBySessionId).flatMap(([sessionId, boxes]) => boxes.changedBoxIds.includes(boxId) ? [sessionId] : []);
+  const changingSessionIds = boxId === null ? [] : studioCollection.state.changingSessionIdsByBoxId[boxId] ?? [];
   for (const changingSessionId of changingSessionIds) reloadReview(changingSessionId);
   paintChangesPeek();
 }
@@ -275,8 +269,8 @@ function answerAgentCard(sessionId: string, cardId: string, action: string, valu
 }
 
 function addressBox(clickedBoardId: string, boxId: string): void {
-  if (clickedBoardId !== boardId || shownSessionId === null) return;
-  const choice = moduleChoices.find((candidate) => candidate.boxId === boxId);
+  if (clickedBoardId !== studioCollection.state.boardId || studioCollection.state.shownSessionId === null) return;
+  const choice = studioCollection.state.boxChoiceById[boxId];
   if (choice === undefined) return;
   dock?.addressBox(choice.boxId, placeTitleOf(choice.repoName, choice.title));
 }
@@ -287,8 +281,9 @@ function toggleOpenedBranch(sessionId: string): void {
 }
 
 function shownBranchIds(): string[] {
-  if (shownSessionId === null) return [];
-  return branchSessionIdsOf(sessionUIs, shownSessionId);
+  const shownId = studioCollection.state.shownSessionId;
+  if (shownId === null) return [];
+  return branchSessionIdsOf(sessionUIs, shownId);
 }
 
 function dockBranchesOf(branchIds: readonly string[]): DockBranch[] {
@@ -314,10 +309,12 @@ function syncBranches(): void {
 function paintAsks(): void {
   if (!parts) return;
   requestOpenAsksIfStale();
-  const askingSessionIds = new Set(shownSessionId === null ? [] : [shownSessionId, ...shownBranchIds()]);
-  const openAsks = fetchedAsks !== null && fetchedAsks.boardId === boardId ? fetchedAsks.asks : [];
+  const shownId = studioCollection.state.shownSessionId;
+  const currentBoardId = studioCollection.state.boardId;
+  const askingSessionIds = new Set(shownId === null ? [] : [shownId, ...shownBranchIds()]);
+  const openAsks = fetchedAsks !== null && fetchedAsks.boardId === currentBoardId ? fetchedAsks.asks : [];
   const shownAsks = asksOfSessions(openAsks, askingSessionIds);
-  const newAsks = parts.askCards.paint(boardId, shownAsks, hostCamera);
+  const newAsks = parts.askCards.paint(currentBoardId, shownAsks, hostCamera);
   const overlay = parts.askCards.element;
   returnFromAnsweredAsk(shownAsks, overlay);
   const askArea = unionOf(newAsks.map((shown) => shown.rect));
@@ -338,7 +335,7 @@ function viewAreaShowing(area: Rect): Rect | null {
 
 function revealShownCards(): void {
   const shownCards = unseenShownCards;
-  if (shownCards === null || shownCards.boardId !== boardId || !parts) return;
+  if (shownCards === null || shownCards.boardId !== studioCollection.state.boardId || !parts) return;
   unseenShownCards = null;
   dismissAgentChange();
   const shownArea = viewAreaShowing(shownCards.area);
@@ -346,7 +343,7 @@ function revealShownCards(): void {
 }
 
 function showBoardChange(sessionId: string, boardChange: AgentChip): void {
-  if (boardChange.boardId !== boardId) return;
+  if (boardChange.boardId !== studioCollection.state.boardId) return;
   markAgentChangeShown(sessionId, boardChange.change);
   dismissAgentChange();
   ringAgentChange(boardChange.boardId, boardChange.change);
@@ -361,7 +358,7 @@ onAgentChange((_sessionId, boardChange) => {
 });
 
 function requestOpenAsksIfStale(): void {
-  const askedBoardId = boardId;
+  const askedBoardId = studioCollection.state.boardId;
   const heldVersion = askedBoardId === null ? null : tiledBoardOf(askedBoardId)?.version ?? null;
   if (askedBoardId === null || heldVersion === null) return;
   const versionKey = `${askedBoardId}@${heldVersion}`;
@@ -410,7 +407,7 @@ function clearViewArea(viewWidthPx: number, viewHeightPx: number, reservedBottom
 function sessionBoxIds(): string[] {
   const presenceBoxIds = [...watchBySessionId].flatMap(([sessionId, watch]) => [watch.presence.workedPath, ...watch.presence.namedPaths].flatMap((presencePath) => boxIdOfPresencePath(sessionId, presencePath) ?? []));
   const branchBoxIds = shownBranchIds().flatMap((branchId) => sessionUIs.get(branchId)?.parent?.box?.id ?? []);
-  return [...presenceBoxIds, ...branchBoxIds, ...changedBoxIds];
+  return [...presenceBoxIds, ...branchBoxIds, ...studioCollection.state.changedBoxIds];
 }
 
 function reservedBelow(element: HTMLElement | null, overlay: HTMLElement): number {
@@ -421,10 +418,11 @@ function reservedBelow(element: HTMLElement | null, overlay: HTMLElement): numbe
 function firstView(mapBounds: Rect, viewWidthPx: number, viewHeightPx: number): GuestFirstView {
   if (!parts) return { isReady: true, camera: null };
   const dockBar = parts.dockSlot.querySelector<HTMLElement>('[data-board-island]');
-  const isWaitingForSession = shownSessionId !== null && (dockBar === null || boxesAnsweredSessionId !== shownSessionId);
+  const shownId = studioCollection.state.shownSessionId;
+  const isWaitingForSession = shownId !== null && (dockBar === null || studioCollection.state.boxesAnsweredSessionId !== shownId);
   if (isWaitingForSession) return { isReady: false };
   const titleSizePx = Number.parseFloat(getComputedStyle(parts.root).getPropertyValue('--type-title')) || TITLE_SIZE_FALLBACK_PX;
-  const sessionArea = unionOf(sessionBoxIds().flatMap((boxId) => boxRectById[boxId] ?? []));
+  const sessionArea = unionOf(sessionBoxIds().flatMap((boxId) => studioCollection.state.boxRectById[boxId] ?? []));
   const reservedBottomPx = reservedBelow(dockBar, parts.askCards.element);
   return { isReady: true, camera: firstViewCamera({ mapBounds, sessionArea, viewWidthPx, viewHeightPx, reservedBottomPx, floorScale: readableFloorScale(titleSizePx) }) };
 }
@@ -438,12 +436,13 @@ function showNotice(text: string | null): void {
 
 function seatOnHost(): void {
   if (!parts || !isActive) return;
-  parts.root.dataset.map = boardId === null ? 'none' : 'shown';
-  showBoardBeside(boardId, null, parts.guest);
+  const currentBoardId = studioCollection.state.boardId;
+  parts.root.dataset.map = currentBoardId === null ? 'none' : 'shown';
+  showBoardBeside(currentBoardId, null, parts.guest);
 }
 
 function boxIdOfSessionPath(sessionId: string, sessionPath: string): string | null {
-  return boxesBySessionId[sessionId]?.boxIdByPath[sessionPath] ?? null;
+  return studioCollection.state.boxesBySessionId[sessionId]?.boxIdByPath[sessionPath] ?? null;
 }
 
 function boxIdOfPresencePath(sessionId: string, presencePath: string | null): string | null {
@@ -452,7 +451,7 @@ function boxIdOfPresencePath(sessionId: string, presencePath: string | null): st
 }
 
 function latestMisfitOf(sessionId: string, watch: SessionWatch): string | null {
-  return standingMisfitOf([...watch.turnOpenedAts].reverse().map((openedAt) => verdictByKey[directorDigestKeyOf(sessionId, openedAt)]));
+  return standingMisfitOf([...watch.turnOpenedAts].reverse().map((openedAt) => studioCollection.state.verdictByKey[directorDigestKeyOf(sessionId, openedAt)]));
 }
 
 function latestDigestOf(sessionId: string, watch: SessionWatch): string | null {
@@ -466,20 +465,21 @@ function latestDigestOf(sessionId: string, watch: SessionWatch): string | null {
 function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardModel | null {
   const ui = sessionUIs.get(sessionId);
   if (!ui) return null;
+  const shownId = studioCollection.state.shownSessionId;
   const phase = phaseOfSession(sessionId);
   if (isBusyPhase(phase)) openedBranchIds.delete(sessionId);
   watch.waits.sync();
   return {
     sessionId,
-    name: sessionId === shownSessionId ? ORCHESTRATOR_TEXT : ui.parent?.box?.title ?? (sessionName(ui) || sessionId.slice(0, 8)),
+    name: sessionId === shownId ? ORCHESTRATOR_TEXT : ui.parent?.box?.title ?? (sessionName(ui) || sessionId.slice(0, 8)),
     agentId: ui.agent ?? null,
-    isMain: sessionId === shownSessionId,
-    repoLabel: sessionId === shownSessionId ? ORCHESTRATOR_TEXT : null,
+    isMain: sessionId === shownId,
+    repoLabel: sessionId === shownId ? ORCHESTRATOR_TEXT : null,
     isBranch: branchParentIdOf(ui.parent) !== null,
-    boxIds: [ui.parent?.box?.id ?? null, boxesBySessionId[sessionId]?.fallbackBoxId ?? null].flatMap((candidate) => candidate ?? []),
+    boxIds: [ui.parent?.box?.id ?? null, studioCollection.state.boxesBySessionId[sessionId]?.fallbackBoxId ?? null].flatMap((candidate) => candidate ?? []),
     phase,
     beat: phase === 'working' ? watch.lastBeat : null,
-    digest: sessionId === shownSessionId ? null : latestDigestOf(sessionId, watch),
+    digest: sessionId === shownId ? null : latestDigestOf(sessionId, watch),
     misfit: latestMisfitOf(sessionId, watch),
     approvals: watch.waits.element,
     isAsking: watch.waits.isAsking(),
@@ -523,9 +523,11 @@ function paintPresence(): void {
     markPaths(sessionId, watch.presence.namedPaths, 'named');
   }
   const glows = [...tierByBoxId].map(([boxId, tier]) => ({ boxId, tier }));
-  const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
-  const orchestratorAgentId = shownSessionId === null ? null : sessionUIs.get(shownSessionId)?.agent ?? null;
-  const repoAgents = areas.map((area) => ({ repoKey: area.repoKey, repoName: area.repoName, anchorBoxId: area.anchorBoxId, agentId: area.branchAgentId ?? orchestratorAgentId }));
+  const currentBoardId = studioCollection.state.boardId;
+  const board = currentBoardId === null ? null : tiledBoardOf(currentBoardId)?.board ?? null;
+  const shownId = studioCollection.state.shownSessionId;
+  const orchestratorAgentId = shownId === null ? null : sessionUIs.get(shownId)?.agent ?? null;
+  const repoAgents = studioCollection.state.areas.map((area) => ({ repoKey: area.repoKey, repoName: area.repoName, anchorBoxId: area.anchorBoxId, agentId: area.branchAgentId ?? orchestratorAgentId }));
   parts.presenceLayer.paint({ glows, repoAgents }, board);
   const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
   parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, () => shownFixedAreas);
@@ -534,23 +536,23 @@ function paintPresence(): void {
 }
 
 function directorDigestOf(sessionId: string, openedAt: number): string | null {
-  return verdictByKey[directorDigestKeyOf(sessionId, openedAt)]?.digest ?? null;
+  return studioCollection.state.verdictByKey[directorDigestKeyOf(sessionId, openedAt)]?.digest ?? null;
 }
 
 function directorChatLineOf(sessionId: string, openedAt: number): string | null {
-  return verdictByKey[directorDigestKeyOf(sessionId, openedAt)]?.chatLine ?? null;
+  return studioCollection.state.verdictByKey[directorDigestKeyOf(sessionId, openedAt)]?.chatLine ?? null;
 }
 
 function requestDigests(): void {
-  if (shownSessionId === null) return;
+  const shownId = studioCollection.state.shownSessionId;
+  if (shownId === null) return;
   digestsRequestSerial += 1;
   const serial = digestsRequestSerial;
-  const sessionIds = [shownSessionId, ...watchBySessionId.keys()].slice(0, DIRECTOR_DIGEST_SESSIONS_MAX);
-  sendControlRequest('director-digests', { id: shownSessionId, sessionIds }, { timeoutMs: BOXES_TIMEOUT_MS })
+  const sessionIds = [shownId, ...watchBySessionId.keys()].slice(0, DIRECTOR_DIGEST_SESSIONS_MAX);
+  sendControlRequest('director-digests', { id: shownId, sessionIds }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== digestsRequestSerial || reply.type !== 'director-digests-result' || !reply.ok) return;
-      verdictByKey = { ...verdictByKey, ...reply.verdictByKey };
-      progressAnswers = reply.progressAnswers;
+      applyStudioReply(reply);
       dock?.refreshDigests();
       paintPresence();
     })
@@ -558,15 +560,14 @@ function requestDigests(): void {
 }
 
 async function setFolderOpen(folderBoardId: string, frameId: string, isOpen: boolean): Promise<boolean> {
-  const mapSessionId = shownSessionId;
-  if (mapSessionId === null || folderBoardId !== boardId) return false;
-  const reply = await sendControlRequest('codemap-folder-set', { id: mapSessionId, boxId: frameId, isOpen }, { timeoutMs: BOXES_TIMEOUT_MS }).catch(() => null);
-  if (reply?.type !== 'codemap-folder-set-result') {
-    showNotice(NO_MAP_TEXT);
+  const mapSessionId = studioCollection.state.shownSessionId;
+  if (mapSessionId === null || folderBoardId !== studioCollection.state.boardId) return false;
+  const outcome = await runCodemapFolderSet({ id: mapSessionId, boxId: frameId, isOpen });
+  if (!outcome.ok) {
+    showNotice(outcome.error.message || NO_MAP_TEXT);
     return false;
   }
-  if (!reply.ok) showNotice(reply.error ?? NO_MAP_TEXT);
-  return reply.ok;
+  return outcome.reply.type === 'codemap-folder-set-result' && outcome.reply.ok;
 }
 
 function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceRecord[]): void {
@@ -612,7 +613,8 @@ function followMissingMap(): void {
 }
 
 function showMapState(mapState: StudioMapState): void {
-  parts?.guide.show(mapState, areas.length === 1 ? areas[0].repoName : EVERY_REPO_TEXT);
+  const studioAreas = studioCollection.state.areas;
+  parts?.guide.show(mapState, studioAreas.length === 1 ? studioAreas[0].repoName : EVERY_REPO_TEXT);
 }
 
 function showMapMissing(text: string, isMapFailed: boolean, mapBoardId: string | null): void {
@@ -622,43 +624,48 @@ function showMapMissing(text: string, isMapFailed: boolean, mapBoardId: string |
 }
 
 function requestBoxes(): void {
-  if (shownSessionId === null) return;
-  const sessionId = shownSessionId;
+  const sessionId = studioCollection.state.shownSessionId;
+  if (sessionId === null) return;
   boxesRequestSerial += 1;
   const serial = boxesRequestSerial;
   const askedPathsBySessionId = unaskedPathsBySessionId();
   const showMissingAndFirstView = (text: string, isMapFailed: boolean) => {
-    showMapMissing(text, isMapFailed, boardId ?? titledMapBoardIdOf());
+    showMapMissing(text, isMapFailed, studioCollection.state.boardId ?? titledMapBoardIdOf());
     paintBoard();
   };
   sendControlRequest('codemap-boxes-of', { id: sessionId, pathsBySessionId: askedPathsBySessionId }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== boxesRequestSerial) return;
-      boxesAnsweredSessionId = sessionId;
       if (reply.type !== 'codemap-boxes-of-response') return paintBoard();
+      applyStudioReply(reply, { watchedSessionIds: new Set(watchBySessionId.keys()) });
       if (!reply.ok) return showMissingAndFirstView(reply.error ?? NO_MAP_TEXT, reply.isMapFailed);
       if (reply.boardId === null || reply.areas.length === 0) return showMissingAndFirstView(NO_MAP_TEXT, false);
       missingMap = null;
       const unmappedArea = reply.areas.find((area) => area.mapError !== null);
       showNotice(unmappedArea ? `${unmappedArea.repoName}: ${unmappedArea.mapError}` : null);
-      areas = reply.areas;
       showMapState('drawn');
-      const answeredBoxesBySessionId = Object.fromEntries(Object.entries(reply.boxesBySessionId).map(([answeredId, boxes]) => [answeredId, { ...boxes, boxIdByPath: { ...boxesBySessionId[answeredId]?.boxIdByPath, ...boxes.boxIdByPath } }]));
-      boxesBySessionId = Object.fromEntries(Object.entries({ ...boxesBySessionId, ...answeredBoxesBySessionId }).filter(([watchedId]) => watchBySessionId.has(watchedId)));
-      changedBoxIds = new Set(Object.values(boxesBySessionId).flatMap((boxes) => boxes.changedBoxIds));
-      boxRectById = { ...boxRectById, ...reply.boxRectById };
       for (const [askedId, askedPaths] of Object.entries(askedPathsBySessionId)) {
         for (const askedPath of askedPaths) answeredPathKeys.add(pathKeyOf(askedId, askedPath));
       }
-      moduleChoices = reply.boxChoices;
-      boardId = reply.boardId;
       seatOnHost();
       paintBoard();
       if (hasUnaskedPaths()) requestBoxes();
     })
     .catch(() => {
       if (serial !== boxesRequestSerial) return;
-      boxesAnsweredSessionId = sessionId;
+      applyStudioReply({
+        type: 'codemap-boxes-of-response',
+        id: sessionId,
+        requestId: null,
+        ok: false,
+        boardId: null,
+        boxesBySessionId: {},
+        areas: [],
+        boxRectById: {},
+        boxChoices: [],
+        isMapFailed: true,
+        error: NO_MAP_TEXT,
+      });
       showMissingAndFirstView(NO_MAP_TEXT, true);
     });
 }
@@ -667,8 +674,8 @@ function mountDock(): void {
   dock?.close();
   dock = null;
   parts?.dockSlot.replaceChildren();
-  if (!parts || shownSessionId === null) return;
-  const sessionId = shownSessionId;
+  const sessionId = studioCollection.state.shownSessionId;
+  if (!parts || sessionId === null) return;
   const ui = sessionUIs.get(sessionId);
   dock = createDock({
     sessionId,
@@ -676,9 +683,9 @@ function mountDock(): void {
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? ui?.path ?? null,
     agentId: ui?.agent ?? null,
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
-    boxChoices: () => moduleChoices,
+    boxChoices: () => studioCollection.state.boxChoices,
     digestOf: directorChatLineOf,
-    progressAnswers: () => progressAnswers.filter((answer) => answer.sessionId === sessionId),
+    progressAnswers: () => studioCollection.state.progressAnswers.filter((answer) => answer.sessionId === sessionId),
     railFields: (canChangeModel) => sessionRailFieldsOf(sessionId, canChangeModel),
     onDelivered: (kind) => parts?.guide.markDone(kind),
     outbox: () => chatSessionStateOf(sessionId).outbox.filter((entry) => entry.origin === 'operator'),
@@ -686,7 +693,7 @@ function mountDock(): void {
       const phase = phaseOfSession(sessionId);
       return { phase, beat: phase === 'working' ? watchBySessionId.get(sessionId)?.lastBeat ?? null : null };
     },
-    mapBoardId: () => boardId,
+    mapBoardId: () => studioCollection.state.boardId,
     showBoardChange,
   });
   parts.dockSlot.append(dock.element);
@@ -694,11 +701,12 @@ function mountDock(): void {
 }
 
 function showSession(sessionId: string | null): void {
-  const isSameSession = sessionId === shownSessionId;
-  shownSessionId = sessionId;
+  const isSameSession = sessionId === mountedDockSessionId;
   if (parts) parts.noRepoChip.hidden = sessionId !== null;
   if (sessionId === null) {
-    boardId = null;
+    boxesRequestSerial += 1;
+    digestsRequestSerial += 1;
+    mountedDockSessionId = null;
     seatOnHost();
     mountDock();
     showMapState('absent');
@@ -706,14 +714,8 @@ function showSession(sessionId: string | null): void {
     return;
   }
   if (!isSameSession) {
-    verdictByKey = {};
-    progressAnswers = [];
-    changedBoxIds = new Set();
-    boxesBySessionId = {};
-    areas = [];
-    boxRectById = {};
+    mountedDockSessionId = sessionId;
     answeredPathKeys = new Set();
-    moduleChoices = [];
     peekedBoxId = null;
     parts?.changesPeek.hide();
     parts?.diffPanel.close();
@@ -732,9 +734,7 @@ function closeMenu(): void {
 
 function showStudio(): void {
   syncWatches();
-  const startedId = pendingMainId !== null && sessionUIs.has(pendingMainId) ? pendingMainId : null;
-  if (startedId !== null) pendingMainId = null;
-  const orchestratorId = startedId ?? orchestratorSessionId();
+  const orchestratorId = studioCollection.state.shownSessionId;
   showSession(orchestratorId);
   const anchorId = orchestratorId === null ? studioSessionIds()[0] ?? null : null;
   if (anchorId === null || anchorId === ensuredAnchorId) return;
@@ -743,26 +743,24 @@ function showStudio(): void {
 }
 
 function ensureOrchestrator(anchorSessionId: string): void {
-  sendControlRequest('studio-main-ensure', { id: anchorSessionId }, { timeoutMs: MAIN_ENSURE_TIMEOUT_MS })
-    .then((reply) => {
-      if (reply.type !== 'studio-main-ensure-result') return;
-      if (!reply.ok || reply.mainId === null) return showNotice(reply.error ?? NO_MAIN_TEXT);
-      pendingMainId = reply.mainId;
-      refreshBoardSessionView();
-    })
-    .catch(() => showNotice(NO_MAIN_TEXT));
+  void runStudioMainEnsure({ id: anchorSessionId }).then((outcome) => {
+    if (!outcome.ok) {
+      showNotice(outcome.error.message || NO_MAIN_TEXT);
+      return;
+    }
+    refreshBoardSessionView();
+  });
 }
 
 function openStudioRepo(repoDir: string | null = null): void {
-  openStudioRepoDialog((mainId) => {
-    pendingMainId = mainId;
+  openStudioRepoDialog(() => {
     refreshBoardSessionView();
     requestBoxes();
   }, repoDir);
 }
 
 function pickRepoAgent(repoKey: string): void {
-  const area = areas.find((candidate) => candidate.repoKey === repoKey);
+  const area = studioCollection.state.areaByRepoKey[repoKey];
   if (area) openStudioRepo(area.repoDir);
 }
 
@@ -785,10 +783,12 @@ function restartAgent(sessionId: string): void {
 }
 
 async function closeBranchAgent(sessionId: string): Promise<string | null> {
-  const reply = await sendControlRequest('remove-session', { id: sessionId }, { timeoutMs: BRANCH_CLOSE_TIMEOUT_MS }).catch((reason: unknown) => errorMessage(reason));
-  if (typeof reply === 'string') return reply;
-  if (reply.type !== 'remove-session-result' || reply.ok) return null;
-  return reply.error ?? null;
+  const ui = sessionUIs.get(sessionId);
+  const label = ui ? sessionName(ui) : undefined;
+  const outcome = await removeSessionAction({ id: sessionId, label });
+  if (!outcome.ok) return outcome.error.message;
+  if (outcome.reply.type !== 'remove-session-result' || outcome.reply.ok) return null;
+  return outcome.reply.error ?? null;
 }
 
 function toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void {
@@ -803,7 +803,7 @@ function toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void 
 function openMenu(opener: HTMLButtonElement): void {
   if (!parts) return;
   const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', () => openStudioRepo());
-  const orchestratorId = shownSessionId;
+  const orchestratorId = studioCollection.state.shownSessionId;
   const orchestratorItems = orchestratorId === null ? [] : [
     el('div', 'bs-menu-rule'),
     menuActionItem(RESTART_ORCHESTRATOR_TEXT, 'board-session-agent-restart', () => restartAgent(orchestratorId)),
@@ -863,7 +863,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
     chrome: topLeft,
     overlays: [notice, guide.element, dockSlot, agentCards.element, askCards.element, changesPeek.element, diffPanel.element],
     worldLayer: presenceLayer.element,
-    markedBoxIds: () => changedBoxIds,
+    markedBoxIds: () => new Set(studioCollection.state.changedBoxIds),
     firstView,
     setStackOpen: setFolderOpen,
     onBoxClicked: addressBox,
@@ -889,20 +889,31 @@ function mountBoardSessionView(panel: HTMLElement): void {
     closeMenu();
   });
   onBoardListChanged(followMissingMap);
-  onDirectorDigestKept((sessionId) => {
-    if (isActive && (sessionId === shownSessionId || watchBySessionId.has(sessionId))) requestDigests();
+  onStudioServerMessage((message) => {
+    if (message.type !== 'director-digest-kept') return;
+    if (isActive && (message.id === studioCollection.state.shownSessionId || watchBySessionId.has(message.id))) requestDigests();
+  });
+  runWithOwner(null, () => {
+    createRoot(() => {
+      createEffect(
+        () => studioCollection.state.areas.map((area) => `${area.repoKey}:${area.isFolded}:${area.branchAgentId ?? ''}`).join('|'),
+        () => {
+          if (isActive) paintPresence();
+        },
+      );
+    });
   });
   onBoardSessionStatusChanged((sessionId) => {
     if (!isActive) return;
     if (watchBySessionId.has(sessionId)) paintPresence();
-    if (sessionId !== shownSessionId && !shownBranchIds().includes(sessionId)) return;
+    if (sessionId !== studioCollection.state.shownSessionId && !isBranchOfShownSession(sessionId)) return;
     dock?.refresh();
   });
   onBoardSessionTraceChanged((sessionId) => {
     if (!isActive) return;
     watchBySessionId.get(sessionId)?.feed.refresh();
-    if (shownBranchIds().includes(sessionId)) return dock?.refresh();
-    if (sessionId !== shownSessionId) return;
+    if (isBranchOfShownSession(sessionId)) return dock?.refresh();
+    if (sessionId !== studioCollection.state.shownSessionId) return;
     dock?.refresh();
     requestBoxes();
   });
@@ -923,6 +934,8 @@ function activateBoardSessionView(): void {
 
 function deactivateBoardSessionView(): void {
   isActive = false;
+  boxesRequestSerial += 1;
+  digestsRequestSerial += 1;
   missingMap = null;
   for (const watch of watchBySessionId.values()) watch.waits.close();
   ensuredAnchorId = null;
