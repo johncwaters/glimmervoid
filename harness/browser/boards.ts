@@ -2427,6 +2427,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   assert.equal(await panel.getByRole('button', { name: 'Fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
   await verifyBoardFileRoundTrip(page, panel, boardTitle);
+  if (layout === 'desktop') await verifyMoveOnLargeBoard(page);
   if (layout === 'phone') await verifyPhoneBoardsOpensShownSessionBoard(page, panel, sessionId, boardTitle);
 }
 
@@ -2816,6 +2817,8 @@ async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): 
 }
 
 const SCALE_BOARD_ELEMENTS = 20000;
+const LARGE_MOVE_BOARD_ELEMENTS = 1000;
+const LARGE_MOVE_BOARD_TITLE = 'Code map 1000';
 const SCALE_BOARD_TITLE = 'Large board';
 const SCALE_HELD_FRAME_SAMPLES = 30;
 const SCALE_HELD_UPDATE_TITLE = 'Changed while dragging';
@@ -2832,8 +2835,8 @@ const SCALE_INSPECT_WIDTH_PX = 264;
 const SCALE_INSPECT_HEIGHT_PX = 220;
 const STACKED_BOX_EVERY = 10;
 
-function scaleBoardPuts(): Op[][] {
-  const board = benchmarkBoard(Math.min(SCALE_BOARD_ELEMENTS, WHITEBOARD_LIMITS.elements));
+function scaleBoardPuts(elementCount = SCALE_BOARD_ELEMENTS): Op[][] {
+  const board = benchmarkBoard(Math.min(elementCount, WHITEBOARD_LIMITS.elements));
   const puts: Op[][] = [[]];
   let putBytes = 0;
   for (const element of board.elements.values()) {
@@ -2955,7 +2958,7 @@ async function visibleAtBoxRects(open: OpenBoard, placedBoxes: readonly PlacedBo
   return picked;
 }
 
-async function panToAtGrid(open: OpenBoard, placedBoxes: readonly PlacedBox[]): Promise<Map<string, ScreenRect>> {
+async function panToAtGrid(open: OpenBoard, placedBoxes: readonly PlacedBox[], count = SCALE_DRAGGED_BOX_COUNT): Promise<Map<string, ScreenRect>> {
   const { page, panel } = open;
   const canvasBox = await panel.locator('.wb-viewport').boundingBox();
   assert.ok(canvasBox);
@@ -2969,14 +2972,88 @@ async function panToAtGrid(open: OpenBoard, placedBoxes: readonly PlacedBox[]): 
   await page.keyboard.up('Control');
   await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const visible = await visibleAtBoxRects(open, placedBoxes, SCALE_DRAGGED_BOX_COUNT);
-    if (visible.size === SCALE_DRAGGED_BOX_COUNT) return visible;
+    const visible = await visibleAtBoxRects(open, placedBoxes, count);
+    if (visible.size === count) return visible;
     await page.mouse.move(start.x, start.y);
     await page.mouse.down({ button: 'right' });
     await page.mouse.move(start.x - canvasBox.width * 0.4, start.y - canvasBox.height * 0.25, { steps: 10 });
     await page.mouse.up({ button: 'right' });
   }
-  return visibleAtBoxRects(open, placedBoxes, SCALE_DRAGGED_BOX_COUNT);
+  return visibleAtBoxRects(open, placedBoxes, count);
+}
+
+async function verifyMoveOnLargeBoard(page: Page): Promise<void> {
+  const boardId = await createBoardOverControl(page, LARGE_MOVE_BOARD_TITLE);
+  for (const ops of scaleBoardPuts(LARGE_MOVE_BOARD_ELEMENTS)) await controlReplyOf(page, 'whiteboard-op', { boardId, ops });
+  const boardRow = page.locator(`.focus-rail .session-row[data-board-id="${boardId}"]`);
+  await boardRow.waitFor({ state: 'visible' });
+  await boardRow.click();
+  const panel = page.locator('#focus-center');
+  await openBoardTitle(panel, LARGE_MOVE_BOARD_TITLE).waitFor();
+  const open: OpenBoard = { page, panel, boardId };
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]');
+    return Number(canvas?.dataset.drawnElements ?? 0) + Number(canvas?.dataset.drawnBlocks ?? 0) > 0;
+  }, null, { timeout: 30000 });
+  const before = await shownBoardOf(open);
+  assert.equal(before.elements.size, LARGE_MOVE_BOARD_ELEMENTS, `the 1,000-element move board holds ${LARGE_MOVE_BOARD_ELEMENTS} elements`);
+  const placedBoxes = [...storedRectsOfBoxes(before).values()];
+  const draggedRects = await panToAtGrid(open, placedBoxes, 2);
+  const draggedBoxIds = [...draggedRects.keys()];
+  assert.equal(draggedBoxIds.length, 2, 'found two visible boxes on the 1,000-element board to drag');
+  for (const [index, rect] of [...draggedRects.values()].entries()) {
+    const center = centerOf(rect);
+    if (index > 0) await page.keyboard.down('Shift');
+    await page.mouse.click(center.x, center.y);
+    if (index > 0) await page.keyboard.up('Shift');
+  }
+  await panel.locator('.wb-inspect .wb-inspect-heading', { hasText: '2 selected' }).waitFor({ timeout: BOARD_TIMEOUT_MS });
+  let lastSceneBuilds = await sceneBuildsOf(panel);
+  let stableSinceAt = Date.now();
+  await pollFor('tile-view updates settle before dragging on the 1,000-element board', BOARD_TIMEOUT_MS, async () => {
+    const currentSceneBuilds = await sceneBuildsOf(panel);
+    if (currentSceneBuilds !== lastSceneBuilds) {
+      lastSceneBuilds = currentSceneBuilds;
+      stableSinceAt = Date.now();
+      return null;
+    }
+    return Date.now() - stableSinceAt >= 250 ? true : null;
+  });
+  const largeDragOffset = { x: 90, y: 35 };
+  const grabAt = centerOf(draggedRects.get(draggedBoxIds[0] ?? '') ?? { x: 0, y: 0, width: 0, height: 0 });
+  await startFrameRecorder(page);
+  await page.mouse.move(grabAt.x, grabAt.y);
+  await page.mouse.down();
+  const sceneBuildsAtGrab = await sceneBuildsOf(panel);
+  await page.mouse.move(grabAt.x + largeDragOffset.x, grabAt.y + largeDragOffset.y, { steps: 20 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const drag = await stopFrameRecorder(page);
+  assert.equal(await sceneBuildsOf(panel), sceneBuildsAtGrab, 'dragging on a 1,000-element board never rebuilds the board scene');
+  const versionBeforeDrop = before.version;
+  await page.mouse.up();
+  const camera = await cameraOf(open);
+  const droppedDeltaX = Math.round(largeDragOffset.x / camera.scale);
+  const droppedDeltaY = Math.round(largeDragOffset.y / camera.scale);
+  const saved = await pollFor('the drop on the 1,000-element board saves the moved boxes', BOARD_TIMEOUT_MS, async () => {
+    const after = await boardOf(open);
+    return after.version > versionBeforeDrop ? after : null;
+  });
+  for (const boxId of draggedBoxIds) {
+    const beforeBox = before.elements.get(boxId);
+    const savedBox = saved.elements.get(boxId);
+    const beforePoint = beforeBox?.kind === 'box' ? pointOfBox(beforeBox) : null;
+    const savedPoint = savedBox?.kind === 'box' ? pointOfBox(savedBox) : null;
+    assert.ok(beforePoint && savedPoint, `${boxId} has stored points before and after drag`);
+    assert.ok(
+      Math.abs(savedPoint.x - beforePoint.x - droppedDeltaX) <= 2 && Math.abs(savedPoint.y - beforePoint.y - droppedDeltaY) <= 2,
+      `dragging on a 1,000-element board lands ${boxId} under the pointer (moved ${savedPoint.x - beforePoint.x},${savedPoint.y - beforePoint.y} of ${droppedDeltaX},${droppedDeltaY})`,
+    );
+  }
+  assert.ok(
+    drag.maxMs <= SCALE_FRAME_BUDGET_MS,
+    `dragging on a 1,000-element board keeps every frame within ${SCALE_FRAME_BUDGET_MS} ms (max ${drag.maxMs} ms, p50 ${drag.p50Ms} ms over ${drag.frames} frames)`,
+  );
+  await controlReplyOf(page, 'whiteboard-delete', { boardId });
 }
 
 export async function verifyBoardScale(page: Page, sessionId: string): Promise<string> {
