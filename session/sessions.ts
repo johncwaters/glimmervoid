@@ -306,6 +306,7 @@ class Session extends EventEmitter {
   _taskTitle: SessionTaskTitleController;
   _promptNotes: SessionPromptNotes;
   _lastOperatorInputAt: number;
+  _lastOperatorChatAt: number;
   _prLinks: SessionPrLinks;
   id: string;
   name: string;
@@ -569,6 +570,7 @@ class Session extends EventEmitter {
 
     this._recorder = null;
     this._lastOperatorInputAt = Number.NEGATIVE_INFINITY;
+    this._lastOperatorChatAt = Number.NEGATIVE_INFINITY;
     this._acpLaunch = driver.kind === "acp" ? driver : null;
     this._stoppedReason = driver.kind === "stopped" ? driver.reason : null;
     this.failureReason = this._stoppedReason;
@@ -2712,8 +2714,18 @@ class Session extends EventEmitter {
     return this.deliverOperatorText(loginCommand, onSettled);
   }
 
+  get lastOperatorActivityAt(): number {
+    return Math.max(this._lastOperatorInputAt, this._lastOperatorChatAt);
+  }
+
   noteOperatorDraft(): void {
     this._lastOperatorInputAt = clock.nowMs();
+    this._approvals.yieldManagerDecisions();
+    this.emit("operator-input");
+  }
+
+  noteOperatorChatSend(): void {
+    this._lastOperatorChatAt = clock.nowMs();
     this._approvals.yieldManagerDecisions();
     this.emit("operator-input");
   }

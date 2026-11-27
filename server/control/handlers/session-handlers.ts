@@ -269,7 +269,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     }
     const queued = session.queueChatMessage(msg.text, msg.attachments);
     if (queued.ok) {
-      session.noteOperatorDraft();
+      session.noteOperatorChatSend();
       if (session.state === STATES.DORMANT && agentSessions.get(session.id) !== session) session.start();
     }
     replyApplied(ws, msg, 'chat-send-result', { id: msg.id, ok: queued.ok, acceptedAt, ...(queued.ok ? {} : { error: queued.error }) });

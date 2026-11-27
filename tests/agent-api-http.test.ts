@@ -1150,12 +1150,20 @@ test('non-terminal ACP sessions stay awake while a dashboard viewer is connected
         replyTexts.push(update.content.text);
       }
     });
+    const pauseForBudget = createBudgetSessionPauser(() => [acpSession], () => Date.now());
     const pausedAtMs = Date.now();
     control.send({ type: 'chat-send', id: acpSession.id, text: 'Where does tax get added?' });
     const sendReply = control.sent.find((frame) => frame.type === 'chat-send-result');
     assert.equal(sendReply?.ok, true);
-    assert.ok(acpSession._lastOperatorInputAt >= pausedAtMs, 'chat-send records operator activity so budget-hold repause does not re-snooze the woken session');
+    assert.ok(acpSession.lastOperatorActivityAt >= pausedAtMs, 'chat-send records operator activity so budget-hold repause does not re-snooze the woken session');
+    assert.equal(acpSession._lastOperatorInputAt, Number.NEGATIVE_INFINITY, 'chat-send leaves _lastOperatorInputAt untouched so PTY canSubmit typed-over protection is never armed');
     await waitFor(() => replyTexts.some((text) => text.includes('Tax is added in src/checkout/checkout.js.')), 'woken ACP session to answer queued chat prompt', 10_000);
+    await waitFor(() => acpSession.state === STATES.COMPLETE || acpSession.state === STATES.IDLE, 'woken ACP session to finish its turn before budget hold', 5_000);
+    assert.deepEqual(pauseForBudget('start'), ['Orchestrator']);
+    await waitFor(() => acpSession.state === STATES.DORMANT, 'budget-held ACP session to enter DORMANT', 5_000);
+    control.send({ type: 'chat-send', id: acpSession.id, text: 'Where does tax get added?' });
+    await waitFor(() => acpSession.state !== STATES.DORMANT, 'woken ACP session to leave DORMANT before budget-hold continue', 5_000);
+    assert.deepEqual(pauseForBudget('continue'), [], 'budget-hold continue recognizes chat-send as an operator wake');
   } finally {
     clearInterval(health.healthInterval);
     acpSession.destroy();

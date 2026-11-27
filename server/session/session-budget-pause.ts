@@ -2,7 +2,7 @@ import { KILLABLE_STATES } from '../../shared/states.ts';
 import { ownerIdOf } from '../../shared/parent-link.ts';
 import type { Session } from '../../session/sessions.ts';
 
-type PausableSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'parent' | 'state' | '_lastOperatorInputAt' | 'snooze' | 'killSession'>;
+type PausableSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'parent' | 'state' | 'lastOperatorActivityAt' | 'snooze' | 'killSession'>;
 type BudgetHoldPhase = 'start' | 'continue' | 'end';
 
 interface PauseOutcome {
@@ -50,7 +50,7 @@ function createBudgetSessionPauser(liveSessions: () => readonly PausableSession[
     const runningWithoutOperator = liveSessions()
       .filter((session) => heldSessionIds.has(session.id) && isRunning(session))
       .filter((session) => {
-        if (session._lastOperatorInputAt < pausedAtMs) return true;
+        if (session.lastOperatorActivityAt < pausedAtMs) return true;
         heldSessionIds.delete(session.id);
         return false;
       });
