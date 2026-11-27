@@ -307,7 +307,12 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     if (!setup.approvals.some((pending) => pending.fingerprint === request.fingerprint)) {
       return { ok: false, error: 'That entry changed or is already approved; check the list again.' };
     }
-    await persist({ ...state, approvedFingerprints: [...state.approvedFingerprints, request.fingerprint] });
+    const nextApproved = new Set([...setup.approved, ...state.approvedFingerprints, request.fingerprint]);
+    approvals = setup.approvals.filter((pending) => !nextApproved.has(pending.fingerprint));
+    approvedPrActions = setup.commands.prActions.filter((action) => nextApproved.has(commandFingerprint('pr-action', action)));
+    runnableActions = setup.commands.actions.filter((action) => nextApproved.has(commandFingerprint('action', action))).map(({ id, label }) => ({ id, label }));
+    const approvedFingerprints = state.approvedFingerprints.includes(request.fingerprint) ? state.approvedFingerprints : [...state.approvedFingerprints, request.fingerprint];
+    await persist({ ...state, approvedFingerprints });
     void applyRules();
     return { ok: true };
   }

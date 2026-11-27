@@ -16,7 +16,7 @@ import { toMyPrsWireStatus } from '../../github/core/my-prs-core.ts';
 import { prKey, prSessionName, prSessionPrompt, sessionLinkedToPr } from '../../github/core/team-review-core.ts';
 import { githubStoreRateLimitedError } from '../../github/github-store-poller.ts';
 import { createKeyedSerialQueue } from '../../spawn-gate.ts';
-import type { ControlContext, RequestWithId } from '../control-context.ts';
+import type { ControlContext, MutatingControlMessage } from '../control-context.ts';
 import { replyTo } from '../control-context.ts';
 import type { ConnectFrames, ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable, RawControlRequest } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
@@ -161,17 +161,26 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
   }
 
   async function answerPrFlowRequest<FlowRequest>(
-    msg: RequestWithId,
+    msg: MutatingControlMessage,
     ws: ControlSocket,
     parsed: { success: true; data: FlowRequest } | { success: false; error: Parameters<typeof configIssueMessage>[0] },
     operatorActionOf: (request: FlowRequest) => OperatorActionOf<'reviews'>,
     runFlow: (flows: NonNullable<typeof prFlows>, request: FlowRequest) => Promise<PrFlowDisposeResult>,
   ): Promise<void> {
-    const reply = (outcome: PrFlowDisposeResult) => replyTo(ws, msg, 'pr-flow-dispose-result', outcome);
+    const reply = (outcome: PrFlowDisposeResult) => context.replyApplied(ws, msg, 'pr-flow-dispose-result', outcome);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
     captureOperatorAction('reviews', operatorActionOf(parsed.data));
     if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
     reply(await runFlow(prFlows, parsed.data));
+  }
+
+  async function handlePrFlowSaveRule(msg: ClientMessageOf<'pr-flow-save-rule'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: PrFlowDisposeResult) => replyTo(ws, msg, 'pr-flow-save-rule-result', outcome);
+    const parsed = PrFlowSaveRuleRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey, reason: msg.reason });
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', 'pr-flow-save-rule');
+    if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
+    reply(await prFlows.saveRule(parsed.data));
   }
 
   function connectFrames(): readonly unknown[] {
@@ -201,7 +210,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'github-polling-refresh': handleGithubPollingRefresh,
     'pr-flow-dispose': (msg: ClientMessageOf<'pr-flow-dispose'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrFlowDisposeRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey, action: msg.action, reason: msg.reason }), (request) => prFlowOperatorAction(request.action), (flows, request) => flows.dispose(request)),
     'pr-flow-undo': (msg: ClientMessageOf<'pr-flow-undo'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrFlowItemRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey }), () => 'pr-flow-undo', (flows, request) => flows.undo(request)),
-    'pr-flow-save-rule': (msg: ClientMessageOf<'pr-flow-save-rule'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrFlowSaveRuleRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey, reason: msg.reason }), () => 'pr-flow-save-rule', (flows, request) => flows.saveRule(request)),
+    'pr-flow-save-rule': handlePrFlowSaveRule,
     'pr-flow-approve': (msg: ClientMessageOf<'pr-flow-approve'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrFlowApproveRequest.safeParse({ fingerprint: msg.fingerprint }), () => 'pr-flow-approve', (flows, request) => flows.approve(request)),
     'github-connection': async (msg: ClientMessageOf<'github-connection'>, ws: ControlSocket) => {
       replyTo(ws, msg, 'github-connection-result', { connection: githubConnection === null ? null : await githubConnection(msg.action) });
@@ -225,7 +234,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'my-pr-merge-when-ready': (msg, requestId, message) => ({ type: 'my-pr-merge-when-ready-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'pr-flow-dispose': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'pr-flow-undo': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
-    'pr-flow-save-rule': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
+    'pr-flow-save-rule': (_msg, requestId, message) => ({ type: 'pr-flow-save-rule-result', requestId, ok: false, error: message }),
     'pr-flow-approve': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'pr-action-run': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'github-connection': (_msg, requestId) => ({ type: 'github-connection-result', requestId, connection: null }),

@@ -514,8 +514,8 @@ test('a PR action shows on its listed repos once approved, runs its exact argv w
     assert.equal((await prFlows.runPrAction(click)).ok, false);
 
     await prFlows.approve({ fingerprint: approval?.fingerprint ?? '' });
-    const shown = await frameMatching(frames, (frame) => Object.keys(frame.prActionsByPr).length > 0);
-    assert.deepEqual(shown.prActionsByPr, { 'acme/app#1': [{ id: 'agent-merge', label: 'Merge via agent' }] });
+    assert.deepEqual(frames.at(-1)?.pendingApprovals, []);
+    assert.deepEqual(frames.at(-1)?.prActionsByPr, { 'acme/app#1': [{ id: 'agent-merge', label: 'Merge via agent' }] });
     assert.equal((await prFlows.runPrAction({ ...click, head: 'c'.repeat(40) })).ok, false);
     assert.equal((await prFlows.runPrAction({ ...click, repo: 'other/lib', number: 2 })).ok, false);
 

@@ -353,7 +353,7 @@
   ],
   "unconvertedMutatingHandlers": {
     "server/control/handlers/community-handlers.ts": 2,
-    "server/control/handlers/github-handlers.ts": 10,
+    "server/control/handlers/github-handlers.ts": 5,
     "server/control/handlers/race-handlers.ts": 4,
     "server/control/handlers/radar-handlers.ts": 5,
     "server/control/handlers/wargames-handlers.ts": 2
@@ -365,7 +365,6 @@
     "github-connection-result",
     "open-community-session-result",
     "open-team-review-session-result",
-    "pr-flow-dispose-result",
     "race-judge-result",
     "race-mine-cases-result",
     "race-pick-winner-result",

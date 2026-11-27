@@ -262,7 +262,10 @@ async function sendItemRequest(statusKey: string, busyText: string, type: ItemRe
   render();
   try {
     const response = await sendControlRequest(type, fields, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-    if (response.type !== 'pr-flow-dispose-result') throw new Error('Unexpected review item reply.');
+    const expectedReplyType = type === 'pr-flow-save-rule' ? 'pr-flow-save-rule-result' : 'pr-flow-dispose-result';
+    if ((response.type !== 'pr-flow-dispose-result' && response.type !== 'pr-flow-save-rule-result') || response.type !== expectedReplyType) {
+      throw new Error('Unexpected review item reply.');
+    }
     if (!response.ok) {
       itemStatusByKey.set(statusKey, { tone: 'error', text: response.error ?? 'Could not handle this review item.' });
       return false;
