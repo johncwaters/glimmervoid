@@ -8,7 +8,7 @@ import { StartPicks } from '../start-picks.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
 import { AgeFileRemove, ProjectApprovals, SecretDecision, SecretName, SecretRequestCard, SecretRevoke, SecretSourceTestResult } from '../secrets.ts';
-import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
+import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, looseCollection, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
 export const CHAT_SEND_MAX_CHARS = CHAT_OUTBOX_TEXT_MAX_CHARS;
 
@@ -65,7 +65,7 @@ export const sessionClientVariants = [
 ] as const;
 
 export const sessionServerVariants = [
-  loose('snapshot', {
+  looseCollection('snapshot', {
     sessions: z.array(SessionSnapshot),
     serverBuild: nullableString,
   }),
@@ -80,18 +80,18 @@ export const sessionServerVariants = [
   loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),
   loose('set-workspace-repos-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
-  loose('session-status', { id: sessionId, session: z.string(), timestamp, ...SessionStatusFields.shape }),
-  loose('session-added', SessionCardFields.shape),
-  loose('session-modified', SessionCardFields.shape),
-  loose('session-removed', { id: sessionId, session: z.string() }),
+  looseCollection('session-status', { id: sessionId, session: z.string(), timestamp, ...SessionStatusFields.shape }),
+  looseCollection('session-added', SessionCardFields.shape),
+  looseCollection('session-modified', SessionCardFields.shape),
+  looseCollection('session-removed', { id: sessionId, session: z.string() }),
   loose('session-close-confirm', { id: sessionId, mergeStatus: MergeStatus }),
-  loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
-  loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
-  loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
-  loose('session-done-lines', { id: sessionId, agentDoneLines: z.array(AgentDoneLine) }),
-  loose('session-wakes', { id: sessionId, wakes: z.array(WakeView) }),
-  loose('session-git', { id: sessionId, worktree: z.boolean() }),
-  loose('session-manager-decision', { id: sessionId, decision: ManagerDecision }),
+  looseCollection('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
+  looseCollection('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
+  looseCollection('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
+  looseCollection('session-done-lines', { id: sessionId, agentDoneLines: z.array(AgentDoneLine) }),
+  looseCollection('session-wakes', { id: sessionId, wakes: z.array(WakeView) }),
+  looseCollection('session-git', { id: sessionId, worktree: z.boolean() }),
+  looseCollection('session-manager-decision', { id: sessionId, decision: ManagerDecision }),
   loose('notify', {
     session: z.string(),
     category: z.string(),
@@ -124,8 +124,8 @@ export const sessionServerVariants = [
     error: z.string().optional(),
     requestId,
   }),
-  loose('session-secret-request', { id: sessionId, card: SecretRequestCard.nullable() }),
-  loose('secret-requests-snapshot', { requests: z.record(z.string(), SecretRequestCard) }),
-  loose('secret-approvals', { projects: z.array(ProjectApprovals), ageFileNames: z.array(SecretName) }),
+  looseCollection('session-secret-request', { id: sessionId, card: SecretRequestCard.nullable() }),
+  looseCollection('secret-requests-snapshot', { requests: z.record(z.string(), SecretRequestCard) }),
+  looseCollection('secret-approvals', { projects: z.array(ProjectApprovals), ageFileNames: z.array(SecretName) }),
   loose('secret-source-test-result', { requestId, ...SecretSourceTestResult.shape }),
 ] as const;

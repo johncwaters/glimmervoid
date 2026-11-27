@@ -9,7 +9,7 @@ import { isCodeMapBoardTitle } from '../../shared/contracts/control/board-sessio
 import type { OpenBoardAsk } from '../../shared/contracts/control/board-session-messages.ts';
 import type { TelemetryEventProperties } from '../../shared/contracts/telemetry.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
-import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
+import type { UnsentServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { DiffBefore, SlideChain, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { CODEMAP_AUTHOR, OPERATOR_AUTHOR, createBoard, stageOps, unplacedNearTargetIdsOf } from '../../shared/contracts/whiteboard-ops-core.ts';
@@ -243,7 +243,7 @@ interface WhiteboardPort {
   close(): Promise<void>;
   takeBoardNotice(sessionId: string, sessionProject: string | null): string | null;
   isConnected(sessionId: string): boolean;
-  snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
+  snapshotMessage(): UnsentServerMessageOf<'whiteboards-snapshot'>;
   tiles: Pick<BoardTileService, 'view' | 'forget' | 'operatorViewOf'>;
   layouts: WhiteboardLayouts;
 }
@@ -504,7 +504,7 @@ function createWhiteboardWiring({
     }
   }
 
-  function snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'> {
+  function snapshotMessage(): UnsentServerMessageOf<'whiteboards-snapshot'> {
     return { type: 'whiteboards-snapshot', boards: [...recordsByBoardId.values()].map((record) => summaryOf(record, now())) };
   }
 

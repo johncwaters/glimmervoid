@@ -9,7 +9,7 @@ import { HostReady } from '../host-ready.ts';
 import { PrActionRunRequest, PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItemRequest, PrFlowSaveRuleRequest, PrFlowsStatus } from '../pr-flows.ts';
 import { ModelSelection } from '../agent-models.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
-import { requestId, GithubTeam, PullRequestKey, loose, optionalError, timestamp } from './control-fields.ts';
+import { collectionFields, requestId, GithubTeam, PullRequestKey, loose, optionalError, timestamp } from './control-fields.ts';
 
 export const githubClientVariants = [
   loose('list-github-teams', { requestId }),
@@ -62,8 +62,8 @@ export const githubServerVariants = [
   loose('commit-signing-result', { requestId, status: CommitSigningStatus.nullable() }),
   loose('host-ready-result', { requestId, hostReady: HostReady.nullable() }),
   loose('host-ready-changed', { timestamp }),
-  TeamReviewStatus,
-  MyPrsStatus,
-  PrFlowsStatus,
-  GithubPrsFrame,
+  TeamReviewStatus.extend(collectionFields),
+  MyPrsStatus.extend(collectionFields),
+  PrFlowsStatus.extend(collectionFields),
+  GithubPrsFrame.extend(collectionFields),
 ] as const;

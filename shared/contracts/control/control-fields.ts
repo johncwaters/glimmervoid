@@ -11,6 +11,8 @@ import { ModelSelection } from '../agent-models.ts';
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
 
 export const requestId = z.string().nullable().optional();
+export const seq = z.number().int().positive();
+export const collectionFields = { seq };
 export const ResentRequest = z.looseObject({ requestId: z.string(), resent: z.literal(true) });
 export const sessionId = z.string();
 export const KeptWorkPath = z.object({ path: z.string(), reason: z.string() }).strict();
@@ -33,6 +35,10 @@ export function loose<const Type extends string>(type: Type): z.ZodObject<{ type
 export function loose<const Type extends string, Shape extends z.ZodRawShape>(type: Type, shape: Shape): z.ZodObject<{ type: z.ZodLiteral<Type> } & Shape, z.core.$loose>;
 export function loose(type: string, shape?: z.ZodRawShape) {
   return z.looseObject({ type: z.literal(type), ...shape });
+}
+
+export function looseCollection<const Type extends string, Shape extends z.ZodRawShape>(type: Type, shape: Shape): z.ZodObject<{ type: z.ZodLiteral<Type>; seq: typeof seq } & Shape, z.core.$loose> {
+  return loose(type, { ...collectionFields, ...shape });
 }
 
 export function openObject(): z.ZodObject<Record<never, never>, z.core.$loose>;

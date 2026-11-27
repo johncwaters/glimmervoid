@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { requestId, loose, nullableString, timestamp, optionalError, opaqueObject, trailSteps } from './control-fields.ts';
+import { requestId, loose, looseCollection, nullableString, timestamp, optionalError, opaqueObject, trailSteps } from './control-fields.ts';
 
 export const radarClientVariants = [
   loose('get-radar-report', { issueId: z.union([z.string(), z.number()]), requestId }),
@@ -11,20 +11,20 @@ export const radarClientVariants = [
 ] as const;
 
 export const radarServerVariants = [
-  loose('radar-status', {
+  looseCollection('radar-status', {
     ts: timestamp,
     intervalMinutes: z.number(),
     projects: z.array(opaqueObject),
     investigations: z.array(opaqueObject),
   }),
-  loose('radar-investigation-activity', {
+  looseCollection('radar-investigation-activity', {
     projectId: z.union([z.string(), z.number()]),
     issueId: z.string(),
     inFlight: z.literal(true),
     startedAt: timestamp.nullable(),
     trail: trailSteps,
   }),
-  loose('radar-investigation-finished', {
+  looseCollection('radar-investigation-finished', {
     projectId: z.union([z.string(), z.number()]),
     issueId: z.string(),
     verdict: z.string(),

@@ -23,7 +23,9 @@ import type { TerminalColors } from '../session/core/terminal-color-query.ts';
 import type { ControlConnectionHandler, ControlSocket, FlushedControlBroadcast } from './backend/backend-websockets.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
+import { createReplayLog } from './core/control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
+import { attachControlSeq } from './control/control-seq.ts';
 import type { TelegramDeliveryControl } from './core/telegram-delivery-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
 import { createReplyLedger } from './control/reply-ledger.ts';
@@ -224,6 +226,7 @@ const REPLY_LEDGER_MAX_ENTRIES = 512;
 
 function registerControlHandlers(onControlConnection: (handleConnection: ControlConnectionHandler) => void, deps: ControlHandlerDeps) {
   const { serverBuild = () => null, controlReplayLog = null } = deps;
+  const seqLog = controlReplayLog ?? createReplayLog();
   const context = createControlContext(deps);
   const replyLedger = createReplyLedger({ nowMs: () => clock.nowMs(), keepMs: REPLY_LEDGER_KEEP_MS, maxEntries: REPLY_LEDGER_MAX_ENTRIES });
   const session = createSessionHandlers(context, deps);
@@ -279,6 +282,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
 
   onControlConnection((socket: WebSocket, req) => {
     const ws = socket as ControlSocket;
+    attachControlSeq(ws, seqLog);
     replyLedger.watch(ws);
     ws.send(JSON.stringify(buildSnapshot()));
 

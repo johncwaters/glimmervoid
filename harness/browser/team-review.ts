@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright-core';
 import { GithubPr, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
-import type { ServerMessage } from '../../shared/contracts/control-messages.ts';
+import type { UnsentServerMessage } from '../../shared/contracts/control-messages.ts';
 import { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 import { ReviewDraft, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { TeamReviewAction, TeamReviewThread } from '../../shared/contracts/team-review.ts';
 import type { Layout } from './cases-core.ts';
 import { shortcutPlatformFor } from '../../public/shortcuts-core.ts';
-import { showQueue, verifyMyPrKeepMergeable } from './my-prs.ts';
+import { nextSyntheticControlSeq, showQueue, verifyMyPrKeepMergeable } from './my-prs.ts';
 
 const REVIEWED_HEAD = 'a'.repeat(40);
 const PREVIOUS_HEAD = 'b'.repeat(40);
@@ -147,7 +147,8 @@ async function verifyLayout(page: Page): Promise<void> {
   assert.ok(layout.age.right <= layout.row.right);
 }
 
-async function emitTeamReviewFrames(page: Page, messages: ServerMessage[]): Promise<void> {
+async function emitTeamReviewFrames(page: Page, messages: UnsentServerMessage[]): Promise<void> {
+  const stampedMessages = messages.map((message) => ({ ...message, seq: nextSyntheticControlSeq() }));
   await page.evaluate(async (frames) => {
     const controlUrl = '/control-ws.ts';
     const control: { sendControlMsg(message: Record<string, unknown>): boolean } = await import(controlUrl);
@@ -164,7 +165,7 @@ async function emitTeamReviewFrames(page: Page, messages: ServerMessage[]): Prom
     } finally {
       WebSocket.prototype.send = originalSend;
     }
-  }, messages);
+  }, stampedMessages);
 }
 
 async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot: TeamReviewStatus, sessionId: string): Promise<void> {

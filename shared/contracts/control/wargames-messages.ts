@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { WargamesEvent, WargamesHistory, WargamesMatchId, WargamesMatchSummary, WargamesPhaseClock } from '../wargames.ts';
-import { loose, optionalError, requestId } from './control-fields.ts';
+import { loose, looseCollection, optionalError, requestId } from './control-fields.ts';
 
 export const wargamesClientVariants = [
   loose('wargames-start', { spec: z.unknown(), requestId }),
@@ -10,9 +10,9 @@ export const wargamesClientVariants = [
 ] as const;
 
 export const wargamesServerVariants = [
-  loose('wargames-status', { matches: z.array(WargamesMatchSummary) }),
-  loose('wargames-history', { history: WargamesHistory }),
-  loose('wargames-events', { matchId: WargamesMatchId, events: z.array(WargamesEvent), reset: z.boolean(), phaseClock: WargamesPhaseClock.nullable() }),
+  looseCollection('wargames-status', { matches: z.array(WargamesMatchSummary) }),
+  looseCollection('wargames-history', { history: WargamesHistory }),
+  looseCollection('wargames-events', { matchId: WargamesMatchId, events: z.array(WargamesEvent), reset: z.boolean(), phaseClock: WargamesPhaseClock.nullable() }),
   loose('wargames-start-result', { requestId, ok: z.boolean(), error: optionalError, matchId: WargamesMatchId.optional() }),
   loose('wargames-abort-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('wargames-watch-result', { requestId, ok: z.boolean(), error: optionalError, matchId: WargamesMatchId.optional() }),

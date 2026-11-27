@@ -101,7 +101,7 @@ test('a reconnect after a server restart replays the new process broadcasts desp
   assert.deepEqual(entries.map((entry) => entry.type), ['session-error', 'notify']);
 });
 
-test('a cached lane status replayed on connect carries no stale seq', () => {
+test('a cached lane status replayed on connect carries a fresh seq past the prior broadcast', () => {
   const replayLog = createReplayLog();
   const radarStatus = { type: 'radar-status', configured: true };
   const server = createControlServer(controlDeps({ projects: [] }, {
@@ -109,13 +109,16 @@ test('a cached lane status replayed on connect carries no stale seq', () => {
     controlReplayLog: replayLog,
     getRadarStatus: () => radarStatus,
   }));
-  replayLog.stamp({ ...radarStatus });
+  const priorBroadcast = replayLog.stamp({ ...radarStatus });
 
   const { sent } = connectControl<DispatchFrame>(server, { url: '/control' });
 
   const replayed = sent.filter((m) => m.type === 'radar-status');
   assert.equal(replayed.length, 1, 'the cached lane status replays');
-  for (const msg of replayed) assert.equal(msg.seq, undefined, `${msg.type} must be seq-less`);
+  for (const msg of replayed) {
+    assert.equal(typeof msg.seq, 'number', `${msg.type} must carry a seq`);
+    assert.ok((msg.seq ?? 0) > priorBroadcast.seq, `${msg.type} must carry a fresh seq past the prior broadcast`);
+  }
 });
 
 test('the connect snapshot identifies the backend build it came from', () => {

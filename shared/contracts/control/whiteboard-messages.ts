@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Board, BOARD_DOC_CAP_BYTES, BoardHead, BoardReview, BoardSummary, BoxMedia, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { BoardBackdrop, BoardChrome, LayoutRect, Tile, TileDiff, TILE_LODS } from '../whiteboard-tiles.ts';
-import { requestId, loose, optionalError } from './control-fields.ts';
+import { requestId, loose, looseCollection, optionalError } from './control-fields.ts';
 
 export const ElementChange = z.union([
   z.tuple([z.literal('put'), Element]),
@@ -66,10 +66,10 @@ export const whiteboardClientVariants = [
 ] as const;
 
 export const whiteboardServerVariants = [
-  loose('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
-  loose('whiteboard-removed', { boardId: z.string() }),
-  loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), backdrop: BoardBackdrop.nullable().default(null), chrome: BoardChrome.nullable(), elementsInView: z.number().int().nonnegative().nullable().default(null), tiles: z.array(Tile) }),
-  loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), backdrop: BoardBackdrop.nullable().default(null), diff: TileDiff }),
-  loose('whiteboard-agent-change', { boardId: z.string(), version: z.number().int(), at: z.number().finite(), change: AgentChange }),
+  looseCollection('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
+  looseCollection('whiteboard-removed', { boardId: z.string() }),
+  looseCollection('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), backdrop: BoardBackdrop.nullable().default(null), chrome: BoardChrome.nullable(), elementsInView: z.number().int().nonnegative().nullable().default(null), tiles: z.array(Tile) }),
+  looseCollection('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), backdrop: BoardBackdrop.nullable().default(null), diff: TileDiff }),
+  looseCollection('whiteboard-agent-change', { boardId: z.string(), version: z.number().int(), at: z.number().finite(), change: AgentChange }),
   loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), slides: SlideChain.optional(), patch: WhiteboardPatch.optional(), isConflict: z.boolean().optional(), savedMedia: BoxMedia.optional() }),
 ] as const;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright-core';
 import { GithubPr, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
-import type { ServerMessage } from '../../shared/contracts/control-messages.ts';
+import type { UnsentServerMessage } from '../../shared/contracts/control-messages.ts';
 import { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 
 async function applyStatus(page: Page, status: MyPrsStatus): Promise<void> {
@@ -96,7 +96,15 @@ async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): 
   await applyStatus(page, status);
 }
 
-async function emitControlMessages(page: Page, messages: ServerMessage[]): Promise<void> {
+let syntheticControlSeq = Date.now() + 1_000_000;
+
+export function nextSyntheticControlSeq(): number {
+  syntheticControlSeq += 1;
+  return syntheticControlSeq;
+}
+
+async function emitControlMessages(page: Page, messages: UnsentServerMessage[]): Promise<void> {
+  const stampedMessages = messages.map((message) => ({ ...message, seq: nextSyntheticControlSeq() }));
   await page.evaluate(async (frames) => {
     const controlUrl = '/control-ws.ts';
     const control: { sendControlMsg(message: Record<string, unknown>): boolean } = await import(controlUrl);
@@ -113,7 +121,7 @@ async function emitControlMessages(page: Page, messages: ServerMessage[]): Promi
     } finally {
       WebSocket.prototype.send = originalSend;
     }
-  }, messages);
+  }, stampedMessages);
 }
 
 async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialPr: GithubPr): Promise<void> {

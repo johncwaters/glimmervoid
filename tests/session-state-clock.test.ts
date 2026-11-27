@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createConfigStore } from '../server/config-store.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
+import { createReplayLog } from '../server/core/control-replay-core.ts';
 import { ServerMessage } from '../shared/contracts/control-messages.ts';
 
 test('the dashboard clock of a starting session runs on through its first working turn, live and on reload', async (t) => {
@@ -23,11 +24,12 @@ test('the dashboard clock of a starting session runs on through its first workin
   });
   const session = makeSession(store.config.projects[0], store.config);
   const liveStateSinceByState = new Map<string, unknown>();
+  const replayLog = createReplayLog();
   createSessionEventWiring({
     configStore: store, config: store.config, recordLane: () => {},
     usage: { refreshSessions: () => {}, nudgeSession: () => {} },
     broadcastControl: (message) => {
-      const parsed = ServerMessage.safeParse(message);
+      const parsed = ServerMessage.safeParse(replayLog.stamp(message));
       if (parsed.success && parsed.data.type === 'session-status' && parsed.data.transition) liveStateSinceByState.set(parsed.data.transition.to, parsed.data.stateSince);
     },
     telegramChannel: { noteStateChange: () => {}, recheck: () => {} },

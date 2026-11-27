@@ -10,6 +10,7 @@ import {
   type ServerMessageOf,
   CONTROL_FRAME_MAX_BYTES,
 } from '../shared/contracts/control-messages.ts';
+import { SERVER_MESSAGE_CLASS } from '../shared/contracts/control/message-classes.ts';
 import { Session } from '../session/sessions.ts';
 import { MyPr, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import { STATES } from '../shared/states.ts';
@@ -349,9 +350,36 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
 test('real server payloads round-trip through every server contract variant', () => {
   assert.deepEqual(new Set(REAL_SERVER_PAYLOADS.map((payload) => payload.type)), schemaTypes(ServerMessage));
   for (const payload of REAL_SERVER_PAYLOADS) {
+    const messageClass = SERVER_MESSAGE_CLASS[payload.type as keyof typeof SERVER_MESSAGE_CLASS];
+    if (messageClass === 'collection') {
+      assert.equal(ServerMessage.safeParse(payload).success, false, `${payload.type}: collection message must reject missing seq`);
+      const stamped = { ...payload, seq: 1 };
+      const parsed = ServerMessage.safeParse(stamped);
+      assert.equal(parsed.success, true, `${payload.type}: ${parsed.error?.issues[0]?.message || 'invalid'}`);
+      assert.deepEqual(JSON.parse(JSON.stringify(parsed.data)), stamped, payload.type);
+      continue;
+    }
     const parsed = ServerMessage.safeParse(payload);
     assert.equal(parsed.success, true, `${payload.type}: ${parsed.error?.issues[0]?.message || 'invalid'}`);
     assert.deepEqual(JSON.parse(JSON.stringify(parsed.data)), payload, payload.type);
+  }
+});
+
+test('every collection server message requires a positive integer seq and non-collection messages do not declare seq', () => {
+  const optionByType = new Map(ServerMessage.options.map((option) => [option.shape.type.value, option]));
+  for (const [type, messageClass] of Object.entries(SERVER_MESSAGE_CLASS)) {
+    const option = optionByType.get(type as keyof typeof SERVER_MESSAGE_CLASS);
+    assert.ok(option, `missing ServerMessage variant for ${type}`);
+    const hasSeq = Object.hasOwn(option.shape, 'seq');
+    if (messageClass === 'collection') {
+      assert.equal(hasSeq, true, `collection message ${type} must declare seq through the shared field set`);
+      const seqField = (option.shape as Record<string, z.ZodTypeAny>).seq;
+      assert.equal(seqField.safeParse(undefined).success, false, `${type}.seq must be required`);
+      assert.equal(seqField.safeParse(0).success, false, `${type}.seq must be positive`);
+      assert.equal(seqField.safeParse(1).success, true, `${type}.seq must accept positive integers`);
+      continue;
+    }
+    assert.equal(hasSeq, false, `${messageClass} message ${type} must not declare seq`);
   }
 });
 
@@ -448,6 +476,7 @@ test('the control WebSocket server is built with that budget, never a hand-writt
 test('nested open objects retain declared field types and passthrough fields', () => {
   const expected = {
     type: 'usage-sessions',
+    seq: 1,
     ts: 1,
     pricingSource: null,
     yourDay: null,

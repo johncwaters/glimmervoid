@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { YourDay } from '../your-day.ts';
 import { UsageBudget, UsageCoverageRow, UsagePricing, UsageReportRanges, UsageScanSummary } from '../usage-report.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
-import { requestId, sessionId, loose, openObject, nullableString, timestamp, optionalTimestamp, optionalError, PlanLimitsVendor } from './control-fields.ts';
+import { requestId, sessionId, loose, looseCollection, openObject, nullableString, timestamp, optionalTimestamp, optionalError, PlanLimitsVendor } from './control-fields.ts';
 
 export const SessionMeterReading = z.object({
   model: z.string().nullable(),
@@ -26,7 +26,7 @@ const PlanLimitBucket = z.object({
 });
 
 export const laneServerVariants = [
-  loose('usage-sessions', {
+  looseCollection('usage-sessions', {
     ts: timestamp,
     pricingSource: nullableString,
     yourDay: YourDay.nullable().default(null),
@@ -42,7 +42,7 @@ export const laneServerVariants = [
       officialCostUSD: z.number().nullable().optional(),
     })),
   }),
-  loose('usage-report', {
+  looseCollection('usage-report', {
     requestId,
     ts: optionalTimestamp,
     tz: z.string().optional(),
@@ -55,7 +55,7 @@ export const laneServerVariants = [
     warning: optionalError,
     error: optionalError,
   }),
-  loose('plan-limits', {
+  looseCollection('plan-limits', {
     ts: timestamp,
     fiveHour: z.unknown().nullable(),
     sevenDay: z.unknown().nullable(),
@@ -63,7 +63,7 @@ export const laneServerVariants = [
     source: z.string(),
     vendor: PlanLimitsVendor.optional(),
   }),
-  loose('account-plan-limits', {
+  looseCollection('account-plan-limits', {
     ts: timestamp,
     fiveHour: z.unknown().nullable(),
     sevenDay: z.unknown().nullable(),
@@ -72,7 +72,7 @@ export const laneServerVariants = [
     vendor: PlanLimitsVendor,
     accountId: AgentAccountId.nullable(),
   }),
-  loose('session-meter', { id: sessionId, ts: timestamp, ...SessionMeterReading.shape }),
+  looseCollection('session-meter', { id: sessionId, ts: timestamp, ...SessionMeterReading.shape }),
   loose('usage-budget-alert', {
     scope: z.string(),
     periodKey: z.string(),

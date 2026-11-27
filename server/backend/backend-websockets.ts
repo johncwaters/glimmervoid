@@ -10,6 +10,7 @@ import type { OutputBeatFrame } from '../../shared/contracts/data-messages.ts';
 import type { PtySizeFrame } from '../../shared/contracts/data-messages.ts';
 import { createReplayLog } from '../core/control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from '../core/control-replay-core.ts';
+import { attachControlSeq, sendStampedControlFrame } from '../control/control-seq.ts';
 import { decideControlSend } from '../core/control-send-core.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
 import { awaitBounded } from '../core/shutdown-core.ts';
@@ -87,7 +88,7 @@ function sendControlFrame(client: WebSocket, payload: string, type: string, logg
     onWritten();
     return;
   }
-  client.send(payload, () => onWritten());
+  sendStampedControlFrame(client as ControlSocket, payload, () => onWritten());
 }
 
 function sendPtySizeFrame(sender: WsSender, size: { cols: number; rows: number; seq: number }): void {
@@ -121,10 +122,11 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     recordOutcome('controlWsOpened');
     socket.on('close', () => recordOutcome('controlWsClosed'));
   }];
+  const controlReplayLog = createReplayLog();
   controlWss.on('connection', (socket, request) => {
+    attachControlSeq(socket as ControlSocket, controlReplayLog);
     for (const handleConnection of controlConnectionHandlers) handleConnection(socket, request);
   });
-  const controlReplayLog = createReplayLog();
   const sessionDataClients = new Map<string, Map<WebSocket, ViewerSizeRecord | null>>();
   const fastCloseCountBySessionKey = new Map<string, number>();
   const socketsClosedByServer = new WeakSet<WebSocket>();
@@ -135,7 +137,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   }
 
   function stampControlFrame(message: ControlMessageRecord): { payload: string; type: string } {
-    const stamped = controlReplayLog.stamp({ ...message });
+    const stamped = controlReplayLog.stamp(message);
     return { payload: JSON.stringify(stamped), type: frameType(stamped) };
   }
 

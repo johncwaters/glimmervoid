@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentHookGroup, AgentNote } from '../hooks.ts';
 import { AgentAccountId, AgentAccountStatuses, LaneAccountLane } from '../agent-accounts.ts';
-import { requestId, loose, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, TelegramDeliveryStatus } from './control-fields.ts';
+import { requestId, loose, looseCollection, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, TelegramDeliveryStatus } from './control-fields.ts';
 
 export const MAX_CLONE_SOURCES_PER_REQUEST = 200;
 
@@ -55,13 +55,13 @@ export const settingsServerVariants = [
     error: optionalError,
   }),
   loose('save-hook-result', { requestId, ok: z.boolean(), error: optionalError, hook: opaqueObject.optional() }),
-  loose('agent-accounts', { requestId, accounts: AgentAccountStatuses, accountId: AgentAccountId.optional(), error: optionalError }),
+  looseCollection('agent-accounts', { requestId, accounts: AgentAccountStatuses, accountId: AgentAccountId.optional(), error: optionalError }),
   loose('start-remote-setup-result', { requestId, ok: z.boolean(), error: optionalError, sessionId: z.string().optional(), sessionName: z.string().optional() }),
   loose('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
-  loose('hooks-updated', { count: z.number().int().nonnegative() }),
+  looseCollection('hooks-updated', { count: z.number().int().nonnegative() }),
   loose('settings', { settings: opaqueObject, requestId }),
   loose('settings-error', { message: z.string(), requestId }),
-  loose('settings-updated', { settings: opaqueObject, requestId }),
+  looseCollection('settings-updated', { settings: opaqueObject, requestId }),
   loose('agents-listed', {
     requestId,
     agents: z.array(openObject({ id: z.string(), label: z.string(), resolvable: z.boolean(), hidden: z.boolean().optional() })),
@@ -75,7 +75,7 @@ export const settingsServerVariants = [
     suggestions: z.array(openObject({ path: z.string(), label: z.string(), gitRepoCount: z.number().int().nonnegative() })).optional(),
     error: z.string().optional(),
   }),
-  loose('repository-clones', { requestId: requestId.optional(), jobs: RepositoryCloneJobs.optional(), error: optionalError }),
+  looseCollection('repository-clones', { requestId: requestId.optional(), jobs: RepositoryCloneJobs.optional(), error: optionalError }),
   loose('folders-listed', { requestId, folder: z.string(), entries: z.array(z.object({ name: z.string(), path: z.string(), isGit: z.boolean() })), error: optionalError }),
   loose('github-repos-listed', {
     requestId,

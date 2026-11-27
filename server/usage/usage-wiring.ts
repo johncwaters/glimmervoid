@@ -29,7 +29,7 @@ import { sendTelegramMessage } from '../telegram-transport.ts';
 import { loadPricing } from './usage-pricing.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import type { SessionMeterReading } from '../../shared/contracts/control/lane-messages.ts';
-import type { ServerMessageOf } from '../../shared/contracts/index.ts';
+import type { UnsentServerMessageOf } from '../../shared/contracts/index.ts';
 import type { PricingResult } from './usage-pricing.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { createUsageScanner } from './usage-scanner.ts';
@@ -192,11 +192,11 @@ function budgetAlertText(
 }
 
 interface StoredSessionMeter {
-  message: ServerMessageOf<'session-meter'>;
+  message: UnsentServerMessageOf<'session-meter'>;
   pricingModelId: string | null;
 }
 
-function meterReadingOf(message: ServerMessageOf<'session-meter'>): SessionMeterReading {
+function meterReadingOf(message: UnsentServerMessageOf<'session-meter'>): SessionMeterReading {
   const { type: _type, id: _id, ts: _ts, ...reading } = message;
   return reading;
 }
@@ -560,7 +560,7 @@ function createUsageWiring({
   function publishSessionMeter(glimmervoidId: string, reading: SessionMeterReading, pricingModelId: string | null): void {
     const stored = sessionMeterById.get(glimmervoidId);
     if (stored && JSON.stringify(meterReadingOf(stored.message)) === JSON.stringify(reading)) return;
-    const message: ServerMessageOf<'session-meter'> = { type: 'session-meter', id: glimmervoidId, ts: nowFn(), ...reading };
+    const message: UnsentServerMessageOf<'session-meter'> = { type: 'session-meter', id: glimmervoidId, ts: nowFn(), ...reading };
     sessionMeterById.delete(glimmervoidId);
     sessionMeterById.set(glimmervoidId, { message, pricingModelId });
     if (sessionMeterById.size > SESSION_METER_CAP) {
@@ -604,7 +604,7 @@ function createUsageWiring({
     }
   }
 
-  function getSessionMeterMessages(): ServerMessageOf<'session-meter'>[] {
+  function getSessionMeterMessages(): UnsentServerMessageOf<'session-meter'>[] {
     return [...sessionMeterById.values()].map((stored) => stored.message);
   }
 

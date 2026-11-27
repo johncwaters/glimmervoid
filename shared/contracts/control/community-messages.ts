@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CommunityActionRequest, CommunityActionResult, CommunityItemKey, CommunityStatus } from '../community.ts';
-import { requestId, loose, optionalError } from './control-fields.ts';
+import { collectionFields, requestId, loose, optionalError } from './control-fields.ts';
 
 export const communityClientVariants = [
   loose('open-community-session', { requestId, key: CommunityItemKey, projectId: z.string().min(1) }),
@@ -18,5 +18,5 @@ export const communityServerVariants = [
     sessionName: z.string().optional(),
     pending: z.boolean().optional(),
   }),
-  CommunityStatus,
+  CommunityStatus.extend(collectionFields),
 ] as const;

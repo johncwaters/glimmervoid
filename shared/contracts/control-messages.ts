@@ -113,5 +113,11 @@ export const ServerMessage = z.discriminatedUnion('type', serverVariants);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
+type OmitKnown<ObjectType, ExcludedKey extends PropertyKey> = {
+  [Key in keyof ObjectType as Key extends ExcludedKey ? never : Key]: ObjectType[Key];
+};
+
 export type ClientMessageOf<Type extends ClientMessage['type']> = Extract<ClientMessage, { type: Type }>;
 export type ServerMessageOf<Type extends ServerMessage['type']> = Extract<ServerMessage, { type: Type }>;
+export type UnsentServerMessageOf<Type extends ServerMessage['type']> = OmitKnown<ServerMessageOf<Type>, 'seq'>;
+export type UnsentServerMessage = { [Type in ServerMessage['type']]: UnsentServerMessageOf<Type> }[ServerMessage['type']];

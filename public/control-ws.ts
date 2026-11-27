@@ -174,7 +174,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     }
     const msg = parsedMessage.data;
 
-    if (msg.type === 'snapshot' && typeof msg.seq !== 'number') lastSeq = 0;
+    if (msg.type === 'snapshot') lastSeq = 0;
 
     if (typeof msg.seq === 'number') {
       if (msg.seq <= lastSeq) return;

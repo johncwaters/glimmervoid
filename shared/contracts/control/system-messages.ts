@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { UpdateJournal } from '../update-journal.ts';
-import { requestId, sessionId, loose, opaqueObject, updateStatusShape, ClientErrorReport, ClientLogReport, DASHBOARD_TELEMETRY_EVENTS } from './control-fields.ts';
+import { requestId, sessionId, loose, looseCollection, opaqueObject, updateStatusShape, ClientErrorReport, ClientLogReport, DASHBOARD_TELEMETRY_EVENTS } from './control-fields.ts';
 
 export const systemClientVariants = [
   loose('ping', { requestId }),
@@ -18,12 +18,12 @@ export const systemClientVariants = [
 ] as const;
 
 export const systemServerVariants = [
-  loose('update-status', updateStatusShape),
-  loose('update-progress', { journal: UpdateJournal }),
+  looseCollection('update-status', updateStatusShape),
+  looseCollection('update-progress', { journal: UpdateJournal }),
   loose('pong', { requestId }),
-  loose('health-snapshot', { stats: opaqueObject }),
+  looseCollection('health-snapshot', { stats: opaqueObject }),
   loose('telemetry-deletion-result', { requestId, ok: z.boolean() }),
-  loose('client-trust', { trust: z.enum(['local', 'remote']) }),
+  looseCollection('client-trust', { trust: z.enum(['local', 'remote']) }),
   loose('shutting-down'),
   loose('restarting'),
   loose('star-hint'),

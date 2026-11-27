@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createBackend } from '../server/backend/backend.ts';
+import { ServerMessage } from '../shared/contracts/control-messages.ts';
+import { SERVER_MESSAGE_CLASS } from '../shared/contracts/control/message-classes.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, openSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -82,13 +84,62 @@ test('a control reconnect carrying a replay cursor connects and gets snapshot th
 
   const reconnected = await openRecordingSocket<ControlFrame>(client, `/control?since=${cursorSeq}`);
   const replayedError = await waitForMessage(reconnected.received, isSessionError, 'the replayed session-error');
-  assert.equal(reconnected.received[0].type, 'snapshot', 'the snapshot is still the first frame of a reconnect');
-  assert.equal(replayedError.seq, afterCursor.seq, 'exactly the broadcasts past the cursor are replayed');
+  const reconnectSnapshot = reconnected.received[0];
+  assert.equal(reconnectSnapshot.type, 'snapshot', 'the snapshot is still the first frame of a reconnect');
+  assert.equal(typeof reconnectSnapshot.seq, 'number', 'the reconnect snapshot carries a seq');
+  assert.equal(typeof replayedError.seq, 'number', 'the replayed session-error carries a seq');
+  assert.ok((replayedError.seq ?? 0) > (reconnectSnapshot.seq ?? 0), 'the replayed frame seq advances past the reconnect snapshot so the client never drops it');
+  assert.ok((replayedError.seq ?? 0) > (afterCursor.seq ?? 0), 'the replayed frame carries a fresh seq past the original broadcast');
   assert.equal(reconnected.received.filter(isSessionError).length, 1, 'the entry at the cursor is not replayed again');
 
+  const secondCursorSeq = replayedError.seq ?? 0;
   await closeSocket(reconnected.ws);
+
+  const reconnectedAgain = await openRecordingSocket<ControlFrame>(client, `/control?since=${secondCursorSeq}`);
+  await waitForMessage(reconnectedAgain.received, (frame) => frame.type === 'client-trust', 'the second reconnect connect frames');
+  assert.equal(reconnectedAgain.received.filter(isSessionError).length, 0, 'reconnecting past the replayed seq does not double the replayed frame');
+
+  await closeSocket(reconnectedAgain.ws);
   await closeSocket(dataConnection);
   assert.notEqual(await dataCloseCode, 1008, 'the data socket was never refused as an unknown session');
+}));
+
+function assertStrictlyIncreasingSeqs(frames: readonly ControlFrame[], label: string): number[] {
+  const seqs: number[] = [];
+  for (const frame of frames) {
+    const messageClass = SERVER_MESSAGE_CLASS[frame.type as keyof typeof SERVER_MESSAGE_CLASS];
+    if (messageClass === 'collection') {
+      const parsed = ServerMessage.safeParse(frame);
+      assert.equal(parsed.success, true, `${label}: ${frame.type} failed ServerMessage schema (${parsed.error?.issues[0]?.message ?? 'invalid'})`);
+    }
+    if (typeof frame.seq !== 'number') continue;
+    const previous = seqs.at(-1) ?? 0;
+    assert.ok(frame.seq > previous, `${label}: ${frame.type} seq ${frame.seq} must exceed prior seq ${previous}`);
+    seqs.push(frame.seq);
+  }
+  return seqs;
+}
+
+test('two control sockets each see strictly increasing seq across snapshots, broadcasts, and unicast collection pushes', withBackend(async (client) => {
+  const first = await openRecordingSocket<ControlFrame>(client, '/control');
+  await waitForMessage(first.received, (frame) => frame.type === 'client-trust', 'first socket connect frames');
+  const second = await openRecordingSocket<ControlFrame>(client, '/control');
+  await waitForMessage(second.received, (frame) => frame.type === 'client-trust', 'second socket connect frames');
+
+  first.ws.send(JSON.stringify({ type: 'request-health-snapshot' }));
+  await waitForMessage(first.received, (frame) => frame.type === 'health-snapshot', 'unicast health-snapshot on first socket');
+
+  first.ws.send(JSON.stringify({ type: 'rename-session', id: SESSION_ID, newName: 'renamed probe' }));
+  await waitForMessage(first.received, (frame) => frame.type === 'session-renamed', 'broadcast session-renamed on first socket');
+  await waitForMessage(second.received, (frame) => frame.type === 'session-renamed', 'broadcast session-renamed on second socket');
+
+  const firstSeqs = assertStrictlyIncreasingSeqs(first.received, 'first socket');
+  const secondSeqs = assertStrictlyIncreasingSeqs(second.received, 'second socket');
+  assert.ok(firstSeqs.length >= 3, 'first socket received multiple stamped collection frames');
+  assert.ok(secondSeqs.length >= 3, 'second socket received multiple stamped collection frames');
+
+  await closeSocket(first.ws);
+  await closeSocket(second.ws);
 }));
 
 test('a data socket whose id does not exist is still refused', withBackend(async (client) => {

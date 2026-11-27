@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { RaceHistory, RaceId, RaceRecord, ReviewCaseEntry } from '../race.ts';
 import { repoSlug } from '../review-case.ts';
-import { requestId, loose, optionalError } from './control-fields.ts';
+import { requestId, loose, looseCollection, optionalError } from './control-fields.ts';
 
 export const raceClientVariants = [
   loose('race-start', { spec: z.unknown(), requestId }),
@@ -13,8 +13,8 @@ export const raceClientVariants = [
 ] as const;
 
 export const raceServerVariants = [
-  loose('race-status', { races: z.array(RaceRecord) }),
-  loose('race-history', { history: RaceHistory }),
+  looseCollection('race-status', { races: z.array(RaceRecord) }),
+  looseCollection('race-history', { history: RaceHistory }),
   loose('race-start-result', { requestId, ok: z.boolean(), error: optionalError, raceId: RaceId.optional() }),
   loose('race-judge-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('race-diff-result', { requestId, ok: z.boolean(), error: optionalError, diff: z.string().optional() }),

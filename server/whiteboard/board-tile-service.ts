@@ -1,6 +1,6 @@
 import type { Board, BoardHead, BoardOutline } from '../../shared/contracts/whiteboard.ts';
 import type { BoardBackdrop, BoardChrome, TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
-import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
+import type { UnsentServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
 import type { PictureOptions } from '../../mcp/core/board-reading.ts';
 import type { Author, PinPositions } from '../../shared/contracts/whiteboard-ops-core.ts';
@@ -17,7 +17,7 @@ import { clock } from '../../shared/clock.ts';
 import type { BoardOpenStep } from '../../shared/contracts/telemetry.ts';
 
 interface TileViewer {
-  send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
+  send(message: UnsentServerMessageOf<'whiteboard-tiles'> | UnsentServerMessageOf<'whiteboard-tile-diff'>): void;
 }
 
 interface ViewerState {
@@ -112,7 +112,7 @@ interface TileServiceOptions {
   layoutCachePath: string | null;
   logger: Pick<Console, 'warn'>;
   onSavedLayoutWritten: (written: SavedLayoutWrite) => void;
-  broadcastAgentChange: (message: ServerMessageOf<'whiteboard-agent-change'>) => void;
+  broadcastAgentChange: (message: UnsentServerMessageOf<'whiteboard-agent-change'>) => void;
 }
 
 function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, logger, onSavedLayoutWritten, broadcastAgentChange }: TileServiceOptions): BoardTileService {

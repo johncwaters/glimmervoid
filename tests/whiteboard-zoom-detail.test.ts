@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { Op } from '../shared/contracts/whiteboard.ts';
-import type { ServerMessageOf } from '../shared/contracts/control-messages.ts';
+import type { UnsentServerMessageOf } from '../shared/contracts/control-messages.ts';
 import type { TileLod } from '../shared/contracts/whiteboard-tiles.ts';
 import { openWhiteboardWiring } from './helpers/whiteboard-closables.ts';
 
@@ -19,8 +19,8 @@ test('a zoomed-out view over a dense cluster gets titles but never full detail p
   assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse([...clusterBoxes, farBox]))).ok, true);
   const clusterView = { x: -500, y: -500, width: 13000, height: 10000 };
   const answerAt = async (lod: TileLod) => {
-    const sent: ServerMessageOf<'whiteboard-tiles'>[] = [];
-    const viewer = { send: (message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>) => (message.type === 'whiteboard-tiles' ? sent.push(message) : 0) };
+    const sent: UnsentServerMessageOf<'whiteboard-tiles'>[] = [];
+    const viewer = { send: (message: UnsentServerMessageOf<'whiteboard-tiles'> | UnsentServerMessageOf<'whiteboard-tile-diff'>) => (message.type === 'whiteboard-tiles' ? sent.push(message) : 0) };
     await wiring.tiles.view(viewer, { boardId, view: clusterView, lod, scale: 0.06, knownVersion: null });
     const [answer] = sent;
     assert.ok(answer, `a ${lod} view gets a tiles reply`);

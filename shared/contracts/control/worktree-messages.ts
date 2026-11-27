@@ -3,7 +3,7 @@ import { ChangeMap } from '../change-map.ts';
 import { VerificationRun } from '../verification.ts';
 import { SessionReviewResult } from '../session-review.ts';
 import { MergeStatus } from '../session.ts';
-import { sessionId, requestId, loose, nullableString, DiffBase, SessionCommit, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
+import { sessionId, requestId, loose, looseCollection, nullableString, DiffBase, SessionCommit, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
 
 const diffFilePath = z.string().min(1).max(4096);
 const blobId = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
@@ -14,21 +14,21 @@ export const worktreeClientVariants = [
 ] as const;
 
 export const worktreeServerVariants = [
-  loose('session-merge-status', {
+  looseCollection('session-merge-status', {
     id: sessionId,
     mergeStatus: MergeStatus,
     reason: nullableString,
     parked: z.boolean(),
     timestamp,
   }),
-  loose('session-worktree-blocked', {
+  looseCollection('session-worktree-blocked', {
     id: sessionId,
     session: z.string(),
     branch: nullableString,
     notice: nullableString,
     timestamp,
   }),
-  loose('session-worktree-warning', {
+  looseCollection('session-worktree-warning', {
     id: sessionId,
     session: z.string(),
     branch: nullableString,
@@ -37,7 +37,7 @@ export const worktreeServerVariants = [
     installDetails: z.array(InstallDetail).max(INSTALL_DETAIL_MAX_FOLDERS).optional(),
     timestamp,
   }),
-  loose('session-worktree-ready', {
+  looseCollection('session-worktree-ready', {
     id: sessionId,
     session: z.string(),
     branch: nullableString,
@@ -64,8 +64,8 @@ export const worktreeServerVariants = [
     error: optionalError,
   }),
   loose('change-map', { id: sessionId, map: ChangeMap }),
-  loose('verification-run', { id: sessionId, run: VerificationRun.nullable() }),
-  loose('session-review', { id: sessionId, result: SessionReviewResult.nullable() }),
+  looseCollection('verification-run', { id: sessionId, run: VerificationRun.nullable() }),
+  looseCollection('session-review', { id: sessionId, result: SessionReviewResult.nullable() }),
   loose('branch-sync-status', {
     id: sessionId,
     branch: nullableString,

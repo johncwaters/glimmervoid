@@ -8,6 +8,7 @@ import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore } from '../server/config-store.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
+import { createReplayLog } from '../server/core/control-replay-core.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { ServerMessage } from '../shared/contracts/control-messages.ts';
@@ -25,6 +26,7 @@ test('linked PRs persist on the project entry, broadcast on change and survive a
   const sessions: Session[] = [];
   const stores: ConfigStore[] = [];
   const broadcasts: ControlMessageRecord[] = [];
+  const replayLog = createReplayLog();
   process.env.GLIMMERVOID_CONFIG = configPath;
   try {
     await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [{ id: 'pr-links-session', name: 'project', path: directory }] }));
@@ -41,7 +43,7 @@ test('linked PRs persist on the project entry, broadcast on change and survive a
       createSessionEventWiring({
         configStore: store, config: store.config, recordLane: () => {},
         usage: { refreshSessions: () => {}, nudgeSession: () => {} },
-        broadcastControl: (message) => { broadcasts.push(message); },
+        broadcastControl: (message) => { broadcasts.push(replayLog.stamp(message)); },
         telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
         notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
         attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
