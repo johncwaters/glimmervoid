@@ -2801,11 +2801,20 @@ test('a step session that ends while another plan run waits in the queue leaves 
   await putOps([stepOp('a')]);
   const liveChildren = new Map<string, EventEmitter>();
   let holdSpawn: Promise<void> | null = null;
+  let hasHeldSpawnStarted = false;
+  let completedPlanReads = 0;
   const ports: PlanRunPorts = {
-    readPlanBoard: (boardRef) => wiring.readPlanBoard(runner, boardRef),
+    readPlanBoard: async (boardRef) => {
+      const read = await wiring.readPlanBoard(runner, boardRef);
+      completedPlanReads += 1;
+      return read;
+    },
     setStepStatus: async (id, stepId, status) => { assert.equal((await wiring.handleAgent(runner, { sub: 'put', board: id, ops: [{ op: 'set', id: stepId, fields: { step: { status } } }] })).status, 200); },
     spawnStep: async (name) => {
-      if (name === 'Build b' && holdSpawn) await holdSpawn;
+      if (name === 'Build b' && holdSpawn) {
+        hasHeldSpawnStarted = true;
+        await holdSpawn;
+      }
       const childId = `child-${liveChildren.size + 1}-${name}`;
       const events = new EventEmitter();
       liveChildren.set(childId, events);
@@ -2822,13 +2831,15 @@ test('a step session that ends while another plan run waits in the queue leaves 
   let releaseSpawn = () => {};
   holdSpawn = new Promise((resolve) => { releaseSpawn = resolve; });
   const heldRun = runs.run(boardId, ports);
+  await waitFor(() => hasHeldSpawnStarted, 'held plan run reached spawn for b', 5000);
+  const readsBeforeQueuedRun = completedPlanReads;
   const queuedRun = runs.run(boardId, ports);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitFor(() => completedPlanReads > readsBeforeQueuedRun, 'queued plan run entered the board queue', 5000);
   liveChildren.get(firstChildOfA)?.emit('teardown');
   liveChildren.delete(firstChildOfA);
   releaseSpawn();
   await Promise.all([heldRun, queuedRun]);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await runs.run(boardId, ports);
   assert.deepEqual(await statuses(), ['a:building', 'b:building']);
   assert.equal([...liveChildren.keys()].filter((childId) => childId.endsWith('Build a')).length, 1);
 });
