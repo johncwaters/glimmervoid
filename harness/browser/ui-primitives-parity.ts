@@ -1,5 +1,7 @@
-import type { Page } from 'playwright-core';
+import type { ConsoleMessage, Page } from 'playwright-core';
 import type { mountIsland } from '../../public/ui/island.ts';
+
+const SOLID_DIAGNOSTIC_PATTERN = /^\[[A-Z][A-Z0-9_]+\]/;
 
 export interface UiPrimitivesParityResult {
   ok: boolean;
@@ -100,6 +102,27 @@ interface LoadedParityModules {
 }
 
 export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResult> {
+  const solidDiagnostics: string[] = [];
+  const onConsole = (message: ConsoleMessage): void => {
+    const type = message.type();
+    if (type !== 'warning' && type !== 'error') return;
+    const text = message.text().trim();
+    if (SOLID_DIAGNOSTIC_PATTERN.test(text)) solidDiagnostics.push(text);
+  };
+  page.on('console', onConsole);
+  try {
+    const parityOutcome = await runUiPrimitivesParity(page);
+    if (!parityOutcome.ok) return parityOutcome;
+    if (solidDiagnostics.length > 0) {
+      return { ok: false, detail: `unexpected Solid 2 diagnostic in ui-primitives-parity: ${solidDiagnostics[0]}` };
+    }
+    return parityOutcome;
+  } finally {
+    page.off('console', onConsole);
+  }
+}
+
+async function runUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResult> {
   const staticResult = await page.evaluate(async (urls: typeof MODULE_URLS) => {
     const [
       islandMod,

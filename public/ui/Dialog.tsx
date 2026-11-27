@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createUniqueId, onCleanup } from 'solid-js';
+import { Show, createEffect, createMemo, createUniqueId, onCleanup, untrack } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import { Button } from './Button.tsx';
 import { dialogCloseOutcome, dialogDescriptor, isDialogBackdropClick } from './dialog-core.ts';
@@ -137,7 +137,7 @@ export function Dialog(props: DialogProps): JSX.Element {
       openModals.push(activeModalEntry);
       syncModalInert();
       if (!dialogElement.open) dialogElement.showModal();
-      const defaultButton = descriptor().defaultAction === 'confirm'
+      const defaultButton = untrack(() => descriptor().defaultAction) === 'confirm'
         ? confirmButtonElement
         : cancelButtonElement;
       defaultButton?.focus();

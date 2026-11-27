@@ -1,4 +1,6 @@
-import type { Page } from 'playwright-core';
+import type { ConsoleMessage, Page } from 'playwright-core';
+
+const SOLID_DIAGNOSTIC_PATTERN = /^\[[A-Z][A-Z0-9_]+\]/;
 
 const MODAL_MODULE_URL = '/session-card/modal.ts';
 const ISLAND_MODULE_URL = '/ui/island.ts';
@@ -41,6 +43,27 @@ interface ProbeWindow extends Window {
 }
 
 export async function verifyConfirmDialog(page: Page): Promise<ConfirmDialogCheckResult> {
+  const solidDiagnostics: string[] = [];
+  const onConsole = (message: ConsoleMessage): void => {
+    const type = message.type();
+    if (type !== 'warning' && type !== 'error') return;
+    const text = message.text().trim();
+    if (SOLID_DIAGNOSTIC_PATTERN.test(text)) solidDiagnostics.push(text);
+  };
+  page.on('console', onConsole);
+  try {
+    const confirmOutcome = await runConfirmDialogChecks(page);
+    if (!confirmOutcome.ok) return confirmOutcome;
+    if (solidDiagnostics.length > 0) {
+      return { ok: false, detail: `unexpected Solid 2 diagnostic in confirm-dialog: ${solidDiagnostics[0]}` };
+    }
+    return confirmOutcome;
+  } finally {
+    page.off('console', onConsole);
+  }
+}
+
+async function runConfirmDialogChecks(page: Page): Promise<ConfirmDialogCheckResult> {
   const setupError = await page.evaluate(async (modalUrl: string) => {
     const modal = (await import(modalUrl)) as Partial<ModalRuntime>;
     if (typeof modal.openConfirmDialog !== 'function' || typeof modal.isModalOpen !== 'function' || typeof modal.createModalOverlay !== 'function') {
