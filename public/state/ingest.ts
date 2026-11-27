@@ -1,7 +1,11 @@
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
-import { COLLECTION_OF, SERVER_MESSAGE_CLASS } from '#shared/contracts/control/message-classes.ts';
+import {
+  SERVER_MESSAGE_CLASS,
+  collectionNamesForServerMessage,
+} from '#shared/contracts/control/message-classes.ts';
+import type { CollectionServerMessageType } from '#shared/contracts/control/message-classes.ts';
 import { onControlMessage } from '../control-ws.ts';
-import { applyCollectionServerMessage } from './define-collection.ts';
+import { applyCollectionServerMessages } from './define-collection.ts';
 import { advanceSeq, resetSeq } from './seq.ts';
 
 type LegacyControlMessageHandler = (message: ServerMessage) => void;
@@ -22,10 +26,10 @@ function syncSeqFromMessage(message: ServerMessage): void {
 export function ingestControlMessage(message: ServerMessage): 'collection' | 'legacy' {
   const messageClass = SERVER_MESSAGE_CLASS[message.type];
   if (messageClass === 'collection') {
-    const collectionName = COLLECTION_OF[message.type as keyof typeof COLLECTION_OF];
-    const handledByCollection = applyCollectionServerMessage(collectionName, message);
+    const collectionNames = collectionNamesForServerMessage(message.type as CollectionServerMessageType);
+    const { appliedCount, totalCount } = applyCollectionServerMessages(collectionNames, message);
     syncSeqFromMessage(message);
-    if (handledByCollection) {
+    if (appliedCount === totalCount && totalCount > 0) {
       afterIngestHandler?.(message);
       return 'collection';
     }

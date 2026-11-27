@@ -8,10 +8,13 @@ import {
   COLLECTION_OF,
   MUTATION_COLLECTIONS,
   SERVER_MESSAGE_CLASS,
+  collectionNamesForServerMessage,
+  wireCollectionNames,
 } from '../shared/contracts/control/message-classes.ts';
 import type {
   ClientMessageClass,
   CollectionName,
+  CollectionServerMessageType,
   ServerMessageClass,
 } from '../shared/contracts/control/message-classes.ts';
 import { readTracked, trackedFiles } from '../tests/helpers/tracked-files.ts';
@@ -76,6 +79,7 @@ export interface ServerMessageVariant {
   type: ServerMessage['type'];
   messageClass: ServerMessageClass;
   collection?: CollectionName;
+  collections?: readonly CollectionName[];
   hasAppliedSeq?: boolean;
 }
 
@@ -354,9 +358,9 @@ function mutationCollectionsFor(type: ClientMessage['type']): readonly Collectio
   return MUTATION_COLLECTIONS[type as keyof typeof MUTATION_COLLECTIONS];
 }
 
-function collectionFor(type: ServerMessage['type']): CollectionName | undefined {
+function collectionsFor(type: ServerMessage['type']): readonly CollectionName[] | undefined {
   if (!Object.hasOwn(COLLECTION_OF, type)) return undefined;
-  return COLLECTION_OF[type as keyof typeof COLLECTION_OF];
+  return collectionNamesForServerMessage(type as CollectionServerMessageType);
 }
 
 function collectClientTypes(): ClientMessageVariant[] {
@@ -859,12 +863,15 @@ function collectServerTypes(): ServerMessageVariant[] {
   return ServerMessage.options
     .map((option) => {
       const type = option.shape.type.value;
-      const collection = collectionFor(type);
+      const collections = collectionsFor(type);
       const messageClass = SERVER_MESSAGE_CLASS[type];
+      const collectionField = collections === undefined
+        ? {}
+        : (collections.length === 1 ? { collection: collections[0] } : { collections });
       return {
         type,
         messageClass,
-        ...(collection === undefined ? {} : { collection }),
+        ...collectionField,
         ...(messageClass === 'reply' ? { hasAppliedSeq: Object.hasOwn(option.shape, 'appliedSeq') } : {}),
       };
     })
@@ -985,7 +992,7 @@ export function buildStateRatchetData(inventory: StateInventory): StateRatchetDa
   )].sort(compareText);
 
   const collectionModuleSet = new Set(inventory.collectionModules);
-  const collectionNamesInWire = [...new Set(Object.values(COLLECTION_OF))];
+  const collectionNamesInWire = wireCollectionNames();
   const legacyCollections = collectionNamesInWire
     .filter((name) => !collectionModuleSet.has(name))
     .sort(compareText);

@@ -398,8 +398,6 @@
     "branch-spawn",
     "cancel-repository-clone",
     "cancel-wake",
-    "chat-cancel",
-    "chat-send",
     "chat-stop",
     "community-action",
     "decide-approval",

@@ -1,7 +1,7 @@
 import '../helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COLLECTION_OF } from '../../shared/contracts/control/message-classes.ts';
+import { wireCollectionNames } from '../../shared/contracts/control/message-classes.ts';
 import { trackedFiles } from '../helpers/tracked-files.ts';
 import {
   STATE_COLLECTIONS_DIR_PATTERN,
@@ -61,7 +61,7 @@ function collectionParityViolationsIn(
 }
 
 test('COLLECTION_OF collections match public/state/collections/<name>.ts plus recorded legacyCollections', () => {
-  const collectionNamesInWire = [...new Set(Object.values(COLLECTION_OF))].sort();
+  const collectionNamesInWire = wireCollectionNames();
   const collectionModulePaths = trackedFiles(STATE_COLLECTIONS_DIR_PATTERN).sort();
   const committedRatchets = readCommittedStateRatchets();
   const violations = collectionParityViolationsIn(

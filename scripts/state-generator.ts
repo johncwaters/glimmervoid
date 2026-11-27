@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   CLIENT_MESSAGE_CLASS,
-  COLLECTION_OF,
+  wireCollectionNames,
 } from '../shared/contracts/control/message-classes.ts';
 import type { CollectionName } from '../shared/contracts/control/message-classes.ts';
 import {
@@ -16,7 +16,7 @@ type MutatingClientMessageType = {
 }[keyof typeof CLIENT_MESSAGE_CLASS];
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
-const COLLECTION_SET = new Set<string>(Object.values(COLLECTION_OF));
+const COLLECTION_SET = new Set<string>(wireCollectionNames());
 
 function toPascalCase(kebabName: string): string {
   return kebabName

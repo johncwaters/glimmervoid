@@ -476,9 +476,11 @@ export const SERVER_MESSAGE_CLASS = {
   'workspace-repos': 'reply',
 } as const satisfies Record<ServerMessage['type'], ServerMessageClass>;
 
-type CollectionServerMessageType = {
+export type CollectionServerMessageType = {
   [Type in keyof typeof SERVER_MESSAGE_CLASS]: (typeof SERVER_MESSAGE_CLASS)[Type] extends 'collection' ? Type : never;
 }[keyof typeof SERVER_MESSAGE_CLASS];
+
+type CollectionTarget = CollectionName | readonly [CollectionName, ...CollectionName[]];
 
 export const COLLECTION_OF = {
   'account-plan-limits': 'usage',
@@ -515,18 +517,18 @@ export const COLLECTION_OF = {
   'session-preview-changed': 'session-previews',
   'session-previews-snapshot': 'session-previews',
   'session-prs': 'sessions',
-  'session-removed': 'sessions',
+  'session-removed': ['sessions', 'chat-outbox'],
   'session-renamed': 'sessions',
   'session-review': 'session-review',
   'session-secret-request': 'secrets',
-  'session-status': 'sessions',
+  'session-status': ['sessions', 'chat-outbox'],
   'session-title': 'sessions',
   'session-wakes': 'session-wakes',
   'session-worktree-blocked': 'sessions',
   'session-worktree-ready': 'sessions',
   'session-worktree-warning': 'sessions',
   'settings-updated': 'settings',
-  'snapshot': 'sessions',
+  'snapshot': ['sessions', 'chat-outbox'],
   'team-review-status': 'team-review',
   'update-progress': 'update',
   'update-status': 'update',
@@ -541,4 +543,23 @@ export const COLLECTION_OF = {
   'whiteboard-tile-diff': 'board-tiles',
   'whiteboard-tiles': 'board-tiles',
   'whiteboards-snapshot': 'whiteboards',
-} as const satisfies Record<CollectionServerMessageType, CollectionName>;
+} as const satisfies Record<CollectionServerMessageType, CollectionTarget>;
+
+export function collectionNamesForServerMessage(type: CollectionServerMessageType): readonly CollectionName[] {
+  const target: CollectionTarget = COLLECTION_OF[type];
+  return typeof target === 'string' ? [target] : target;
+}
+
+export function wireCollectionNames(): CollectionName[] {
+  const names = new Set<CollectionName>();
+  for (const target of Object.values(COLLECTION_OF) as readonly CollectionTarget[]) {
+    if (typeof target === 'string') {
+      names.add(target);
+      continue;
+    }
+    for (const name of target) {
+      names.add(name);
+    }
+  }
+  return [...names].sort();
+}

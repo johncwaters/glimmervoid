@@ -29,7 +29,8 @@ export interface CollectionHandle<State extends object> {
 }
 
 interface RegisteredCollection {
-  applyServerMessage(message: ServerMessage): void;
+  applyServerMessageWithoutNotify(message: ServerMessage): void;
+  notifyApplied(message: ServerMessage): void;
   dispose(): void;
 }
 
@@ -97,7 +98,7 @@ export function defineCollection<State extends object>({
   });
 
   collectionsByName.set(name, {
-    applyServerMessage(message: ServerMessage) {
+    applyServerMessageWithoutNotify(message: ServerMessage) {
       if (!apply) return;
       const helpers: CollectionHelpers<State> = {
         replace(nextState: State) {
@@ -106,7 +107,8 @@ export function defineCollection<State extends object>({
       };
       apply(serverState, message, helpers);
       bumpVersion();
-      flush();
+    },
+    notifyApplied(message: ServerMessage) {
       onApplied?.(message);
     },
     dispose() {
@@ -118,11 +120,22 @@ export function defineCollection<State extends object>({
   return handle;
 }
 
-export function applyCollectionServerMessage(name: CollectionName, message: ServerMessage): boolean {
-  const registered = collectionsByName.get(name);
-  if (!registered) return false;
-  registered.applyServerMessage(message);
-  return true;
+export function applyCollectionServerMessages(
+  names: readonly CollectionName[],
+  message: ServerMessage,
+): { appliedCount: number; totalCount: number } {
+  const applied: RegisteredCollection[] = [];
+  for (const name of names) {
+    const registered = collectionsByName.get(name);
+    if (!registered) continue;
+    registered.applyServerMessageWithoutNotify(message);
+    applied.push(registered);
+  }
+  if (applied.length > 0) flush();
+  for (const registered of applied) {
+    registered.notifyApplied(message);
+  }
+  return { appliedCount: applied.length, totalCount: names.length };
 }
 
 export function addCollectionOptimisticOverlay<State extends object>(
