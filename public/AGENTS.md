@@ -67,6 +67,14 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 - A confirm prompt comes from `session-card/modal.ts` `openConfirmDialog`, never a hand-rolled overlay.
 - Section heads, stat chips, `projectsOf` and `isPanelHidden` come from `dom-helpers.ts`; a new tab panel passes its class prefix rather than copying the builders.
 
+### Solid 2 Components
+
+- Solid 2 only: this repo uses Solid 2 (`solid-js`, `@solidjs/web`). Before writing or changing any `.tsx` component, read `node_modules/solid-js/CHEATSHEET.md` and `node_modules/solid-js/skills/solid-2.0/SKILL.md`; never write Solid from memory because training data targets 1.x whose subpaths, directives, and primitives do not exist in 2.0.
+- One function per `.tsx` file, no classes: Solid components run once as plain setup functions, so classes add ceremony without lifecycle value.
+- Pure core beside every component: put decisions in a `*-core.ts` beside the component (options in, attributes and state out) and keep `.tsx` to markup and wiring only, because Node type stripping does not load `.tsx` and pure logic must stay testable under `node:test`.
+- Styling: use the existing semantic classes and `[data-state]` attributes, add no new stylesheet unless the component is new, write no inline `style=` attributes, and use Tailwind utilities only where `index.html` already uses them, so styling stays in the cascade layers without look drift.
+- Islands and stores: mount every island through `public/ui/island.ts` so it disposes automatically when its host leaves the DOM, and read legacy dashboard stores through `public/ui/store-signal.ts` as read-only signals so `.tsx` components never open a socket or touch `localStorage` directly.
+
 ### Testing Requirements
 - DOM modules are verified manually via `npm run dev`.
 

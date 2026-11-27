@@ -7,6 +7,8 @@ export type ViewerId = 'a' | 'b';
 export type Step =
   | { kind: 'assert-undo-close'; viewer?: ViewerId }
   | { kind: 'assert-solid-hello'; viewer?: ViewerId }
+  | { kind: 'assert-solid-island'; viewer?: ViewerId }
+  | { kind: 'assert-solid-store-signal'; viewer?: ViewerId }
   | { kind: 'assert-added-session-shown'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-pane'; viewer?: ViewerId }
@@ -756,6 +758,16 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'solid-hello',
     viewports: ['desktop-1280'],
     steps: [{ kind: 'open' }, { kind: 'assert-solid-hello' }],
+  },
+  {
+    name: 'solid-island',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'assert-solid-island' }],
+  },
+  {
+    name: 'solid-store-signal',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'assert-solid-store-signal' }],
   },
   {
     name: 'self-check-must-fail',

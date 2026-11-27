@@ -15,6 +15,8 @@ import { verifyBoardSession } from './board-session.ts';
 import { verifyChatApprovals, verifyChatAwayReply, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal, verifyChatPlan, verifyChatElicitation } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifySolidHello } from './solid-hello.ts';
+import { verifySolidIsland } from './solid-island.ts';
+import { verifySolidStoreSignal } from './solid-store-signal.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
@@ -1378,6 +1380,16 @@ export async function runCase({
       const check = await verifySolidHello(viewer.page);
       if (!check.ok) return failedOutcome('solid-hello', check.detail);
       return passedOutcome('solid-hello', check.detail);
+    }
+    if (step.kind === 'assert-solid-island') {
+      const check = await verifySolidIsland(viewer.page);
+      if (!check.ok) return failedOutcome('solid-island', check.detail);
+      return passedOutcome('solid-island', check.detail);
+    }
+    if (step.kind === 'assert-solid-store-signal') {
+      const check = await verifySolidStoreSignal(viewer.page);
+      if (!check.ok) return failedOutcome('solid-store-signal', check.detail);
+      return passedOutcome('solid-store-signal', check.detail);
     }
     if (step.kind === 'assert-added-session-shown') return runAssertAddedSessionShown(viewer, deadlines);
     if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);

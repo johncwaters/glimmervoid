@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js';
-import { render } from '@solidjs/web';
+import { mountIsland } from './ui/island.ts';
 
 interface HelloIslandHandle {
   setGreeting: (nextGreeting: string) => void;
@@ -7,7 +7,11 @@ interface HelloIslandHandle {
 }
 
 export function mountHelloIsland(host: HTMLElement, initialGreeting: string): HelloIslandHandle {
-  const [greeting, setGreeting] = createSignal(initialGreeting);
-  const dispose = render(() => <span data-solid-hello="ready">{greeting()}</span>, host);
+  let setGreeting: (nextGreeting: string) => void = () => {};
+  const dispose = mountIsland(host, () => {
+    const [greeting, setGreetingSignal] = createSignal(initialGreeting);
+    setGreeting = setGreetingSignal;
+    return <span data-solid-hello="ready">{greeting()}</span>;
+  });
   return { setGreeting, dispose };
 }
