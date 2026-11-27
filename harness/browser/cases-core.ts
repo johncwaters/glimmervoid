@@ -736,6 +736,7 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'suspend' },
       { kind: 'wait', durationMs: 11000 },
       { kind: 'foreground' },
+      { kind: 'settle' },
       { kind: 'burst', lines: 5 },
       { kind: 'settle' },
     ],
