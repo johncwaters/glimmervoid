@@ -2,8 +2,6 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onSettled
 import type { JSX } from '@solidjs/web';
 import { operatorPartOfPrompt } from '#shared/board-branch-core.ts';
 import { clock } from '#shared/clock.ts';
-import { BRANCH_PROMPT_MAX_CHARS, PROGRESS_QUESTION_MAX_CHARS } from '#shared/contracts/control/board-session-messages.ts';
-import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import type { SessionProgressAnswer } from '#shared/contracts/director-digests.ts';
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { errorMessage } from '#shared/text.ts';
@@ -32,8 +30,6 @@ import chatStopAction from '../state/actions/chat-stop.ts';
 import studioProgressAskAction from '../state/actions/studio-progress-ask.ts';
 import {
   createChatOutboxProjection,
-  isOptimisticOutboxEntryId,
-  reconcileChatOutboxProjection,
   takeStandInsForPrompts,
 } from '../state/chat-outbox-core.ts';
 import { watchChatOutbox } from '../state/collections/chat-outbox.ts';
@@ -45,40 +41,65 @@ import { Pressable } from '../ui/Pressable.tsx';
 import { labelIconPressable } from '../ui/pressable.ts';
 import { onAgentChange } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
+import { addressLabelOf } from './branch-core.ts';
+import type { BoxChoice, DockAddress } from './branch-core.ts';
 import {
-  addressLabelOf,
-  boxMentionAt,
-  matchingBoxChoices,
-  placeTitleOf,
-  textWithoutMention,
-} from './branch-core.ts';
-import type { BoxChoice, BoxMention, DockAddress } from './branch-core.ts';
-import {
+  EMPTY_MENTION_STATE,
+  MAIN_ADDRESS,
+  activeDescendantIdOf,
   addressedSessionIdOf,
-  claimPendingSends,
-  computeSessionTurnAttribution,
+  applyPartsChanged,
+  applySessionRebuilt,
+  applySessionReset,
+  createInitialLogState,
+  createInitialQueueState,
+  decideBranchSpawnReply,
+  decideCancelReply,
+  decideMentionKeydown,
+  enqueuePendingSend,
   groupMentionChoices,
-  insertProgressAnswersByTime,
-  partTimeOf,
-  progressAnswerRowsList,
+  hasFailedOutboxEntry,
+  isAddressedSessionTurnRunning,
+  isImmediateDraftEvent,
+  isOutboxCancelDisabled,
+  isTargetSessionTurnRunning,
+  markPendingSendDispatched,
+  markPendingSendOutcome,
+  maxLengthForAddress,
+  pickDockMentionChoice,
+  planSendDispatch,
+  readDockMention,
+  reconcileDockBranches,
+  reconcileDockQueue,
+  reconcileOutboxEcho,
   replyTextsOf,
+  resolveAddressForBox,
+  resolveAddressForBranch,
+  resolveAddressForSession,
+  selectAttributionBySessionId,
+  selectMergedLogRows,
+  selectTurnDisplay,
+  setCancellingEntry,
+  setLogProgressAnswers,
+  settleDockPendingSend,
   shouldFoldLogOnBlur,
   shouldOpenLogOnRefresh,
-  shownTextOfTurn,
-  stepMentionIndex,
+  toggleExpandedRowKey,
 } from './dock-core.ts';
-import type { PendingSend, TurnShownText, TurnStart } from './dock-core.ts';
+import type {
+  DockBranchDescriptor,
+  FeedSpeaker,
+  PartRowEntry,
+  ProgressAnswerRowEntry,
+  ProgressQuestionRowEntry,
+} from './dock-core.ts';
 
 const TRACE_PAGE_TIMEOUT_MS = 10_000;
 const GLIMMERVOID_NAME = 'Glimmervoid';
 const NEAR_TOP_PX = 48;
 const CLEAR_ICON_PATH = 'M4 4l8 8M12 4l-8 8';
-const NOT_SENT_TEXT = 'The message was not sent.';
-const MAIN_ADDRESS: DockAddress = { kind: 'main' };
 const RAIL_TICK_MS = 30_000;
 const NO_UPLOADS_URL = '';
-const PENDING_RUNNING_STATUS_TEXT = 'Queued';
-const PENDING_IDLE_STATUS_TEXT = 'Sending';
 const KEPT_BOARD_CHANGES_PER_SESSION_MAX = 50;
 
 const boardChangesBySessionId = new Map<string, AgentChip[]>();
@@ -114,12 +135,7 @@ interface DockSession {
   showBoardChange: (sessionId: string, boardChange: AgentChip) => void;
 }
 
-export interface DockBranch {
-  sessionId: string;
-  name: string;
-  workingDirectory: string | null;
-  agentId: string | null;
-  aboutTitle: string;
+export interface DockBranch extends DockBranchDescriptor {
   isTurnOver: () => boolean;
 }
 
@@ -138,64 +154,12 @@ interface DockProps {
   onHandle: (handle: DockHandle) => void;
 }
 
-interface FeedSpeaker {
-  sessionId: string;
-  name: string;
-  agentId: string | null;
-  branch: DockBranch | null;
-}
-
-interface PartRowEntry {
-  kind: 'part';
-  key: string;
-  sessionId: string;
-  part: ChatPart;
-  speaker: FeedSpeaker;
-  at: number | null;
-}
-
-interface ProgressQuestionRowEntry {
-  kind: 'progress-question';
-  key: string;
-  question: string;
-  at: number;
-}
-
-interface ProgressAnswerRowEntry {
-  kind: 'progress-answer';
-  key: string;
-  answer: string;
-  at: number;
-}
-
-type LogRowEntry = PartRowEntry | ProgressQuestionRowEntry | ProgressAnswerRowEntry;
-
-interface QueueDisplayState {
-  standInPrompts: Extract<ChatPart, { kind: 'prompt' }>[];
-  queuedEntries: ChatOutboxEntry[];
-  pendingSends: { text: string; statusText: string }[];
-}
-
 function isInsideFullReply(eventTarget: EventTarget | null): boolean {
   return eventTarget instanceof Element && eventTarget.closest('.bs-full-reply, .bs-reply-actions') !== null;
 }
 
 function isOutsideElement(container: HTMLElement | undefined, target: EventTarget | null): boolean {
   return container !== undefined && target instanceof Node && !container.contains(target);
-}
-
-function requestBranchSpawn(
-  parentId: string,
-  aboutBoxId: string,
-  prompt: string,
-): Promise<{ branchId: string | null; failureText: string }> {
-  return branchSpawnAction({ id: parentId, aboutBoxId, prompt }).then((outcome) => {
-    if (!outcome.ok) return { branchId: null, failureText: outcome.error.message || NOT_SENT_TEXT };
-    if (outcome.reply.type !== 'branch-spawn-result' || outcome.reply.branchId === null) {
-      return { branchId: null, failureText: NOT_SENT_TEXT };
-    }
-    return { branchId: outcome.reply.branchId, failureText: '' };
-  });
 }
 
 function renderMarkdownInto(container: HTMLElement, text: string): void {
@@ -282,6 +246,29 @@ function bindPressableElement(target: HTMLElement, label: string, press: () => v
   });
 }
 
+function createSyncedSignal<Value>(initial: Value): {
+  read: () => Value;
+  peek: () => Value;
+  update: (next: Value | ((previous: Value) => Value)) => Value;
+} {
+  let current = initial;
+  const [version, setVersion] = createSignal(0);
+  return {
+    read: () => {
+      version();
+      return current;
+    },
+    peek: () => current,
+    update: (next) => {
+      const nextValue = typeof next === 'function' ? (next as (previous: Value) => Value)(current) : next;
+      if (Object.is(nextValue, current)) return current;
+      current = nextValue;
+      setVersion((count) => count + 1);
+      return current;
+    },
+  };
+}
+
 function Dock(props: DockProps): JSX.Element {
   let dockElement: HTMLElement | undefined;
   let logElement: HTMLDivElement | undefined;
@@ -289,39 +276,36 @@ function Dock(props: DockProps): JSX.Element {
   let jumpSlotElement: HTMLDivElement | undefined;
   let addressChipElement: HTMLSpanElement | undefined;
 
-  const [isLogOpen, setIsLogOpen] = createSignal(false);
+  const mainSpeaker: FeedSpeaker<DockBranch> = {
+    sessionId: props.session.sessionId,
+    name: props.session.name,
+    agentId: props.session.agentId,
+    branch: null,
+  };
+
+  const isLogOpenState = createSyncedSignal<boolean>(false);
   const [failureText, setFailureText] = createSignal<string | null>(null);
-  const [address, setAddressSignal] = createSignal<DockAddress>(MAIN_ADDRESS);
-  const [mentionChoices, setMentionChoices] = createSignal<BoxChoice[]>([]);
-  const [activeChoiceIndex, setActiveChoiceIndex] = createSignal(0);
-  const [partEntries, setPartEntries] = createSignal<PartRowEntry[]>([]);
-  const [progressAnswers, setProgressAnswers] = createSignal<readonly SessionProgressAnswer[]>([]);
+  const addressState = createSyncedSignal<DockAddress>(MAIN_ADDRESS);
+  const mentionState = createSyncedSignal(EMPTY_MENTION_STATE);
+  const logState = createSyncedSignal(createInitialLogState<DockBranch>(mainSpeaker));
+  const queueState = createSyncedSignal(createInitialQueueState());
   const [expandedRowKeys, setExpandedRowKeys] = createSignal<ReadonlySet<string>>(new Set());
   const [digestVersion, setDigestVersion] = createSignal(0);
   const [boardChangeVersion, setBoardChangeVersion] = createSignal(0);
-  const [queueView, setQueueView] = createSignal<QueueDisplayState>({
-    standInPrompts: [],
-    queuedEntries: [],
-    pendingSends: [],
-  });
-  const [cancellingEntryIds, setCancellingEntryIds] = createSignal<ReadonlySet<string>>(new Set());
 
-  const mentionItems = createMemo(() => groupMentionChoices(mentionChoices()));
-  const addressLabel = createMemo(() => addressLabelOf(address()));
+  const mentionItems = createMemo(() => groupMentionChoices(mentionState.read().choices));
+  const addressLabel = createMemo(() => addressLabelOf(addressState.read()));
+  const mergedLogRows = createMemo(() => selectMergedLogRows(logState.read()));
+  const attributionBySessionId = createMemo(() => {
+    boardChangeVersion();
+    return selectAttributionBySessionId(logState.read(), boardChangesBySessionId, props.session.mapBoardId());
+  });
 
   const feedBySessionId = new Map<string, ChatFeed>();
-  const speakerBySessionId = new Map<string, FeedSpeaker>();
   const branchTurnOverBySessionId = new Map<string, () => boolean>();
-  const turnStartsBySessionId = new Map<string, Map<string, TurnStart>>();
-  const shownPromptPartIds = new Set<string>();
   const entryIdsAwaitingPrompt = new Set<string>();
   const outboxProjection = createChatOutboxProjection();
 
-  let currentAddress: DockAddress = MAIN_ADDRESS;
-  let currentMention: BoxMention | null = null;
-  let currentMentionChoices: BoxChoice[] = [];
-  let currentActiveChoiceIndex = 0;
-  let pendingSends: PendingSend[] = [];
   let mainSendQueue: Promise<string | null> = Promise.resolve(null);
   let shownActivityBeat: ActivityBeat | null = null;
   let dockLifecycle: 'open' | 'closed' = 'open';
@@ -331,102 +315,30 @@ function Dock(props: DockProps): JSX.Element {
   let mainFeedRef: ChatFeed | null = null;
   let cleanupResources: () => void = () => {};
 
-  const rowKeyOf = (sessionId: string, partId: string) => `${sessionId}:${partId}`;
+  const isBranchTurnOver = (sessionId: string): boolean => branchTurnOverBySessionId.get(sessionId)?.() ?? true;
 
-  const turnStartsOf = (sessionId: string): TurnStart[] => [...(turnStartsBySessionId.get(sessionId)?.values() ?? [])];
-
-  const noteTurnStart = (sessionId: string, part: ChatPart): void => {
-    if (part.kind !== 'prompt' && part.kind !== 'system-line') return;
-    const turnStarts = turnStartsBySessionId.get(sessionId) ?? new Map<string, TurnStart>();
-    turnStarts.set(part.id, { at: part.at, isRelayNews: part.kind === 'system-line' && part.isRelayNews });
-    turnStartsBySessionId.set(sessionId, turnStarts);
-  };
-
-  const forgetTurnStarts = (sessionId: string): void => {
-    turnStartsBySessionId.delete(sessionId);
-  };
-
-  const attributionBySessionId = createMemo(() => {
-    boardChangeVersion();
-    const mapBoardId = props.session.mapBoardId();
-    const entries = partEntries();
-    const turnsBySession = new Map<string, { id: string; openedAt: number | null }[]>();
-    for (const entry of entries) {
-      if (entry.part.kind !== 'turn') continue;
-      const list = turnsBySession.get(entry.sessionId) ?? [];
-      list.push({ id: entry.part.id, openedAt: entry.part.openedAt });
-      turnsBySession.set(entry.sessionId, list);
-    }
-    const attributions = new Map<string, ReturnType<typeof computeSessionTurnAttribution<AgentChip>>>();
-    for (const [sessionId, turns] of turnsBySession) {
-      attributions.set(
-        sessionId,
-        computeSessionTurnAttribution(
-          turns,
-          turnStartsOf(sessionId),
-          boardChangesBySessionId.get(sessionId) ?? [],
-          mapBoardId,
-        ),
-      );
-    }
-    return attributions;
-  });
-
-  const mergedLogRows = createMemo<LogRowEntry[]>(() => {
-    const uniqueAnswers = progressAnswerRowsList(progressAnswers());
-    const answerRows = uniqueAnswers.flatMap((entry) => [
-      {
-        askedAt: entry.askedAt,
-        row: {
-          kind: 'progress-question' as const,
-          key: `progress-q:${entry.askedAt}`,
-          question: entry.question,
-          at: entry.askedAt,
-        },
-      },
-      {
-        askedAt: entry.askedAt,
-        row: {
-          kind: 'progress-answer' as const,
-          key: `progress-a:${entry.askedAt}`,
-          answer: entry.answer,
-          at: entry.askedAt,
-        },
-      },
-    ]);
-    return insertProgressAnswersByTime<LogRowEntry>(partEntries(), answerRows);
-  });
+  const isAddressedTurnRunning = (): boolean => isAddressedSessionTurnRunning(
+    addressState.peek(),
+    props.session.sessionId,
+    props.session.isTurnOver(),
+    (sessionId) => feedBySessionId.has(sessionId),
+    isBranchTurnOver,
+  );
 
   const syncInputActiveDescendant = (): void => {
     const input = composerRef?.input;
     if (!input) return;
-    if (currentMentionChoices.length === 0) {
+    const activeId = activeDescendantIdOf(mentionState.peek());
+    if (activeId === null) {
       input.removeAttribute('aria-activedescendant');
       return;
     }
-    input.setAttribute('aria-activedescendant', `bs-mention-${currentActiveChoiceIndex}`);
+    input.setAttribute('aria-activedescendant', activeId);
   };
 
   const closeMentions = (): void => {
-    currentMention = null;
-    currentMentionChoices = [];
-    currentActiveChoiceIndex = 0;
-    setMentionChoices([]);
-    setActiveChoiceIndex(0);
+    mentionState.update(EMPTY_MENTION_STATE);
     syncInputActiveDescendant();
-  };
-
-  const isTargetTurnRunning = (targetId: string): boolean => (
-    targetId === props.session.sessionId
-      ? !props.session.isTurnOver()
-      : !(branchTurnOverBySessionId.get(targetId)?.() ?? true)
-  );
-
-  const isAddressedTurnRunning = (): boolean => {
-    const sessionId = addressedSessionIdOf(currentAddress, props.session.sessionId);
-    if (sessionId === null) return false;
-    if (sessionId === props.session.sessionId) return !props.session.isTurnOver();
-    return feedBySessionId.has(sessionId) && !(branchTurnOverBySessionId.get(sessionId)?.() ?? true);
   };
 
   const paintComposer = (): void => {
@@ -436,24 +348,18 @@ function Dock(props: DockProps): JSX.Element {
   };
 
   const setAddress = (nextAddress: DockAddress): void => {
-    currentAddress = nextAddress;
-    setAddressSignal(nextAddress);
-    if (composerRef) {
-      composerRef.input.maxLength = nextAddress.kind === 'new-branch' ? BRANCH_PROMPT_MAX_CHARS : CHAT_SEND_MAX_CHARS;
-    }
+    addressState.update(nextAddress);
+    if (composerRef) composerRef.input.maxLength = maxLengthForAddress(nextAddress);
     paintComposer();
   };
 
-  const addressBranch = (branch: DockBranch): void => {
-    setAddress({ kind: 'branch', sessionId: branch.sessionId, aboutTitle: branch.aboutTitle });
-    composerRef?.input.focus();
-  };
-
   const pickChoice = (choice: BoxChoice): void => {
-    if (currentMention === null || !composerRef) return;
-    composerRef.input.value = textWithoutMention(composerRef.input.value, currentMention);
+    if (!composerRef) return;
+    const picked = pickDockMentionChoice(mentionState.peek(), composerRef.input.value, choice);
+    if (picked === null) return;
+    composerRef.input.value = picked.nextInputValue;
     closeMentions();
-    setAddress({ kind: 'new-branch', aboutBoxId: choice.boxId, aboutTitle: placeTitleOf(choice.repoName, choice.title) });
+    setAddress(picked.nextAddress);
     composerRef.restoreDraft(composerRef.input.value);
     composerRef.input.focus();
   };
@@ -461,30 +367,20 @@ function Dock(props: DockProps): JSX.Element {
   const readMention = (): void => {
     const input = composerRef?.input;
     if (!input) return;
-    currentMention = boxMentionAt(input.value, input.selectionStart ?? input.value.length);
-    if (currentMention === null) {
-      closeMentions();
-      return;
-    }
-    currentMentionChoices = matchingBoxChoices(props.session.boxChoices(), currentMention.query);
-    currentActiveChoiceIndex = 0;
-    setMentionChoices(currentMentionChoices);
-    setActiveChoiceIndex(0);
+    mentionState.update(readDockMention(input.value, input.selectionStart, props.session.boxChoices()));
     syncInputActiveDescendant();
   };
 
   const openLog = (): void => {
-    if (isLogOpen()) return;
-    setIsLogOpen(true);
+    if (isLogOpenState.peek()) return;
+    isLogOpenState.update(true);
     followLatestFn();
   };
-
-  const hasFailedOutbox = (): boolean => props.session.outbox().some((entry) => entry.state === 'failed');
 
   const openLogWhenTurnLive = (): void => {
     if (shouldOpenLogOnRefresh({
       isTurnOver: props.session.isTurnOver(),
-      hasFailedOutbox: hasFailedOutbox(),
+      hasFailedOutbox: hasFailedOutboxEntry(props.session.outbox()),
       hasFailure: props.session.hasFailure(),
     })) {
       openLog();
@@ -495,17 +391,10 @@ function Dock(props: DockProps): JSX.Element {
     if (shouldFoldLogOnBlur({
       isTurnOver: props.session.isTurnOver(),
       isAddressedTurnRunning: isAddressedTurnRunning(),
-      hasFailedOutbox: hasFailedOutbox(),
+      hasFailedOutbox: hasFailedOutboxEntry(props.session.outbox()),
       hasFailure: props.session.hasFailure(),
     })) {
-      setIsLogOpen(false);
-    }
-  };
-
-  const removeStandIns = (entryIds: readonly string[]): void => {
-    for (const entryId of entryIds) {
-      outboxProjection.standInByEntryId.delete(entryId);
-      entryIdsAwaitingPrompt.delete(entryId);
+      isLogOpenState.update(false);
     }
   };
 
@@ -513,137 +402,63 @@ function Dock(props: DockProps): JSX.Element {
     if (entryIdsAwaitingPrompt.has(entryId)) return;
     entryIdsAwaitingPrompt.add(entryId);
     mainFeedRef?.whenCaughtUp(() => {
-      removeStandIns([entryId]);
+      outboxProjection.standInByEntryId.delete(entryId);
+      entryIdsAwaitingPrompt.delete(entryId);
       paintQueue();
     });
   };
 
   const paintQueue = (): void => {
-    const entries = props.session.outbox();
-    const update = reconcileChatOutboxProjection(outboxProjection, entries, !props.session.isTurnOver(), clock.nowMs());
-    removeStandIns(update.removedStandInEntryIds);
-    for (const entryId of update.clearedStandInEntryIds) awaitPromptFor(entryId);
-    claimPendingSends(pendingSends, entries);
-    const shownPendingSends = pendingSends
-      .filter((pending) => !pending.isClaimed)
-      .map((pending) => ({
-        text: pending.text,
-        statusText: props.session.isTurnOver() ? PENDING_IDLE_STATUS_TEXT : PENDING_RUNNING_STATUS_TEXT,
-      }));
-    const standInPrompts = [...outboxProjection.standInByEntryId.values()].filter(
-      (standIn): standIn is Extract<ChatPart, { kind: 'prompt' }> => standIn.kind === 'prompt',
+    const queueUpdate = reconcileDockQueue(
+      queueState.peek(),
+      outboxProjection,
+      props.session.outbox(),
+      props.session.isTurnOver(),
+      clock.nowMs(),
     );
-    setQueueView({
-      standInPrompts,
-      queuedEntries: update.queuedEntries,
-      pendingSends: shownPendingSends,
-    });
-    if (update.queuedEntries.some((entry) => entry.state === 'failed')) openLog();
-    if (update.clearedStandInEntryIds.length > 0) mainFeedRef?.refresh();
+    for (const entryId of queueUpdate.removedStandInEntryIds) entryIdsAwaitingPrompt.delete(entryId);
+    for (const entryId of queueUpdate.clearedStandInEntryIds) awaitPromptFor(entryId);
+    queueState.update(queueUpdate.state);
+    if (queueUpdate.shouldOpenLog) openLog();
+    if (queueUpdate.shouldRefreshMainFeed) mainFeedRef?.refresh();
   };
 
-  const takeRecordedPrompts = (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean): void => {
-    for (const droppedPartId of droppedPartIds) shownPromptPartIds.delete(droppedPartId);
-    const newPromptParts = changedParts.filter(
-      (part) => part.kind === 'prompt' && !part.isBoardAnswer && !shownPromptPartIds.has(part.id),
-    );
-    for (const promptPart of newPromptParts) shownPromptPartIds.add(promptPart.id);
-    if (!isLive) return;
-    const takenEntryIds = takeStandInsForPrompts(outboxProjection, newPromptParts.length);
-    removeStandIns(takenEntryIds);
-    if (takenEntryIds.length > 0) paintQueue();
-  };
-
-  const upsertParts = (sessionId: string, parts: readonly ChatPart[]): void => {
-    const speaker = speakerBySessionId.get(sessionId);
-    if (!speaker || parts.length === 0) return;
-    for (const part of parts) noteTurnStart(sessionId, part);
-    setPartEntries((previous) => {
-      const next = [...previous];
-      const indexByKey = new Map(next.map((entry, index) => [entry.key, index]));
-      for (const part of parts) {
-        const key = rowKeyOf(sessionId, part.id);
-        const existingIndex = indexByKey.get(key);
-        if (part.kind !== 'prompt' && part.kind !== 'turn' && part.kind !== 'card') {
-          if (existingIndex !== undefined) {
-            next.splice(existingIndex, 1);
-            indexByKey.clear();
-            for (let i = 0; i < next.length; i += 1) indexByKey.set(next[i].key, i);
-          }
-          continue;
-        }
-        const entry: PartRowEntry = {
-          kind: 'part',
-          key,
-          sessionId,
-          part,
-          speaker,
-          at: partTimeOf(part),
-        };
-        if (existingIndex !== undefined) {
-          next[existingIndex] = entry;
-          continue;
-        }
-        indexByKey.set(key, next.length);
-        next.push(entry);
-      }
-      return next;
-    });
-  };
-
-  const removeParts = (sessionId: string, partIds: readonly string[]): void => {
-    if (partIds.length === 0) return;
-    const removedKeys = new Set<string>();
-    for (const partId of partIds) {
-      turnStartsBySessionId.get(sessionId)?.delete(partId);
-      removedKeys.add(rowKeyOf(sessionId, partId));
-    }
-    setPartEntries((previous) => previous.filter((entry) => !removedKeys.has(entry.key)));
-  };
-
-  const removeSessionRows = (sessionId: string): void => {
-    setPartEntries((previous) => previous.filter((entry) => entry.sessionId !== sessionId));
-  };
-
-  const openFeed = (speaker: FeedSpeaker, workingDirectory: string | null, isTurnOver: () => boolean): ChatFeed => {
-    const sessionId = speaker.sessionId;
-    speakerBySessionId.set(sessionId, speaker);
+  const openFeed = (sessionId: string, isBranch: boolean, workingDirectory: string | null, isTurnOver: () => boolean): ChatFeed => {
     const feed = createChatFeed({
       sessionId,
       workingDirectory,
       requestPage: (payload) => requestSessionTracePage(payload, TRACE_PAGE_TIMEOUT_MS),
       onPartsChanged: (changedParts, droppedPartIds, isLive) => {
-        if (!speaker.branch) takeRecordedPrompts(changedParts, droppedPartIds, isLive);
-        upsertParts(sessionId, changedParts);
-        removeParts(sessionId, droppedPartIds);
+        const update = applyPartsChanged(logState.peek(), sessionId, changedParts, droppedPartIds, isLive);
+        logState.update(update.state);
+        if (!isBranch && update.newLivePromptCount > 0) {
+          const takenEntryIds = takeStandInsForPrompts(outboxProjection, update.newLivePromptCount);
+          for (const entryId of takenEntryIds) {
+            outboxProjection.standInByEntryId.delete(entryId);
+            entryIdsAwaitingPrompt.delete(entryId);
+          }
+          if (takenEntryIds.length > 0) paintQueue();
+        }
       },
       onRebuilt: (rebuiltParts, replacedPartIds) => {
-        forgetTurnStarts(sessionId);
-        if (speaker.branch) {
-          removeParts(sessionId, replacedPartIds);
-          removeSessionRows(sessionId);
-          upsertParts(sessionId, rebuiltParts);
-          return;
+        const distanceFromBottom = !isBranch && logElement ? logElement.scrollHeight - logElement.scrollTop : 0;
+        logState.update((previous) => applySessionRebuilt(
+          previous,
+          sessionId,
+          rebuiltParts,
+          replacedPartIds,
+          props.session.progressAnswers(),
+        ));
+        if (!isBranch) {
+          queueMicrotask(() => {
+            if (logElement) logElement.scrollTop = logElement.scrollHeight - distanceFromBottom;
+          });
         }
-        const distanceFromBottom = logElement ? logElement.scrollHeight - logElement.scrollTop : 0;
-        removeParts(sessionId, replacedPartIds);
-        setPartEntries([]);
-        shownPromptPartIds.clear();
-        for (const part of rebuiltParts) {
-          if (part.kind === 'prompt') shownPromptPartIds.add(part.id);
-        }
-        upsertParts(sessionId, rebuiltParts);
-        setProgressAnswers([...props.session.progressAnswers()]);
-        queueMicrotask(() => {
-          if (logElement) logElement.scrollTop = logElement.scrollHeight - distanceFromBottom;
-        });
       },
       onBeats: () => {},
       isTurnOver,
       onReset: () => {
-        forgetTurnStarts(sessionId);
-        if (!speaker.branch) shownPromptPartIds.clear();
-        removeSessionRows(sessionId);
+        logState.update((previous) => applySessionReset(previous, sessionId));
       },
       onFailure: (text) => setFailureText(text),
     });
@@ -651,81 +466,77 @@ function Dock(props: DockProps): JSX.Element {
     return feed;
   };
 
-  const restoreToBar = (text: string): void => {
-    if (!composerRef) return;
-    composerRef.restoreDraft(draftWithRestoredText(text, composerRef.readDraft()));
-  };
-
   const handleCancelEntry = (entryId: string): void => {
-    setCancellingEntryIds((previous) => new Set([...previous, entryId]));
+    queueState.update((previous) => setCancellingEntry(previous, entryId, true));
     void chatCancelAction({ id: props.session.sessionId, entryId }).then((cancelOutcome) => {
-      setCancellingEntryIds((previous) => {
-        const next = new Set(previous);
-        next.delete(entryId);
-        return next;
-      });
-      if (!cancelOutcome.ok) {
-        setFailureText(`Could not cancel the message: ${cancelOutcome.error.message}`);
+      queueState.update((previous) => setCancellingEntry(previous, entryId, false));
+      const decision = decideCancelReply(cancelOutcome);
+      if (decision.failureText !== null) {
+        setFailureText(decision.failureText);
         return;
       }
-      if (cancelOutcome.reply.type !== 'chat-cancel-result' || cancelOutcome.reply.cancelledTexts.length === 0) return;
-      restoreToBar(cancelOutcome.reply.cancelledTexts.join('\n\n'));
+      if (decision.restoredText !== null && composerRef) {
+        composerRef.restoreDraft(draftWithRestoredText(decision.restoredText, composerRef.readDraft()));
+      }
     });
-  };
-
-  const dropPendingSend = (pending: PendingSend): void => {
-    pendingSends = pendingSends.filter((candidate) => candidate !== pending);
-    paintQueue();
-  };
-
-  const settlePendingSend = (pending: PendingSend): void => {
-    if (pending.isAwaitingOutboxEcho && !pending.isClaimed) return;
-    dropPendingSend(pending);
   };
 
   const sendToAgent = (targetId: string, text: string): Promise<string | null> => chatSendAction({
     id: targetId,
     text,
     attachments: [],
-    isTurnRunning: isTargetTurnRunning(targetId),
+    isTurnRunning: isTargetSessionTurnRunning(
+      props.session.sessionId,
+      targetId,
+      props.session.isTurnOver(),
+      isBranchTurnOver,
+    ),
   }).then((sendOutcome) => (sendOutcome.ok ? null : sendOutcome.error.message));
 
-  const deliveredAs = (kind: DockDelivery, sending: Promise<string | null>): Promise<string | null> => sending.then((sendFailure) => {
-    if (sendFailure === null) props.session.onDelivered(kind);
-    return sendFailure;
-  });
-
   const sendText = (text: string, sentAddress: DockAddress): Promise<string | null> => {
-    if (sentAddress.kind === 'new-branch') {
-      return requestBranchSpawn(props.session.sessionId, sentAddress.aboutBoxId, text).then((spawned) => {
-        if (spawned.branchId === null) return spawned.failureText;
-        props.session.onDelivered('branch');
-        if (currentAddress === sentAddress) {
-          setAddress({ kind: 'branch', sessionId: spawned.branchId, aboutTitle: sentAddress.aboutTitle });
-        }
-        return null;
-      });
+    const plan = planSendDispatch(sentAddress, props.session.sessionId, text);
+    if (plan.kind === 'branch-spawn') {
+      return branchSpawnAction({ id: plan.parentId, aboutBoxId: plan.aboutBoxId, prompt: plan.prompt })
+        .then(decideBranchSpawnReply)
+        .then((spawned) => {
+          if (spawned.branchId === null) return spawned.failureText;
+          props.session.onDelivered('branch');
+          if (addressState.peek() === sentAddress) {
+            setAddress({ kind: 'branch', sessionId: spawned.branchId, aboutTitle: plan.aboutTitle });
+          }
+          return null;
+        });
     }
-    if (sentAddress.kind === 'branch') return sendToAgent(sentAddress.sessionId, text);
-    const pending: PendingSend = { text, entryIdsAtDispatch: null, isClaimed: false, isAwaitingOutboxEcho: false };
-    pendingSends = [...pendingSends, pending];
+    if (plan.kind === 'branch-send') return sendToAgent(plan.sessionId, plan.text);
+
+    const enqueued = enqueuePendingSend(queueState.peek(), plan.text);
+    queueState.update(enqueued.state);
     paintQueue();
     const dispatchToMain = () => {
-      pending.entryIdsAtDispatch = new Set(props.session.outbox().map((entry) => entry.entryId));
-      return sendToAgent(props.session.sessionId, text).then((sendFailure) => {
-        pending.isAwaitingOutboxEcho = sendFailure === null;
+      queueState.update((previous) => markPendingSendDispatched(previous, enqueued.pendingId, props.session.outbox()));
+      return sendToAgent(plan.sessionId, plan.text).then((sendFailure) => {
+        queueState.update((previous) => markPendingSendOutcome(previous, enqueued.pendingId, sendFailure));
+        if (sendFailure === null) props.session.onDelivered('talk');
         return sendFailure;
       });
     };
     const askProgress = () => (
-      text.trim().length > PROGRESS_QUESTION_MAX_CHARS
+      !plan.shouldAskProgress
         ? Promise.resolve(false)
-        : studioProgressAskAction({ id: props.session.sessionId, text })
+        : studioProgressAskAction({ id: plan.sessionId, text: plan.text })
           .then((outcome) => outcome.ok && outcome.reply.type === 'studio-progress-ask-result' && outcome.reply.isAnswered)
     );
-    const mainSend = mainSendQueue.then(askProgress)
-      .then((isAnswered) => (isAnswered ? deliveredAs('progress', Promise.resolve(null)) : deliveredAs('talk', dispatchToMain())))
-      .finally(() => settlePendingSend(pending));
+    const mainSend = mainSendQueue
+      .then(askProgress)
+      .then((isAnswered) => {
+        if (!isAnswered) return dispatchToMain();
+        props.session.onDelivered('progress');
+        return null;
+      })
+      .finally(() => {
+        queueState.update((previous) => settleDockPendingSend(previous, enqueued.pendingId));
+        paintQueue();
+      });
     mainSendQueue = mainSend.catch(() => null);
     return mainSend;
   };
@@ -741,44 +552,32 @@ function Dock(props: DockProps): JSX.Element {
   const setBranches = (branches: readonly DockBranch[]): void => {
     branchTurnOverBySessionId.clear();
     for (const branch of branches) branchTurnOverBySessionId.set(branch.sessionId, branch.isTurnOver);
-    const shownBranchIds = new Set(branches.map((branch) => branch.sessionId));
-    for (const [sessionId, feed] of feedBySessionId) {
-      if (sessionId === props.session.sessionId || shownBranchIds.has(sessionId)) continue;
-      feed.close();
+    const reconciled = reconcileDockBranches(
+      logState.peek(),
+      addressState.peek(),
+      props.session.sessionId,
+      new Set(feedBySessionId.keys()),
+      branches,
+    );
+    logState.update(reconciled.logState);
+    for (const sessionId of reconciled.sessionIdsToClose) {
+      feedBySessionId.get(sessionId)?.close();
       feedBySessionId.delete(sessionId);
-      speakerBySessionId.delete(sessionId);
-      forgetTurnStarts(sessionId);
-      if (currentAddress.kind === 'branch' && currentAddress.sessionId === sessionId) setAddress(MAIN_ADDRESS);
     }
-    for (const branch of branches) {
-      const speaker: FeedSpeaker = { sessionId: branch.sessionId, name: branch.name, agentId: branch.agentId, branch };
-      if (feedBySessionId.has(branch.sessionId)) {
-        speakerBySessionId.set(branch.sessionId, speaker);
-        continue;
-      }
-      openFeed(speaker, branch.workingDirectory, branch.isTurnOver);
+    if (reconciled.nextAddress !== addressState.peek()) setAddress(reconciled.nextAddress);
+    for (const branch of reconciled.branchesToOpen) {
+      openFeed(branch.sessionId, true, branch.workingDirectory, branch.isTurnOver);
     }
-  };
-
-  const toggleExpanded = (key: string, bubbleElement: HTMLElement | null): void => {
-    setExpandedRowKeys((previous) => {
-      const next = new Set(previous);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
-    queueMicrotask(() => {
-      bubbleElement?.focus();
-    });
   };
 
   const handle: DockHandle = {
     setBranches,
     addressSession: (sessionId, name) => {
-      setAddress(sessionId === null || sessionId === props.session.sessionId ? MAIN_ADDRESS : { kind: 'branch', sessionId, aboutTitle: name });
+      setAddress(resolveAddressForSession(props.session.sessionId, sessionId, name));
       composerRef?.input.focus();
     },
     addressBox: (boxId, title) => {
-      setAddress({ kind: 'new-branch', aboutBoxId: boxId, aboutTitle: title });
+      setAddress(resolveAddressForBox(boxId, title));
       composerRef?.input.focus();
     },
     refresh: () => {
@@ -790,7 +589,7 @@ function Dock(props: DockProps): JSX.Element {
     },
     refreshDigests: () => {
       setDigestVersion((count) => count + 1);
-      setProgressAnswers([...props.session.progressAnswers()]);
+      logState.update((previous) => setLogProgressAnswers(previous, props.session.progressAnswers()));
     },
     paintActivity,
     close: () => {
@@ -844,36 +643,28 @@ function Dock(props: DockProps): JSX.Element {
     input.addEventListener(
       'keydown',
       (event) => {
-        if (event.key === 'Backspace' && input.value.length === 0 && currentAddress.kind !== 'main') {
+        const decision = decideMentionKeydown(mentionState.peek(), addressState.peek(), event.key, input.value.length);
+        if (decision.kind === 'none') return;
+        if (decision.kind === 'address-main') {
+          if (decision.preventDefault) event.preventDefault();
           setAddress(MAIN_ADDRESS);
           return;
         }
-        if (event.key === 'Escape' && currentMentionChoices.length === 0 && currentAddress.kind === 'new-branch') {
-          event.preventDefault();
-          setAddress(MAIN_ADDRESS);
-          return;
-        }
-        if (currentMentionChoices.length === 0) return;
-        if (event.key === 'Escape') {
+        if (decision.kind === 'close-mentions') {
           event.preventDefault();
           event.stopImmediatePropagation();
           closeMentions();
           return;
         }
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (decision.kind === 'step-mention') {
           event.preventDefault();
-          const step = event.key === 'ArrowDown' ? 1 : -1;
-          currentActiveChoiceIndex = stepMentionIndex(currentActiveChoiceIndex, step, currentMentionChoices.length);
-          setActiveChoiceIndex(currentActiveChoiceIndex);
+          mentionState.update(decision.nextState);
           syncInputActiveDescendant();
           return;
         }
-        if (event.key !== 'Enter' && event.key !== 'Tab') return;
-        const choice = currentMentionChoices[currentActiveChoiceIndex];
-        if (!choice) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        pickChoice(choice);
+        pickChoice(decision.choice);
       },
       { capture: true, signal: dockListeners.signal },
     );
@@ -883,12 +674,7 @@ function Dock(props: DockProps): JSX.Element {
       (event) => {
         const text = stringDetailOf(event, 'text');
         if (text === null) return;
-        if (
-          event instanceof CustomEvent
-          && typeof event.detail === 'object'
-          && event.detail !== null
-          && Reflect.get(event.detail, 'isImmediate') === true
-        ) {
+        if (event instanceof CustomEvent && isImmediateDraftEvent(event.detail)) {
           saveChatDraft(session.sessionId, text);
           return;
         }
@@ -903,7 +689,7 @@ function Dock(props: DockProps): JSX.Element {
         const text = stringDetailOf(event, 'text');
         if (text === null || text.length === 0) return;
         closeMentions();
-        const sentAddress = currentAddress;
+        const sentAddress = addressState.peek();
         followLatest();
         const restoreText = (sendFailure: string) => {
           if (input.value.trim().length === 0) composer.restoreDraft(text);
@@ -925,7 +711,7 @@ function Dock(props: DockProps): JSX.Element {
     pill.addEventListener(
       'chat-stop',
       () => {
-        const sessionId = addressedSessionIdOf(currentAddress, session.sessionId);
+        const sessionId = addressedSessionIdOf(addressState.peek(), session.sessionId);
         if (sessionId !== null) void chatStopAction({ id: sessionId });
       },
       { signal: dockListeners.signal },
@@ -940,8 +726,7 @@ function Dock(props: DockProps): JSX.Element {
     });
 
     const stopFollowingOutbox = watchChatOutbox(session.sessionId, () => {
-      claimPendingSends(pendingSends, session.outbox());
-      pendingSends = pendingSends.filter((pending) => !pending.isAwaitingOutboxEcho);
+      queueState.update((previous) => reconcileOutboxEcho(previous, session.outbox()));
       paintQueue();
     });
 
@@ -949,13 +734,7 @@ function Dock(props: DockProps): JSX.Element {
       if (boardChange.boardId === session.mapBoardId()) setBoardChangeVersion((count) => count + 1);
     });
 
-    const mainSpeaker: FeedSpeaker = {
-      sessionId: session.sessionId,
-      name: session.name,
-      agentId: session.agentId,
-      branch: null,
-    };
-    const mainFeed = openFeed(mainSpeaker, session.workingDirectory, session.isTurnOver);
+    const mainFeed = openFeed(session.sessionId, false, session.workingDirectory, session.isTurnOver);
     mainFeedRef = mainFeed;
     mainFeed.whenCaughtUp(followLatest);
 
@@ -996,7 +775,7 @@ function Dock(props: DockProps): JSX.Element {
       ref={(element) => { dockElement = element; }}
       class="bs-dock"
       aria-label="Chat"
-      data-log-open={isLogOpen() ? 'true' : undefined}
+      data-log-open={isLogOpenState.read() ? 'true' : undefined}
       onFocusIn={() => openLog()}
       onFocusOut={(event) => {
         if (isOutsideElement(dockElement, event.relatedTarget)) foldLogWhenTurnOver();
@@ -1018,7 +797,7 @@ function Dock(props: DockProps): JSX.Element {
                   const row = rowAccessor;
                   return (
                     <Show
-                      when={row().kind === 'part' ? (row() as PartRowEntry) : undefined}
+                      when={row().kind === 'part' ? (row() as PartRowEntry<DockBranch>) : undefined}
                       fallback={
                         <Show
                           when={row().kind === 'progress-question'}
@@ -1042,25 +821,10 @@ function Dock(props: DockProps): JSX.Element {
                     >
                       {(partRow) => {
                         const partKind = createMemo(() => partRow().part.kind);
-
-                        const turnShown = createMemo<TurnShownText | null>(() => {
+                        const turnDisplay = createMemo(() => {
                           digestVersion();
-                          const current = partRow();
-                          if (current.part.kind !== 'turn') return null;
-                          const attribution = attributionBySessionId().get(current.sessionId);
-                          const chatLine = current.part.openedAt === null
-                            ? null
-                            : props.session.digestOf(current.sessionId, current.part.openedAt);
-                          const isBranchNews = attribution?.branchNewsTurnIds.has(current.part.id) ?? false;
-                          return shownTextOfTurn(current.part, current.speaker.branch !== null, chatLine, isBranchNews);
+                          return selectTurnDisplay(partRow(), attributionBySessionId(), props.session.digestOf);
                         });
-
-                        const turnBoardChange = createMemo<AgentChip | null>(() => {
-                          const current = partRow();
-                          if (current.part.kind !== 'turn') return null;
-                          return attributionBySessionId().get(current.sessionId)?.boardChangeByTurnId.get(current.part.id) ?? null;
-                        });
-
                         const isExpanded = createMemo(() => expandedRowKeys().has(partRow().key));
                         let bubbleElement: HTMLDivElement | undefined;
 
@@ -1092,13 +856,13 @@ function Dock(props: DockProps): JSX.Element {
 
                             <Show when={partKind() === 'turn'}>
                               <Show
-                                when={turnShown()}
+                                when={turnDisplay().shown}
                                 fallback={
                                   <div
                                     class="bs-row bs-row-agent"
                                     data-part-id={partRow().part.id}
                                     data-session-id={partRow().sessionId}
-                                    data-board-change-at={String(turnBoardChange()?.at ?? '')}
+                                    data-board-change-at={String(turnDisplay().boardChange?.at ?? '')}
                                     data-at={partRow().at !== null ? String(partRow().at) : undefined}
                                     hidden={true}
                                   />
@@ -1109,7 +873,7 @@ function Dock(props: DockProps): JSX.Element {
                                     class={partRow().speaker.branch ? 'bs-row bs-row-agent bs-row-branch' : 'bs-row bs-row-agent'}
                                     data-part-id={partRow().part.id}
                                     data-session-id={partRow().sessionId}
-                                    data-board-change-at={String(turnBoardChange()?.at ?? '')}
+                                    data-board-change-at={String(turnDisplay().boardChange?.at ?? '')}
                                     data-at={partRow().at !== null ? String(partRow().at) : undefined}
                                     data-digest={shown().text}
                                     data-expanded={String(isExpanded())}
@@ -1126,7 +890,10 @@ function Dock(props: DockProps): JSX.Element {
                                           if (initialBranch !== null) {
                                             bindPressableElement(element, `Reply to ${initialBranch.name}`, () => {
                                               const latestBranch = partRow().speaker.branch;
-                                              if (latestBranch !== null) addressBranch(latestBranch);
+                                              if (latestBranch !== null) {
+                                                setAddress(resolveAddressForBranch(latestBranch));
+                                                composerRef?.input.focus();
+                                              }
                                             });
                                           }
                                         },
@@ -1139,7 +906,10 @@ function Dock(props: DockProps): JSX.Element {
                                         (element) => {
                                           bubbleElement = element;
                                           bindPressableElement(element, `Whole reply from ${partRow().speaker.name}`, () => {
-                                            toggleExpanded(partRow().key, bubbleElement ?? null);
+                                            setExpandedRowKeys((previous) => toggleExpandedRowKey(previous, partRow().key));
+                                            queueMicrotask(() => {
+                                              bubbleElement?.focus();
+                                            });
                                           });
                                         },
                                       ]}
@@ -1163,7 +933,7 @@ function Dock(props: DockProps): JSX.Element {
                                             ref={fullReplyDirective(() => partRow().part as Extract<ChatPart, { kind: 'turn' }>)}
                                           />
                                         </Show>
-                                        <Show when={turnBoardChange()}>
+                                        <Show when={turnDisplay().boardChange}>
                                           {(boardChange) => (
                                             <div class="bs-reply-actions">
                                               <Button
@@ -1211,7 +981,7 @@ function Dock(props: DockProps): JSX.Element {
             </div>
 
             <div class="bs-log-queue">
-              <For each={queueView().standInPrompts} keyed={(standIn) => standIn.id}>
+              <For each={queueState.read().queueView.standInPrompts} keyed={(standIn) => standIn.id}>
                 {(standIn) => (
                   <div class="bs-row bs-row-you" hidden={standIn().isBoardAnswer}>
                     <div
@@ -1221,7 +991,7 @@ function Dock(props: DockProps): JSX.Element {
                   </div>
                 )}
               </For>
-              <For each={queueView().queuedEntries} keyed={(entry) => entry.entryId}>
+              <For each={queueState.read().queueView.queuedEntries} keyed={(entry) => entry.entryId}>
                 {(entry) => (
                   <div class="bs-row bs-row-you bs-row-queued" data-state={entry().state}>
                     <div class="bs-queued-meta">
@@ -1231,11 +1001,7 @@ function Dock(props: DockProps): JSX.Element {
                         size="small"
                         textCase="inline"
                         label="Cancel"
-                        disabled={
-                          entry().state === 'sending'
-                          || isOptimisticOutboxEntryId(entry().entryId)
-                          || cancellingEntryIds().has(entry().entryId)
-                        }
+                        disabled={isOutboxCancelDisabled(entry(), queueState.read().cancellingEntryIds)}
                         onClick={() => handleCancelEntry(entry().entryId)}
                       />
                     </div>
@@ -1246,7 +1012,7 @@ function Dock(props: DockProps): JSX.Element {
                   </div>
                 )}
               </For>
-              <For each={queueView().pendingSends} keyed={false}>
+              <For each={queueState.read().queueView.pendingSends} keyed={false}>
                 {(pending) => (
                   <div class="bs-row bs-row-you bs-row-queued" data-state="pending">
                     <div class="bs-queued-meta">
@@ -1293,7 +1059,7 @@ function Dock(props: DockProps): JSX.Element {
                 text={entry.choice.title}
                 id={`bs-mention-${entry.index}`}
                 role="option"
-                aria-selected={entry.index === activeChoiceIndex() ? 'true' : 'false'}
+                aria-selected={entry.index === mentionState.read().activeIndex ? 'true' : 'false'}
                 data-box-id={entry.choice.boxId}
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={() => pickChoice(entry.choice)}
@@ -1306,7 +1072,7 @@ function Dock(props: DockProps): JSX.Element {
       <span
         ref={(element) => { addressChipElement = element; }}
         class="bs-pill-address"
-        hidden={address().kind === 'main'}
+        hidden={addressState.read().kind === 'main'}
       >
         <span class="bs-pill-address-text">{addressLabel()}</span>
         <Pressable
