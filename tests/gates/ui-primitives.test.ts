@@ -209,17 +209,28 @@ test('every public/ui/ stylesheet keeps layout declarations in primitive-layout 
   assert.deepEqual(offenders, [], `Layout a container may override goes in primitive-layout; the look goes in primitive-look, above every component stylesheet:\n  ${offenders.join('\n  ')}`);
 });
 
+const PREEXISTING_IMPORTED_NESTED_LAYERS = new Set([
+  'public/chat/chat.css',
+  'public/plan/plan-review.css',
+]);
+
 test('every stylesheet outside public/ui/ sits in the components layer and uses no !important', () => {
   const entry = withoutCssComments(fs.readFileSync(TAILWIND_ENTRY, 'utf8'));
   const offenders = collectFiles(PUBLIC_DIR, /\.css$/)
     .filter((file) => !file.startsWith(UI_DIR + path.sep) && file !== TAILWIND_ENTRY)
     .flatMap((file) => {
+      const relativeFile = relativeToRoot(file);
       const stylesheet = withoutCssComments(fs.readFileSync(file, 'utf8')).trim();
       const importedIntoComponents = entry.includes(`@import "./${path.relative(PUBLIC_DIR, file).split(path.sep).join('/')}" layer(components);`);
-      const wrapsItselfInComponents = /^@layer components\s*\{[\s\S]*\}$/.test(stylesheet) && topLevelBlocksOf(stylesheet).length === 1;
+      const topLevelBlocks = topLevelBlocksOf(stylesheet);
+      const wrapsItselfInComponents = /^@layer components\s*\{[\s\S]*\}$/i.test(stylesheet) && topLevelBlocks.length === 1;
       const problems: string[] = [];
-      if (!importedIntoComponents && !wrapsItselfInComponents) problems.push(`${relativeToRoot(file)}: unlayered, so it outranks every primitive layer`);
-      if (/!important/.test(stylesheet)) problems.push(`${relativeToRoot(file)}: !important outranks a primitive's look`);
+      if (!importedIntoComponents && !wrapsItselfInComponents) problems.push(`${relativeFile}: unlayered, so it outranks every primitive layer`);
+      if (wrapsItselfInComponents && /@layer\b/i.test(topLevelBlocks[0].body)) problems.push(`${relativeFile}: nested @layer creates a sub-layer that loses to rules directly in components`);
+      const hasImportedNestedLayer = importedIntoComponents && /@layer\b/i.test(stylesheet);
+      if (hasImportedNestedLayer && !PREEXISTING_IMPORTED_NESTED_LAYERS.has(relativeFile)) problems.push(`${relativeFile}: @layer inside a layer(components) @import creates a sub-layer that loses to rules directly in components`);
+      if (!hasImportedNestedLayer && PREEXISTING_IMPORTED_NESTED_LAYERS.has(relativeFile)) problems.push(`${relativeFile}: remove from PREEXISTING_IMPORTED_NESTED_LAYERS now that its nested @layer is gone`);
+      if (/!important/.test(stylesheet)) problems.push(`${relativeFile}: !important outranks a primitive's look`);
       return problems;
     });
   assert.deepEqual(offenders, [], `Import a stylesheet into layer(components) in public/tailwind.css or wrap it in @layer components:\n  ${offenders.join('\n  ')}`);
