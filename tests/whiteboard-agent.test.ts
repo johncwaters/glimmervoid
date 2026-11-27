@@ -2869,9 +2869,7 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   const ports = portsFor();
   const runs = createPlanRuns({ warn: (message) => assert.fail(message) });
   const statuses = async () => planSteps(Board.parse(((await wiring.handleAgent(runner, { sub: 'get', board: boardId })).body as { board: unknown }).board)).map((step) => `${step.boxId}:${step.status}`);
-  const untilStatus = async (status: string) => {
-    for (let attempt = 0; attempt < 200 && !(await statuses()).includes(status); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  };
+  const waitForRunnerNotice = () => waitFor(() => toldRunner.length > 0, 'runner received a plan notice', 5000);
   const childOfPrompt = (stepTitle: string) => `child-${prompts.findLastIndex((prompt) => prompt.includes(`"${stepTitle}"`)) + 1}`;
 
   assert.equal((await runs.run('Ship it', ports)).status, 200);
@@ -2881,21 +2879,21 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   await putOps([stepOp('late')]);
   const childOfA = childOfPrompt('Build a');
   childEvents.get(childOfA)?.emit('commits-landed');
-  await untilStatus('a:landed');
+  await waitForRunnerNotice();
   childEvents.get(childOfA)?.emit('teardown');
   assert.deepEqual(await statuses(), ['a:landed', 'b:building', 'late:planned', 'c:planned'], 'a step added after the run waits for another run, and a landed step stays landed when its session ends');
   assert.deepEqual([toldRunner.splice(0), toldRunnerBy.splice(0)], [['The plan step a landed.'], [childOfA]]);
 
   const childOfB = childOfPrompt('Build b');
   childEvents.get(childOfB)?.emit('teardown');
-  await untilStatus('b:planned');
+  await waitForRunnerNotice();
   assert.deepEqual(await statuses(), ['a:landed', 'b:planned', 'late:planned', 'c:planned'], 'a step is planned again as soon as its session ends unlanded');
   assert.match(toldRunner.splice(0).join('\n'), /The plan step b is planned again, because its session ended before its work landed; run glimmervoid whiteboard run/);
   assert.deepEqual(toldRunnerBy.splice(0), [childOfB]);
   await runs.run(boardId, ports);
   assert.deepEqual(await statuses(), ['a:landed', 'b:building', 'late:building', 'c:planned']);
   childEvents.get(childOfPrompt('Build late'))?.emit('teardown');
-  await untilStatus('late:planned');
+  await waitForRunnerNotice();
   toldRunner.splice(0);
   toldRunnerBy.splice(0);
 
@@ -2909,8 +2907,7 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   await runs.run(boardId, ports);
   refuseSpawnsAfter = prompts.length;
   childEvents.get(childOfPrompt('Build b'))?.emit('commits-landed');
-  await untilStatus('b:landed');
-  for (let attempt = 0; attempt < 200 && toldRunner.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  await waitForRunnerNotice();
   assert.match(toldRunner[0] ?? '', /b landed, but the steps after it did not all start: this session already runs 3 spawned sessions/);
 
   refuseSpawnsAfter = Number.POSITIVE_INFINITY;
