@@ -9,7 +9,7 @@ type UndoHistory<Entry = Op[]> = Readonly<Record<UndoDirection, readonly Entry[]
 const UNDO_LIMIT = 100;
 const EMPTY_HISTORY: UndoHistory<never> = Object.freeze({ undo: [], redo: [] });
 const EARLY_ADD_KINDS: ReadonlySet<Element['kind']> = new Set(['box']);
-const REMOVAL_ORDER: readonly Element['kind'][] = ['wire', 'frame', 'box'];
+const REMOVAL_ORDER: readonly Element['kind'][] = ['stroke', 'wire', 'frame', 'box'];
 const UNSETTABLE_FIELDS: ReadonlySet<string> = new Set(['kind', 'id']);
 
 function isSameValue(left: unknown, right: unknown): boolean {

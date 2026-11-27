@@ -889,8 +889,16 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await page.mouse.up();
   const ink = await elementWhere(open, 'the pen draws a stroke', (element) => element.kind === 'stroke');
   assert.ok(ink.kind === 'stroke' && ink.points.length >= 8, 'a drawn stroke keeps the points it passed through');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: placedNote.id, fields: { title: 'Agent updated note' } }] });
+  await elementWhere(open, 'an intervening edit to another element lands', (element) => element.id === placedNote.id && element.kind === 'box' && element.title === 'Agent updated note');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
+  await page.keyboard.press('ControlOrMeta+z');
+  await boardWithout(open, 'undo removes the drawn pen stroke over a later edit to another element', (element) => element.id === ink.id);
+  const noteAfterStrokeUndo = (await boardOf(open)).elements.get(placedNote.id);
+  assert.ok(noteAfterStrokeUndo?.kind === 'box' && noteAfterStrokeUndo.title === 'Agent updated note', 'undoing the pen stroke keeps the later edit to another element');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await elementWhere(open, 'redo restores the drawn pen stroke', (element) => element.id === ink.id);
   await clickElement(open, ink.id);
   await page.keyboard.press('Delete');
   await boardWithout(open, 'a selected stroke erases with Delete', (element) => element.id === ink.id);
@@ -2746,12 +2754,14 @@ function isPointInRect(point: { x: number; y: number }, rect: ScreenRect): boole
 async function boardOverlayRectsOf(panel: Locator): Promise<ScreenRect[]> {
   return panel.evaluate((root, { inspectWidthPx, inspectHeightPx }) => {
     const rects: { x: number; y: number; width: number; height: number }[] = [];
+    const viewportRect = root.querySelector<HTMLElement>('.wb-viewport')?.getBoundingClientRect();
     for (const island of root.querySelectorAll<HTMLElement>('.wb-top-left > .wb-island:not([hidden]), .wb-bottom-left > .wb-island:not([hidden])')) {
       const bounds = island.getBoundingClientRect();
       if (bounds.width > 0 && bounds.height > 0) rects.push({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
     }
     const topRight = root.querySelector<HTMLElement>('.wb-top-right')?.getBoundingClientRect();
-    if (topRight && topRight.width > 0 && topRight.height > 0) {
+    const isTopRightDockedBelow = topRight !== undefined && viewportRect !== undefined && topRight.top >= viewportRect.bottom - 1;
+    if (topRight && !isTopRightDockedBelow && topRight.width > 0 && topRight.height > 0) {
       rects.push({ x: topRight.right - inspectWidthPx, y: topRight.top, width: inspectWidthPx, height: inspectHeightPx });
     }
     return rects;
@@ -2759,17 +2769,18 @@ async function boardOverlayRectsOf(panel: Locator): Promise<ScreenRect[]> {
 }
 
 async function visibleAtBoxRects(open: OpenBoard, placedBoxes: readonly PlacedBox[], count: number): Promise<Map<string, ScreenRect>> {
-  const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
-  assert.ok(canvasBox);
+  const viewportBox = await open.panel.locator('.wb-viewport').boundingBox();
+  assert.ok(viewportBox);
   const camera = await cameraOf(open);
   const overlays = await boardOverlayRectsOf(open.panel);
-  const inner = { left: canvasBox.x + 8, top: canvasBox.y + 8, right: canvasBox.x + canvasBox.width - 8, bottom: canvasBox.y + canvasBox.height - 8 };
+  const dockedInspectClearance = viewportBox.width <= 640 ? 64 : 0;
+  const inner = { left: viewportBox.x + 12, top: viewportBox.y + 12, right: viewportBox.x + viewportBox.width - 12, bottom: viewportBox.y + viewportBox.height - dockedInspectClearance - 12 };
   const picked = new Map<string, ScreenRect>();
   for (const laidOut of placedBoxes) {
     if (Number(laidOut.id.slice(1)) % STACKED_BOX_EVERY === 0) continue;
     const rect = screenRectOn(camera, laidOut);
     const center = centerOf(rect);
-    const isInside = rect.x > inner.left && rect.y > inner.top && rect.x + rect.width < inner.right && rect.y + rect.height < inner.bottom;
+    const isInside = center.x > inner.left && center.y > inner.top && center.x < inner.right && center.y < inner.bottom;
     const isCovered = overlays.some((overlay) => isPointInRect(center, overlay));
     if (isInside && !isCovered) picked.set(laidOut.id, rect);
     if (picked.size === count) break;
@@ -2779,7 +2790,7 @@ async function visibleAtBoxRects(open: OpenBoard, placedBoxes: readonly PlacedBo
 
 async function panToAtGrid(open: OpenBoard, placedBoxes: readonly PlacedBox[]): Promise<Map<string, ScreenRect>> {
   const { page, panel } = open;
-  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+  const canvasBox = await panel.locator('.wb-viewport').boundingBox();
   assert.ok(canvasBox);
   const start = { x: canvasBox.x + canvasBox.width * 0.8, y: canvasBox.y + canvasBox.height * 0.5 };
   const camera = await cameraOf(open);
@@ -2787,7 +2798,7 @@ async function panToAtGrid(open: OpenBoard, placedBoxes: readonly PlacedBox[]): 
   const zoomAnchor = boxesOnScreen[Math.floor(boxesOnScreen.length / 2)] ?? start;
   await page.mouse.move(zoomAnchor.x, zoomAnchor.y);
   await page.keyboard.down('Control');
-  for (let notch = 0; notch < SCALE_MAX_ZOOM_IN_NOTCHES && (await cameraOf(open)).scale < SCALE_DRAG_ZOOM; notch += 1) await page.mouse.wheel(0, -400);
+  for (let notch = 0; notch < SCALE_MAX_ZOOM_IN_NOTCHES && (await cameraOf(open)).scale < SCALE_DRAG_ZOOM; notch += 1) await page.mouse.wheel(0, -100);
   await page.keyboard.up('Control');
   await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
   for (let attempt = 0; attempt < 30; attempt += 1) {
