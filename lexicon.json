@@ -332,7 +332,7 @@
     },
     {
       "name": "signal",
-      "definition": "A structural fact a session's status is derived from (an agent hook event or an OSC-0 title glyph, never screen content), and the small status badge signal.ts draws from it"
+      "definition": "A structural fact a session's status is derived from (an agent hook event or an OSC-0 title glyph, never screen content), and the small status badge signal.ts draws from it; in shared/contracts/control/message-classes.ts, also the fire-and-forget ClientMessage class that changes no collection (such as telemetry, ping, or viewport updates)."
     },
     {
       "name": "comment",
@@ -1792,6 +1792,22 @@
     {
       "name": "solid",
       "definition": "The Solid 2 component model (solid-js, @solidjs/web, and @solidjs/vite-plugin) used for .tsx dashboard islands."
+    },
+    {
+      "name": "collection",
+      "definition": "A named slice of server-owned state pushed over the control WebSocket (such as sessions, settings, packs, or hooks) that a client store reconciles from ServerMessage variants classified as collection in shared/contracts/control/message-classes.ts."
+    },
+    {
+      "name": "mutating",
+      "definition": "A ClientMessage class in shared/contracts/control/message-classes.ts for requests that change server state carried by one or more collections (mapped in MUTATION_COLLECTIONS) and require a correlated reply."
+    },
+    {
+      "name": "reply",
+      "definition": "A ServerMessage class in shared/contracts/control/message-classes.ts answering one client request (usually carrying its requestId), as distinct from a collection push or a one-off event; in Chat and Reviews prose, also an agent's or operator's written response."
+    },
+    {
+      "name": "content",
+      "definition": "The payload text, bytes, or rendered body inside a file, terminal screen, whiteboard box, or config record, as distinct from structural signals or metadata (such as content-signature checks and never deriving session status from screen content)."
     }
   ],
   "retired": [
