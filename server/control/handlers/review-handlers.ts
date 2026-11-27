@@ -1,19 +1,23 @@
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
-import type { ControlContext, RequestWithId } from '../control-context.ts';
-import { replyTo } from '../control-context.ts';
+import type { ControlContext } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 const NO_REVIEWS_ERROR = 'Review comments are not available on this server.';
+type MutatingReviewMessageType = 'review-mark-viewed' | 'review-send-comment' | 'review-resolve-comment';
 
-function createReviewHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
+function createReviewHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
+  const { replyApplied } = context;
   const { reviews = null } = deps;
 
-  async function answer(ws: ControlSocket, msg: RequestWithId, run: (port: NonNullable<typeof reviews>) => Promise<{ ok: boolean; error?: string }>): Promise<void> {
-    if (!reviews) return replyTo(ws, msg, 'review-result', { ok: false, error: NO_REVIEWS_ERROR });
+  async function answer(ws: ControlSocket, msg: ClientMessageOf<MutatingReviewMessageType>, run: (port: NonNullable<typeof reviews>) => Promise<{ ok: boolean; error?: string }>): Promise<void> {
+    if (!reviews) {
+      replyApplied(ws, msg, 'review-result', { ok: false, error: NO_REVIEWS_ERROR });
+      return;
+    }
     const outcome = await run(reviews).catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    replyTo(ws, msg, 'review-result', { ok: outcome.ok, error: outcome.ok ? null : outcome.error ?? null });
+    replyApplied(ws, msg, 'review-result', { ok: outcome.ok, error: outcome.ok ? null : outcome.error ?? null });
   }
 
   const handlers = {

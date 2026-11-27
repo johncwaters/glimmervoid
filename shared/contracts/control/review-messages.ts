@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { REVIEW_TEXT_MAX_CHARS, ReviewComment, ReviewCommentId, ReviewState } from '../review-state.ts';
-import { loose, looseCollection, optionalError, requestId, sessionId } from './control-fields.ts';
+import { loose, looseCollection, looseMutatingReply, optionalError, requestId, sessionId } from './control-fields.ts';
 
 const reviewText = z.string().trim().min(1).max(REVIEW_TEXT_MAX_CHARS);
 
@@ -21,5 +21,5 @@ export const reviewClientVariants = [
 
 export const reviewServerVariants = [
   looseCollection('review-state', { id: sessionId, state: ReviewState }),
-  loose('review-result', { requestId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('review-result', { requestId, ok: z.boolean(), error: optionalError }),
 ] as const;
