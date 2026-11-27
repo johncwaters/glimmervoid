@@ -353,16 +353,14 @@
   ],
   "unconvertedMutatingHandlers": {
     "server/control/handlers/community-handlers.ts": 2,
-    "server/control/handlers/github-handlers.ts": 5,
+    "server/control/handlers/github-handlers.ts": 3,
     "server/control/handlers/race-handlers.ts": 4,
     "server/control/handlers/radar-handlers.ts": 5,
     "server/control/handlers/wargames-handlers.ts": 2
   },
   "legacyMutatingWithoutRequestId": [],
   "legacyMutatingRepliesWithoutAppliedSeq": [
-    "commit-signing-result",
     "community-action-result",
-    "github-connection-result",
     "open-community-session-result",
     "open-team-review-session-result",
     "race-judge-result",
