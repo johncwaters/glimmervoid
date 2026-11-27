@@ -1,9 +1,11 @@
 import { el } from '../dom-helpers.ts';
+import { Dialog } from '../ui/Dialog.tsx';
 import { button } from '../ui/button.ts';
-import { isModalOpen, openModals } from '../ui/modal-state.ts';
+import { confirmDialogProps } from '../ui/dialog-core.ts';
+import { mountIsland } from '../ui/island.ts';
+import { isModalOpen, openModals, syncModalInert } from '../ui/modal-state.ts';
 
 const FOCUSABLE_SELECTOR = 'a[href], button, input, select, textarea, [tabindex]';
-const INERT_BY_MODAL = 'modalInert';
 
 export { isModalOpen };
 
@@ -49,22 +51,6 @@ function focusFirstWithin(container: HTMLElement) {
   container.focus();
 }
 
-function syncModalInert() {
-  const topmostOverlay = openModals.at(-1)?.overlay ?? null;
-  for (const child of document.body.children) {
-    if (!(child instanceof HTMLElement)) continue;
-    if (topmostOverlay && child !== topmostOverlay) {
-      if (child.inert) continue;
-      child.inert = true;
-      child.dataset[INERT_BY_MODAL] = 'true';
-      continue;
-    }
-    if (child.dataset[INERT_BY_MODAL] !== 'true') continue;
-    child.inert = false;
-    delete child.dataset[INERT_BY_MODAL];
-  }
-}
-
 function canReturnFocusTo(opener: Element | null): opener is HTMLElement {
   return opener instanceof HTMLElement && opener.isConnected && !opener.closest('[inert]');
 }
@@ -83,6 +69,9 @@ export function createModalOverlay({ dialogClass = 'dialog', closeOnBackdrop = t
   closeOnBackdrop?: boolean;
   onEscape?: () => void;
 } = {}) {
+  for (const entry of [...openModals]) {
+    if (entry.dialog instanceof HTMLDialogElement && entry.dialog.open) entry.dialog.close();
+  }
   const opener = document.activeElement;
 
   const overlay = document.createElement('div');
@@ -181,17 +170,18 @@ export function openConfirmDialog({ title, message, confirmLabel = 'Confirm', da
   danger?: boolean;
   onConfirm?: () => void;
 }) {
-  const { dialog, close, actions, btnCancel } = buildDialogShell({ title });
-
-  const msgEl = el('p', 'dialog-message', message);
-
-  const btnConfirm = button({ variant: danger ? 'danger' : 'primary', label: confirmLabel, action: 'confirm-dialog' });
-
-  actions.append(btnConfirm);
-  dialog.append(msgEl, actions);
-
-  btnCancel.addEventListener('click', close);
-  btnConfirm.addEventListener('click', () => { close(); onConfirm?.(); });
-
-  requestAnimationFrame(() => btnCancel.focus());
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  let disposeIsland = () => {};
+  const unmount = () => {
+    disposeIsland();
+    host.remove();
+  };
+  const dialogOptions = confirmDialogProps({ title, message, confirmLabel, danger });
+  disposeIsland = mountIsland(host, () => Dialog({
+    ...dialogOptions,
+    open: true,
+    onConfirm,
+    onClose: unmount,
+  }));
 }

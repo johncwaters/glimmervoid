@@ -10,6 +10,12 @@ import {
 } from '../public/ui/button-core.ts';
 import { choiceDescriptor } from '../public/ui/checkbox-core.ts';
 import { DEFAULT_COPY_CLEAR_AFTER_MS, copyButtonDescriptor, copyStatusText } from '../public/ui/copy-button-core.ts';
+import {
+  confirmDialogProps,
+  dialogCloseOutcome,
+  dialogDescriptor,
+  isDialogBackdropClick,
+} from '../public/ui/dialog-core.ts';
 import { detailsBlockDescriptor, disclosureDescriptor } from '../public/ui/disclosure-core.ts';
 import { emptyStateDescriptor } from '../public/ui/empty-state-core.ts';
 import { fieldDescriptor, fieldMessageState, isLabelableTagName } from '../public/ui/field-core.ts';
@@ -417,5 +423,54 @@ describe('notice-core', () => {
       tone: 'warning',
       source: 'release',
     });
+  });
+});
+
+describe('dialog-core', () => {
+  test('builds confirm dialog defaults and danger variant descriptors', () => {
+    const defaultConfirm = dialogDescriptor(confirmDialogProps({
+      title: 'Restart Server',
+      message: 'Restart the server?',
+    }));
+    assert.deepEqual(defaultConfirm, {
+      className: 'dialog',
+      title: 'Restart Server',
+      message: 'Restart the server?',
+      cancelLabel: 'Cancel',
+      confirmButton: { label: 'Confirm', variant: 'primary', action: 'confirm-dialog' },
+      defaultAction: 'cancel',
+      closeOnBackdrop: true,
+      closeOnEscape: true,
+    });
+
+    const dangerConfirm = dialogDescriptor(confirmDialogProps({
+      title: 'Delete board',
+      message: 'Delete for good?',
+      confirmLabel: 'Delete board',
+      danger: true,
+    }));
+    assert.equal(dangerConfirm.confirmButton?.variant, 'danger');
+    assert.equal(dangerConfirm.confirmButton?.label, 'Delete board');
+    assert.equal(dangerConfirm.defaultAction, 'cancel');
+
+    const cancelOnly = dialogDescriptor({ title: 'Info', dialogClass: 'custom-dialog', defaultAction: 'confirm' });
+    assert.equal(cancelOnly.className, 'dialog custom-dialog');
+    assert.equal(cancelOnly.confirmButton, null);
+    assert.equal(cancelOnly.defaultAction, 'cancel');
+  });
+
+  test('classifies close reasons and detects backdrop clicks outside dialog bounds', () => {
+    assert.deepEqual(dialogCloseOutcome('confirm'), { confirmed: true, dismissed: false });
+    assert.deepEqual(dialogCloseOutcome('cancel'), { confirmed: false, dismissed: true });
+    assert.deepEqual(dialogCloseOutcome('escape'), { confirmed: false, dismissed: true });
+    assert.deepEqual(dialogCloseOutcome('backdrop'), { confirmed: false, dismissed: true });
+    assert.deepEqual(dialogCloseOutcome('programmatic'), { confirmed: false, dismissed: true });
+
+    const bounds = { left: 100, right: 520, top: 200, bottom: 380 };
+    assert.equal(isDialogBackdropClick({ clientX: 250, clientY: 260 }, bounds), false);
+    assert.equal(isDialogBackdropClick({ clientX: 100, clientY: 200 }, bounds), false);
+    assert.equal(isDialogBackdropClick({ clientX: 99, clientY: 260 }, bounds), true);
+    assert.equal(isDialogBackdropClick({ clientX: 250, clientY: 381 }, bounds), true);
+    assert.equal(isDialogBackdropClick({ clientX: 10, clientY: 10 }, { left: 0, right: 0, top: 0, bottom: 0 }), false);
   });
 });

@@ -18,6 +18,7 @@ import { verifySolidHello } from './solid-hello.ts';
 import { verifySolidIsland } from './solid-island.ts';
 import { verifySolidStoreSignal } from './solid-store-signal.ts';
 import { verifyUiPrimitivesParity } from './ui-primitives-parity.ts';
+import { verifyConfirmDialog } from './confirm-dialog.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
@@ -1396,6 +1397,11 @@ export async function runCase({
       const check = await verifyUiPrimitivesParity(viewer.page);
       if (!check.ok) return failedOutcome('ui-primitives-parity', check.detail);
       return passedOutcome('ui-primitives-parity', check.detail);
+    }
+    if (step.kind === 'assert-confirm-dialog') {
+      const check = await verifyConfirmDialog(viewer.page);
+      if (!check.ok) return failedOutcome('confirm-dialog', check.detail);
+      return passedOutcome('confirm-dialog', check.detail);
     }
     if (step.kind === 'assert-added-session-shown') return runAssertAddedSessionShown(viewer, deadlines);
     if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);

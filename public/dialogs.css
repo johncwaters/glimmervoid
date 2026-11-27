@@ -45,6 +45,26 @@ html[data-layout="phone"] .dialog-overlay {
   animation: dialogScaleIn 150ms ease;
 }
 
+dialog.dialog {
+  margin: auto;
+  color: inherit;
+  overscroll-behavior: contain;
+}
+
+dialog.dialog:not([open]) {
+  display: none;
+}
+
+dialog.dialog::backdrop {
+  background: var(--scrim);
+  animation: dialogFadeIn 150ms ease;
+}
+
+html[data-layout="phone"] dialog.dialog {
+  margin-top: max(16px, env(safe-area-inset-top));
+  margin-bottom: auto;
+}
+
 .dialog-title {
   font-family: var(--font-mono);
   font-size: var(--type-body);
