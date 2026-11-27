@@ -169,7 +169,7 @@
     },
     {
       "name": "boards",
-      "definition": "A shared whiteboard of boxes, wires, frames, notes and plan units that sessions and the operator draw together, opened in a Board pane beside a session's terminal in Focus and listed as rows under its project in the Focus rail (also: board)",
+      "definition": "A shared whiteboard of boxes, wires, frames, notes and plan units that sessions author through whiteboard ops and the operator annotates and reviews, opened in a Board pane beside a session's terminal in Focus and listed as rows under its project in the Focus rail (also: board)",
       "aliases": [
         "board",
         "whiteboard"

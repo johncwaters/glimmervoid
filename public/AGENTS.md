@@ -68,6 +68,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 - A confirm prompt comes from `session-card/modal.ts` `openConfirmDialog`, never a hand-rolled overlay.
 - Section heads, stat chips, `projectsOf` and `isPanelHidden` come from `dom-helpers.ts`; a new tab panel passes its class prefix rather than copying the builders.
 - Client state rules are enforced by `tests/gates/state-*.test.ts`, and each failure message states the fix.
+- Board authoring: the operator's board actions are pan, zoom, select, move, delete a selection, mark up, answer an ask and open a card; agents create and restyle elements through whiteboard ops. The operator annotates and agents author because two authoring paths compete and one author keeps the board model simple, enforced by the board-authoring gate.
 
 ### Solid 2 Components
 

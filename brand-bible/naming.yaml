@@ -48,5 +48,5 @@ glossary:
     definition: The Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox.
     forbiddenAliases: [guardrails, sandbox, sandboxed]
   - term: boards
-    definition: The whiteboard view, where sessions and the operator draw diagrams and plan units together.
+    definition: The whiteboard view, where sessions author diagrams and plan units and the operator annotates and reviews them.
     forbiddenAliases: [canvas]
