@@ -12,7 +12,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import { PtySizeFrame } from '../shared/contracts/data-messages.ts';
 import { SCREEN_RESET } from '../session/core/screen-keeper-core.ts';
 import type { Session } from '../session/sessions.ts';
-import { closeSocket, dashboardClient, openDataRecordingSocket } from './helpers/dashboard-ws.ts';
+import { closeSocket, dashboardClient, openDataRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient, DataRecordingSocket } from './helpers/dashboard-ws.ts';
 import { UNREACHABLE_PID } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -39,6 +39,7 @@ interface ResizeContext {
 
 const booted: { context: ResizeContext | null } = { context: null };
 const ptyResizes: ResizeCall[] = [];
+const openViewers = new Set<Viewer>();
 
 function ctx(): ResizeContext {
   if (!booted.context) throw new Error('the backend was never booted');
@@ -58,8 +59,10 @@ function attachFakePty(): void {
   ctx().session._ptyAlive = true;
 }
 
-function openViewer(): Promise<Viewer> {
-  return openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}`);
+async function openViewer(): Promise<Viewer> {
+  const viewer = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}`);
+  openViewers.add(viewer);
+  return viewer;
 }
 
 function sizeFrames(viewer: Viewer): PtySizeFrame[] {
@@ -89,6 +92,7 @@ function claim(viewer: Viewer, cols: number, rows: number): void {
 }
 
 async function closeViewer(viewer: Viewer): Promise<void> {
+  openViewers.delete(viewer);
   if (viewer.ws.readyState === WebSocket.CLOSED) return;
   await closeSocket(viewer.ws);
 }
@@ -134,11 +138,15 @@ test.after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+test.afterEach(async () => {
+  await Promise.all([...openViewers].map((viewer) => closeViewer(viewer)));
+});
+
 test('attach sends the authoritative size first, then one screen frame', async () => {
   attachFakePty();
   const viewer = await openViewer();
   await waitForSizeFrames(viewer, 1);
-  await settle(50);
+  await waitForMessage(viewer.frames, (frame) => !frame.binary, 'the screen frame follows the size frame');
 
   const first = viewer.frames[0];
   assert.ok(first, 'the socket received something');

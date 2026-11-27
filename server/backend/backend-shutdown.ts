@@ -63,8 +63,18 @@ interface BackendShutdownDependencies {
   diskAlerts?: Stoppable | null;
   telegramInbound?: Stoppable | null;
   remoteListenerPortFile?: Stoppable | null;
-  controlWss: { close: () => void };
-  dataWss: { close: () => void };
+  controlWss: CloseableWebSocketServer;
+  dataWss: CloseableWebSocketServer;
+}
+
+interface CloseableWebSocketServer {
+  clients?: Iterable<{ terminate: () => void }>;
+  close: () => void;
+}
+
+function closeWebSocketServer(wss: CloseableWebSocketServer): void {
+  for (const client of wss.clients ?? []) client.terminate();
+  wss.close();
 }
 
 interface ShutdownOutcome {
@@ -164,8 +174,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const telemetry = dependencies.telemetry;
     if (telemetry) stoppers.add('telemetry', () => telemetry.stop());
     dependencies.heartbeat.stop();
-    dependencies.controlWss.close();
-    dependencies.dataWss.close();
+    closeWebSocketServer(dependencies.controlWss);
+    closeWebSocketServer(dependencies.dataWss);
     stoppers.add('boot-work', async () => {
       await Promise.allSettled(dependencies.bootWork);
       return dependencies.ownedPaths.idle();

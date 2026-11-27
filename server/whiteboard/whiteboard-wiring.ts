@@ -804,7 +804,7 @@ function createWhiteboardWiring({
     const nowMs = now();
     const connectedSessionIds = creator ? [creator.id, ...alsoConnectedSessionIds] : [...alsoConnectedSessionIds];
     const cursorBySessionId: Record<string, number> = Object.fromEntries(connectedSessionIds.map((sessionId) => [sessionId, 0]));
-    const board = createBoard({ id: boardId, title, nowMs, codeSessionId: creator?.id ?? null, project: creator?.project ?? null });
+    const board = createBoard({ id: boardId, title, nowMs, codeSessionId: creator?.id ?? null, project: isCodeMapBoardTitle(title) ? null : (creator?.project ?? null) });
     const record: BoardRecord = { board, log: [], cursorBySessionId, createdBy: creator?.id ?? null };
     return saveNewRecord(record, 'created', PUT_GUIDE);
   }
@@ -1177,7 +1177,7 @@ function createWhiteboardWiring({
   }
 
   function filedUnder(record: BoardRecord, project: string | null): BoardRecord {
-    if (record.board.project !== null || project === null) return record;
+    if (record.board.project !== null || project === null || isCodeMapBoardTitle(record.board.title)) return record;
     return { ...record, board: { ...record.board, project } };
   }
 
@@ -1196,7 +1196,8 @@ function createWhiteboardWiring({
   }
 
   async function adoptIfUnfiled(boardId: string, project: string): Promise<void> {
-    if (recordsByBoardId.get(boardId)?.board.project !== null) return;
+    const existing = recordsByBoardId.get(boardId);
+    if (!existing || existing.board.project !== null || isCodeMapBoardTitle(existing.board.title)) return;
     await changeRecord(boardId, (record) => {
       const next = filedUnder(record, project);
       return { ok: true, record: next, reply: connectionReply(next, `filed under ${next.board.project}`) };

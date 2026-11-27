@@ -73,6 +73,7 @@ test('repos and folders of one repo with the same folder names draw their own bo
   assert.equal(await codemap.mapBoardIdOfRepo(firstRepoDir), await codemap.mapBoardIdOfRepo(secondRepoDir), 'both repos draw on the one map board');
 
   const drawn = await readBoard();
+  assert.equal((await wiring.readPlanBoard({ id: 'second-reader', name: 'reader', project: secondRepoDir }, 'Code map')).ok, true, 'the shared Code map board stays readable by title from every repo open in Studio');
   assert.equal(libBoxIdsOf(drawn).length, 2, 'each repo draws its own lib box');
   const firstSpan = areaSpanOf(drawn, 'first');
   const secondSpan = areaSpanOf(drawn, 'second');

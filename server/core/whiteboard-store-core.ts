@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { Board as BoardSchema, BoxInput, Near as NearSchema, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { isCodeMapBoardTitle } from '../../shared/contracts/control/board-session-messages.ts';
 import type { DiffBefore } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Element, Near, Op } from '../../shared/contracts/whiteboard.ts';
 import { MARGIN as BOARD_MARGIN, isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
@@ -411,7 +412,7 @@ function isSameProject(left: string | null, right: string | null): boolean {
 }
 
 function isFiledFor(record: BoardRecord, callerProject: string): boolean {
-  return record.board.project === null || isSameProject(record.board.project, callerProject);
+  return record.board.project === null || isCodeMapBoardTitle(record.board.title) || isSameProject(record.board.project, callerProject);
 }
 
 function isListedFor(record: BoardRecord, callerProject: string, nowMs: number): boolean {
@@ -473,7 +474,8 @@ function isOwnBoard(record: BoardRecord, sessionId: string): boolean {
 function projectBoardsNoticeFor(records: Iterable<BoardRecord>, caller: { sessionId: string; project: string }, nowMs: number): string | null {
   const newestBoards: Board[] = [];
   for (const record of records) {
-    if (!isSameProject(record.board.project, caller.project) || isBoardArchived(record, nowMs) || isOwnBoard(record, caller.sessionId)) continue;
+    const isVisibleToProject = isSameProject(record.board.project, caller.project) || isCodeMapBoardTitle(record.board.title);
+    if (!isVisibleToProject || isBoardArchived(record, nowMs) || isOwnBoard(record, caller.sessionId)) continue;
     newestBoards.push(record.board);
     newestBoards.sort((left, right) => right.updatedAt - left.updatedAt);
     newestBoards.length = Math.min(newestBoards.length, PROJECT_BOARDS_NOTICE_LIMIT);
