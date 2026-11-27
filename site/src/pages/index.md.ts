@@ -9,7 +9,7 @@ import { sitePath } from '../lib/site-path.ts';
 export const GET: APIRoute = ({ site }) => {
   const urlOf = (pathWithinSite: string) => new URL(sitePath(pathWithinSite), site).href;
   const body = [
-    `${PRODUCT_SUMMARY} A small Node.js process on your own machine runs Claude Code, Codex and Antigravity CLI over ACP in Studio with no terminal, keeps the terminal in Focus, gives each session its own git worktree, and serves a browser dashboard where Packs add tabs and only the session that needs you comes to the front. Each agent uses your own login, subscription, skills, hooks and settings, and talks straight to its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
+    `${PRODUCT_SUMMARY} A small Node.js process on your own machine runs Claude Code, Codex and Antigravity CLI in Studio with no terminal, keeps the terminal in Focus, gives each session its own git worktree, and serves a browser dashboard where Packs add tabs and only the session that needs you comes to the front. Each agent uses your own login, subscription, skills, hooks and settings, and talks straight to its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
     '## Install',
     [
       `- macOS and Linux: \`${INSTALL_COMMAND}\``,

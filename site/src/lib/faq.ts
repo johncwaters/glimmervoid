@@ -10,7 +10,7 @@ export const FAQ_ENTRIES: readonly FaqEntry[] = [
     question: 'What is Glimmervoid?',
     answerParagraphs: [
       'Your coding agents draw plans and screens on a shared board you mark up.',
-      'Studio runs Claude Code, Codex and Antigravity CLI over ACP with no terminal, Focus keeps the terminal when you want it, and Packs add tabs.',
+      'Studio runs Claude Code, Codex and Antigravity CLI with no terminal, Focus keeps the terminal when you want it, and Packs add tabs.',
       'Every agent works in its own git worktree, so you answer, review their diffs and merge from one place.',
     ],
   },
