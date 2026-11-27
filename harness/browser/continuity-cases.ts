@@ -20,10 +20,6 @@ export interface ContinuityCaseContext {
 }
 
 export interface ActionCaseHandle {
-  readValue: () => Promise<string>;
-  isOptimisticShown: () => Promise<boolean>;
-  fire: () => Promise<void>;
-  waitSettled: () => Promise<void>;
   cleanup: () => Promise<void>;
 }
 
@@ -96,11 +92,10 @@ async function preloadModules(page: Page, urls: readonly string[]): Promise<void
   }, [...urls]);
 }
 
-async function waitPendingAction(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const pending = Reflect.get(window, '__continuityActionPromise') as Promise<unknown> | undefined;
-    if (pending) await pending.catch(() => {});
-    Reflect.deleteProperty(window, '__continuityActionPromise');
+async function readActiveActionValue(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const action = Reflect.get(window, '__continuityActiveAction') as { readValue: () => string } | undefined;
+    return action ? action.readValue() : '';
   });
 }
 
@@ -342,30 +337,24 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
       const { page, projectDirectory } = ctx;
       await preloadModules(page, [MODULE_URLS.settingsCollection, MODULE_URLS.addRepoRoots, MODULE_URLS.updateSettings]);
       const addedRoot = projectDirectory;
-      await page.evaluate(async ({ settingsUrl, updateUrl, rootPath }) => {
+      await page.evaluate(async ({ settingsUrl, updateUrl, actionUrl, rootPath }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const snapshot = cache[settingsUrl].settingsPayloadSnapshot as () => { repoRoots?: string[] };
         const updateSettings = cache[updateUrl].default as (input: { settings: Record<string, unknown> }) => Promise<unknown>;
         const current = snapshot().repoRoots ?? [];
         const filtered = current.filter((entry) => entry !== rootPath);
         if (filtered.length !== current.length) await updateSettings({ settings: { repoRoots: filtered } });
-      }, { settingsUrl: MODULE_URLS.settingsCollection, updateUrl: MODULE_URLS.updateSettings, rootPath: addedRoot });
-      const readRoots = () => page.evaluate((settingsUrl) => {
-        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const snapshot = cache[settingsUrl].settingsPayloadSnapshot as () => { repoRoots?: string[] };
-        return JSON.stringify(snapshot().repoRoots ?? []);
-      }, MODULE_URLS.settingsCollection);
-      return {
-        readValue: readRoots,
-        isOptimisticShown: async () => (await readRoots()).includes(addedRoot),
-        fire: async () => {
-          await page.evaluate(({ actionUrl, rootPath }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readRoots = (): string => JSON.stringify(snapshot().repoRoots ?? []);
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readRoots,
+          isOptimisticShown: () => readRoots().includes(rootPath),
+          fire: () => {
             const runAction = cache[actionUrl].default as (input: { roots: string[] }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ roots: [rootPath] }));
-          }, { actionUrl: MODULE_URLS.addRepoRoots, rootPath: addedRoot });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { settingsUrl: MODULE_URLS.settingsCollection, updateUrl: MODULE_URLS.updateSettings, actionUrl: MODULE_URLS.addRepoRoots, rootPath: addedRoot });
+      return {
         cleanup: async () => {
           await page.evaluate(async ({ settingsUrl, updateUrl, rootPath }) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
@@ -393,26 +382,24 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: { type: 'session-renamed', id: sessionId, oldName: 'continuity', newName: 'continuity-studio' },
         }));
       }
-      const readAgent = () => page.evaluate((studioUrl) => {
+      await page.evaluate(({ studioUrl, actionUrl, targetPath, targetAgent }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const studio = cache[studioUrl].default as { state: { areas: Array<{ branchAgentId?: string | null }> } };
-        return studio.state.areas[0]?.branchAgentId ?? '';
-      }, MODULE_URLS.studioCollection);
-      return {
-        readValue: readAgent,
-        isOptimisticShown: async () => (await readAgent()) === nextAgent,
-        fire: async () => {
-          await page.evaluate(({ actionUrl, targetPath, targetAgent }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readAgent = (): string => studio.state.areas[0]?.branchAgentId ?? '';
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readAgent,
+          isOptimisticShown: () => readAgent() === targetAgent,
+          fire: () => {
             const runAction = cache[actionUrl].runStudioAddSession as (input: { name: string; path: string; agent: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({
               name: `continuity-branch-${Date.now()}`,
               path: targetPath,
               agent: targetAgent,
             }));
-          }, { actionUrl: MODULE_URLS.addSession, targetPath: projectDirectory, targetAgent: nextAgent });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { studioUrl: MODULE_URLS.studioCollection, actionUrl: MODULE_URLS.addSession, targetPath: projectDirectory, targetAgent: nextAgent });
+      return {
         cleanup: async () => {
           await seedStudioAreaFixture(page, sessionId, projectDirectory);
         },
@@ -432,7 +419,7 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: { type: 'session-status', id: sessionId, session: 'continuity', timestamp: Date.now(), chatOutbox: [] },
         }));
       }
-      await page.evaluate(({ ingestUrl, seqUrl, targetSessionId, targetEntryId }) => {
+      await page.evaluate(({ ingestUrl, seqUrl, outboxUrl, actionUrl, targetSessionId, targetEntryId }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const ingestControlMessage = cache[ingestUrl].ingestControlMessage as (msg: Record<string, unknown>) => string;
         const currentSeq = cache[seqUrl].currentSeq as () => number;
@@ -454,23 +441,18 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
             },
           ],
         });
-      }, { ingestUrl: MODULE_URLS.ingest, seqUrl: MODULE_URLS.seq, targetSessionId: sessionId, targetEntryId: entryId });
-      const readCount = () => page.evaluate(({ outboxUrl, targetSessionId, targetEntryId }) => {
-        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const entriesOf = cache[outboxUrl].chatOutboxEntriesOf as (id: string) => ReadonlyArray<{ entryId: string }>;
-        return entriesOf(targetSessionId).some((entry) => entry.entryId === targetEntryId) ? 'present' : 'removed';
-      }, { outboxUrl: MODULE_URLS.chatOutboxCollection, targetSessionId: sessionId, targetEntryId: entryId });
-      return {
-        readValue: readCount,
-        isOptimisticShown: async () => (await readCount()) === 'removed',
-        fire: async () => {
-          await page.evaluate(({ actionUrl, targetSessionId, targetEntryId }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readCount = (): string => (entriesOf(targetSessionId).some((entry) => entry.entryId === targetEntryId) ? 'present' : 'removed');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readCount,
+          isOptimisticShown: () => readCount() === 'removed',
+          fire: () => {
             const runAction = cache[actionUrl].default as (input: { id: string; entryId: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ id: targetSessionId, entryId: targetEntryId }));
-          }, { actionUrl: MODULE_URLS.chatCancel, targetSessionId: sessionId, targetEntryId: entryId });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { ingestUrl: MODULE_URLS.ingest, seqUrl: MODULE_URLS.seq, outboxUrl: MODULE_URLS.chatOutboxCollection, actionUrl: MODULE_URLS.chatCancel, targetSessionId: sessionId, targetEntryId: entryId });
+      return {
         cleanup: async () => {
           await page.evaluate(({ ingestUrl, seqUrl, targetSessionId }) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
@@ -518,27 +500,25 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           },
         }));
       }
-      const readHasPrompt = () => page.evaluate(({ outboxUrl, targetSessionId, expectedText }) => {
+      await page.evaluate(({ outboxUrl, actionUrl, targetSessionId, expectedText }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const entriesOf = cache[outboxUrl].chatOutboxEntriesOf as (id: string) => ReadonlyArray<{ text: string }>;
-        return entriesOf(targetSessionId).some((entry) => entry.text === expectedText) ? 'shown' : 'absent';
-      }, { outboxUrl: MODULE_URLS.chatOutboxCollection, targetSessionId: sessionId, expectedText: probeText });
-      return {
-        readValue: readHasPrompt,
-        isOptimisticShown: async () => (await readHasPrompt()) === 'shown',
-        fire: async () => {
-          await page.evaluate(({ actionUrl, targetSessionId, messageText }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readHasPrompt = (): string => (entriesOf(targetSessionId).some((entry) => entry.text === expectedText) ? 'shown' : 'absent');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readHasPrompt,
+          isOptimisticShown: () => readHasPrompt() === 'shown',
+          fire: () => {
             const runAction = cache[actionUrl].default as (input: { id: string; text: string; attachments: string[]; isTurnRunning: boolean }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({
               id: targetSessionId,
-              text: messageText,
+              text: expectedText,
               attachments: [],
               isTurnRunning: true,
             }));
-          }, { actionUrl: MODULE_URLS.chatSend, targetSessionId: sessionId, messageText: probeText });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { outboxUrl: MODULE_URLS.chatOutboxCollection, actionUrl: MODULE_URLS.chatSend, targetSessionId: sessionId, expectedText: probeText });
+      return {
         cleanup: async () => {
           await page.evaluate(({ ingestUrl, seqUrl, targetSessionId }) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
@@ -570,26 +550,24 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: { type: 'director-digest-kept', id: sessionId },
         }));
       }
-      const readFolded = () => page.evaluate((studioUrl) => {
+      await page.evaluate(({ studioUrl, actionUrl, targetSessionId }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const studio = cache[studioUrl].default as { state: { areas: Array<{ isFolded: boolean }> } };
-        return String(studio.state.areas[0]?.isFolded ?? false);
-      }, MODULE_URLS.studioCollection);
-      return {
-        readValue: readFolded,
-        isOptimisticShown: async () => (await readFolded()) === 'true',
-        fire: async () => {
-          await page.evaluate(({ actionUrl, targetSessionId }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readFolded = (): string => String(studio.state.areas[0]?.isFolded ?? false);
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readFolded,
+          isOptimisticShown: () => readFolded() === 'true',
+          fire: () => {
             const runAction = cache[actionUrl].runCodemapFolderSet as (input: { id: string; boxId: string; isOpen: boolean }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({
               id: targetSessionId,
               boxId: 'area-box-1',
               isOpen: false,
             }));
-          }, { actionUrl: MODULE_URLS.codemapFolderSet, targetSessionId: sessionId });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { studioUrl: MODULE_URLS.studioCollection, actionUrl: MODULE_URLS.codemapFolderSet, targetSessionId: sessionId });
+      return {
         cleanup: async () => {
           await seedStudioAreaFixture(page, sessionId, projectDirectory);
         },
@@ -604,31 +582,28 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
       await openSettingsSection(page, layout, 'Hooks');
       await preloadModules(page, [MODULE_URLS.saveHook, MODULE_URLS.deleteHook]);
       const hookName = `Continuity delete hook ${Date.now()}`;
-      const hookId = await page.evaluate(async ({ saveUrl, name }) => {
+      const hookId = await page.evaluate(async ({ saveUrl, deleteUrl, name }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const saveHook = cache[saveUrl].default as (input: { hook: Record<string, unknown> }) => Promise<{ ok: boolean; reply?: { hook?: { id?: string } } }>;
         const saveOutcome = await saveHook({
           hook: { name, event: 'PostToolUse', type: 'command', command: 'echo ok', enabled: true },
         });
-        return saveOutcome.reply?.hook?.id ?? '';
-      }, { saveUrl: MODULE_URLS.saveHook, name: hookName });
-      const readPresent = () => page.evaluate((name) => {
-        return document.querySelector(`article.hooks-row[aria-label="${name}"]`) !== null ? 'present' : 'deleted';
-      }, hookName);
-      return {
-        readValue: readPresent,
-        isOptimisticShown: async () => (await readPresent()) === 'deleted',
-        fire: async () => {
-          await page.evaluate(({ deleteUrl, id, name }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const id = saveOutcome.reply?.hook?.id ?? '';
+        const readPresent = (): string => (document.querySelector(`article.hooks-row[aria-label="${name}"]`) !== null ? 'present' : 'deleted');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readPresent,
+          isOptimisticShown: () => readPresent() === 'deleted',
+          fire: () => {
             const deleteHook = cache[deleteUrl].default as (input: { id: string; name: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', deleteHook({ id, name }));
-          }, { deleteUrl: MODULE_URLS.deleteHook, id: hookId, name: hookName });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+        return id;
+      }, { saveUrl: MODULE_URLS.saveHook, deleteUrl: MODULE_URLS.deleteHook, name: hookName });
+      return {
         cleanup: async () => {
           if (!hookId) return;
-          const stillExists = (await readPresent()) === 'present';
+          const stillExists = (await readActiveActionValue(page)) === 'present';
           if (!stillExists) return;
           await page.evaluate(async ({ deleteUrl, id, name }) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
@@ -653,26 +628,27 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: buildPacksStatusPayload({ pendingState: 'approved' }),
         }));
       }
-      const readState = () => page.evaluate(() => {
-        const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
-        for (const card of cards) {
-          if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-pending-pack')) {
-            return card.dataset.packState ?? '';
+      await page.evaluate((actionUrl) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readState = (): string => {
+          const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
+          for (const card of cards) {
+            if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-pending-pack')) {
+              return card.dataset.packState ?? '';
+            }
           }
-        }
-        return 'missing';
-      });
-      return {
-        readValue: readState,
-        isOptimisticShown: async () => (await readState()) === 'approved',
-        fire: async () => {
-          await page.evaluate((actionUrl) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+          return 'missing';
+        };
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readState,
+          isOptimisticShown: () => readState() === 'approved',
+          fire: () => {
             const runAction = cache[actionUrl].default as (input: { fingerprint: string; packName: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ fingerprint: 'fp-continuity-pending', packName: 'continuity-pending-pack' }));
-          }, MODULE_URLS.packApprove);
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, MODULE_URLS.packApprove);
+      return {
         cleanup: async () => {
           await seedPacksFixture(page);
         },
@@ -693,26 +669,27 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: buildPacksStatusPayload({ includePending: false }),
         }));
       }
-      const readState = () => page.evaluate(() => {
-        const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
-        for (const card of cards) {
-          if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-pending-pack')) {
-            return 'present';
+      await page.evaluate((actionUrl) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readState = (): string => {
+          const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
+          for (const card of cards) {
+            if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-pending-pack')) {
+              return 'present';
+            }
           }
-        }
-        return 'removed';
-      });
-      return {
-        readValue: readState,
-        isOptimisticShown: async () => (await readState()) === 'removed',
-        fire: async () => {
-          await page.evaluate((actionUrl) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+          return 'removed';
+        };
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readState,
+          isOptimisticShown: () => readState() === 'removed',
+          fire: () => {
             const runAction = cache[actionUrl].default as (input: { dir: string; packName: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ dir: '/tmp/continuity-pending-pack', packName: 'continuity-pending-pack' }));
-          }, MODULE_URLS.packFolderRemove);
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, MODULE_URLS.packFolderRemove);
+      return {
         cleanup: async () => {
           await seedPacksFixture(page);
         },
@@ -733,26 +710,27 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: buildPacksStatusPayload({ includeSourcePack: false }),
         }));
       }
-      const readState = () => page.evaluate(() => {
-        const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
-        for (const card of cards) {
-          if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-source-pack')) {
-            return 'present';
+      await page.evaluate((actionUrl) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readState = (): string => {
+          const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
+          for (const card of cards) {
+            if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-source-pack')) {
+              return 'present';
+            }
           }
-        }
-        return 'removed';
-      });
-      return {
-        readValue: readState,
-        isOptimisticShown: async () => (await readState()) === 'removed',
-        fire: async () => {
-          await page.evaluate((actionUrl) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+          return 'removed';
+        };
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readState,
+          isOptimisticShown: () => readState() === 'removed',
+          fire: () => {
             const runAction = cache[actionUrl].default as (input: { slug: string; pack: string; isEnabled: boolean }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ slug: 'continuity-source-slug', pack: 'continuity-source-pack', isEnabled: false }));
-          }, MODULE_URLS.packSourceEnable);
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, MODULE_URLS.packSourceEnable);
+      return {
         cleanup: async () => {
           await seedPacksFixture(page);
         },
@@ -773,26 +751,27 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: buildPacksStatusPayload({ includeSourcePack: false, includeSource: false }),
         }));
       }
-      const readState = () => page.evaluate(() => {
-        const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
-        for (const card of cards) {
-          if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-source-pack')) {
-            return 'present';
+      await page.evaluate((actionUrl) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readState = (): string => {
+          const cards = document.querySelectorAll<HTMLElement>('.packs-card[data-pack-state]');
+          for (const card of cards) {
+            if (card.querySelector('.packs-card-name')?.textContent?.startsWith('continuity-source-pack')) {
+              return 'present';
+            }
           }
-        }
-        return 'removed';
-      });
-      return {
-        readValue: readState,
-        isOptimisticShown: async () => (await readState()) === 'removed',
-        fire: async () => {
-          await page.evaluate((actionUrl) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+          return 'removed';
+        };
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readState,
+          isOptimisticShown: () => readState() === 'removed',
+          fire: () => {
             const runAction = cache[actionUrl].default as (input: { slug: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ slug: 'continuity-source-slug' }));
-          }, MODULE_URLS.packSourceRemove);
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, MODULE_URLS.packSourceRemove);
+      return {
         cleanup: async () => {
           await seedPacksFixture(page);
         },
@@ -814,23 +793,22 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
       }, { addUrl: MODULE_URLS.addSession, dir: projectDirectory });
       const rowSel = rosterRowSelector(layout, createdSessionId);
       await page.locator(rowSel).first().waitFor({ state: 'attached', timeout: 5000 });
-      const readPresent = () => page.evaluate((selector) => {
-        return document.querySelector(selector) !== null ? 'present' : 'removed';
-      }, rowSel);
-      return {
-        readValue: readPresent,
-        isOptimisticShown: async () => (await readPresent()) === 'removed',
-        fire: async () => {
-          await page.evaluate(({ removeUrl, id }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+      await page.evaluate(({ removeUrl, selector, id }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readPresent = (): string => (document.querySelector(selector) !== null ? 'present' : 'removed');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readPresent,
+          isOptimisticShown: () => readPresent() === 'removed',
+          fire: () => {
             const removeSession = cache[removeUrl].default as (input: { id: string; label: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', removeSession({ id, label: 'continuity-remove' }));
-          }, { removeUrl: MODULE_URLS.removeSession, id: createdSessionId });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { removeUrl: MODULE_URLS.removeSession, selector: rowSel, id: createdSessionId });
+      return {
         cleanup: async () => {
           if (!createdSessionId) return;
-          if ((await readPresent()) !== 'present') return;
+          if ((await readActiveActionValue(page)) !== 'present') return;
           await page.evaluate(async ({ removeUrl, id }) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
             const removeSession = cache[removeUrl].default as (input: { id: string; discardWork: boolean }) => Promise<unknown>;
@@ -850,23 +828,22 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
       const rowNameSelector = `${rosterRowSelector(layout, sessionId)} .session-row-name`;
       const originalName = (await page.locator(rowNameSelector).first().textContent())?.trim() ?? '';
       const targetName = `continuity-renamed-${Date.now()}`;
-      const readName = () => page.evaluate((selector) => {
-        return document.querySelector(selector)?.textContent?.trim() ?? '';
-      }, rowNameSelector);
-      return {
-        readValue: readName,
-        isOptimisticShown: async () => (await readName()) === targetName,
-        fire: async () => {
-          await page.evaluate(({ renameUrl, id, newName }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+      await page.evaluate(({ renameUrl, selector, id, newName }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readName = (): string => document.querySelector(selector)?.textContent?.trim() ?? '';
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readName,
+          isOptimisticShown: () => readName() === newName,
+          fire: () => {
             const renameSession = cache[renameUrl].default as (input: { id: string; newName: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', renameSession({ id, newName }));
-          }, { renameUrl: MODULE_URLS.renameSession, id: sessionId, newName: targetName });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { renameUrl: MODULE_URLS.renameSession, selector: rowNameSelector, id: sessionId, newName: targetName });
+      return {
         cleanup: async () => {
           if (!originalName) return;
-          if ((await readName()) === originalName) return;
+          if ((await readActiveActionValue(page)) === originalName) return;
           await page.evaluate(async ({ renameUrl, id, newName }) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
             const renameSession = cache[renameUrl].default as (input: { id: string; newName: string }) => Promise<unknown>;
@@ -896,20 +873,19 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
         }));
       }
       const rowSelector = rosterRowSelector(layout, sessionId);
-      const readState = () => page.evaluate((selector) => {
-        return document.querySelector<HTMLElement>(selector)?.dataset.state ?? '';
-      }, rowSelector);
-      return {
-        readValue: readState,
-        isOptimisticShown: async () => (await readState()) === 'INITIALIZING',
-        fire: async () => {
-          await page.evaluate(({ restartUrl, id }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+      await page.evaluate(({ restartUrl, selector, id }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readState = (): string => document.querySelector<HTMLElement>(selector)?.dataset.state ?? '';
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readState,
+          isOptimisticShown: () => readState() === 'INITIALIZING',
+          fire: () => {
             const restartSession = cache[restartUrl].default as (input: { id: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', restartSession({ id }));
-          }, { restartUrl: MODULE_URLS.restart, id: sessionId });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { restartUrl: MODULE_URLS.restart, selector: rowSelector, id: sessionId });
+      return {
         cleanup: async () => {},
       };
     },
@@ -922,15 +898,13 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
       await openSettingsSection(page, layout, 'Hooks');
       await preloadModules(page, [MODULE_URLS.saveHook, MODULE_URLS.deleteHook]);
       const hookName = `Continuity save hook ${Date.now()}`;
-      const readPresent = () => page.evaluate((name) => {
-        return document.querySelector(`article.hooks-row[aria-label="${name}"]`) !== null ? 'shown' : 'absent';
-      }, hookName);
-      return {
-        readValue: readPresent,
-        isOptimisticShown: async () => (await readPresent()) === 'shown',
-        fire: async () => {
-          await page.evaluate(({ saveUrl, name }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+      await page.evaluate(({ saveUrl, name }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readPresent = (): string => (document.querySelector(`article.hooks-row[aria-label="${name}"]`) !== null ? 'shown' : 'absent');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readPresent,
+          isOptimisticShown: () => readPresent() === 'shown',
+          fire: () => {
             const saveHook = cache[saveUrl].default as (input: { hook: Record<string, unknown> }) => Promise<{ ok: boolean; reply?: { hook?: { id?: string } } }>;
             Reflect.set(window, '__continuitySavedHookId', '');
             Reflect.set(window, '__continuityActionPromise', saveHook({
@@ -939,9 +913,10 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
               Reflect.set(window, '__continuitySavedHookId', saveOutcome.reply?.hook?.id ?? '');
               return saveOutcome;
             }));
-          }, { saveUrl: MODULE_URLS.saveHook, name: hookName });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { saveUrl: MODULE_URLS.saveHook, name: hookName });
+      return {
         cleanup: async () => {
           await page.evaluate(async ({ deleteUrl, name }) => {
             const savedId = Reflect.get(window, '__continuitySavedHookId');
@@ -969,22 +944,20 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: { type: 'director-digest-kept', id: sessionId },
         }));
       }
-      const readMain = () => page.evaluate((studioUrl) => {
+      await page.evaluate(({ studioUrl, actionUrl, id }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const studio = cache[studioUrl].default as { state: { shownSessionId: string | null; pendingMainId: string | null } };
-        return `${studio.state.shownSessionId ?? ''}:${studio.state.pendingMainId ?? ''}`;
-      }, MODULE_URLS.studioCollection);
-      return {
-        readValue: readMain,
-        isOptimisticShown: async () => (await readMain()).includes(targetMainId),
-        fire: async () => {
-          await page.evaluate(({ actionUrl, id }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readMain = (): string => `${studio.state.shownSessionId ?? ''}:${studio.state.pendingMainId ?? ''}`;
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readMain,
+          isOptimisticShown: () => readMain().includes(id),
+          fire: () => {
             const runAction = cache[actionUrl].runStudioMainEnsure as (input: { id: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ id }));
-          }, { actionUrl: MODULE_URLS.studioMainEnsure, id: targetMainId });
-        },
-        waitSettled: () => waitPendingAction(page),
+          },
+        });
+      }, { studioUrl: MODULE_URLS.studioCollection, actionUrl: MODULE_URLS.studioMainEnsure, id: targetMainId });
+      return {
         cleanup: async () => {},
       };
     },
@@ -1001,6 +974,16 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
         const applyStatus = cache[bridgeUrl].applySettingsUpdateStatus as (status: Record<string, unknown>) => void;
         applyError({ scope: 'update', message: '' });
         applyStatus({ current: '0.66.0', latest: '0.67.0', updateAvailable: true, flavor: 'npm', checkedAt: Date.now() });
+        const readState = cache[bridgeUrl].settingsUpdateState as () => { request: { requested: boolean } };
+        const readRequested = (): string => String(readState().request.requested);
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readRequested,
+          isOptimisticShown: () => readRequested() === 'true',
+          fire: () => {
+            const requestApply = cache[bridgeUrl].requestUpdateApply as () => Promise<void>;
+            Reflect.set(window, '__continuityActionPromise', requestApply());
+          },
+        });
       }, MODULE_URLS.settingsBridge);
       if (check === 'C1' || check === 'C5') {
         faults.stubRequestReply('update-apply', (_frame, nextSeq) => ({
@@ -1008,22 +991,7 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: { type: 'hooks-updated', count: 0 },
         }));
       }
-      const readRequested = () => page.evaluate((bridgeUrl) => {
-        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const readState = cache[bridgeUrl].settingsUpdateState as () => { request: { requested: boolean } };
-        return String(readState().request.requested);
-      }, MODULE_URLS.settingsBridge);
       return {
-        readValue: readRequested,
-        isOptimisticShown: async () => (await readRequested()) === 'true',
-        fire: async () => {
-          await page.evaluate((bridgeUrl) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-            const requestApply = cache[bridgeUrl].requestUpdateApply as () => Promise<void>;
-            Reflect.set(window, '__continuityActionPromise', requestApply());
-          }, MODULE_URLS.settingsBridge);
-        },
-        waitSettled: () => waitPendingAction(page),
         cleanup: async () => {
           await page.evaluate((bridgeUrl) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
@@ -1042,49 +1010,37 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
     async prepare(ctx, check) {
       const { page, faults } = ctx;
       await preloadModules(page, [MODULE_URLS.settingsBridge, MODULE_URLS.updateCheck]);
-      await page.evaluate((bridgeUrl) => {
+      await page.evaluate(({ bridgeUrl, trackCompletion }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const applyStatus = cache[bridgeUrl].applySettingsUpdateStatus as (status: Record<string, unknown>) => void;
         applyStatus({ current: '0.66.0', latest: '0.66.0', updateAvailable: false, flavor: 'npm', checkedAt: Date.now() });
-      }, MODULE_URLS.settingsBridge);
+        const readState = cache[bridgeUrl].settingsUpdateState as () => {
+          isCheckInFlight: boolean;
+          lastAutoCheckAt: number | null;
+          checkSendFailure: string | null;
+        };
+        const priorTimestamp = readState().lastAutoCheckAt;
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: () => {
+            const current = readState();
+            if (!trackCompletion) return String(current.isCheckInFlight);
+            const completed = current.lastAutoCheckAt !== priorTimestamp && current.checkSendFailure === null;
+            return String(current.isCheckInFlight || completed);
+          },
+          isOptimisticShown: () => readState().isCheckInFlight,
+          fire: () => {
+            const requestCheck = cache[bridgeUrl].requestUpdateCheck as () => Promise<void>;
+            Reflect.set(window, '__continuityActionPromise', requestCheck());
+          },
+        });
+      }, { bridgeUrl: MODULE_URLS.settingsBridge, trackCompletion: check !== 'C2' });
       if (check === 'C1' || check === 'C5') {
         faults.stubRequestReply('update-check', (_frame, nextSeq) => ({
           reply: { type: 'update-action-result', ok: true, appliedSeq: nextSeq },
           push: { type: 'hooks-updated', count: 0 },
         }));
       }
-      const beforeCheckTimestamp = await page.evaluate((bridgeUrl) => {
-        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const readState = cache[bridgeUrl].settingsUpdateState as () => { lastAutoCheckAt: number | null };
-        return readState().lastAutoCheckAt;
-      }, MODULE_URLS.settingsBridge);
-      const readChecking = () => page.evaluate(({ bridgeUrl, priorTimestamp, trackCompletion }) => {
-        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const readState = cache[bridgeUrl].settingsUpdateState as () => {
-          isCheckInFlight: boolean;
-          lastAutoCheckAt: number | null;
-          checkSendFailure: string | null;
-        };
-        const current = readState();
-        if (!trackCompletion) return String(current.isCheckInFlight);
-        const completed = current.lastAutoCheckAt !== priorTimestamp && current.checkSendFailure === null;
-        return String(current.isCheckInFlight || completed);
-      }, { bridgeUrl: MODULE_URLS.settingsBridge, priorTimestamp: beforeCheckTimestamp, trackCompletion: check !== 'C2' });
       return {
-        readValue: readChecking,
-        isOptimisticShown: async () => page.evaluate((bridgeUrl) => {
-          const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-          const readState = cache[bridgeUrl].settingsUpdateState as () => { isCheckInFlight: boolean };
-          return readState().isCheckInFlight;
-        }, MODULE_URLS.settingsBridge),
-        fire: async () => {
-          await page.evaluate((bridgeUrl) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-            const requestCheck = cache[bridgeUrl].requestUpdateCheck as () => Promise<void>;
-            Reflect.set(window, '__continuityActionPromise', requestCheck());
-          }, MODULE_URLS.settingsBridge);
-        },
-        waitSettled: () => waitPendingAction(page),
         cleanup: async () => {
           await page.evaluate((bridgeUrl) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
@@ -1103,30 +1059,25 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
     async prepare(ctx) {
       const { page } = ctx;
       await preloadModules(page, [MODULE_URLS.settingsCollection, MODULE_URLS.updateSettings]);
-      const initialTz = await page.evaluate((settingsUrl) => {
+      const initialTz = await page.evaluate(({ settingsUrl, updateUrl }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
         const snapshot = cache[settingsUrl].settingsPayloadSnapshot as () => { operatorTimezone?: string };
-        return snapshot().operatorTimezone ?? 'UTC';
-      }, MODULE_URLS.settingsCollection);
-      const nextTz = initialTz === 'America/Denver' ? 'Europe/London' : 'America/Denver';
-      const readTz = () => page.evaluate((settingsUrl) => {
-        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const snapshot = cache[settingsUrl].settingsPayloadSnapshot as () => { operatorTimezone?: string };
-        return snapshot().operatorTimezone ?? '';
-      }, MODULE_URLS.settingsCollection);
-      return {
-        readValue: readTz,
-        isOptimisticShown: async () => (await readTz()) === nextTz,
-        fire: async () => {
-          await page.evaluate(({ updateUrl, tz }) => {
-            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const beforeTz = snapshot().operatorTimezone ?? 'UTC';
+        const nextTz = beforeTz === 'America/Denver' ? 'Europe/London' : 'America/Denver';
+        const readTz = (): string => snapshot().operatorTimezone ?? '';
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readTz,
+          isOptimisticShown: () => readTz() === nextTz,
+          fire: () => {
             const runAction = cache[updateUrl].default as (input: { settings: Record<string, unknown> }) => Promise<unknown>;
-            Reflect.set(window, '__continuityActionPromise', runAction({ settings: { operatorTimezone: tz } }));
-          }, { updateUrl: MODULE_URLS.updateSettings, tz: nextTz });
-        },
-        waitSettled: () => waitPendingAction(page),
+            Reflect.set(window, '__continuityActionPromise', runAction({ settings: { operatorTimezone: nextTz } }));
+          },
+        });
+        return beforeTz;
+      }, { settingsUrl: MODULE_URLS.settingsCollection, updateUrl: MODULE_URLS.updateSettings });
+      return {
         cleanup: async () => {
-          if ((await readTz()) === initialTz) return;
+          if ((await readActiveActionValue(page)) === initialTz) return;
           await page.evaluate(async ({ updateUrl, tz }) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
             const runAction = cache[updateUrl].default as (input: { settings: Record<string, unknown> }) => Promise<unknown>;

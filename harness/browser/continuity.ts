@@ -112,31 +112,134 @@ async function clearAllHeaderNotices(page: Page): Promise<void> {
   }, ACTION_STATUS_MODULE_URL);
 }
 
-async function countVisibleNotices(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const notice = document.getElementById('header-error-notice');
-    if (!notice || notice.hidden) return 0;
-    const text = notice.textContent?.trim() ?? '';
-    if (text.length === 0) return 0;
-    return 1;
+async function clearActiveAction(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Reflect.deleteProperty(window, '__continuityActiveAction');
+    Reflect.deleteProperty(window, '__continuityActionPromise');
   });
 }
 
-async function waitForDomPredicate(
+async function waitPendingActionInPage(page: Page, timeoutMs: number): Promise<void> {
+  await page.evaluate(async (settleMs) => {
+    const pending = Reflect.get(window, '__continuityActionPromise') as Promise<unknown> | undefined;
+    if (pending) {
+      await Promise.race([
+        pending.catch(() => {}),
+        new Promise<void>((resolve) => { setTimeout(resolve, settleMs); }),
+      ]);
+    }
+    Reflect.deleteProperty(window, '__continuityActionPromise');
+  }, timeoutMs);
+}
+
+async function runC1InPage(
   page: Page,
-  predicate: () => Promise<boolean>,
   budgetMs: number,
 ): Promise<{ matched: boolean; elapsedMs: number }> {
-  const startedAt = performance.now();
-  while (true) {
-    const matched = await predicate();
-    const elapsedMs = Math.round(performance.now() - startedAt);
-    if (matched) return { matched: true, elapsedMs };
-    if (elapsedMs >= budgetMs) return { matched: false, elapsedMs };
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    }));
-  }
+  return page.evaluate(async (limitMs) => {
+    const action = Reflect.get(window, '__continuityActiveAction') as {
+      isOptimisticShown: () => boolean;
+      fire: () => void;
+    } | undefined;
+    if (!action) throw new Error('continuity active action was not registered');
+    const startedAt = performance.now();
+    action.fire();
+    while (true) {
+      const matched = action.isOptimisticShown();
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (matched) return { matched: true, elapsedMs };
+      if (elapsedMs >= limitMs) return { matched: false, elapsedMs };
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    }
+  }, budgetMs);
+}
+
+async function runC2InPage(
+  page: Page,
+  settleTimeoutMs: number,
+  budgetMs: number,
+): Promise<{ matched: boolean; elapsedMs: number; beforeValue: string; afterValue: string; noticeCount: number }> {
+  return page.evaluate(async ({ settleMs, limitMs }) => {
+    const action = Reflect.get(window, '__continuityActiveAction') as {
+      readValue: () => string;
+      fire: () => void;
+    } | undefined;
+    if (!action) throw new Error('continuity active action was not registered');
+    const visibleNoticeCount = (): number => {
+      const notice = document.getElementById('header-error-notice');
+      if (!notice || notice.hidden) return 0;
+      const text = notice.textContent?.trim() ?? '';
+      return text.length > 0 ? 1 : 0;
+    };
+    const beforeValue = action.readValue();
+    action.fire();
+    const pending = Reflect.get(window, '__continuityActionPromise') as Promise<unknown> | undefined;
+    if (pending) {
+      await Promise.race([
+        pending.catch(() => {}),
+        new Promise<void>((resolve) => { setTimeout(resolve, settleMs); }),
+      ]);
+      Reflect.deleteProperty(window, '__continuityActionPromise');
+    }
+    const settledAt = performance.now();
+    while (true) {
+      const afterValue = action.readValue();
+      const noticeCount = visibleNoticeCount();
+      const elapsedMs = Math.round(performance.now() - settledAt);
+      if (afterValue === beforeValue && noticeCount === 1) {
+        return { matched: true, elapsedMs, beforeValue, afterValue, noticeCount };
+      }
+      if (elapsedMs >= limitMs) {
+        return { matched: false, elapsedMs, beforeValue, afterValue, noticeCount };
+      }
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    }
+  }, { settleMs: settleTimeoutMs, limitMs: budgetMs });
+}
+
+async function runC5InPage(
+  page: Page,
+  optimisticBudgetMs: number,
+  holdDurationMs: number,
+): Promise<{ optimisticShown: boolean; optimisticMs: number; revertedDuringHold: boolean; sampledFrames: number }> {
+  return page.evaluate(async ({ optBudgetMs, holdMs }) => {
+    const action = Reflect.get(window, '__continuityActiveAction') as {
+      readValue: () => string;
+      isOptimisticShown: () => boolean;
+      fire: () => void;
+    } | undefined;
+    if (!action) throw new Error('continuity active action was not registered');
+    const beforeValue = action.readValue();
+    const startedAt = performance.now();
+    action.fire();
+    let optimisticShown = false;
+    let optimisticMs = 0;
+    while (true) {
+      optimisticShown = action.isOptimisticShown();
+      optimisticMs = Math.round(performance.now() - startedAt);
+      if (optimisticShown || optimisticMs >= optBudgetMs) break;
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    }
+    let revertedDuringHold = false;
+    let sampledFrames = 0;
+    const holdDeadline = startedAt + holdMs;
+    while (performance.now() < holdDeadline) {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      sampledFrames += 1;
+      if (action.readValue() === beforeValue) {
+        revertedDuringHold = true;
+      }
+    }
+    return { optimisticShown, optimisticMs, revertedDuringHold, sampledFrames };
+  }, { optBudgetMs: optimisticBudgetMs, holdMs: holdDurationMs });
 }
 
 async function runActionContinuityCase(
@@ -172,51 +275,36 @@ async function runActionContinuityCase(
   try {
     await syncBrowserSeqFloor(page, faults);
     faults.setReplyDelayMs(REPLY_DELAY_MS);
-    const c1Start = performance.now();
-    await c1Handle.fire();
-    const fireMs = Math.round(performance.now() - c1Start);
-    const c1Wait = await waitForDomPredicate(page, () => c1Handle.isOptimisticShown(), OPTIMISTIC_DOM_BUDGET_MS);
-    c1Ms = Math.round(performance.now() - c1Start);
+    const c1Wait = await runC1InPage(page, OPTIMISTIC_DOM_BUDGET_MS);
+    c1Ms = c1Wait.elapsedMs;
     c1Passed = c1Wait.matched && c1Ms <= OPTIMISTIC_DOM_BUDGET_MS;
     if (!c1Passed) {
-      failures.push(`C1 optimistic state not shown within ${OPTIMISTIC_DOM_BUDGET_MS}ms (elapsed ${c1Ms}ms, fire=${fireMs}ms, replyDelay ${REPLY_DELAY_MS}ms)`);
+      failures.push(`C1 optimistic state not shown within ${OPTIMISTIC_DOM_BUDGET_MS}ms (elapsed ${c1Ms}ms, replyDelay ${REPLY_DELAY_MS}ms)`);
     }
-    await Promise.race([c1Handle.waitSettled(), sleep(ACTION_SETTLE_TIMEOUT_MS)]);
+    await waitPendingActionInPage(page, ACTION_SETTLE_TIMEOUT_MS);
   } finally {
     faults.reset();
     await clearAllHeaderNotices(page);
     await c1Handle.cleanup();
+    await clearActiveAction(page);
   }
 
   faults.reset();
   await clearAllHeaderNotices(page);
   const c2Handle = await actionCase.prepare(ctx, 'C2');
   try {
-    const beforeValue = await c2Handle.readValue();
     faults.failRequestType(actionCase.name, `Continuity C2 injected failure for ${actionCase.name}`);
-    await c2Handle.fire();
-    await Promise.race([c2Handle.waitSettled(), sleep(ACTION_SETTLE_TIMEOUT_MS)]);
-    const c2Start = performance.now();
-    const c2Wait = await waitForDomPredicate(
-      page,
-      async () => {
-        const currentValue = await c2Handle.readValue();
-        const noticeCount = await countVisibleNotices(page);
-        return currentValue === beforeValue && noticeCount === 1;
-      },
-      ROLLBACK_DOM_BUDGET_MS,
-    );
-    c2Ms = Math.round(performance.now() - c2Start);
-    const afterValue = await c2Handle.readValue();
-    const finalNoticeCount = await countVisibleNotices(page);
-    c2Passed = c2Wait.matched && c2Ms <= ROLLBACK_DOM_BUDGET_MS && afterValue === beforeValue && finalNoticeCount === 1;
+    const c2Wait = await runC2InPage(page, ACTION_SETTLE_TIMEOUT_MS, ROLLBACK_DOM_BUDGET_MS);
+    c2Ms = c2Wait.elapsedMs;
+    c2Passed = c2Wait.matched && c2Ms <= ROLLBACK_DOM_BUDGET_MS && c2Wait.afterValue === c2Wait.beforeValue && c2Wait.noticeCount === 1;
     if (!c2Passed) {
-      failures.push(`C2 rollback failed (elapsed ${c2Ms}ms, before=${JSON.stringify(beforeValue)}, after=${JSON.stringify(afterValue)}, notices=${finalNoticeCount})`);
+      failures.push(`C2 rollback failed (elapsed ${c2Ms}ms, before=${JSON.stringify(c2Wait.beforeValue)}, after=${JSON.stringify(c2Wait.afterValue)}, notices=${c2Wait.noticeCount})`);
     }
   } finally {
     faults.reset();
     await clearAllHeaderNotices(page);
     await c2Handle.cleanup();
+    await clearActiveAction(page);
   }
 
   faults.reset();
@@ -224,32 +312,20 @@ async function runActionContinuityCase(
   const c5Handle = await actionCase.prepare(ctx, 'C5');
   try {
     await syncBrowserSeqFloor(page, faults);
-    const beforeValue = await c5Handle.readValue();
     faults.setReplyDelayMs(0);
     faults.setPushDelayMs(PUSH_DELAY_MS);
-    await c5Handle.fire();
-    const optimisticShown = await waitForDomPredicate(page, () => c5Handle.isOptimisticShown(), OPTIMISTIC_DOM_BUDGET_MS);
-    let revertedDuringHold = false;
-    const holdDeadline = performance.now() + PUSH_DELAY_MS - 30;
-    while (performance.now() < holdDeadline) {
-      await page.evaluate(() => new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      }));
-      c5SampledFrames += 1;
-      const sampledValue = await c5Handle.readValue();
-      if (sampledValue === beforeValue) {
-        revertedDuringHold = true;
-      }
-    }
-    await Promise.race([c5Handle.waitSettled(), sleep(ACTION_SETTLE_TIMEOUT_MS)]);
-    c5Passed = optimisticShown.matched && !revertedDuringHold && c5SampledFrames > 0;
+    const c5Result = await runC5InPage(page, OPTIMISTIC_DOM_BUDGET_MS, PUSH_DELAY_MS - 30);
+    c5SampledFrames = c5Result.sampledFrames;
+    await waitPendingActionInPage(page, ACTION_SETTLE_TIMEOUT_MS);
+    c5Passed = c5Result.optimisticShown && !c5Result.revertedDuringHold && c5SampledFrames > 0;
     if (!c5Passed) {
-      failures.push(`C5 early drop check failed (optimisticShown=${String(optimisticShown.matched)}, revertedDuringHold=${String(revertedDuringHold)}, frames=${c5SampledFrames})`);
+      failures.push(`C5 early drop check failed (optimisticShown=${String(c5Result.optimisticShown)}, optimisticMs=${c5Result.optimisticMs}ms, revertedDuringHold=${String(c5Result.revertedDuringHold)}, frames=${c5SampledFrames})`);
     }
   } finally {
     faults.reset();
     await clearAllHeaderNotices(page);
     await c5Handle.cleanup();
+    await clearActiveAction(page);
   }
 
   return {
