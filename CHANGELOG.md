@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Opening a large board no longer stalls its first draw while saving layout warnings.** Saving a board's layout cache now writes route and placement warnings in slices instead of one synchronous transaction, so a board with thousands of wire warnings keeps answering view requests while its cache saves.
 - **Antigravity sessions over ACP now receive the `whiteboard` MCP tool.** `agy acp` drops eager MCP tool declarations past about 19.7 KB, which previously hid `whiteboard` (24.9 KB). Trimming redundant descriptions in the shared `whiteboard` declaration brings it under an 18 KB size gate for all agents without changing any field, enum, or validation rule.
 - **Returning to Studio no longer re-requests digests, code map boxes, or session traces when nothing changed while hidden.** Studio now tracks server push invalidations (`director-digest-kept`, `session-trace-changed`, board version updates, and reconnect snapshots) while hidden and skips redundant `director-digests`, `codemap-boxes-of`, and `session-trace` frames on clean view returns.
 - **Returning to Settings on phone now keeps the active section, search query, DOM, and focus.** Leaving Settings on phone previously cleared the URL hash and triggered an unconditional section reset on return, exiting nested sections such as Hooks back to the section list and rebuilding the Settings DOM.

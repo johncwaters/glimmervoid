@@ -12,8 +12,9 @@ import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
 import { BOARD_SHEET_CAP_BYTES, Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, pointOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
-import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
-import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
+import { layoutBoard, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
+import type { PlacedBox } from '../../shared/whiteboard-layout-core.ts';
+import { inflated, pointsOfPath, unionOf } from '../../shared/whiteboard-route-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const WORKTREE_TIMEOUT_MS = 15000;
@@ -2517,6 +2518,9 @@ const SCALE_DRAG_ZOOM = 0.55;
 const SCALE_MAX_ZOOM_IN_NOTCHES = 80;
 const SCALE_PUT_BYTES_SHARE = 0.9;
 const SCALE_SAVE_TIMEOUT_MS = 30000;
+const SCALE_BOARD_MARGIN = 40;
+const SCALE_INSPECT_WIDTH_PX = 264;
+const SCALE_INSPECT_HEIGHT_PX = 220;
 const STACKED_BOX_EVERY = 10;
 
 function scaleBoardPuts(): Op[][] {
@@ -2601,29 +2605,51 @@ async function stopFrameRecorder(page: Page): Promise<{ maxMs: number; p50Ms: nu
   return { maxMs: Math.round(sorted.at(-1) ?? 0), p50Ms: Math.round(sorted[Math.floor(sorted.length / 2)] ?? 0), frames: sorted.length };
 }
 
-async function visibleAtBoxRects(open: OpenBoard, board: Board, count: number): Promise<Map<string, ScreenRect>> {
+function isPointInRect(point: { x: number; y: number }, rect: ScreenRect): boolean {
+  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+}
+
+async function boardOverlayRectsOf(panel: Locator): Promise<ScreenRect[]> {
+  return panel.evaluate((root, { inspectWidthPx, inspectHeightPx }) => {
+    const rects: { x: number; y: number; width: number; height: number }[] = [];
+    for (const island of root.querySelectorAll<HTMLElement>('.wb-top-left > .wb-island:not([hidden]), .wb-bottom-left > .wb-island:not([hidden])')) {
+      const bounds = island.getBoundingClientRect();
+      if (bounds.width > 0 && bounds.height > 0) rects.push({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+    }
+    const topRight = root.querySelector<HTMLElement>('.wb-top-right')?.getBoundingClientRect();
+    if (topRight && topRight.width > 0 && topRight.height > 0) {
+      rects.push({ x: topRight.right - inspectWidthPx, y: topRight.top, width: inspectWidthPx, height: inspectHeightPx });
+    }
+    return rects;
+  }, { inspectWidthPx: SCALE_INSPECT_WIDTH_PX, inspectHeightPx: SCALE_INSPECT_HEIGHT_PX });
+}
+
+async function visibleAtBoxRects(open: OpenBoard, placedBoxes: readonly PlacedBox[], count: number): Promise<Map<string, ScreenRect>> {
   const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   const camera = await cameraOf(open);
+  const overlays = await boardOverlayRectsOf(open.panel);
   const inner = { left: canvasBox.x + 8, top: canvasBox.y + 8, right: canvasBox.x + canvasBox.width - 8, bottom: canvasBox.y + canvasBox.height - 8 };
   const picked = new Map<string, ScreenRect>();
-  for (const laidOut of layoutBoard(board).elements) {
-    if (laidOut.kind !== 'box' || Number(laidOut.id.slice(1)) % STACKED_BOX_EVERY === 0) continue;
+  for (const laidOut of placedBoxes) {
+    if (Number(laidOut.id.slice(1)) % STACKED_BOX_EVERY === 0) continue;
     const rect = screenRectOn(camera, laidOut);
+    const center = centerOf(rect);
     const isInside = rect.x > inner.left && rect.y > inner.top && rect.x + rect.width < inner.right && rect.y + rect.height < inner.bottom;
-    if (isInside) picked.set(laidOut.id, rect);
+    const isCovered = overlays.some((overlay) => isPointInRect(center, overlay));
+    if (isInside && !isCovered) picked.set(laidOut.id, rect);
     if (picked.size === count) break;
   }
   return picked;
 }
 
-async function panToAtGrid(open: OpenBoard, board: Board): Promise<Map<string, ScreenRect>> {
+async function panToAtGrid(open: OpenBoard, placedBoxes: readonly PlacedBox[]): Promise<Map<string, ScreenRect>> {
   const { page, panel } = open;
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   const start = { x: canvasBox.x + canvasBox.width * 0.8, y: canvasBox.y + canvasBox.height * 0.5 };
   const camera = await cameraOf(open);
-  const boxesOnScreen = layoutBoard(board).elements.filter((laidOut) => laidOut.kind === 'box').map((laidOut) => centerOf(screenRectOn(camera, laidOut))).filter((center) => center.x > canvasBox.x && center.y > canvasBox.y && center.x < canvasBox.x + canvasBox.width && center.y < canvasBox.y + canvasBox.height);
+  const boxesOnScreen = placedBoxes.map((laidOut) => centerOf(screenRectOn(camera, laidOut))).filter((center) => center.x > canvasBox.x && center.y > canvasBox.y && center.x < canvasBox.x + canvasBox.width && center.y < canvasBox.y + canvasBox.height);
   const zoomAnchor = boxesOnScreen[Math.floor(boxesOnScreen.length / 2)] ?? start;
   await page.mouse.move(zoomAnchor.x, zoomAnchor.y);
   await page.keyboard.down('Control');
@@ -2631,14 +2657,14 @@ async function panToAtGrid(open: OpenBoard, board: Board): Promise<Map<string, S
   await page.keyboard.up('Control');
   await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const visible = await visibleAtBoxRects(open, board, SCALE_DRAGGED_BOX_COUNT);
+    const visible = await visibleAtBoxRects(open, placedBoxes, SCALE_DRAGGED_BOX_COUNT);
     if (visible.size === SCALE_DRAGGED_BOX_COUNT) return visible;
     await page.mouse.move(start.x, start.y);
     await page.mouse.down({ button: 'right' });
     await page.mouse.move(start.x - canvasBox.width * 0.4, start.y - canvasBox.height * 0.25, { steps: 10 });
     await page.mouse.up({ button: 'right' });
   }
-  return visibleAtBoxRects(open, board, SCALE_DRAGGED_BOX_COUNT);
+  return visibleAtBoxRects(open, placedBoxes, SCALE_DRAGGED_BOX_COUNT);
 }
 
 export async function verifyBoardScale(page: Page, sessionId: string): Promise<string> {
@@ -2661,8 +2687,12 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
 
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
+  const before = await shownBoardOf(open);
+  const placedBoxes = [...storedRectsOfBoxes(before).values()];
+  const boxesBounds = unionOf(placedBoxes);
+  assert.ok(boxesBounds, 'the large board places its boxes');
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
-  const fittedBoard = screenRectOn(await cameraOf(open), layoutBoard(await shownBoardOf(open)).bounds);
+  const fittedBoard = screenRectOn(await cameraOf(open), inflated(boxesBounds, SCALE_BOARD_MARGIN));
   const isWholeBoardInView = fittedBoard.x >= canvasBox.x - 1 && fittedBoard.y >= canvasBox.y - 1 && fittedBoard.x + fittedBoard.width <= canvasBox.x + canvasBox.width + 1 && fittedBoard.y + fittedBoard.height <= canvasBox.y + canvasBox.height + 1;
   assert.ok(isWholeBoardInView, `Fit brings the whole large board into view, board ${JSON.stringify(fittedBoard)} canvas ${JSON.stringify(canvasBox)}`);
   await startFrameRecorder(page);
@@ -2672,8 +2702,7 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   await page.mouse.up({ button: 'right' });
   const pan = await stopFrameRecorder(page);
 
-  const before = await shownBoardOf(open);
-  const draggedRects = await panToAtGrid(open, before);
+  const draggedRects = await panToAtGrid(open, placedBoxes);
   const draggedBoxIds = [...draggedRects.keys()];
   assert.equal(draggedBoxIds.length, SCALE_DRAGGED_BOX_COUNT, `found ${SCALE_DRAGGED_BOX_COUNT} boxes to drag on screen`);
   for (const [index, rect] of [...draggedRects.values()].entries()) {
@@ -2682,6 +2711,7 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
     await page.mouse.click(center.x, center.y);
     if (index > 0) await page.keyboard.up('Shift');
   }
+  await panel.locator('.wb-inspect .wb-inspect-heading', { hasText: `${SCALE_DRAGGED_BOX_COUNT} selected` }).waitFor({ timeout: BOARD_TIMEOUT_MS });
   const placesBefore = placesOf(before, draggedBoxIds);
   const untouchedBoxId = [...before.elements.keys()].find((elementId) => before.elements.get(elementId)?.kind === 'box' && !draggedBoxIds.includes(elementId)) ?? '';
   const grabAt = centerOf(draggedRects.get(draggedBoxIds[0] ?? '') ?? { x: 0, y: 0, width: 0, height: 0 });

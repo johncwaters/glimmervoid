@@ -298,6 +298,26 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     }
   }
 
+  function isSameStamp(first: LayoutStamp, second: LayoutStamp): boolean {
+    return first.version === second.version && first.updatedAt === second.updatedAt;
+  }
+
+  function* writingWarnings(boardId: string, book: 'route' | 'placement', warnings: readonly LayoutWarning[], expectedStamp: LayoutStamp, latest: WholeSaveSource): Generator<void, 'done' | 'stale' | 'gone'> {
+    for (let start = 0; start < warnings.length; start += WRITE_ROWS_PER_SLICE) {
+      const current = latest();
+      if (!current) return 'gone';
+      if (!isSameStamp(current.stamp, expectedStamp)) return 'stale';
+      committed(database, () => {
+        for (let index = start; index < Math.min(start + WRITE_ROWS_PER_SLICE, warnings.length); index += 1) {
+          const warning = warnings[index];
+          if (warning) statements.insertWarning.run(boardId, book, storedWarningTextOf(warning));
+        }
+      });
+      yield;
+    }
+    return 'done';
+  }
+
   function* savingWhole(boardId: string, latest: WholeSaveSource): Generator<void, boolean> {
     inTransaction(database, () => {
       statements.removeHead.run(boardId);
@@ -308,16 +328,28 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     yield* removingRows(boardId);
     if (!(yield* writingRows(boardId, latest))) return false;
     if (!(yield* writingRoutes(boardId, latest))) return false;
-    const whole = latest();
-    if (!whole) return false;
-    const { routeWarnings, placementWarnings } = whole.savedWorld();
-    inTransaction(database, () => {
-      for (const warning of routeWarnings) statements.insertWarning.run(boardId, 'route', storedWarningTextOf(warning));
-      for (const warning of placementWarnings) statements.insertWarning.run(boardId, 'placement', storedWarningTextOf(warning));
-      writeHead(boardId, whole.stamp, whole.chrome);
-    });
-    truncateWriteAheadLogLikeAutocheckpoint(database);
-    return true;
+    for (;;) {
+      const whole = latest();
+      if (!whole) return false;
+      const { routeWarnings, placementWarnings } = whole.savedWorld();
+      const routeStatus = yield* writingWarnings(boardId, 'route', routeWarnings, whole.stamp, latest);
+      if (routeStatus === 'gone') return false;
+      const placementStatus = routeStatus === 'done' ? yield* writingWarnings(boardId, 'placement', placementWarnings, whole.stamp, latest) : routeStatus;
+      if (placementStatus === 'gone') return false;
+      const finished = latest();
+      if (!finished) return false;
+      if (placementStatus === 'done' && isSameStamp(finished.stamp, whole.stamp)) {
+        inTransaction(database, () => {
+          writeHead(boardId, finished.stamp, finished.chrome);
+        });
+        truncateWriteAheadLogLikeAutocheckpoint(database);
+        return true;
+      }
+      inTransaction(database, () => {
+        statements.removeWarnings.run(boardId);
+      });
+      yield;
+    }
   }
 
   function forget(boardId: string): void {
