@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentHookGroup, AgentNote } from '../hooks.ts';
 import { AgentAccountId, AgentAccountStatuses, LaneAccountLane } from '../agent-accounts.ts';
-import { requestId, loose, looseCollection, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, TelegramDeliveryStatus } from './control-fields.ts';
+import { requestId, loose, looseCollection, looseMutatingReply, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, TelegramDeliveryStatus } from './control-fields.ts';
 
 export const MAX_CLONE_SOURCES_PER_REQUEST = 200;
 
@@ -54,13 +54,13 @@ export const settingsServerVariants = [
     limits: openObject({ maxTimeoutSec: z.number().int().positive() }).optional(),
     error: optionalError,
   }),
-  loose('save-hook-result', { requestId, ok: z.boolean(), error: optionalError, hook: opaqueObject.optional() }),
+  looseMutatingReply('save-hook-result', { requestId, ok: z.boolean(), error: optionalError, hook: opaqueObject.optional() }),
   looseCollection('agent-accounts', { requestId, accounts: AgentAccountStatuses, accountId: AgentAccountId.optional(), error: optionalError }),
-  loose('start-remote-setup-result', { requestId, ok: z.boolean(), error: optionalError, sessionId: z.string().optional(), sessionName: z.string().optional() }),
-  loose('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
+  looseMutatingReply('start-remote-setup-result', { requestId, ok: z.boolean(), error: optionalError, sessionId: z.string().optional(), sessionName: z.string().optional() }),
+  looseMutatingReply('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
   looseCollection('hooks-updated', { count: z.number().int().nonnegative() }),
   loose('settings', { settings: opaqueObject, requestId }),
-  loose('settings-error', { message: z.string(), requestId }),
+  looseMutatingReply('settings-error', { message: z.string(), requestId }),
   looseCollection('settings-updated', { settings: opaqueObject, requestId }),
   loose('agents-listed', {
     requestId,

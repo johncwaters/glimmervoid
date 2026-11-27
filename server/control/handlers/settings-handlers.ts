@@ -33,7 +33,7 @@ import { machineSkipsPermissionsByDefault } from '../../session/core/session-reg
 import { buildSettingsPayload as buildSettingsPayloadFrom } from '../../settings-payload.ts';
 import { expandTilde } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
-import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
+import { isExistingDirectory, replyTo } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
 import { runCommandSafely } from '../../child-process-safe.ts';
@@ -189,11 +189,12 @@ function incomingSettingsBlocksError(blocks: readonly IncomingSettingsBlock[]): 
 }
 
 const AGENT_ACCOUNTS_UNAVAILABLE = 'Agent accounts are not available on this server.';
-type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-rename' | 'agent-account-default' | 'agent-lane-account';
+type MutatingAgentAccountMessageType = 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-rename' | 'agent-account-default' | 'agent-lane-account';
 
 const CLONE_JOBS_BROADCAST_GAP_MS = 250;
 
-function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
+function createSettingsHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
+  const { replyApplied } = context;
   const {
     config,
     configStore,
@@ -220,7 +221,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   async function handleStartRemoteSetup(msg: ClientMessageOf<'start-remote-setup'>, ws: ControlSocket): Promise<void> {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'start-remote-setup-result', { ok: false, error: null, ...payload });
+    const reply = (payload: Record<string, unknown>) => replyApplied(ws, msg, 'start-remote-setup-result', { ok: false, error: null, ...payload });
     if (!remoteSetup) { reply({ error: 'Remote host setup is not available on this server.' }); return; }
     const { label, resolvable } = describeAgentResolvability(msg.agent);
     if (!resolvable) { reply({ error: `Install ${label} on this machine before starting the remote setup session.` }); return; }
@@ -229,23 +230,32 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     reply({ ok: true, sessionId: outcome.sessionId, sessionName: outcome.sessionName });
   }
 
-  async function answerAgentAccounts(msg: ClientMessageOf<AgentAccountMessageType>, ws: ControlSocket, act: (accounts: NonNullable<typeof agentAccounts>) => Promise<{ ok: true; accountId?: string } | { ok: false; error: string }>): Promise<void> {
+  async function handleGetAgentAccounts(msg: ClientMessageOf<'get-agent-accounts'>, ws: ControlSocket): Promise<void> {
     if (!agentAccounts) {
       replyTo(ws, msg, 'agent-accounts', { accounts: [], error: AGENT_ACCOUNTS_UNAVAILABLE });
       return;
     }
-    const outcome = await act(agentAccounts);
-    if (!outcome.ok) {
-      replyTo(ws, msg, 'agent-accounts', { accounts: agentAccounts.list(), error: outcome.error });
+    await agentAccounts.refresh();
+    replyTo(ws, msg, 'agent-accounts', { accounts: agentAccounts.list() });
+  }
+
+  async function answerMutatingAgentAccounts(msg: ClientMessageOf<MutatingAgentAccountMessageType>, ws: ControlSocket, act: (accounts: NonNullable<typeof agentAccounts>) => Promise<{ ok: true; accountId?: string } | { ok: false; error: string }>): Promise<void> {
+    if (!agentAccounts) {
+      replyApplied(ws, msg, 'agent-accounts', { accounts: [], error: AGENT_ACCOUNTS_UNAVAILABLE });
       return;
     }
-    replyTo(ws, msg, 'agent-accounts', { accounts: agentAccounts.list(), accountId: outcome.accountId });
+    const outcome = await act(agentAccounts);
+    if (!outcome.ok) {
+      replyApplied(ws, msg, 'agent-accounts', { accounts: agentAccounts.list(), error: outcome.error });
+      return;
+    }
+    replyApplied(ws, msg, 'agent-accounts', { accounts: agentAccounts.list(), accountId: outcome.accountId });
   }
 
   function handleUpdateSettings(msg: ClientMessageOf<'update-settings'>, ws: ControlSocket): void {
     const parsedSettings = ConfigUpdate.safeParse(msg.settings || {});
     if (!parsedSettings.success) {
-      sendError(ws, configIssueMessage(parsedSettings.error), { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: configIssueMessage(parsedSettings.error) });
       return;
     }
     const s = parsedSettings.data;
@@ -254,7 +264,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
     const resolvedRoots = s.repoRoots ? resolvedRepoRoots(s.repoRoots) : null;
     if (resolvedRoots && 'error' in resolvedRoots) {
-      sendError(ws, resolvedRoots.error, { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: resolvedRoots.error });
       return;
     }
     if (resolvedRoots) s.repoRoots = resolvedRoots.roots;
@@ -262,14 +272,14 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     const blocks = incomingSettingsBlocks(incoming);
     const blockError = incomingSettingsBlocksError(blocks);
     if (blockError) {
-      sendError(ws, blockError, { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: blockError });
       return;
     }
 
     const workflowsUpdate = s.workflows;
     const workflowsMerge = workflowsUpdate ? mergeWorkflowsUpdateOverStored(config.workflows, workflowsUpdate) : null;
     if (workflowsMerge && !workflowsMerge.ok) {
-      sendError(ws, workflowsMerge.error, { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: workflowsMerge.error });
       return;
     }
 
@@ -293,26 +303,22 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       return undefined;
     });
     if (inSaveWorkflowsFailure.error !== null) {
-      sendError(ws, inSaveWorkflowsFailure.error, { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: inSaveWorkflowsFailure.error });
       return;
     }
     if (!freshConfig) {
-      sendError(ws, settingsNotSavedText(configStore.lastSaveFailureReason()), { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: settingsNotSavedText(configStore.lastSaveFailureReason()) });
       return;
     }
     applySettingsReload(freshConfig);
     if (machineSkipsPermissionsByDefault(freshConfig) !== skippedPermissionsByDefault) applyConfigReload(freshConfig);
     const updatedSettings = buildSettingsPayload();
 
-    ws.send(JSON.stringify({
-      type: 'settings-updated',
-      requestId: msg.requestId || null,
-      settings: updatedSettings,
-    }));
     broadcastControl({
       type: 'settings-updated',
       settings: updatedSettings,
     });
+    replyApplied(ws, msg, 'settings-updated', { settings: updatedSettings });
     console.log('[control] Settings updated via UI');
   }
 
@@ -361,14 +367,14 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   function handleAddRepoRoots(msg: ClientMessageOf<'add-repo-roots'>, ws: ControlSocket): void {
     const resolvedRoots = resolvedRepoRoots(msg.roots);
     if ('error' in resolvedRoots) {
-      sendError(ws, resolvedRoots.error, { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: resolvedRoots.error });
       return;
     }
     if (!saveAddedRepoRoots(resolvedRoots.roots)) {
-      sendError(ws, settingsNotSavedText(configStore.lastSaveFailureReason()), { type: 'settings-error', requestId: msg.requestId || null });
+      replyApplied(ws, msg, 'settings-error', { message: settingsNotSavedText(configStore.lastSaveFailureReason()) });
       return;
     }
-    replyTo(ws, msg, 'settings-updated', { settings: buildSettingsPayload() });
+    replyApplied(ws, msg, 'settings-updated', { settings: buildSettingsPayload() });
   }
 
   function currentGithubCredential() {
@@ -423,15 +429,24 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     cloneJobsBroadcastTimer.unref();
   });
 
+  function flushCloneJobsBroadcast(): void {
+    if (cloneJobsBroadcastTimer === null) return;
+    clearTimeout(cloneJobsBroadcastTimer);
+    cloneJobsBroadcastTimer = null;
+    broadcastControl({ type: 'repository-clones', jobs: cloneJobs.list() });
+  }
+
   async function handleStartRepositoryClones(msg: ClientMessageOf<'start-repository-clones'>, ws: ControlSocket): Promise<void> {
     await cloneJobs.forgetMissingFolders();
     const refusal = cloneJobs.start(msg.sources);
-    replyTo(ws, msg, 'repository-clones', { jobs: cloneJobs.list(), ...(refusal === null ? {} : { error: refusal }) });
+    flushCloneJobsBroadcast();
+    replyApplied(ws, msg, 'repository-clones', { jobs: cloneJobs.list(), ...(refusal === null ? {} : { error: refusal }) });
   }
 
   function handleCancelRepositoryClone(msg: ClientMessageOf<'cancel-repository-clone'>, ws: ControlSocket): void {
     cloneJobs.cancel(msg.source);
-    replyTo(ws, msg, 'repository-clones', { jobs: cloneJobs.list() });
+    flushCloneJobsBroadcast();
+    replyApplied(ws, msg, 'repository-clones', { jobs: cloneJobs.list() });
   }
 
   async function handleTelegramTest(msg: ClientMessageOf<'telegram-test'>, ws: ControlSocket): Promise<void> {
@@ -483,7 +498,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   function handleSaveHook(msg: ClientMessageOf<'save-hook'>, ws: ControlSocket): void {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'save-hook-result', { ok: false, error: null, ...payload });
+    const reply = (payload: Record<string, unknown>) => replyApplied(ws, msg, 'save-hook-result', { ok: false, error: null, ...payload });
     const input = msg.hook && typeof msg.hook === 'object' ? msg.hook : {};
     const requestedId = typeof input.id === 'string' ? input.id : '';
     if (requestedId && !HOOK_ID_RE.test(requestedId)) { reply({ error: 'hook id is invalid' }); return; }
@@ -501,14 +516,14 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       cfg.hooks = upsertHook(rawStoredHooks(cfg.hooks), normalized.hook);
     });
     if (!freshConfig) { reply({ error: 'Could not write config.json' }); return; }
-    reply({ ok: true, hook: normalized.hook });
     applyConfigReload(freshConfig);
     broadcastControl({ type: 'hooks-updated', count: readStoredHooks(freshConfig.hooks).length });
+    reply({ ok: true, hook: normalized.hook });
     console.log(`[control] save-hook: ${normalized.hook.name} (${normalized.hook.event})`);
   }
 
   function handleDeleteHook(msg: ClientMessageOf<'delete-hook'>, ws: ControlSocket): void {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'delete-hook-result', { ok: false, error: null, ...payload });
+    const reply = (payload: Record<string, unknown>) => replyApplied(ws, msg, 'delete-hook-result', { ok: false, error: null, ...payload });
     const id = typeof msg.id === 'string' ? msg.id : '';
 
     if (!rawStoredHooks(config.hooks).some((hook) => hook && hook.id === id)) { reply({ error: 'Unknown hook' }); return; }
@@ -519,14 +534,14 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       if (remaining.length > 0) cfg.hooks = remaining;
     });
     if (!freshConfig) { reply({ error: 'Could not write config.json' }); return; }
-    reply({ ok: true, id });
     applyConfigReload(freshConfig);
     broadcastControl({ type: 'hooks-updated', count: readStoredHooks(freshConfig.hooks).length });
+    reply({ ok: true, id });
     console.log(`[control] delete-hook: ${id}`);
   }
 
   async function handlePackApprove(msg: ClientMessageOf<'pack-approve'>, ws: ControlSocket): Promise<void> {
-    const reply = (outcome: { ok: boolean; error?: string }) => replyTo(ws, msg, 'pack-approve-result', outcome);
+    const reply = (outcome: { ok: boolean; error?: string }) => replyApplied(ws, msg, 'pack-approve-result', outcome);
     const parsed = PackApproveRequest.safeParse({ fingerprint: msg.fingerprint });
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
     if (!deps.packs) { reply({ ok: false, error: 'Packs are not running' }); return; }
@@ -576,15 +591,15 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   const handlers = {
     'get-settings': handleGetSettings,
     'start-remote-setup': handleStartRemoteSetup,
-    'get-agent-accounts': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => { await accounts.refresh(); return { ok: true }; }),
-    'agent-account-add': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.add(msg.agent)),
-    'agent-account-sign-in': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.signIn(msg.accountId)),
-    'agent-account-cancel': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.cancel(msg.accountId)),
-    'agent-account-code': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.submitCode(msg.accountId, msg.code)),
-    'agent-account-remove': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.remove(msg.accountId)),
-    'agent-account-rename': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.rename(msg.accountId, msg.label)),
-    'agent-account-default': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.setDefault(msg.agent, msg.accountId)),
-    'agent-lane-account': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.setLaneAccount(msg.lane, msg.followsDefault ? { followsDefault: true } : { followsDefault: false, accountId: msg.accountId })),
+    'get-agent-accounts': handleGetAgentAccounts,
+    'agent-account-add': (msg, ws) => answerMutatingAgentAccounts(msg, ws, (accounts) => accounts.add(msg.agent)),
+    'agent-account-sign-in': (msg, ws) => answerMutatingAgentAccounts(msg, ws, (accounts) => accounts.signIn(msg.accountId)),
+    'agent-account-cancel': (msg, ws) => answerMutatingAgentAccounts(msg, ws, (accounts) => accounts.cancel(msg.accountId)),
+    'agent-account-code': (msg, ws) => answerMutatingAgentAccounts(msg, ws, async (accounts) => accounts.submitCode(msg.accountId, msg.code)),
+    'agent-account-remove': (msg, ws) => answerMutatingAgentAccounts(msg, ws, (accounts) => accounts.remove(msg.accountId)),
+    'agent-account-rename': (msg, ws) => answerMutatingAgentAccounts(msg, ws, async (accounts) => accounts.rename(msg.accountId, msg.label)),
+    'agent-account-default': (msg, ws) => answerMutatingAgentAccounts(msg, ws, async (accounts) => accounts.setDefault(msg.agent, msg.accountId)),
+    'agent-lane-account': (msg, ws) => answerMutatingAgentAccounts(msg, ws, async (accounts) => accounts.setLaneAccount(msg.lane, msg.followsDefault ? { followsDefault: true } : { followsDefault: false, accountId: msg.accountId })),
     'update-settings': handleUpdateSettings,
     'scan-repo-roots': handleScanRepoRoots,
     'add-repo-roots': handleAddRepoRoots,
@@ -611,7 +626,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
-    'get-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
+    'get-settings': (_msg, requestId, message) => ({ type: 'error', requestId, message }),
     'start-remote-setup': (_msg, requestId, message) => ({ type: 'start-remote-setup-result', requestId, ok: false, error: message }),
     'get-agent-accounts': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-add': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),

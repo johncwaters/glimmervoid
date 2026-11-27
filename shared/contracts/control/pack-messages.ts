@@ -111,7 +111,7 @@ export const packClientVariants = [
 
 export const packServerVariants = [
   PacksStatus.extend(collectionFields),
-  loose('pack-approve-result', { requestId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('pack-approve-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-request-dismiss-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-data-result', { requestId, ok: z.boolean(), data: PackStoreData.optional(), error: optionalError }),
   looseCollection('pack-data-changed', { pack: PackName, data: PackStoreData }).describe('A pack store write, from a panel, another dashboard or a job, sent to every dashboard so each open panel of that pack shows it'),

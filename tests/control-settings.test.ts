@@ -8,7 +8,9 @@ import path from 'node:path';
 
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
+import { createReplayLog } from '../server/core/control-replay-core.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
+import { sendStampedControlFrame } from '../server/control/control-seq.ts';
 import { settingsBlockSpecFor, validateSettingsBlock } from '../server/core/settings-block-core.ts';
 import { configSecretsPath } from '../server/secrets/core/secret-files-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
@@ -509,4 +511,56 @@ test('the team review environment announces its skill scan once it lands, so the
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
+});
+
+test('mutating settings and hook handlers broadcast before replying with appliedSeq', () => {
+  const replayLog = createReplayLog();
+  const cfg: GlimmervoidConfig = { projects: [] };
+  const store = testConfigStore(cfg);
+  const sockets: Parameters<typeof sendStampedControlFrame>[0][] = [];
+  const server = createControlServer(controlDeps(cfg, {
+    configStore: store,
+    controlReplayLog: replayLog,
+    applySettingsReload: (fresh) => { store.applySettings(fresh); },
+    broadcastControl: (message) => {
+      const stamped = replayLog.stamp(message);
+      const payload = JSON.stringify(stamped);
+      for (const socket of sockets) sendStampedControlFrame(socket, payload, stamped.seq);
+    },
+  }));
+  server.on('connection', (ws) => { sockets.push(ws); });
+  const connection = connectControl<SettingsFrame & { seq?: number; appliedSeq?: number; requestId?: string | null; hook?: { id: string } }>(server);
+  connection.sent.length = 0;
+
+  connection.send({ type: 'update-settings', requestId: 'req-settings', settings: { debugMode: true } });
+  const settingsBroadcastIndex = connection.sent.findIndex((frame) => frame.type === 'settings-updated' && frame.requestId === undefined);
+  const settingsReplyIndex = connection.sent.findIndex((frame) => frame.type === 'settings-updated' && frame.requestId === 'req-settings');
+  assert.ok(settingsBroadcastIndex >= 0 && settingsReplyIndex > settingsBroadcastIndex, 'settings-updated broadcast precedes reply');
+  assert.ok(typeof connection.sent[settingsBroadcastIndex]?.seq === 'number');
+  assert.ok(typeof connection.sent[settingsReplyIndex]?.appliedSeq === 'number');
+  assert.ok(connection.sent[settingsReplyIndex].appliedSeq >= connection.sent[settingsBroadcastIndex].seq);
+
+  connection.sent.length = 0;
+  connection.send({
+    type: 'save-hook',
+    requestId: 'req-hook-save',
+    hook: { name: 'lint', event: 'PostToolUse', matcher: 'Edit', type: 'command', command: 'npm run lint', enabled: true },
+  });
+  const hookSaveBroadcastIndex = connection.sent.findIndex((frame) => frame.type === 'hooks-updated');
+  const hookSaveReplyIndex = connection.sent.findIndex((frame) => frame.type === 'save-hook-result' && frame.requestId === 'req-hook-save');
+  assert.ok(hookSaveBroadcastIndex >= 0 && hookSaveReplyIndex > hookSaveBroadcastIndex, 'hooks-updated broadcast precedes save-hook-result');
+  assert.ok(typeof connection.sent[hookSaveBroadcastIndex]?.seq === 'number');
+  assert.ok(typeof connection.sent[hookSaveReplyIndex]?.appliedSeq === 'number');
+  assert.ok(connection.sent[hookSaveReplyIndex].appliedSeq >= connection.sent[hookSaveBroadcastIndex].seq);
+  const savedHookId = connection.sent[hookSaveReplyIndex]?.hook?.id;
+  assert.ok(typeof savedHookId === 'string' && savedHookId.length > 0);
+
+  connection.sent.length = 0;
+  connection.send({ type: 'delete-hook', requestId: 'req-hook-delete', id: savedHookId });
+  const hookDeleteBroadcastIndex = connection.sent.findIndex((frame) => frame.type === 'hooks-updated');
+  const hookDeleteReplyIndex = connection.sent.findIndex((frame) => frame.type === 'delete-hook-result' && frame.requestId === 'req-hook-delete');
+  assert.ok(hookDeleteBroadcastIndex >= 0 && hookDeleteReplyIndex > hookDeleteBroadcastIndex, 'hooks-updated broadcast precedes delete-hook-result');
+  assert.ok(typeof connection.sent[hookDeleteBroadcastIndex]?.seq === 'number');
+  assert.ok(typeof connection.sent[hookDeleteReplyIndex]?.appliedSeq === 'number');
+  assert.ok(connection.sent[hookDeleteReplyIndex].appliedSeq >= connection.sent[hookDeleteBroadcastIndex].seq);
 });
