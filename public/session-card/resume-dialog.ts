@@ -69,7 +69,10 @@ async function bindConversation(sessionId: string, target: RestartTarget, status
   const reply = await requestWithStatus('resume-conversation', { id: sessionId, conversationId }, status);
   if (!reply) return false;
   if (reply.type === 'resume-conversation-ack' && reply.ok) return true;
-  status.show('error', reply.type === 'error' ? reply.message : 'The conversation was not changed.');
+  const errorText = reply.type === 'error'
+    ? reply.message
+    : (reply.type === 'resume-conversation-ack' && reply.error ? reply.error : 'The conversation was not changed.');
+  status.show('error', errorText);
   return false;
 }
 

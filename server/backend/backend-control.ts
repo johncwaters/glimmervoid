@@ -21,6 +21,7 @@ import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { UpdateJournal } from '../../shared/contracts/update-journal.ts';
 import type { PlanLimitsVendor, ServerMessageOf } from '../../shared/contracts/control-messages.ts';
+import type { CollectionName } from '../../shared/contracts/control/message-classes.ts';
 import type { UpdateApplyOutcome } from '../update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
@@ -96,6 +97,7 @@ interface BackendControlDependencies {
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
   broadcastControlFlushed: FlushedControlBroadcast;
+  flushCollection?: (collection: CollectionName) => void;
   controlReplayLog: ReplayLog;
   agentAccounts: NonNullable<ControlHandlerDeps['agentAccounts']>;
   remoteSetup: NonNullable<ControlHandlerDeps['remoteSetup']>;
@@ -173,6 +175,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     configStore,
     broadcastControl,
     broadcastControlFlushed: dependencies.broadcastControlFlushed,
+    flushCollection: dependencies.flushCollection,
     controlReplayLog,
     telegramDelivery: dependencies.telegramDelivery,
     generateProjectId: dependencies.generateProjectId,

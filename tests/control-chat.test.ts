@@ -447,7 +447,9 @@ test('Sign in on the sign-in card has the server submit /login on its own, after
   connection.send({ type: 'sign-in-start', id: session.id, requestId: 'sign-in' });
   await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS * 2 + 200));
   assert.deepEqual(writes.slice(writesBeforeSignIn), ['\x1b[200~hello\x1b[201~', '\r', '\x1b[200~/login\x1b[201~', '\r']);
-  assert.deepEqual(connection.sent.at(-1), { type: 'sign-in-start-result', requestId: 'sign-in', id: session.id, ok: true });
+  const signInReply = connection.sent.at(-1) as { type: string; requestId?: string; id?: string; ok?: boolean; appliedSeq?: number } | undefined;
+  assert.equal(typeof signInReply?.appliedSeq, 'number');
+  assert.deepEqual({ ...signInReply, appliedSeq: 0 }, { type: 'sign-in-start-result', requestId: 'sign-in', id: session.id, ok: true, appliedSeq: 0 });
 });
 
 test('a Chat message whose prompt never reaches the trace leaves once its turn ends and the trace drains, and a turn end with nothing unrecorded settles nothing later', async (t) => {

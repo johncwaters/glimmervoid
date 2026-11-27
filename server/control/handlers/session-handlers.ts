@@ -36,7 +36,7 @@ import { isBranchWorkLanded } from '../../board-session/landed-branches.ts';
 import { branchParentIdOf } from '../../../shared/parent-link.ts';
 import { ORCHESTRATOR_NAME, ORCHESTRATOR_RUN_SETTINGS } from '../../core/studio-main-core.ts';
 import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
-import type { ControlContext } from '../control-context.ts';
+import type { ControlContext, MutatingControlMessage } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
@@ -78,7 +78,7 @@ interface SessionHandlerGroup extends ControlHandlerGroup {
 }
 
 function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps): SessionHandlerGroup {
-  const { sessions, agentSessions, findSession, liveSessionNames, findConfiguredProject, createProjectSession } = context;
+  const { sessions, agentSessions, findSession, liveSessionNames, findConfiguredProject, createProjectSession, replyApplied } = context;
   const {
     markChildWorktreeDiscard = null,
     sessionWakes = null,
@@ -98,22 +98,45 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     startPicks = null,
   } = deps;
 
+  function replySessionAction(
+    ws: ControlSocket,
+    msg: MutatingControlMessage,
+    outcome: { ok: boolean; error?: string | null; id?: string },
+    legacyError?: { id?: string; alwaysSendError?: boolean },
+  ): void {
+    const error = outcome.error ?? null;
+    replyApplied(ws, msg, 'session-action-result', { ...(outcome.id ? { id: outcome.id } : {}), ok: outcome.ok, error });
+    if (outcome.ok || !error) return;
+    if (legacyError?.alwaysSendError || typeof msg.requestId !== 'string' || msg.requestId.length === 0) {
+      sendError(ws, error, legacyError?.id ? { id: legacyError.id } : {});
+    }
+  }
+
   async function handleSecretDecision(msg: ClientMessageOf<'secret-decision'>, ws: ControlSocket): Promise<void> {
-    if (!secrets) return sendError(ws, 'Secret requests are unavailable on this host.', { id: msg.id });
+    if (!secrets) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: 'Secret requests are unavailable on this host.' }, { id: msg.id });
+      return;
+    }
     const refusal = await secrets.decide(msg);
-    if (refusal) sendError(ws, refusal, { id: msg.id });
+    replySessionAction(ws, msg, { id: msg.id, ok: !refusal, error: refusal }, { id: msg.id });
   }
 
   async function handleSecretRevoke(msg: ClientMessageOf<'secret-revoke'>, ws: ControlSocket): Promise<void> {
-    if (!secrets) return sendError(ws, 'Secret approvals are unavailable on this host.');
+    if (!secrets) {
+      replySessionAction(ws, msg, { ok: false, error: 'Secret approvals are unavailable on this host.' });
+      return;
+    }
     const refusal = await secrets.revoke(msg);
-    if (refusal) sendError(ws, refusal);
+    replySessionAction(ws, msg, { ok: !refusal, error: refusal });
   }
 
   async function handleAgeFileRemove(msg: ClientMessageOf<'age-file-remove'>, ws: ControlSocket): Promise<void> {
-    if (!secrets) return sendError(ws, 'Secret approvals are unavailable on this host.');
+    if (!secrets) {
+      replySessionAction(ws, msg, { ok: false, error: 'Secret approvals are unavailable on this host.' });
+      return;
+    }
     const refusal = await secrets.removeAgeFileName(msg);
-    if (refusal) sendError(ws, refusal);
+    replySessionAction(ws, msg, { ok: !refusal, error: refusal });
   }
 
   async function handleSecretSourceTest(msg: ClientMessageOf<'secret-source-test'>, ws: ControlSocket): Promise<void> {
@@ -151,13 +174,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     replyTo(ws, msg, 'start-picks', { picks });
   }
 
-  function socketReply(ws: ControlSocket, msg: AddSessionRequest): AddSessionReply {
+  function socketReply(ws: ControlSocket, msg: MutatingControlMessage): AddSessionReply {
     return (outcome) => {
-      if (msg.requestId) {
-        replyTo(ws, msg, 'add-session-result', outcome.ok ? { ok: true, error: null, sessionId: outcome.sessionId } : { ok: false, error: outcome.error });
-        return;
-      }
-      if (!outcome.ok) sendError(ws, outcome.error);
+      replyApplied(ws, msg, 'add-session-result', outcome.ok ? { ok: true, error: null, sessionId: outcome.sessionId } : { ok: false, error: outcome.error });
+      if (!outcome.ok && !msg.requestId) sendError(ws, outcome.error);
     };
   }
 
@@ -212,69 +232,69 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   async function handlePackLaunch(msg: ClientMessageOf<'pack-launch'>, ws: ControlSocket): Promise<void> {
     if (!packLaunchers) {
-      replyTo(ws, msg, 'add-session-result', { ok: false, error: 'Pack launchers are unavailable on this host.' });
+      replyApplied(ws, msg, 'add-session-result', { ok: false, error: 'Pack launchers are unavailable on this host.' });
       return;
     }
     const outcome = await packLaunchers.launchRequest(msg.pack, msg.launcherId, liveSessionNames());
     if (!outcome.ok) {
-      replyTo(ws, msg, 'add-session-result', { ok: false, error: outcome.error });
+      replyApplied(ws, msg, 'add-session-result', { ok: false, error: outcome.error });
       return;
     }
     const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...outcome.request };
-    addSession(request, socketReply(ws, request), {});
+    addSession(request, socketReply(ws, msg), {});
   }
 
   async function handlePackSessionStart(msg: ClientMessageOf<'pack-session-start'>, ws: ControlSocket): Promise<void> {
     if (!packLaunchers) {
-      replyTo(ws, msg, 'add-session-result', { ok: false, error: 'Pack panels cannot start sessions on this host.' });
+      replyApplied(ws, msg, 'add-session-result', { ok: false, error: 'Pack panels cannot start sessions on this host.' });
       return;
     }
     const { project, agent, model, effort, prompt, name } = msg;
     const outcome = await packLaunchers.panelSessionRequest(msg.pack, msg.panelId, { project, agent, model, effort, prompt, name }, liveSessionNames());
     if (!outcome.ok) {
-      replyTo(ws, msg, 'add-session-result', { ok: false, error: outcome.error });
+      replyApplied(ws, msg, 'add-session-result', { ok: false, error: outcome.error });
       return;
     }
     const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...outcome.request };
-    addSession(request, socketReply(ws, request), {});
+    addSession(request, socketReply(ws, msg), {});
   }
 
   function handleChatSend(msg: ClientMessageOf<'chat-send'>, ws: ControlSocket): void {
     const acceptedAt = clock.nowMs();
     const session = findSession(msg);
     if (!session) {
-      replyTo(ws, msg, 'chat-send-result', { id: msg.id, ok: false, acceptedAt, error: SESSION_GONE_TEXT });
+      replyApplied(ws, msg, 'chat-send-result', { id: msg.id, ok: false, acceptedAt, error: SESSION_GONE_TEXT });
       return;
     }
     const queued = session.queueChatMessage(msg.text, msg.attachments);
-    replyTo(ws, msg, 'chat-send-result', { id: msg.id, ok: queued.ok, acceptedAt, ...(queued.ok ? {} : { error: queued.error }) });
+    replyApplied(ws, msg, 'chat-send-result', { id: msg.id, ok: queued.ok, acceptedAt, ...(queued.ok ? {} : { error: queued.error }) });
   }
 
   function handleSignInStart(msg: ClientMessageOf<'sign-in-start'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
-      replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      replyApplied(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
       return;
     }
     const delivery = session.startSignIn((settlement) => {
       if (settlement === 'submitted') {
-        replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: true });
+        replyApplied(ws, msg, 'sign-in-start-result', { id: msg.id, ok: true });
         return;
       }
-      replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: SIGN_IN_NOT_SUBMITTED_TEXT_BY_SETTLEMENT[settlement] });
+      replyApplied(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: SIGN_IN_NOT_SUBMITTED_TEXT_BY_SETTLEMENT[settlement] });
     });
     if (delivery === null) {
-      replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: 'This agent signs in from its terminal.' });
+      replyApplied(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: 'This agent signs in from its terminal.' });
       return;
     }
     if (delivery.ok) return;
-    replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: `The sign-in command could not be typed into the session: ${delivery.reason}.` });
+    replyApplied(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: `The sign-in command could not be typed into the session: ${delivery.reason}.` });
   }
 
   function handleChatCancel(msg: ClientMessageOf<'chat-cancel'>, ws: ControlSocket): void {
     const cancelledEntries = findSession(msg)?.cancelChatMessage(msg.entryId) ?? [];
     const operatorEntries = cancelledEntries.filter((entry) => entry.origin === 'operator');
-    replyTo(ws, msg, 'chat-cancel-result', {
+    replyApplied(ws, msg, 'chat-cancel-result', {
       id: msg.id,
       cancelledTexts: operatorEntries.map((entry) => entry.text),
       cancelledAttachments: operatorEntries.flatMap((entry) => entry.attachments),
@@ -284,40 +304,48 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function handleAnswerApproval(msg: ClientMessageOf<'answer-approval'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
-      sendError(ws, SESSION_GONE_TEXT);
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT }, { alwaysSendError: true });
       return;
     }
-    if (session.answerConversationApproval(msg.requestId, msg.answers)) return;
-    sendError(ws, 'That question was already answered or is no longer waiting.', { id: session.id });
+    const approvalId = msg.approvalRequestId ?? msg.requestId;
+    if (approvalId !== null && approvalId !== undefined && session.answerConversationApproval(approvalId, msg.answers)) {
+      replySessionAction(ws, msg, { id: session.id, ok: true });
+      return;
+    }
+    replySessionAction(ws, msg, { id: session.id, ok: false, error: 'That question was already answered or is no longer waiting.' }, { id: session.id, alwaysSendError: true });
   }
 
   function handleDecideApproval(msg: ClientMessageOf<'decide-approval'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
-      sendError(ws, SESSION_GONE_TEXT);
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT }, { alwaysSendError: true });
       return;
     }
-    if (session.decideConversationApproval(msg.requestId, msg.decision, msg.message ?? null)) return;
-    sendError(ws, 'That permission prompt was already answered or is no longer waiting.', { id: session.id });
+    const approvalId = msg.approvalRequestId ?? msg.requestId;
+    if (approvalId !== null && approvalId !== undefined && session.decideConversationApproval(approvalId, msg.decision, msg.message ?? null)) {
+      replySessionAction(ws, msg, { id: session.id, ok: true });
+      return;
+    }
+    replySessionAction(ws, msg, { id: session.id, ok: false, error: 'That permission prompt was already answered or is no longer waiting.' }, { id: session.id, alwaysSendError: true });
   }
 
   function handlePackSessionSend(msg: ClientMessageOf<'pack-session-send'>, ws: ControlSocket): void {
     if (!packLaunchers?.panelMaySend(msg.pack, msg.panelId)) {
-      replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No approved panel ${msg.panelId} in pack ${msg.pack} lists sessions under acts` });
+      replyApplied(ws, msg, 'pack-session-send-result', { ok: false, error: `No approved panel ${msg.panelId} in pack ${msg.pack} lists sessions under acts` });
       return;
     }
     const session = findSession(msg);
     if (!session) {
-      replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No live session ${msg.id}` });
+      replyApplied(ws, msg, 'pack-session-send-result', { ok: false, error: `No live session ${msg.id}` });
       return;
     }
     const pasted = session.deliverOperatorText(msg.text);
     console.log(`[control] pack-session-send: ${msg.pack}/${msg.panelId} -> ${session.id} ok=${pasted.ok}`);
-    replyTo(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
+    replyApplied(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
   }
 
   async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
-    const refuse = (error: string) => replyTo(ws, msg, 'add-session-result', { ok: false, error });
+    const refuse = (error: string) => replyApplied(ws, msg, 'add-session-result', { ok: false, error });
     if (!readGithubIssue) {
       refuse('Starting from a GitHub issue is unavailable on this host.');
       return;
@@ -336,7 +364,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     const request: AddSessionRequest = { ...sessionFields, type: 'add-session', name: deriveIssueSessionName(read.issue), path: folderPath };
     addSession(request, (outcome) => {
       if (outcome.ok) deliverIssuePrompt(outcome.sessionId, buildIssuePrompt(read.repo, read.issue));
-      socketReply(ws, request)(outcome);
+      socketReply(ws, msg)(outcome);
     }, {});
   }
 
@@ -353,7 +381,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): void {
     const source = findSession(msg);
     if (!source) {
-      replyTo(ws, msg, 'add-session-result', { ok: false, error: 'The session to copy no longer exists.' });
+      replyApplied(ws, msg, 'add-session-result', { ok: false, error: 'The session to copy no longer exists.' });
       return;
     }
     const plan = planQuickSession({
@@ -362,7 +390,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       sessionNames: liveSessionNames(),
     });
     const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...plan.request };
-    addSession(request, socketReply(ws, request), plan.runSettings);
+    addSession(request, socketReply(ws, msg), plan.runSettings);
   }
 
   function createAddedSession(msg: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): void {
@@ -419,16 +447,24 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   function restartSession(msg: ClientMessageOf<'restart'> | ClientMessageOf<'force-restart'>, ws: ControlSocket, restart: (session: Session, options: { fresh: boolean; conversationId?: string }) => boolean): void {
     const sess = findSession(msg);
-    if (!sess) return;
+    if (!sess) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      return;
+    }
     const fresh = msg.fresh === true;
     const conversationId = fresh ? null : requestedConversationId(msg.conversationId);
     if (!conversationId) {
       restart(sess, { fresh });
+      replySessionAction(ws, msg, { id: sess.id, ok: true });
       return;
     }
     const refusal = resumeConversationRefusal(sess, conversationId);
-    if (refusal) { sendError(ws, refusal, { id: sess.id }); return; }
+    if (refusal) {
+      replySessionAction(ws, msg, { id: sess.id, ok: false, error: refusal }, { id: sess.id });
+      return;
+    }
     if (restart(sess, { fresh, conversationId })) persistResumeConversation(sess.id, conversationId);
+    replySessionAction(ws, msg, { id: sess.id, ok: true });
   }
 
   function isShellRequest(msg: { agent?: string }): boolean {
@@ -512,24 +548,34 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   function handleSnoozeSession(msg: ClientMessageOf<'snooze-session'>, ws: ControlSocket): void {
     const sess = findSession(msg);
-    if (!sess) return;
+    if (!sess) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      return;
+    }
     if (agentSessions.get(sess.id) === sess) {
-      sendError(ws, 'This session is run by the agent or lane that started it, so it cannot be snoozed.', { id: sess.id });
+      replySessionAction(ws, msg, { id: sess.id, ok: false, error: 'This session is run by the agent or lane that started it, so it cannot be snoozed.' }, { id: sess.id });
       return;
     }
     const outcome = sess.snooze();
-    if (!outcome.ok) sendError(ws, SNOOZE_REFUSAL_TEXT[outcome.reason], { id: sess.id });
+    if (!outcome.ok) {
+      replySessionAction(ws, msg, { id: sess.id, ok: false, error: SNOOZE_REFUSAL_TEXT[outcome.reason] }, { id: sess.id });
+      return;
+    }
+    replySessionAction(ws, msg, { id: sess.id, ok: true });
   }
 
   function handleStartSession(msg: ClientMessageOf<'start-session'>, ws: ControlSocket): void {
     const sess = findSession(msg);
-    if (!sess) return;
-    if (agentSessions.get(sess.id) === sess) {
-      sendError(ws, 'This session is started by the agent that spawned it', { id: sess.id });
+    if (!sess) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
       return;
     }
-    if (sess.state !== STATES.DORMANT) return;
-    sess.start();
+    if (agentSessions.get(sess.id) === sess) {
+      replySessionAction(ws, msg, { id: sess.id, ok: false, error: 'This session is started by the agent that spawned it' }, { id: sess.id });
+      return;
+    }
+    if (sess.state === STATES.DORMANT) sess.start();
+    replySessionAction(ws, msg, { id: sess.id, ok: true });
   }
 
   const lastRemovalRefusalBySessionId = new Map<string, string>();
@@ -595,11 +641,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   async function handleRemoveSession(msg: ClientMessageOf<'remove-session'>, ws: ControlSocket): Promise<void> {
     const removal = await removeSession(msg);
-    if (msg.requestId) {
-      replyTo(ws, msg, 'remove-session-result', removal.ok ? { ok: true, error: null } : removal);
-      return;
-    }
-    if (!removal.ok) sendError(ws, removal.error);
+    replyApplied(ws, msg, 'remove-session-result', removal.ok ? { ok: true, error: null } : removal);
+    if (!removal.ok && !msg.requestId) sendError(ws, removal.error);
   }
 
   async function discardSession(id: string): Promise<SessionRemoval> {
@@ -625,31 +668,42 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     const newName = (msg.newName || '').trim();
 
     if (!sess || !newName) {
-      sendError(ws, 'That session no longer exists or the new name was empty. Reload the page, then rename again with a name.');
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: 'That session no longer exists or the new name was empty. Reload the page, then rename again with a name.' });
       return;
     }
 
-    if (sess.ephemeral) { sendError(ws, 'Glimmervoid manages this session itself, so it cannot be renamed.', { id: sess.id }); return; }
+    if (sess.ephemeral) {
+      replySessionAction(ws, msg, { id: sess.id, ok: false, error: 'Glimmervoid manages this session itself, so it cannot be renamed.' }, { id: sess.id });
+      return;
+    }
 
     if (!SESSION_NAME_PATTERN.test(newName)) {
-      sendError(ws, `${SESSION_NAME_RULE_TEXT}. Pick another name.`, { id: sess.id });
+      replySessionAction(ws, msg, { id: sess.id, ok: false, error: `${SESSION_NAME_RULE_TEXT}. Pick another name.` }, { id: sess.id });
       return;
     }
 
     for (const [, other] of sessions) {
       if (other !== sess && other.name === newName) {
-        sendError(ws, `A session named "${newName}" already exists. Pick another name.`, { id: sess.id });
+        replySessionAction(ws, msg, { id: sess.id, ok: false, error: `A session named "${newName}" already exists. Pick another name.` }, { id: sess.id });
         return;
       }
     }
 
-    if (sess.name === newName) return;
+    if (sess.name === newName) {
+      replySessionAction(ws, msg, { id: sess.id, ok: true });
+      return;
+    }
 
     const freshConfig = configStore.save(cfg => {
       const project = cfg.projects.find(p => p.id === sess.id);
       if (project) project.name = newName;
     });
-    if (freshConfig) applyConfigReload(freshConfig);
+    if (!freshConfig) {
+      replySessionAction(ws, msg, { id: sess.id, ok: false, error: `Could not save session "${sess.name}"` }, { id: sess.id });
+      return;
+    }
+    applyConfigReload(freshConfig);
+    replySessionAction(ws, msg, { id: sess.id, ok: true });
   }
 
   function handleGetWorkspaceRepos(msg: ClientMessageOf<'get-workspace-repos'>, ws: ControlSocket): void {
@@ -675,7 +729,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   }
 
   async function handleSetWorkspaceRepos(msg: ClientMessageOf<'set-workspace-repos'>, ws: ControlSocket): Promise<void> {
-    const reply = (error: string | null) => replyTo(ws, msg, 'set-workspace-repos-result', { id: msg.id, ok: error === null, error });
+    const reply = (error: string | null) => replyApplied(ws, msg, 'set-workspace-repos-result', { id: msg.id, ok: error === null, error });
     const project = findConfiguredProject(msg.id);
     const session = sessions.get(msg.id);
     if (!project?.repos || !session) {
@@ -775,30 +829,37 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   function handleSwitchSessionModel(msg: ClientMessageOf<'switch-session-model'>, ws: ControlSocket): void {
     const refusal = switchSessionModel(msg);
-    replyTo(ws, msg, 'switch-session-model-result', { id: msg.id, ok: refusal === null, ...(refusal === null ? {} : { error: refusal }) });
+    replyApplied(ws, msg, 'switch-session-model-result', { id: msg.id, ok: refusal === null, ...(refusal === null ? {} : { error: refusal }) });
   }
 
   async function handleSwitchSessionAccount(msg: ClientMessageOf<'switch-session-account'>, ws: ControlSocket): Promise<void> {
     const refusal = await switchSessionAccount(msg);
-    replyTo(ws, msg, 'switch-session-account-result', { id: msg.id, ok: refusal === null, ...(refusal ?? {}) });
+    replyApplied(ws, msg, 'switch-session-account-result', { id: msg.id, ok: refusal === null, ...(refusal ?? {}) });
   }
 
   function handlePlanDecision(msg: ClientMessageOf<'plan-decision'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
-      sendError(ws, SESSION_GONE_TEXT);
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
       return;
     }
     const outcome = session.decidePlan(msg.decision, msg.feedback ?? null);
     if (!outcome.ok) {
-      sendError(ws, `The plan decision was not applied: ${outcome.reason}.`, { id: session.id });
+      replySessionAction(ws, msg, { id: session.id, ok: false, error: `The plan decision was not applied: ${outcome.reason}.` }, { id: session.id });
       return;
     }
-    if (msg.decision === 'terminal') return;
+    if (msg.decision === 'terminal') {
+      replySessionAction(ws, msg, { id: session.id, ok: true });
+      return;
+    }
     const followUp = planDecisionFollowUpText({ agentId: session.agentId, isHeld: outcome.isHeld, decision: msg.decision, feedback: session.planGate?.feedback ?? null });
-    if (followUp === null) return;
+    if (followUp === null) {
+      replySessionAction(ws, msg, { id: session.id, ok: true });
+      return;
+    }
     if (!outcome.isHeld) {
       typePlanFollowUp(session, followUp, ws);
+      replySessionAction(ws, msg, { id: session.id, ok: true });
       return;
     }
     const typeOnceThePlanDialogCloses = ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
@@ -808,6 +869,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       if (step === 'deliver') typePlanFollowUp(session, followUp, ws);
     };
     session.on('hook-event', typeOnceThePlanDialogCloses);
+    replySessionAction(ws, msg, { id: session.id, ok: true });
   }
 
   function typePlanFollowUp(session: Session, followUp: string, ws: ControlSocket): void {
@@ -818,29 +880,30 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function handleSetSessionQuestionManager(msg: ClientMessageOf<'set-session-question-manager'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
-      sendError(ws, SESSION_GONE_TEXT);
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
       return;
     }
     if (session.isQuestionManagerOn === null) {
-      sendError(ws, 'The question manager cannot answer for this session.', { id: session.id });
+      replySessionAction(ws, msg, { id: session.id, ok: false, error: 'The question manager cannot answer for this session.' }, { id: session.id });
       return;
     }
     session.setQuestionManagerOn(msg.isOn);
+    replySessionAction(ws, msg, { id: session.id, ok: true });
   }
 
   function handleSetSessionTitle(msg: ClientMessageOf<'set-session-title'>, ws: ControlSocket): void {
     const session = findSession(msg);
     const parsedTitle = TaskTitle.safeParse(msg.title);
     if (!session) {
-      sendError(ws, SESSION_GONE_TEXT);
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
       return;
     }
     if (!parsedTitle.success) {
-      sendError(ws, `The task was not set: it must be at most ${TASK_TITLE_MAX_LENGTH} characters with no control characters. Shorten it and set it again.`, { id: session.id });
+      replySessionAction(ws, msg, { id: session.id, ok: false, error: `The task was not set: it must be at most ${TASK_TITLE_MAX_LENGTH} characters with no control characters. Shorten it and set it again.` }, { id: session.id });
       return;
     }
     if (session.ephemeral) {
-      sendError(ws, 'Glimmervoid manages this session itself, so it cannot have a custom task.', { id: session.id });
+      replySessionAction(ws, msg, { id: session.id, ok: false, error: 'Glimmervoid manages this session itself, so it cannot have a custom task.' }, { id: session.id });
       return;
     }
     const freshConfig = configStore.save(config => {
@@ -852,39 +915,46 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       }
       project.customTitle = parsedTitle.data;
     });
-    if (freshConfig) applyConfigReload(freshConfig);
+    if (!freshConfig) {
+      replySessionAction(ws, msg, { id: session.id, ok: false, error: `Could not save session "${session.name}"` }, { id: session.id });
+      return;
+    }
+    applyConfigReload(freshConfig);
+    replySessionAction(ws, msg, { id: session.id, ok: true });
   }
 
   function handleLinkSessionPr(msg: ClientMessageOf<'link-session-pr'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
-      sendError(ws, 'Session not found', { id: msg.id });
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: 'Session not found' }, { id: msg.id });
       return;
     }
     const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], clock.nowMs());
     if (!link) {
-      sendError(ws, `Not a GitHub pull request: ${msg.key}`, { id: msg.id });
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: `Not a GitHub pull request: ${msg.key}` }, { id: msg.id });
       return;
     }
     session.linkPrManually(link);
+    replySessionAction(ws, msg, { id: session.id, ok: true });
   }
 
   function handleUnlinkSessionPr(msg: ClientMessageOf<'unlink-session-pr'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
-      sendError(ws, 'Session not found', { id: msg.id });
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: 'Session not found' }, { id: msg.id });
       return;
     }
     session.unlinkPr(msg.key);
+    replySessionAction(ws, msg, { id: session.id, ok: true });
   }
 
   async function handleCancelWake(msg: ClientMessageOf<'cancel-wake'>, ws: ControlSocket): Promise<void> {
     if (!sessionWakes) {
-      sendError(ws, 'Wakes are not available on this host.', { id: msg.id });
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: 'Wakes are not available on this host.' }, { id: msg.id });
       return;
     }
     const refusal = await sessionWakes.cancelForOperator(msg.id, msg.wake);
-    if (refusal) sendError(ws, refusal, { id: msg.id });
+    replySessionAction(ws, msg, { id: msg.id, ok: !refusal, error: refusal }, { id: msg.id });
   }
 
   async function wakeAtLimitReset(msg: ClientMessageOf<'wake-at-limit-reset'>): Promise<string | null> {
@@ -898,7 +968,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   async function handleWakeAtLimitReset(msg: ClientMessageOf<'wake-at-limit-reset'>, ws: ControlSocket): Promise<void> {
     const refusal = await wakeAtLimitReset(msg);
-    replyTo(ws, msg, 'wake-at-limit-reset-result', { id: msg.id, ok: refusal === null, ...(refusal === null ? {} : { error: refusal }) });
+    replyApplied(ws, msg, 'wake-at-limit-reset-result', { id: msg.id, ok: refusal === null, ...(refusal === null ? {} : { error: refusal }) });
   }
 
   function sessionWakeFrames() {
@@ -960,19 +1030,70 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   function handleResumeConversation(msg: ClientMessageOf<'resume-conversation'>, ws: ControlSocket): void {
     const sess = findSession(msg);
-    const requestId = typeof msg.requestId === 'string' ? msg.requestId : undefined;
-    if (!sess) { sendError(ws, 'Session not found', { requestId }); return; }
+    if (!sess) {
+      replyApplied(ws, msg, 'resume-conversation-ack', { id: msg.id, ok: false, error: 'Session not found' });
+      if (!msg.requestId) sendError(ws, 'Session not found');
+      return;
+    }
     const conversationId = requestedConversationId(msg.conversationId);
     const refusal = resumeConversationRefusal(sess, conversationId);
-    if (refusal) { sendError(ws, refusal, { requestId }); return; }
+    if (refusal) {
+      replyApplied(ws, msg, 'resume-conversation-ack', { id: sess.id, ok: false, error: refusal });
+      if (!msg.requestId) sendError(ws, refusal);
+      return;
+    }
 
     persistResumeConversation(sess.id, conversationId);
 
     const live = sessions.get(sess.id) || sess;
     live.setResumeConversation(conversationId);
 
-    ws.send(JSON.stringify({ type: 'resume-conversation-ack', requestId, id: live.id, resumeSessionId: conversationId, ok: true }));
+    replyApplied(ws, msg, 'resume-conversation-ack', { id: live.id, resumeSessionId: conversationId, ok: true });
     console.log(`[control] resume-conversation: id=${live.id} -> ${conversationId || '(cleared)'}`);
+  }
+
+  function handleChatStop(msg: ClientMessageOf<'chat-stop'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      return;
+    }
+    session.stopFromChat(msg.entryId);
+    replySessionAction(ws, msg, { id: session.id, ok: true });
+  }
+
+  function handleKillSession(msg: ClientMessageOf<'kill'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      return;
+    }
+    session.killSession();
+    replySessionAction(ws, msg, { id: session.id, ok: true });
+  }
+
+  function handleDismissSession(msg: ClientMessageOf<'dismiss'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      return;
+    }
+    if (msg.expectedState !== undefined && session.state !== msg.expectedState) {
+      replySessionAction(ws, msg, { id: session.id, ok: true });
+      return;
+    }
+    session.dismiss();
+    replySessionAction(ws, msg, { id: session.id, ok: true });
+  }
+
+  function handleManagerSeen(msg: ClientMessageOf<'manager-seen'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      replySessionAction(ws, msg, { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      return;
+    }
+    session.markManagerDecisionsSeen(msg.throughSeq);
+    replySessionAction(ws, msg, { id: session.id, ok: true });
   }
 
   const handlers = {
@@ -997,31 +1118,24 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'chat-send': handleChatSend,
     'sign-in-start': handleSignInStart,
     'chat-cancel': handleChatCancel,
-    'chat-stop': (msg: ClientMessageOf<'chat-stop'>) => { findSession(msg)?.stopFromChat(msg.entryId); },
+    'chat-stop': handleChatStop,
     'switch-session-account': handleSwitchSessionAccount,
     'switch-session-model': handleSwitchSessionModel,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
     'cancel-wake': handleCancelWake,
     'wake-at-limit-reset': handleWakeAtLimitReset,
-    'kill': (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
+    'kill': handleKillSession,
     'start-session': handleStartSession,
     'snooze-session': handleSnoozeSession,
     'restart': (msg: ClientMessageOf<'restart'>, ws: ControlSocket) => restartSession(msg, ws, (s, options) => s.restart(options)),
     'force-restart': (msg: ClientMessageOf<'force-restart'>, ws: ControlSocket) => restartSession(msg, ws, (s, options) => s.forceRestart(options)),
-    'dismiss': (msg: ClientMessageOf<'dismiss'>) => {
-      const session = findSession(msg);
-      if (!session) return;
-      if (msg.expectedState !== undefined && session.state !== msg.expectedState) return;
-      session.dismiss();
-    },
+    'dismiss': handleDismissSession,
     'secret-decision': handleSecretDecision,
     'secret-revoke': handleSecretRevoke,
     'age-file-remove': handleAgeFileRemove,
     'secret-source-test': handleSecretSourceTest,
-    'manager-seen': (msg: ClientMessageOf<'manager-seen'>) => {
-      findSession(msg)?.markManagerDecisionsSeen(msg.throughSeq);
-    },
+    'manager-seen': handleManagerSeen,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {

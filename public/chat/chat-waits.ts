@@ -76,7 +76,7 @@ function shownApprovalOf(approval: ConversationApproval): ShownApproval {
 
 function dismissedQuestionsStep(sessionId: string, shown: ShownApproval): ApprovalStep {
   const resolvedCards = shown.cards.flatMap((card): ChatCard[] => card.cardType === 'question' ? [{ ...card, resolution: { isDismissed: true } }] : []);
-  return { message: { type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' }, resolvedCards, answers: new Map() };
+  return { message: { type: 'decide-approval', id: sessionId, approvalRequestId: shown.approval.requestId, decision: 'deny' }, resolvedCards, answers: new Map() };
 }
 
 function reopenedQuestionStep(shown: ShownApproval, card: ChatCard): ApprovalStep | null {
@@ -90,29 +90,29 @@ function answeredQuestionsStep(sessionId: string, shown: ShownApproval, card: Ex
   const answers = new Map(shown.answers).set(card.data.question, value);
   if (answers.size < shown.cards.length) return { message: null, resolvedCards: [{ ...card, resolution: { answer: value, canChange: true } }], answers };
   const resolvedCards = shown.cards.flatMap((shownCard): ChatCard[] => shownCard.cardType === 'question' ? [{ ...shownCard, resolution: { answer: answers.get(shownCard.data.question) ?? value } }] : []);
-  return { message: { type: 'answer-approval', id: sessionId, requestId: shown.approval.requestId, answers: Object.fromEntries(answers) }, resolvedCards, answers };
+  return { message: { type: 'answer-approval', id: sessionId, approvalRequestId: shown.approval.requestId, answers: Object.fromEntries(answers) }, resolvedCards, answers };
 }
 
 function elicitationStepOf(sessionId: string, shown: ShownApproval, card: Extract<ChatCard, { cardType: 'elicitation' }>, action: string, value: string): ApprovalStep | null {
-  const { requestId } = shown.approval;
-  if (action === 'elicitation-decline') return { message: { type: 'decide-approval', id: sessionId, requestId, decision: 'deny' }, resolvedCards: [{ ...card, resolution: { action: 'decline' } }], answers: shown.answers };
-  if (action === 'elicitation-done') return { message: { type: 'decide-approval', id: sessionId, requestId, decision: 'allow' }, resolvedCards: [{ ...card, resolution: { action: 'accept' } }], answers: shown.answers };
+  const approvalRequestId = shown.approval.requestId;
+  if (action === 'elicitation-decline') return { message: { type: 'decide-approval', id: sessionId, approvalRequestId, decision: 'deny' }, resolvedCards: [{ ...card, resolution: { action: 'decline' } }], answers: shown.answers };
+  if (action === 'elicitation-done') return { message: { type: 'decide-approval', id: sessionId, approvalRequestId, decision: 'allow' }, resolvedCards: [{ ...card, resolution: { action: 'accept' } }], answers: shown.answers };
   if (action !== 'elicitation-submit') return null;
   const answers = ConversationAnswers.safeParse(parseJsonOrNull(value));
   if (!answers.success) return null;
-  return { message: { type: 'answer-approval', id: sessionId, requestId, answers: answers.data }, resolvedCards: [{ ...card, resolution: { action: 'accept' } }], answers: shown.answers };
+  return { message: { type: 'answer-approval', id: sessionId, approvalRequestId, answers: answers.data }, resolvedCards: [{ ...card, resolution: { action: 'accept' } }], answers: shown.answers };
 }
 
 function approvalStepOf(sessionId: string, shown: ShownApproval, cardId: string, action: string, value: string): ApprovalStep | null {
   const card = shown.cards.find((shownCard) => shownCard.cardId === cardId);
   if (card && action === 'change') return reopenedQuestionStep(shown, card);
   if (!card || card.resolution !== null) return null;
-  const { requestId } = shown.approval;
+  const approvalRequestId = shown.approval.requestId;
   if (card.cardType === 'permission' && action === 'decide' && (value === 'allow' || value === 'deny')) {
-    return { message: { type: 'decide-approval', id: sessionId, requestId, decision: value }, resolvedCards: [{ ...card, resolution: { decision: value } }], answers: shown.answers };
+    return { message: { type: 'decide-approval', id: sessionId, approvalRequestId, decision: value }, resolvedCards: [{ ...card, resolution: { decision: value } }], answers: shown.answers };
   }
   if (card.cardType === 'permission' && action === 'deny-with-message') {
-    return { message: { type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value }, resolvedCards: [{ ...card, resolution: { decision: 'deny', message: value } }], answers: shown.answers };
+    return { message: { type: 'decide-approval', id: sessionId, approvalRequestId, decision: 'deny', message: value }, resolvedCards: [{ ...card, resolution: { decision: 'deny', message: value } }], answers: shown.answers };
   }
   if (card.cardType === 'elicitation') return elicitationStepOf(sessionId, shown, card, action, value);
   if (card.cardType === 'question' && action === 'dismiss') return dismissedQuestionsStep(sessionId, shown);

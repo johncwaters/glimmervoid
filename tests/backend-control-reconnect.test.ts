@@ -22,6 +22,9 @@ interface ControlFrame {
   type: string;
   id?: string;
   seq?: number;
+  appliedSeq?: number;
+  requestId?: string | null;
+  ok?: boolean;
   sessions?: { id: string }[];
   settings?: Record<string, unknown>;
 }
@@ -129,9 +132,16 @@ test('two control sockets each see strictly increasing seq across snapshots, bro
   first.ws.send(JSON.stringify({ type: 'request-health-snapshot' }));
   await waitForMessage(first.received, (frame) => frame.type === 'health-snapshot', 'unicast health-snapshot on first socket');
 
-  first.ws.send(JSON.stringify({ type: 'rename-session', id: SESSION_ID, newName: 'renamed probe' }));
-  await waitForMessage(first.received, (frame) => frame.type === 'session-renamed', 'broadcast session-renamed on first socket');
+  first.ws.send(JSON.stringify({ type: 'rename-session', requestId: 'rename-1', id: SESSION_ID, newName: 'renamed probe' }));
+  const renamedOnFirst = await waitForMessage(first.received, (frame) => frame.type === 'session-renamed', 'broadcast session-renamed on first socket');
+  const renameReply = await waitForMessage(first.received, (frame) => frame.type === 'session-action-result' && frame.requestId === 'rename-1', 'rename-session reply on first socket');
   await waitForMessage(second.received, (frame) => frame.type === 'session-renamed', 'broadcast session-renamed on second socket');
+
+  const renamedIndex = first.received.indexOf(renamedOnFirst);
+  const replyIndex = first.received.indexOf(renameReply);
+  assert.ok(renamedIndex >= 0 && replyIndex > renamedIndex, 'collection push frame precedes the mutating reply frame on the wire');
+  assert.equal(renameReply.ok, true);
+  assert.equal(renameReply.appliedSeq, renamedOnFirst.seq, 'mutating reply appliedSeq equals the preceding collection push seq');
 
   const firstSeqs = assertStrictlyIncreasingSeqs(first.received, 'first socket');
   const secondSeqs = assertStrictlyIncreasingSeqs(second.received, 'second socket');
@@ -168,4 +178,7 @@ test('a request resent under the same requestId on a new control socket gets the
 
   assert.equal(resentAnswer.id, SESSION_ID, 'the handler did not run again for the resent request');
   assert.equal(resentAnswer.acceptedAt, firstAnswer.acceptedAt);
+  assert.equal(typeof firstAnswer.appliedSeq, 'number', 'first mutating reply carries appliedSeq');
+  assert.ok((firstAnswer.appliedSeq ?? 0) > 0, 'first mutating reply appliedSeq reflects the sent stream');
+  assert.equal(resentAnswer.appliedSeq, firstAnswer.appliedSeq, 'replayed reply preserves the original appliedSeq');
 }));

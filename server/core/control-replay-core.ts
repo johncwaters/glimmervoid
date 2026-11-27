@@ -79,18 +79,19 @@ function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = c
   return { stamp, nextSeq, entriesSince, currentSeq };
 }
 
-function stampSerializedControlFrame(rawFrame: string, replayLog: ReplayLog): string {
+function stampSerializedControlFrameWithSeq(rawFrame: string, replayLog: ReplayLog): { frame: string; seq: number | null } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawFrame);
   } catch {
-    return rawFrame;
+    return { frame: rawFrame, seq: null };
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return rawFrame;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return { frame: rawFrame, seq: null };
   const record = parsed as ControlMessageRecord;
-  if (!shouldStampSeq(record.type)) return rawFrame;
-  return JSON.stringify({ ...record, seq: replayLog.nextSeq() });
+  if (!shouldStampSeq(record.type)) return { frame: rawFrame, seq: null };
+  const seq = replayLog.nextSeq();
+  return { frame: JSON.stringify({ ...record, seq }), seq };
 }
 
-export { createReplayLog, isReplayable, stampSerializedControlFrame };
+export { createReplayLog, isReplayable, stampSerializedControlFrameWithSeq };
 export type { ControlMessageRecord, ReplayLog };

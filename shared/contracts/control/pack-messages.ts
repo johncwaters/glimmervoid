@@ -3,7 +3,7 @@ import { PrFlowPendingApproval } from '../pr-flows.ts';
 import { ThemePalette } from '../theme-palette.ts';
 import { PackBridgeTopic, PackName, PackPanelAct, PackSettingValue, PackSourceSlug, PackStoreData, PackStoreKey, PackStoreValue, ProviderStatus } from '../pack-bridge.ts';
 import { PackSessionStart } from '../pack-launch.ts';
-import { collectionFields, loose, looseCollection, optionalError, requestId, sessionId } from './control-fields.ts';
+import { collectionFields, loose, looseCollection, looseMutatingReply, optionalError, requestId, sessionId } from './control-fields.ts';
 import { SecretName } from '../secrets.ts';
 
 export const PackSettingsView = z.strictObject({
@@ -116,6 +116,6 @@ export const packServerVariants = [
   loose('pack-data-result', { requestId, ok: z.boolean(), data: PackStoreData.optional(), error: optionalError }),
   looseCollection('pack-data-changed', { pack: PackName, data: PackStoreData }).describe('A pack store write, from a panel, another dashboard or a job, sent to every dashboard so each open panel of that pack shows it'),
   loose('pack-settings-result', { requestId, ok: z.boolean(), settings: PackSettingsView.optional(), error: optionalError }),
-  loose('pack-session-send-result', { requestId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('pack-session-send-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-source-result', { requestId, ok: z.boolean(), text: z.string().optional(), error: optionalError }),
 ] as const;

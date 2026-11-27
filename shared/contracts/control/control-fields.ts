@@ -12,7 +12,9 @@ export const CHANGES_POLL_INTERVAL_MS = 4_000;
 
 export const requestId = z.string().nullable().optional();
 export const seq = z.number().int().positive();
+export const appliedSeq = z.number().int().nonnegative();
 export const collectionFields = { seq };
+const mutatingReplyFields = { appliedSeq };
 export const ResentRequest = z.looseObject({ requestId: z.string(), resent: z.literal(true) });
 export const sessionId = z.string();
 export const KeptWorkPath = z.object({ path: z.string(), reason: z.string() }).strict();
@@ -39,6 +41,10 @@ export function loose(type: string, shape?: z.ZodRawShape) {
 
 export function looseCollection<const Type extends string, Shape extends z.ZodRawShape>(type: Type, shape: Shape): z.ZodObject<{ type: z.ZodLiteral<Type>; seq: typeof seq } & Shape, z.core.$loose> {
   return loose(type, { ...collectionFields, ...shape });
+}
+
+export function looseMutatingReply<const Type extends string, Shape extends z.ZodRawShape>(type: Type, shape: Shape): z.ZodObject<{ type: z.ZodLiteral<Type>; appliedSeq: typeof appliedSeq } & Shape, z.core.$loose> {
+  return loose(type, { ...mutatingReplyFields, ...shape });
 }
 
 export function openObject(): z.ZodObject<Record<never, never>, z.core.$loose>;

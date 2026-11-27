@@ -91,6 +91,7 @@ function createReplyLedger({ nowMs, keepMs, maxEntries }: ReplyLedgerOptions) {
   }
 
   function admit(requestId: string, socket: ControlSocket, isResent: boolean): Admission {
+    if (requestId.length === 0) return 'run';
     sweepExpired();
     if (!isResent) dropEntry(requestId);
     const entry = entryByRequestId.get(requestId);
@@ -119,7 +120,14 @@ function createReplyLedger({ nowMs, keepMs, maxEntries }: ReplyLedgerOptions) {
     if (entry?.state === 'in-flight') entry.expiresAtMs = nowMs() + keepMs;
   }
 
-  return { watch, admit, release, noteHandlerReturned };
+  function answeringSocketOf(requestId: string | null | undefined, fallbackSocket: ControlSocket): ControlSocket {
+    if (typeof requestId !== 'string' || requestId.length === 0) return fallbackSocket;
+    const entry = entryByRequestId.get(requestId);
+    if (entry?.state !== 'in-flight') return fallbackSocket;
+    return entry.answeringSocket.readyState === OPEN_READY_STATE ? entry.answeringSocket : fallbackSocket;
+  }
+
+  return { watch, admit, release, noteHandlerReturned, answeringSocketOf };
 }
 
 export { createReplyLedger };

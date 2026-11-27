@@ -61,9 +61,11 @@ test('add-session under a name a live session already holds adds it under the ne
     const config: { projects: ProjectEntry[] } = { projects: [existing] };
     const existingSession = new Session({ id: existing.id, name: existing.name, path: root, ptySpawn: () => fakePty() });
     const server = createControlServer(controlDeps(config, { sessions: new Map([[existing.id, existingSession]]), generateProjectId: () => 'bbbbbbbb-added' }));
-    const connection = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; sessionId?: string }>(server);
+    const connection = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; sessionId?: string; appliedSeq?: number }>(server);
     connection.send({ type: 'add-session', requestId: 'a1', name: 'general-projects', path: root });
-    assert.deepEqual(connection.sent.find((frame) => frame.requestId === 'a1'), { type: 'add-session-result', requestId: 'a1', ok: true, error: null, sessionId: 'bbbbbbbb-added' });
+    const addReply = connection.sent.find((frame) => frame.requestId === 'a1');
+    assert.equal(typeof addReply?.appliedSeq, 'number');
+    assert.deepEqual({ ...addReply, appliedSeq: 0 }, { type: 'add-session-result', requestId: 'a1', ok: true, error: null, sessionId: 'bbbbbbbb-added', appliedSeq: 0 });
     assert.equal(config.projects[1]?.name, 'general-projects (2)');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -136,7 +138,7 @@ test('quick-session copies a workspace session under the next free name and name
     const unnameableSession = new Session({ id: unnameableSource.id, name: unnameableSource.name, path: unnameableFolder, ptySpawn: () => fakePty() });
     const copyIds = ['bbbbbbbb-copy', 'dddddddd-copy', 'ffffffff-copy'];
     const server = createControlServer(controlDeps(config, { sessions: new Map([[source.id, sourceSession], [renamedSource.id, renamedSession], [unnameableSource.id, unnameableSession]]), generateProjectId: () => copyIds.shift() ?? 'unexpected-copy' }));
-    const connection = connectControl<{ type: string; requestId?: string; ok?: boolean; sessionId?: string }>(server);
+    const connection = connectControl<{ type: string; requestId?: string; ok?: boolean; sessionId?: string; appliedSeq?: number }>(server);
     connection.send({ type: 'quick-session', id: source.id, requestId: 'q1' });
     assert.deepEqual(config.projects[3], {
       baseBranch: 'staging',
@@ -146,7 +148,9 @@ test('quick-session copies a workspace session under the next free name and name
       repos: [first, second],
       dangerouslySkipPermissions: true,
     });
-    assert.deepEqual(connection.sent.find((frame) => frame.requestId === 'q1'), { type: 'add-session-result', requestId: 'q1', ok: true, error: null, sessionId: 'bbbbbbbb-copy' });
+    const quickReply = connection.sent.find((frame) => frame.requestId === 'q1');
+    assert.equal(typeof quickReply?.appliedSeq, 'number');
+    assert.deepEqual({ ...quickReply, appliedSeq: 0 }, { type: 'add-session-result', requestId: 'q1', ok: true, error: null, sessionId: 'bbbbbbbb-copy', appliedSeq: 0 });
     connection.send({ type: 'quick-session', id: renamedSource.id, requestId: 'q2' });
     assert.equal(config.projects[4]?.name, 'first');
     connection.send({ type: 'quick-session', id: unnameableSource.id, requestId: 'q3' });
@@ -169,7 +173,7 @@ test('remove-session refuses a worktree with uncommitted work its badge has not 
     session.adoptWorktree({ worktreeDir, branch: 'session-branch', base: 'main', hasUnmergedWork: false, watch: false, emit: false });
     fs.writeFileSync(path.join(worktreeDir, 'unsaved.txt'), 'unsaved');
     const config = { projects: [{ id: 'remove-probe-session', name: 'Remove Probe', path: repo }] };
-    const control = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; canDiscardWork?: boolean }>(createControlServer(controlDeps(config, { sessions: new Map([['remove-probe-session', session]]) })));
+    const control = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; canDiscardWork?: boolean; appliedSeq?: number }>(createControlServer(controlDeps(config, { sessions: new Map([['remove-probe-session', session]]) })));
     const replyTo = (requestId: string) => control.sent.find((frame) => frame.requestId === requestId);
 
     assert.equal(session.mergeStatus, 'none');
@@ -180,7 +184,9 @@ test('remove-session refuses a worktree with uncommitted work its badge has not 
 
     control.send({ type: 'remove-session', id: 'remove-probe-session', requestId: 'dirty' });
     await waitFor(() => replyTo('dirty') !== undefined, 'dirty removal replied', 10000);
-    assert.deepEqual(replyTo('dirty'), { type: 'remove-session-result', requestId: 'dirty', ok: false, error: '"Remove Probe" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.', canDiscardWork: true });
+    const dirtyReply = replyTo('dirty');
+    assert.equal(typeof dirtyReply?.appliedSeq, 'number');
+    assert.deepEqual({ ...dirtyReply, appliedSeq: 0 }, { type: 'remove-session-result', requestId: 'dirty', ok: false, error: '"Remove Probe" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.', canDiscardWork: true, appliedSeq: 0 });
     assert.deepEqual(config.projects.map((project) => project.id), ['remove-probe-session']);
 
     fs.rmSync(path.join(worktreeDir, 'unsaved.txt'));
@@ -202,12 +208,14 @@ test('remove-session asks before removing a session waiting for input, then remo
   const session = plainSession('waiting-session');
   session.state = STATES.WAITING;
   const config = { projects: [{ id: 'waiting-session', name: 'waiting-session', path: 'C:/repo' }] };
-  const control = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; canDiscardWork?: boolean }>(createControlServer(controlDeps(config, { sessions: new Map([['waiting-session', session]]) })));
+  const control = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; canDiscardWork?: boolean; appliedSeq?: number }>(createControlServer(controlDeps(config, { sessions: new Map([['waiting-session', session]]) })));
   const replyTo = (requestId: string) => control.sent.find((frame) => frame.requestId === requestId);
 
   control.send({ type: 'remove-session', id: 'waiting-session', requestId: 'unconfirmed' });
   await waitFor(() => replyTo('unconfirmed') !== undefined, 'unconfirmed removal replied');
-  assert.deepEqual(replyTo('unconfirmed'), { type: 'remove-session-result', requestId: 'unconfirmed', ok: false, error: '"waiting-session" is waiting for your input. Removing it stops the agent mid-task.', canDiscardWork: true });
+  const unconfirmedReply = replyTo('unconfirmed');
+  assert.equal(typeof unconfirmedReply?.appliedSeq, 'number');
+  assert.deepEqual({ ...unconfirmedReply, appliedSeq: 0 }, { type: 'remove-session-result', requestId: 'unconfirmed', ok: false, error: '"waiting-session" is waiting for your input. Removing it stops the agent mid-task.', canDiscardWork: true, appliedSeq: 0 });
   assert.deepEqual(config.projects.map((project) => project.id), ['waiting-session']);
 
   control.send({ type: 'remove-session', id: 'waiting-session', requestId: 'confirmed', discardWork: true });

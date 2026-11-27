@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ClientMessage, ServerMessage } from '../shared/contracts/control-messages.ts';
+import { requestId as controlRequestId } from '../shared/contracts/control/control-fields.ts';
 import {
   CLIENT_MESSAGE_CLASS,
   COLLECTION_NAMES,
@@ -75,6 +76,18 @@ export interface ServerMessageVariant {
   type: ServerMessage['type'];
   messageClass: ServerMessageClass;
   collection?: CollectionName;
+  hasAppliedSeq?: boolean;
+}
+
+export interface ControlHandlerEntryAnalysis {
+  path: string;
+  typeName: string;
+  line: number;
+  messageClass: ClientMessageClass;
+  hasReplyApplied: boolean;
+  replyAppliedLine: number | null;
+  bareReplies: SourceMatch[];
+  replyTypes: string[];
 }
 
 export interface StateInventory {
@@ -84,6 +97,9 @@ export interface StateInventory {
   collections: readonly CollectionName[];
   clientTypes: ClientMessageVariant[];
   serverTypes: ServerMessageVariant[];
+  unconvertedMutatingHandlers: Record<string, number>;
+  legacyMutatingWithoutRequestId: string[];
+  legacyMutatingRepliesWithoutAppliedSeq: string[];
 }
 
 export interface SocketCallRatchetEntry {
@@ -96,11 +112,15 @@ export interface StateRatchetData {
   socketCalls: Record<string, SocketCallRatchetEntry>;
   localStoreImports: Record<string, number>;
   subscribeModules: string[];
+  unconvertedMutatingHandlers: Record<string, number>;
+  legacyMutatingWithoutRequestId: string[];
+  legacyMutatingRepliesWithoutAppliedSeq: string[];
 }
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 export const STATE_RATCHETS_RELATIVE_PATH = 'tests/gates/state-ratchets.json';
 export const PUBLIC_SOURCE_PATTERN = /^public\/.*\.tsx?$/;
+export const CONTROL_HANDLER_PATTERN = /^server\/control\/handlers\/.*-handlers\.ts$/;
 
 const IMPORT_STATEMENT_PATTERN = /^\s*import\s+(?:type\s+)?[^;]*?\bfrom\s+['"][^'"]+['"];?/gm;
 const NAMED_CONTROL_WS_IMPORT_PATTERN = /\bimport\s+(?!type\b)(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]+)\}\s*from\s*['"][^'"]*\/control-ws(?:\.[cm]?[jt]s)?['"]/g;
@@ -338,7 +358,7 @@ function collectClientTypes(): ClientMessageVariant[] {
       const collections = mutationCollectionsFor(type);
       return {
         type,
-        hasRequestId: Object.hasOwn(option.shape, 'requestId'),
+        hasRequestId: 'requestId' in option.shape && option.shape.requestId === controlRequestId,
         messageClass: CLIENT_MESSAGE_CLASS[type],
         ...(collections === undefined ? {} : { collections }),
       };
@@ -346,28 +366,563 @@ function collectClientTypes(): ClientMessageVariant[] {
     .sort((left, right) => compareText(left.type, right.type));
 }
 
+function lineNumberAtOffset(sourceText: string, offset: number): number {
+  let line = 1;
+  for (let index = 0; index < offset && index < sourceText.length; index += 1) {
+    if (sourceText.charCodeAt(index) === 10) line += 1;
+  }
+  return line;
+}
+
+function findMatchingDelimiter(sourceText: string, openOffset: number, openChar: string, closeChar: string): number {
+  let depth = 0;
+  let index = openOffset;
+  let activeQuote: string | null = null;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (index < sourceText.length) {
+    const current = sourceText[index];
+    const next = sourceText[index + 1];
+    if (inLineComment) {
+      if (current === '\n') inLineComment = false;
+      index += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (current === '*' && next === '/') {
+        inBlockComment = false;
+        index += 2;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (activeQuote !== null) {
+      if (current === '\\') {
+        index += 2;
+        continue;
+      }
+      if (current === activeQuote) activeQuote = null;
+      index += 1;
+      continue;
+    }
+    if (current === '/' && next === '/') {
+      inLineComment = true;
+      index += 2;
+      continue;
+    }
+    if (current === '/' && next === '*') {
+      inBlockComment = true;
+      index += 2;
+      continue;
+    }
+    if (current === '"' || current === '\'' || current === '`') {
+      activeQuote = current;
+      index += 1;
+      continue;
+    }
+    if (current === openChar) depth += 1;
+    if (current === closeChar) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+    index += 1;
+  }
+  return -1;
+}
+
+function findFunctionBodyStart(sourceText: string, parenOpenOffset: number): number {
+  const parenCloseOffset = findMatchingDelimiter(sourceText, parenOpenOffset, '(', ')');
+  if (parenCloseOffset === -1) return -1;
+  let index = parenCloseOffset + 1;
+  let angleDepth = 0;
+  while (index < sourceText.length) {
+    const current = sourceText[index];
+    if (current === '<') {
+      angleDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (current === '>' && angleDepth > 0) {
+      angleDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (angleDepth > 0) {
+      index += 1;
+      continue;
+    }
+    if (current === '{') {
+      const closeOffset = findMatchingDelimiter(sourceText, index, '{', '}');
+      if (closeOffset === -1) return -1;
+      const trailingToken = sourceText.slice(closeOffset + 1).match(/^\s*([|&{;])/);
+      if (trailingToken && (trailingToken[1] === '{' || trailingToken[1] === '|' || trailingToken[1] === '&')) {
+        index = closeOffset + 1;
+        continue;
+      }
+      return index;
+    }
+    if (current === ';') return -1;
+    index += 1;
+  }
+  return -1;
+}
+
+interface LocalFunctionBody {
+  code: string;
+  startOffset: number;
+}
+
+const REPLY_SCHEMA_TYPE_SET = new Set<string>(
+  ServerMessage.options
+    .filter((option) => SERVER_MESSAGE_CLASS[option.shape.type.value] === 'reply')
+    .map((option) => option.shape.type.value),
+);
+
+function findMatchingOpenBraceBefore(sourceText: string, closeBraceOffset: number): number {
+  let depth = 0;
+  let index = closeBraceOffset;
+  let activeQuote: string | null = null;
+
+  while (index >= 0) {
+    const current = sourceText[index];
+    if (activeQuote !== null) {
+      if (current === activeQuote && sourceText[index - 1] !== '\\') activeQuote = null;
+      index -= 1;
+      continue;
+    }
+    if (current === '"' || current === '\'' || current === '`') {
+      activeQuote = current;
+      index -= 1;
+      continue;
+    }
+    if (current === '}') depth += 1;
+    if (current === '{') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+    index -= 1;
+  }
+  return -1;
+}
+
+function findHandlerTableBounds(sourceText: string): { openOffset: number; closeOffset: number } | null {
+  const typedTableMatch = /:\s*ControlHandlerTable\s*=\s*\{/.exec(sourceText);
+  if (typedTableMatch) {
+    const openOffset = typedTableMatch.index + typedTableMatch[0].length - 1;
+    const closeOffset = findMatchingDelimiter(sourceText, openOffset, '{', '}');
+    if (closeOffset !== -1) return { openOffset, closeOffset };
+  }
+
+  const satisfiesMatch = /\}\s*satisfies\s+ControlHandlerTable\b/.exec(sourceText);
+  if (satisfiesMatch) {
+    const closeOffset = satisfiesMatch.index;
+    const openOffset = findMatchingOpenBraceBefore(sourceText, closeOffset);
+    if (openOffset !== -1) return { openOffset, closeOffset };
+  }
+
+  return null;
+}
+
+function findArrowOrExpressionEnd(sourceText: string, startOffset: number): number {
+  let index = startOffset;
+  while (index < sourceText.length && /\s/.test(sourceText[index])) index += 1;
+  if (sourceText[index] === '{') {
+    const closeOffset = findMatchingDelimiter(sourceText, index, '{', '}');
+    return closeOffset === -1 ? -1 : closeOffset + 1;
+  }
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let activeQuote: string | null = null;
+  let inLineComment = false;
+  let inBlockComment = false;
+  while (index < sourceText.length) {
+    const current = sourceText[index];
+    const next = sourceText[index + 1];
+    if (inLineComment) {
+      if (current === '\n') inLineComment = false;
+      index += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (current === '*' && next === '/') {
+        inBlockComment = false;
+        index += 2;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (activeQuote !== null) {
+      if (current === '\\') {
+        index += 2;
+        continue;
+      }
+      if (current === activeQuote) activeQuote = null;
+      index += 1;
+      continue;
+    }
+    if (current === '/' && next === '/') {
+      inLineComment = true;
+      index += 2;
+      continue;
+    }
+    if (current === '/' && next === '*') {
+      inBlockComment = true;
+      index += 2;
+      continue;
+    }
+    if (current === '"' || current === '\'' || current === '`') {
+      activeQuote = current;
+      index += 1;
+      continue;
+    }
+    if (current === '(') parenDepth += 1;
+    if (current === ')') parenDepth -= 1;
+    if (current === '{') braceDepth += 1;
+    if (current === '}') braceDepth -= 1;
+    if (current === '[') bracketDepth += 1;
+    if (current === ']') bracketDepth -= 1;
+    if (parenDepth === 0 && braceDepth === 0 && bracketDepth === 0 && (current === ';' || current === '\n')) {
+      return index;
+    }
+    index += 1;
+  }
+  return sourceText.length;
+}
+
+interface TopLevelProperty {
+  key: string;
+  keyOffset: number;
+  valueCode: string;
+  valueOffset: number;
+}
+
+function parseTopLevelObjectProperties(sourceText: string, openOffset: number, closeOffset: number): TopLevelProperty[] {
+  const properties: TopLevelProperty[] = [];
+  let index = openOffset + 1;
+
+  const skipWhitespaceAndComments = () => {
+    while (index < closeOffset) {
+      const current = sourceText[index];
+      const next = sourceText[index + 1];
+      if (/\s/.test(current)) {
+        index += 1;
+        continue;
+      }
+      if (current === '/' && next === '/') {
+        const lineEnd = sourceText.indexOf('\n', index + 2);
+        index = lineEnd === -1 ? closeOffset : lineEnd + 1;
+        continue;
+      }
+      if (current === '/' && next === '*') {
+        const blockEnd = sourceText.indexOf('*/', index + 2);
+        index = blockEnd === -1 ? closeOffset : blockEnd + 2;
+        continue;
+      }
+      break;
+    }
+  };
+
+  while (index < closeOffset) {
+    skipWhitespaceAndComments();
+    if (index >= closeOffset) break;
+    if (sourceText[index] === ',') {
+      index += 1;
+      continue;
+    }
+
+    const keyOffset = index;
+    let key = '';
+    if (sourceText[index] === '\'' || sourceText[index] === '"') {
+      const quote = sourceText[index];
+      const quoteEnd = sourceText.indexOf(quote, index + 1);
+      if (quoteEnd === -1 || quoteEnd >= closeOffset) break;
+      key = sourceText.slice(index + 1, quoteEnd);
+      index = quoteEnd + 1;
+    }
+    if (key === '') {
+      const identMatch = /^[A-Za-z_$][\w$]*/.exec(sourceText.slice(index, closeOffset));
+      if (!identMatch) break;
+      key = identMatch[0];
+      index += key.length;
+    }
+
+    skipWhitespaceAndComments();
+    if (sourceText[index] !== ':') {
+      while (index < closeOffset && sourceText[index] !== ',') index += 1;
+      continue;
+    }
+    index += 1;
+    skipWhitespaceAndComments();
+    const valueOffset = index;
+
+    let braceDepth = 0;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let activeQuote: string | null = null;
+    let inLineComment = false;
+    let inBlockComment = false;
+    while (index < closeOffset) {
+      const current = sourceText[index];
+      const next = sourceText[index + 1];
+      if (inLineComment) {
+        if (current === '\n') inLineComment = false;
+        index += 1;
+        continue;
+      }
+      if (inBlockComment) {
+        if (current === '*' && next === '/') {
+          inBlockComment = false;
+          index += 2;
+          continue;
+        }
+        index += 1;
+        continue;
+      }
+      if (activeQuote !== null) {
+        if (current === '\\') {
+          index += 2;
+          continue;
+        }
+        if (current === activeQuote) activeQuote = null;
+        index += 1;
+        continue;
+      }
+      if (current === '/' && next === '/') {
+        inLineComment = true;
+        index += 2;
+        continue;
+      }
+      if (current === '/' && next === '*') {
+        inBlockComment = true;
+        index += 2;
+        continue;
+      }
+      if (current === '"' || current === '\'' || current === '`') {
+        activeQuote = current;
+        index += 1;
+        continue;
+      }
+      if (current === '{') braceDepth += 1;
+      if (current === '}') braceDepth -= 1;
+      if (current === '(') parenDepth += 1;
+      if (current === ')') parenDepth -= 1;
+      if (current === '[') bracketDepth += 1;
+      if (current === ']') bracketDepth -= 1;
+      if (braceDepth === 0 && parenDepth === 0 && bracketDepth === 0 && current === ',') break;
+      index += 1;
+    }
+
+    properties.push({
+      key,
+      keyOffset,
+      valueCode: sourceText.slice(valueOffset, index),
+      valueOffset,
+    });
+    if (sourceText[index] === ',') index += 1;
+  }
+
+  return properties;
+}
+
+export function analyzeControlHandlerFile(sourceFile: TrackedSourceFile): ControlHandlerEntryAnalysis[] {
+  const sourceText = sourceFile.content;
+  const tableBounds = findHandlerTableBounds(sourceText);
+  if (!tableBounds) return [];
+
+  const localFunctions = new Map<string, LocalFunctionBody>();
+  const excludedRanges: Array<{ start: number; end: number }> = [
+    { start: tableBounds.openOffset, end: tableBounds.closeOffset },
+  ];
+  const isInsideExcludedRange = (offset: number): boolean =>
+    excludedRanges.some((range) => offset > range.start && offset < range.end);
+
+  for (const match of sourceText.matchAll(/(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*(?:<[^>]*>\s*)?\(/g)) {
+    const declOffset = match.index ?? 0;
+    if (isInsideExcludedRange(declOffset)) continue;
+    const parenOpenOffset = declOffset + match[0].length - 1;
+    const bodyStart = findFunctionBodyStart(sourceText, parenOpenOffset);
+    if (bodyStart === -1) continue;
+    const bodyEnd = findMatchingDelimiter(sourceText, bodyStart, '{', '}');
+    if (bodyEnd === -1) continue;
+    const enclosesTable = bodyStart < tableBounds.openOffset && bodyEnd > tableBounds.closeOffset;
+    if (enclosesTable) continue;
+    localFunctions.set(match[1], { code: sourceText.slice(bodyStart, bodyEnd + 1), startOffset: bodyStart });
+    excludedRanges.push({ start: bodyStart, end: bodyEnd });
+  }
+  for (const match of sourceText.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:\(|function\b)/g)) {
+    const declOffset = match.index ?? 0;
+    if (isInsideExcludedRange(declOffset)) continue;
+    const fnName = match[1];
+    if (localFunctions.has(fnName)) continue;
+    const matchEnd = declOffset + match[0].length;
+    const parenOpenOffset = sourceText.indexOf('(', matchEnd - 1);
+    if (parenOpenOffset === -1) continue;
+    const parenCloseOffset = findMatchingDelimiter(sourceText, parenOpenOffset, '(', ')');
+    if (parenCloseOffset === -1) continue;
+    const afterParen = sourceText.slice(parenCloseOffset + 1);
+    const arrowMatch = /^\s*(?::[^=>]+)?=>/.exec(afterParen);
+    if (arrowMatch) {
+      const bodyStart = parenCloseOffset + 1 + arrowMatch[0].length;
+      const bodyEnd = findArrowOrExpressionEnd(sourceText, bodyStart);
+      if (bodyEnd !== -1) {
+        const enclosesTable = bodyStart < tableBounds.openOffset && bodyEnd > tableBounds.closeOffset;
+        if (!enclosesTable) {
+          localFunctions.set(fnName, { code: sourceText.slice(bodyStart, bodyEnd), startOffset: bodyStart });
+          excludedRanges.push({ start: bodyStart, end: bodyEnd });
+        }
+      }
+      continue;
+    }
+    const bodyStart = findFunctionBodyStart(sourceText, parenOpenOffset);
+    if (bodyStart === -1) continue;
+    const bodyEnd = findMatchingDelimiter(sourceText, bodyStart, '{', '}');
+    if (bodyEnd !== -1) {
+      const enclosesTable = bodyStart < tableBounds.openOffset && bodyEnd > tableBounds.closeOffset;
+      if (!enclosesTable) {
+        localFunctions.set(fnName, { code: sourceText.slice(bodyStart, bodyEnd + 1), startOffset: bodyStart });
+        excludedRanges.push({ start: bodyStart, end: bodyEnd });
+      }
+    }
+  }
+
+  const tableProperties = parseTopLevelObjectProperties(sourceText, tableBounds.openOffset, tableBounds.closeOffset);
+  const analyses: ControlHandlerEntryAnalysis[] = [];
+
+  for (const property of tableProperties) {
+    const typeName = property.key;
+    if (!Object.hasOwn(CLIENT_MESSAGE_CLASS, typeName)) continue;
+    const messageClass = CLIENT_MESSAGE_CLASS[typeName as ClientMessage['type']];
+
+    const visitedFunctions = new Set<string>();
+    let hasReplyApplied = false;
+    let replyAppliedLine: number | null = null;
+    const bareReplies: SourceMatch[] = [];
+    const replyTypes = new Set<string>();
+
+    const walkCode = (code: string, baseOffset: number) => {
+      const replyAppliedMatch = /\breplyApplied\s*\(/.exec(code);
+      if (replyAppliedMatch) {
+        hasReplyApplied = true;
+        if (replyAppliedLine === null) {
+          replyAppliedLine = lineNumberAtOffset(sourceText, baseOffset + replyAppliedMatch.index);
+        }
+      }
+      for (const bareMatch of code.matchAll(/\b(replyTo)\s*\(|\b([A-Za-z_$][\w$]*)\.send\s*\(|\breply\s*\(\s*([A-Za-z_$][\w$]*)\s*,/g)) {
+        const matchOffset = bareMatch.index ?? 0;
+        const form = bareMatch[1]
+          ? `${bareMatch[1]}(`
+          : (bareMatch[2] ? `${bareMatch[2]}.send(` : `reply(${bareMatch[3]},`);
+        bareReplies.push({ line: lineNumberAtOffset(sourceText, baseOffset + matchOffset), form });
+      }
+      for (const stringMatch of code.matchAll(/['"]([a-z][a-z0-9-]*)['"]/g)) {
+        if (REPLY_SCHEMA_TYPE_SET.has(stringMatch[1])) replyTypes.add(stringMatch[1]);
+      }
+      for (const identMatch of code.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)) {
+        const identName = identMatch[1];
+        const localBody = localFunctions.get(identName);
+        if (!localBody || visitedFunctions.has(identName)) continue;
+        visitedFunctions.add(identName);
+        walkCode(localBody.code, localBody.startOffset);
+      }
+    };
+
+    walkCode(property.valueCode, property.valueOffset);
+    bareReplies.sort((left, right) => left.line - right.line);
+    analyses.push({
+      path: sourceFile.path,
+      typeName,
+      line: lineNumberAtOffset(sourceText, property.keyOffset),
+      messageClass,
+      hasReplyApplied,
+      replyAppliedLine,
+      bareReplies,
+      replyTypes: [...replyTypes].sort(compareText),
+    });
+  }
+
+  return analyses;
+}
+
 function collectServerTypes(): ServerMessageVariant[] {
   return ServerMessage.options
     .map((option) => {
       const type = option.shape.type.value;
       const collection = collectionFor(type);
+      const messageClass = SERVER_MESSAGE_CLASS[type];
       return {
         type,
-        messageClass: SERVER_MESSAGE_CLASS[type],
+        messageClass,
         ...(collection === undefined ? {} : { collection }),
+        ...(messageClass === 'reply' ? { hasAppliedSeq: Object.hasOwn(option.shape, 'appliedSeq') } : {}),
       };
     })
     .sort((left, right) => compareText(left.type, right.type));
 }
 
-export function collectStateInventoryFromFiles(sourceFiles: readonly TrackedSourceFile[]): StateInventory {
+function collectReplyAppliedRatchets(
+  handlerFiles: readonly TrackedSourceFile[],
+  clientTypes: readonly ClientMessageVariant[],
+  serverTypes: readonly ServerMessageVariant[],
+): {
+  unconvertedMutatingHandlers: Record<string, number>;
+  legacyMutatingWithoutRequestId: string[];
+  legacyMutatingRepliesWithoutAppliedSeq: string[];
+} {
+  const unconvertedMutatingHandlers: Record<string, number> = {};
+  const mutatingReplyTypes = new Set<string>();
+  const sortedHandlerFiles = [...handlerFiles].sort((left, right) => compareText(left.path, right.path));
+
+  for (const handlerFile of sortedHandlerFiles) {
+    const entries = analyzeControlHandlerFile(handlerFile);
+    let unconvertedCount = 0;
+    for (const entry of entries) {
+      if (entry.messageClass !== 'mutating') continue;
+      for (const replyType of entry.replyTypes) mutatingReplyTypes.add(replyType);
+      if (!entry.hasReplyApplied || entry.bareReplies.length > 0) unconvertedCount += 1;
+    }
+    if (unconvertedCount > 0) unconvertedMutatingHandlers[handlerFile.path] = unconvertedCount;
+  }
+
+  const legacyMutatingWithoutRequestId = clientTypes
+    .filter((variant) => variant.messageClass === 'mutating' && !variant.hasRequestId)
+    .map((variant) => variant.type)
+    .sort(compareText);
+
+  const serverReplyHasAppliedSeq = new Map<string, boolean>();
+  for (const variant of serverTypes) {
+    if (variant.messageClass === 'reply') serverReplyHasAppliedSeq.set(variant.type, variant.hasAppliedSeq === true);
+  }
+
+  const legacyMutatingRepliesWithoutAppliedSeq = [...mutatingReplyTypes]
+    .filter((replyType) => serverReplyHasAppliedSeq.get(replyType) === false)
+    .sort(compareText);
+
+  return {
+    unconvertedMutatingHandlers,
+    legacyMutatingWithoutRequestId,
+    legacyMutatingRepliesWithoutAppliedSeq,
+  };
+}
+
+export function collectStateInventoryFromFiles(
+  sourceFiles: readonly TrackedSourceFile[],
+  handlerFiles: readonly TrackedSourceFile[] = [],
+): StateInventory {
+  const clientTypes = collectClientTypes();
+  const serverTypes = collectServerTypes();
+  const replyApplied = collectReplyAppliedRatchets(handlerFiles, clientTypes, serverTypes);
   return {
     socketCalls: collectSocketCalls(sourceFiles),
     storageCalls: collectStorageCalls(sourceFiles),
     subscribeModules: collectSubscribeModules(sourceFiles),
     collections: [...COLLECTION_NAMES].sort(compareText),
-    clientTypes: collectClientTypes(),
-    serverTypes: collectServerTypes(),
+    clientTypes,
+    serverTypes,
+    ...replyApplied,
   };
 }
 
@@ -377,7 +932,9 @@ export function collectStateInventory(): StateInventory {
     throw new Error('expected tracked TypeScript files under public/, found none');
   }
   const sourceFiles = trackedPaths.map((repoPath) => ({ path: repoPath, content: readTracked(repoPath) }));
-  return collectStateInventoryFromFiles(sourceFiles);
+  const handlerPaths = trackedFiles(CONTROL_HANDLER_PATTERN).sort(compareText);
+  const handlerFiles = handlerPaths.map((repoPath) => ({ path: repoPath, content: readTracked(repoPath) }));
+  return collectStateInventoryFromFiles(sourceFiles, handlerFiles);
 }
 
 export function formatStateInventory(inventory: StateInventory): string {
@@ -411,6 +968,9 @@ export function buildStateRatchetData(inventory: StateInventory): StateRatchetDa
     socketCalls,
     localStoreImports,
     subscribeModules,
+    unconvertedMutatingHandlers: inventory.unconvertedMutatingHandlers,
+    legacyMutatingWithoutRequestId: inventory.legacyMutatingWithoutRequestId,
+    legacyMutatingRepliesWithoutAppliedSeq: inventory.legacyMutatingRepliesWithoutAppliedSeq,
   };
 }
 

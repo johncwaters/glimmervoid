@@ -67,6 +67,7 @@ interface SessionEventDependencies {
   commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
   pushProvenanceNotes?: (repoDir: string) => Promise<void>;
   telemetry?: Pick<Telemetry, 'capture' | 'captureException'> | null;
+  registerStatusFlusher?: (flush: () => void) => void;
   logger: Pick<Console, 'error' | 'log' | 'warn'>;
 }
 
@@ -114,6 +115,10 @@ function persistSessionField(
 }
 
 function createSessionEventWiring(dependencies: SessionEventDependencies): (session: Session) => void {
+  const dirtyStatusFlushers = new Set<() => void>();
+  dependencies.registerStatusFlusher?.(() => {
+    for (const flush of [...dirtyStatusFlushers]) flush();
+  });
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
     const settleUnrecordedChatPromptsOnceDrained = async (endedTurnEntryIds: string[]): Promise<void> => {
@@ -155,13 +160,17 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     };
     let pendingStatus: SessionStatusFields | null = null;
     const flushStatus = () => {
+      dirtyStatusFlushers.delete(flushStatus);
       const fields = pendingStatus;
       pendingStatus = null;
       if (fields === null || session._destroyed) return;
       dependencies.broadcastControl({ type: 'session-status', id: session.id, session: session.name, timestamp: clock.nowMs(), ...fields });
     };
     const noteStatus = (fields: SessionStatusFields) => {
-      if (pendingStatus === null) setImmediate(flushStatus);
+      if (pendingStatus === null) {
+        dirtyStatusFlushers.add(flushStatus);
+        setImmediate(flushStatus);
+      }
       pendingStatus = { ...pendingStatus, ...fields };
     };
     let lastPersistedWasActive: boolean | null = null;
@@ -265,6 +274,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (exitClose === 'confirm') dependencies.broadcastControl({ type: 'session-close-confirm', id: session.id, mergeStatus: session.mergeStatus });
     }
     session.on('teardown', ({ cause }: { id: string; cause: SessionEndCause }) => {
+      dirtyStatusFlushers.delete(flushStatus);
+      pendingStatus = null;
       clearCompactionConfirm();
       isAcknowledgeDeferredForCompaction = false;
       dependencies.telegramChannel.noteStateChange(session.id);

@@ -25,7 +25,8 @@ import type { UpdateStatus } from './backend/backend-update.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { createReplayLog } from './core/control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
-import { attachControlSeq } from './control/control-seq.ts';
+import { attachControlSeq, lastSentSeqOf } from './control/control-seq.ts';
+import { MUTATION_COLLECTIONS, type CollectionName } from '../shared/contracts/control/message-classes.ts';
 import type { TelegramDeliveryControl } from './core/telegram-delivery-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
 import { createReplyLedger } from './control/reply-ledger.ts';
@@ -134,6 +135,7 @@ interface ControlHandlerDeps {
   configStore: ConfigStore;
   broadcastControl: (message: ControlMessageRecord) => void;
   broadcastControlFlushed: FlushedControlBroadcast;
+  flushCollection?: (collection: CollectionName) => void;
   generateProjectId: () => string;
   applyConfigReload: (config: GlimmervoidConfig) => void;
   applySettingsReload: (config: GlimmervoidConfig) => void;
@@ -227,8 +229,8 @@ const REPLY_LEDGER_MAX_ENTRIES = 512;
 function registerControlHandlers(onControlConnection: (handleConnection: ControlConnectionHandler) => void, deps: ControlHandlerDeps) {
   const { serverBuild = () => null, controlReplayLog = null } = deps;
   const seqLog = controlReplayLog ?? createReplayLog();
-  const context = createControlContext(deps);
   const replyLedger = createReplyLedger({ nowMs: () => clock.nowMs(), keepMs: REPLY_LEDGER_KEEP_MS, maxEntries: REPLY_LEDGER_MAX_ENTRIES });
+  const context = createControlContext(deps, replyLedger.answeringSocketOf);
   const session = createSessionHandlers(context, deps);
   const branches = createBranchWiring({
     findSession: (sessionId) => context.findSession({ id: sessionId }),
@@ -313,12 +315,18 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
         const message = configIssueMessage(parsedMessage.error);
         console.warn(`[control] Dropped invalid client message ${describeDroppedClientMessage(msg, parsedMessage.error)}`);
         const reply = validationErrorReply(merged, msg, message);
-        if (reply) ws.send(JSON.stringify(reply));
+        if (reply) {
+          const requestType = typeof msg?.type === 'string' ? msg.type : '';
+          const stampedReply = Object.hasOwn(MUTATION_COLLECTIONS, requestType) && !('appliedSeq' in reply)
+            ? { ...reply, appliedSeq: lastSentSeqOf(ws) }
+            : reply;
+          ws.send(JSON.stringify(stampedReply));
+        }
         return;
       }
       const request: ControlRequest = parsedMessage.data;
       if (!Object.hasOwn(merged.handlers, request.type)) return;
-      const ledgerRequestId = typeof request.requestId === 'string' ? request.requestId : null;
+      const ledgerRequestId = typeof request.requestId === 'string' && request.requestId.length > 0 ? request.requestId : null;
       if (ledgerRequestId !== null && replyLedger.admit(ledgerRequestId, ws, ResentRequest.safeParse(request).success) !== 'run') return;
       const result = dispatchControlRequest(request, ws);
       if (!(result instanceof Promise)) {

@@ -403,6 +403,7 @@ export const SERVER_MESSAGE_CLASS = {
   'secret-approvals': 'collection',
   'secret-requests-snapshot': 'collection',
   'secret-source-test-result': 'reply',
+  'session-action-result': 'reply',
   'session-added': 'collection',
   'session-changed': 'event',
   'session-close-confirm': 'event',

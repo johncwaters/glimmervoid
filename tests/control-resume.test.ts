@@ -59,7 +59,9 @@ test('resume-conversation refuses a conversation another live session holds', ()
 
   assert.equal(studioMain.resumeSessionId, null);
   assert.equal('resumeSessionId' in cfg.projects[1], false);
-  assert.equal(h.sent.some((m) => m.type === 'resume-conversation-ack'), false);
+  const ack = h.sent.find((m) => m.type === 'resume-conversation-ack');
+  assert.equal(ack?.ok, false);
+  assert.match(String((ack as { error?: string } | undefined)?.error ?? ''), /belongs to the session "focus"/);
 });
 
 test('force-restart into an earlier conversation keeps the pick when the old agent reports its own conversation before exiting', () => {
@@ -121,7 +123,9 @@ test('add-session with a conversation id found in another project folder persist
 
     const reply = addSession(cfg, { path: repo, resumeSessionId: `  ${EARLIER_CONVERSATION}  ` });
 
-    assert.deepEqual(reply, { type: 'add-session-result', requestId: 'a1', ok: true, error: null, sessionId: 'dddddddd-resumed' });
+    assert.equal(typeof (reply as { appliedSeq?: unknown } | undefined)?.appliedSeq, 'number');
+    assert.ok(((reply as { appliedSeq?: number } | undefined)?.appliedSeq ?? 0) > 0);
+    assert.deepEqual({ ...reply, appliedSeq: 0 }, { type: 'add-session-result', requestId: 'a1', ok: true, error: null, sessionId: 'dddddddd-resumed', appliedSeq: 0 });
     assert.equal(cfg.projects[0]?.resumeSessionId, EARLIER_CONVERSATION);
   });
 });

@@ -8,16 +8,21 @@ import { StartPicks } from '../start-picks.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
 import { AgeFileRemove, ProjectApprovals, SecretDecision, SecretName, SecretRequestCard, SecretRevoke, SecretSourceTestResult } from '../secrets.ts';
-import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, looseCollection, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
+import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, looseCollection, looseMutatingReply, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
 export const CHAT_SEND_MAX_CHARS = CHAT_OUTBOX_TEXT_MAX_CHARS;
 
-const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
+const approvalRequestId = z.union([z.string().min(1).max(128), z.number().int()]);
+
+const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional(), requestId };
 
 export const sessionClientVariants = [
   loose('list-start-picks', { requestId }),
   loose('restart', restartClientShape),
   loose('force-restart', restartClientShape),
+  loose('kill', { id: sessionId, force: z.unknown().optional(), requestId }),
+  loose('start-session', { id: sessionId, force: z.unknown().optional(), requestId }),
+  loose('snooze-session', { id: sessionId, force: z.unknown().optional(), requestId }),
   loose('add-session', {
     name: z.string(),
     path: z.string(),
@@ -36,21 +41,21 @@ export const sessionClientVariants = [
   loose('quick-session', { id: sessionId, requestId }),
   loose('remove-session', { id: sessionId, force: z.unknown().optional(), checkOnly: z.boolean().optional(), discardWork: z.boolean().optional(), confirmedKeptPaths: z.array(z.string()).optional(), requestId }),
   loose('list-conversations', { id: sessionId, requestId }),
-  loose('resume-conversation', { id: sessionId, conversationId: z.string() }),
-  loose('rename-session', { id: sessionId, newName: z.string() }),
+  loose('resume-conversation', { id: sessionId, conversationId: z.string(), requestId }),
+  loose('rename-session', { id: sessionId, newName: z.string(), requestId }),
   loose('get-workspace-repos', { id: sessionId, requestId }),
   loose('set-workspace-repos', { id: sessionId, repos: z.array(z.string()), requestId }),
-  loose('set-session-title', { id: sessionId, title: TaskTitle }),
-  loose('link-session-pr', { id: sessionId, key: PullRequestKey }),
-  loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
-  loose('cancel-wake', { id: sessionId, wake: WakeId }),
+  loose('set-session-title', { id: sessionId, title: TaskTitle, requestId }),
+  loose('link-session-pr', { id: sessionId, key: PullRequestKey, requestId }),
+  loose('unlink-session-pr', { id: sessionId, key: PullRequestKey, requestId }),
+  loose('cancel-wake', { id: sessionId, wake: WakeId, requestId }),
   loose('wake-at-limit-reset', { id: sessionId, requestId }),
-  loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
-  loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1) }),
-  loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
-  loose('plan-decision', { id: sessionId, decision: PlanDecision, feedback: z.string().max(PLAN_GATE_FEEDBACK_MAX_CHARS).optional() }),
-  loose('answer-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), answers: ConversationAnswers }),
-  loose('decide-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), decision: PermissionDecision, message: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS).optional() }),
+  loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional(), requestId }),
+  loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1), requestId }),
+  loose('set-session-question-manager', { id: sessionId, isOn: z.boolean(), requestId }),
+  loose('plan-decision', { id: sessionId, decision: PlanDecision, feedback: z.string().max(PLAN_GATE_FEEDBACK_MAX_CHARS).optional(), requestId }),
+  loose('answer-approval', { id: sessionId, approvalRequestId: approvalRequestId.optional(), requestId, answers: ConversationAnswers }),
+  loose('decide-approval', { id: sessionId, approvalRequestId: approvalRequestId.optional(), requestId, decision: PermissionDecision, message: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS).optional() }),
   loose('chat-send', { id: sessionId, text: z.string().trim().max(CHAT_SEND_MAX_CHARS), attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]), requestId })
     .refine((send) => send.text.length > 0 || send.attachments.length > 0, { message: 'chat-send needs text or an attachment' }),
   loose('sign-in-start', { id: sessionId, requestId }),
@@ -58,9 +63,9 @@ export const sessionClientVariants = [
   loose('chat-stop', { id: sessionId, entryId: z.string().min(1).max(64).optional(), requestId }),
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
   loose('switch-session-model', { id: sessionId, setup: ModelSelection, requestId }),
-  loose('secret-decision', SecretDecision.shape),
-  loose('secret-revoke', SecretRevoke.shape),
-  loose('age-file-remove', AgeFileRemove.shape),
+  loose('secret-decision', { ...SecretDecision.shape, requestId }),
+  loose('secret-revoke', { ...SecretRevoke.shape, requestId }),
+  loose('age-file-remove', { ...AgeFileRemove.shape, requestId }),
   loose('secret-source-test', { requestId, lookIn: z.string() }),
 ] as const;
 
@@ -70,16 +75,17 @@ export const sessionServerVariants = [
     serverBuild: nullableString,
   }),
   loose('start-picks', { requestId, picks: StartPicks }),
-  loose('add-session-result', { requestId, ok: z.boolean(), error: optionalError, reason: z.enum(['not-git']).optional(), sessionId: z.string().optional() }),
-  loose('switch-session-account-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, needsSignIn: z.boolean().optional() }),
-  loose('wake-at-limit-reset-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
-  loose('switch-session-model-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
-  loose('chat-send-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, acceptedAt: z.number().finite() }),
-  loose('sign-in-start-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
-  loose('chat-cancel-result', { requestId, id: sessionId, cancelledTexts: z.array(z.string().max(CHAT_SEND_MAX_CHARS)), cancelledAttachments: z.array(UploadFileName).default([]) }),
-  loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),
+  looseMutatingReply('session-action-result', { requestId, id: sessionId.optional(), ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('add-session-result', { requestId, ok: z.boolean(), error: optionalError, reason: z.enum(['not-git']).optional(), sessionId: z.string().optional() }),
+  looseMutatingReply('switch-session-account-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, needsSignIn: z.boolean().optional() }),
+  looseMutatingReply('wake-at-limit-reset-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('switch-session-model-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('chat-send-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, acceptedAt: z.number().finite() }),
+  looseMutatingReply('sign-in-start-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('chat-cancel-result', { requestId, id: sessionId, cancelledTexts: z.array(z.string().max(CHAT_SEND_MAX_CHARS)), cancelledAttachments: z.array(UploadFileName).default([]) }),
+  looseMutatingReply('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),
-  loose('set-workspace-repos-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('set-workspace-repos-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
   looseCollection('session-status', { id: sessionId, session: z.string(), timestamp, ...SessionStatusFields.shape }),
   looseCollection('session-added', SessionCardFields.shape),
   looseCollection('session-modified', SessionCardFields.shape),
@@ -117,7 +123,7 @@ export const sessionServerVariants = [
     })),
     error: z.string().optional(),
   }),
-  loose('resume-conversation-ack', {
+  looseMutatingReply('resume-conversation-ack', {
     id: sessionId.optional(),
     resumeSessionId: nullableString.optional(),
     ok: z.boolean(),

@@ -649,6 +649,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     skillSourceDir: path.join(assetRoot, 'session', 'remote-setup'),
   });
 
+  let flushPendingSessionStatus: () => void = () => {};
   const wireSessionStatusEvents = createSessionEventWiring({
     configStore,
     config,
@@ -675,6 +676,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     closeSessionDataClients,
     removeExitedSession: (id: string) => removeExitedSession?.(id),
     telemetry,
+    registerStatusFlusher: (flush) => { flushPendingSessionStatus = flush; },
     logger: console,
   });
 
@@ -1062,6 +1064,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     broadcastControl,
     broadcastControlFlushed: webSockets.broadcastControlFlushed,
+    flushCollection: (collection) => {
+      if (collection === 'sessions' || collection === 'chat-outbox') flushPendingSessionStatus();
+    },
     controlReplayLog,
     agentAccounts,
     remoteSetup,

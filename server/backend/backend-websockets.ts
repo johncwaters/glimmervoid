@@ -70,7 +70,7 @@ interface BackendWebSockets {
   handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void;
 }
 
-function sendControlFrame(client: WebSocket, payload: string, type: string, logger: Pick<Console, 'warn'>, onWritten: () => void = () => {}): void {
+function sendControlFrame(client: WebSocket, payload: string, type: string, seq: number, logger: Pick<Console, 'warn'>, onWritten: () => void = () => {}): void {
   if (client.readyState !== 1) {
     onWritten();
     return;
@@ -88,7 +88,7 @@ function sendControlFrame(client: WebSocket, payload: string, type: string, logg
     onWritten();
     return;
   }
-  sendStampedControlFrame(client as ControlSocket, payload, () => onWritten());
+  sendStampedControlFrame(client as ControlSocket, payload, seq, () => onWritten());
 }
 
 function sendPtySizeFrame(sender: WsSender, size: { cols: number; rows: number; seq: number }): void {
@@ -136,21 +136,21 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     return controlWss.clients as Set<ControlSocket>;
   }
 
-  function stampControlFrame(message: ControlMessageRecord): { payload: string; type: string } {
+  function stampControlFrame(message: ControlMessageRecord): { payload: string; type: string; seq: number } {
     const stamped = controlReplayLog.stamp(message);
-    return { payload: JSON.stringify(stamped), type: frameType(stamped) };
+    return { payload: JSON.stringify(stamped), type: frameType(stamped), seq: stamped.seq };
   }
 
   function broadcastControl(message: ControlMessageRecord): void {
-    const { payload, type } = stampControlFrame(message);
+    const { payload, type, seq } = stampControlFrame(message);
     for (const client of controlClients()) {
-      sendControlFrame(client, payload, type, logger);
+      sendControlFrame(client, payload, type, seq, logger);
     }
   }
 
   async function broadcastControlFlushed(message: ControlMessageRecord): Promise<void> {
-    const { payload, type } = stampControlFrame(message);
-    const framesWritten = [...controlClients()].map((client) => new Promise<void>((resolve) => sendControlFrame(client, payload, type, logger, resolve)));
+    const { payload, type, seq } = stampControlFrame(message);
+    const framesWritten = [...controlClients()].map((client) => new Promise<void>((resolve) => sendControlFrame(client, payload, type, seq, logger, resolve)));
     await awaitBounded(framesWritten, { capMs: CONTROL_FLUSH_CAP_MS });
   }
 
