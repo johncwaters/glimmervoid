@@ -8,7 +8,7 @@ import { STATES } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { admitWake, afterFire, afterSkipped, alarmsOf, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS } from '../core/wake-core.ts';
+import { admitWake, afterFire, afterSkipped, alarmsOf, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, WAKE_RECHECK_MS } from '../core/wake-core.ts';
 import type { WakeFailureCause, WakeLimits } from '../core/wake-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
 import type { ChildChannels } from '../agent-api/child-channels.ts';
@@ -19,12 +19,12 @@ interface WakeSpawnGate {
 
 type ResumeOutcome = 'started' | 'start-failed' | 'not-wanted';
 
-type WakeBudget = Pick<ChildChannels, 'watchOperatorInput' | 'operatorWakeFactsOf' | 'flagWakeCap' | 'isWakeLineInFlight' | 'submitWakeLine'>;
+type WakeLinePort = Pick<ChildChannels, 'watchOperatorInput' | 'msSinceOperatorInputOf' | 'isWakeLineInFlight' | 'submitWakeLine'>;
 
 interface WakeWiringOptions {
   filePath: string | null;
   findLiveSession(sessionId: string): Session | null;
-  budget: WakeBudget;
+  wakeLines: WakeLinePort;
   limits?: WakeLimits;
   spawnGate?: WakeSpawnGate | null;
   budgetHoldReason?: () => string | null;
@@ -47,7 +47,7 @@ function refusal(status: number, error: string): AgentRefusalReply {
   return { status, body: { ok: false, error } };
 }
 
-function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_WAKE_LIMITS, spawnGate = null, budgetHoldReason = () => null, onSessionWakesChange = () => {}, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
+function createWakeWiring({ filePath, findLiveSession, wakeLines, limits = DEFAULT_WAKE_LIMITS, spawnGate = null, budgetHoldReason = () => null, onSessionWakesChange = () => {}, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
   let wakes: Wake[] = [];
   let lastWakeNumber = 0;
   let timer: TimerHandle | null = null;
@@ -161,7 +161,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     const waitingWakes = pendingWakesOf(session.id);
     for (const wake of waitingWakes) recheckAtById.delete(wake.id);
     if (waitingWakes.length > 0) evaluateSoon();
-    budget.watchOperatorInput(session);
+    wakeLines.watchOperatorInput(session);
     session.on('state-change', evaluateSoon);
     session.on('turn-end-held', evaluateSoon);
     session.once('teardown', ({ cause }: SessionEnd) => {
@@ -224,7 +224,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
 
   function deliver(wake: Wake, session: Session, nowMs: number): void {
     recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
-    budget.submitWakeLine(session, describeWakeLine(wake, FIRE_TIME_FORMAT.hourMinuteOf), (isSubmitted) => settleDelivery(wake.id, isSubmitted), { when: session.isWaitingOnRateLimit ? 'now' : 'idle', origin: wake.origin });
+    wakeLines.submitWakeLine(session, describeWakeLine(wake, FIRE_TIME_FORMAT.hourMinuteOf), (isSubmitted) => settleDelivery(wake.id, isSubmitted), { when: session.isWaitingOnRateLimit ? 'now' : 'idle' });
   }
 
   function evaluateWake(wake: Wake, nowMs: number): void {
@@ -251,15 +251,11 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     const lastRateLimitedAtMs = lastRateLimitedAtMsBySessionId.get(session.id) ?? Number.NEGATIVE_INFINITY;
     const limitAnchoredWake = graceAnchoredWake.nextFireAt < lastRateLimitedAtMs ? { ...graceAnchoredWake, nextFireAt: lastRateLimitedAtMs } : graceAnchoredWake;
     const decision = decideDueWake(limitAnchoredWake, {
-      nowMs, sessionState: session.state, isBetweenTurns: session.isBetweenTurns(), isWaitingOnRateLimit: session.isWaitingOnRateLimit, rateLimitResetsAtMs, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
+      nowMs, sessionState: session.state, isBetweenTurns: session.isBetweenTurns(), isWaitingOnRateLimit: session.isWaitingOnRateLimit, rateLimitResetsAtMs, hasConversationId: Boolean(session._resumeSessionId), isDelivering: wakeLines.isWakeLineInFlight(session), msSinceOperatorInput: wakeLines.msSinceOperatorInputOf(session),
     }, limits);
     switch (decision.kind) {
       case 'wait':
         recheckAtById.set(wake.id, decision.untilMs);
-        return;
-      case 'flag-operator':
-        budget.flagWakeCap(session, 'self-wake-cap', SELF_WAKE_CAP_NOTE);
-        recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
         return;
       case 'missed':
         settleWake(wake, afterSkipped(wake, 'missed', nowMs, limits));

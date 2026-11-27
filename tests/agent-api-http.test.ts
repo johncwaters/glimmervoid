@@ -1473,7 +1473,7 @@ test('a child that fails wakes its parent even after the parent read its report'
   }
 });
 
-test('a spawned child that stops wakes its idle parent with one submitted line, up to the cap, then again once the operator has typed', async () => {
+test('a spawned child that stops wakes its idle parent with one submitted line each time, past ten with no operator input, and waits while the operator types', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });
   const written: string[] = [];
@@ -1508,22 +1508,23 @@ test('a spawned child that stops wakes its idle parent with one submitted line, 
       advanceBy(WAKE_TURN_START_TIMEOUT_MS);
       await endChildTurn();
     }
-    assert.deepEqual([pasted().length, enters().length, attentionNotes.length], [10, 10, 1], 'the eleventh wake flags the operator instead of typing');
+    assert.deepEqual([pasted().length, enters().length, attentionNotes.length], [11, 11, 0], 'the eleventh wake is typed with no operator input and nothing flags the operator');
 
+    advanceBy(WAKE_TURN_START_TIMEOUT_MS);
     fixture.parent.emit('operator-input');
     await endChildTurn();
-    assert.equal(pasted().length, 10, 'no wake while the operator typed in the last 30 seconds');
+    assert.equal(pasted().length, 11, 'no wake while the operator typed in the last 30 seconds');
     advanceBy(30_000);
     advanceBy(1000);
     await waitForSubmitDelay();
-    assert.deepEqual([pasted().length, enters().length], [11, 11], 'operator input resets the cap and the held wake fires after the hold-off');
+    assert.deepEqual([pasted().length, enters().length], [12, 12], 'the held wake fires after the hold-off');
 
     advanceBy(WAKE_TURN_START_TIMEOUT_MS);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
     fixture.parent.noteOperatorInput('r');
     await waitForSubmitDelay();
-    assert.deepEqual([pasted().length, enters().length], [12, 11], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
+    assert.deepEqual([pasted().length, enters().length], [13, 12], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
   } finally {
     fixture.destroyAll();
   }
@@ -1612,7 +1613,7 @@ test('a child wake refused while a prompt is still queued for its parent is type
   }
 });
 
-test('a session wakes itself through the wake verb, malformed wakes are refused with nothing stored, and self-wakes share the child-wake cap', async () => {
+test('a session wakes itself through the wake verb, malformed wakes are refused with nothing stored, and self-wakes and child wakes are still typed past ten with no operator input', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });
   const pasted: string[] = [];
@@ -1669,10 +1670,11 @@ test('a session wakes itself through the wake verb, malformed wakes are refused 
     await wake({ sub: 'in', when: '30s', text: 'one more' });
     advanceBy(30_000);
     advanceBy(1000);
-    assert.deepEqual([pasted.length, attentionOrigins], [10, ['self-wake-cap']], 'two self-wakes and eight child wakes spend the shared cap of ten');
+    assert.deepEqual([pasted.length, attentionOrigins], [11, []], 'a self-wake after two self-wakes and eight child wakes is typed with no operator input and nothing flags the operator');
+    advanceBy(WAKE_TURN_START_TIMEOUT_MS);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
-    assert.equal(pasted.length, 10, 'a child wake stays stopped once a self-wake flagged the operator');
+    assert.equal(pasted.length, 12, 'a child wake after the eleventh line is typed too');
   } finally {
     fixture.destroyAll();
   }
@@ -2125,36 +2127,6 @@ test('a wake line withheld during an idle flicker submits the already-pasted lin
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     assert.equal(written.filter((text) => text.includes('has news')).length, 1);
     assert.equal(written.filter((text) => text === '\r').length, 1);
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
-test('dismissing a wake-capped parent keeps the child-wake-cap attention note until operator input clears it', async () => {
-  const { clock, advanceBy } = manualClock();
-  const fixture = wiringFixture({ clock });
-  settleDeliveriesOnClock(fixture.parent, clock, () => {});
-  fixture.parent.write = () => {};
-  try {
-    fixture.parent.transition('user_start');
-    fixture.parent.transition('spawn_success', { spawnCwdExists: true });
-    fixture.parent.transition('first_output');
-    await fixture.spawn(fixture.parent, { prompt: 'do work' });
-    const child = fixture.created[0];
-    for (let turn = 0; turn < 10; turn += 1) {
-      advanceBy(WAKE_TURN_START_TIMEOUT_MS);
-      child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'task_complete' });
-      advanceBy(1000);
-    }
-    advanceBy(WAKE_TURN_START_TIMEOUT_MS);
-    child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'task_complete' });
-    assert.equal(fixture.parent.attentionNotes.some((note) => note.origin === 'child-wake-cap'), true);
-
-    fixture.parent.dismiss();
-    assert.equal(fixture.parent.attentionNotes.some((note) => note.origin === 'child-wake-cap'), true);
-
-    fixture.parent.ingestHookSignal({ signal: 'resume', source: 'hook', ts: clock.now(), event: 'UserPromptSubmit' });
-    assert.equal(fixture.parent.attentionNotes.some((note) => note.origin === 'child-wake-cap'), false);
   } finally {
     fixture.destroyAll();
   }

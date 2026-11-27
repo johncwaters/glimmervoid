@@ -96,12 +96,6 @@ interface ChannelLink {
   stopWatchingChild: () => void;
 }
 
-interface SessionWakeBudget {
-  lastOperatorInputAt: number;
-  wakesSinceOperatorInput: number;
-  isOperatorFlagged: boolean;
-}
-
 type AgentVerbHandlers = { readonly [V in AgentApiVerb]: (session: Session, request: AgentRequestOf<V>) => AgentReplyOf<V> | Promise<AgentReplyOf<V>> };
 
 interface AgentApiCollections {
@@ -109,7 +103,7 @@ interface AgentApiCollections {
   linksByChildId: Map<string, ChannelLink>;
   parentsWithChannelCleanup: WeakSet<Session>;
   sessionsWithOperatorWatch: WeakSet<Session>;
-  wakeBudgetBySession: WeakMap<Session, SessionWakeBudget>;
+  lastOperatorInputAtBySession: WeakMap<Session, number>;
   childIdsToDiscard: Set<string>;
   endCauseByChildId: Map<string, ChildEndCause>;
 }
@@ -117,4 +111,4 @@ interface AgentApiCollections {
 type AgentApiRuntime = Required<AgentApiWiringOptions> & AgentApiCollections;
 
 export { AGENT_LANE_TAG };
-export type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink, SessionWakeBudget };
+export type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink };

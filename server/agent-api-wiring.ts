@@ -5,7 +5,7 @@ import type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause } f
 import type { AgentChannel } from './core/child-channel-core.ts';
 import { deliveredValueMasker, maskSecretStrings } from '../shared/secret-patterns.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
-import type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink, SessionWakeBudget } from './agent-api/agent-api-context.ts';
+import type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink } from './agent-api/agent-api-context.ts';
 import { createChildChannels } from './agent-api/child-channels.ts';
 import { createAgentSpawner } from './agent-api/agent-spawn.ts';
 import { createAgentVerbHandlers } from './agent-api/agent-verbs.ts';
@@ -74,7 +74,7 @@ function createAgentApiWiring({
     linksByChildId: new Map<string, ChannelLink>(),
     parentsWithChannelCleanup: new WeakSet<Session>(),
     sessionsWithOperatorWatch: new WeakSet<Session>(),
-    wakeBudgetBySession: new WeakMap<Session, SessionWakeBudget>(),
+    lastOperatorInputAtBySession: new WeakMap<Session, number>(),
     childIdsToDiscard: new Set<string>(),
     endCauseByChildId: new Map<string, ChildEndCause>(),
   };
@@ -83,7 +83,7 @@ function createAgentApiWiring({
   const wakes = createWakeWiring({
     filePath: wakesFilePath,
     findLiveSession: (sessionId) => listAllSessions().find((session) => session.id === sessionId && !session._destroyed) ?? null,
-    budget: channels,
+    wakeLines: channels,
     spawnGate,
     budgetHoldReason,
     onSessionWakesChange: (sessionId, sessionWakes) => broadcastControl({ type: 'session-wakes', id: sessionId, wakes: sessionWakes }),

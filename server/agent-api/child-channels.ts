@@ -1,10 +1,9 @@
 import type { Session } from '../../session/sessions.ts';
 import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
-import type { WakeOrigin } from '../../shared/contracts/wakes.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
@@ -13,14 +12,11 @@ import { unrefTimer } from '../../shared/timer-deps.ts';
 import type { TimerHandle } from '../../shared/timer-deps.ts';
 import { SUBMIT_DELAY_MS } from '../../session/core/input-delivery-core.ts';
 import { AGENT_LANE_TAG } from './agent-api-context.ts';
-import type { AgentApiRuntime, ChannelLink, SessionWakeBudget } from './agent-api-context.ts';
-import type { AttentionNoteOrigin } from '../../shared/contracts/session.ts';
-import type { OperatorWakeFacts } from '../core/wake-core.ts';
+import type { AgentApiRuntime, ChannelLink } from './agent-api-context.ts';
 
 
 interface WakeLineDelivery {
   when?: 'idle' | 'now';
-  origin?: WakeOrigin;
 }
 
 interface StateChange {
@@ -35,7 +31,7 @@ interface HookEvent {
 }
 
 function createChildChannels(runtime: AgentApiRuntime) {
-  const { listAllSessions, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, wakeBudgetBySession, childIdsToDiscard, endCauseByChildId } = runtime;
+  const { listAllSessions, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, lastOperatorInputAtBySession, childIdsToDiscard, endCauseByChildId } = runtime;
 
   function noteEndCause(childId: string, cause: ChildEndCause): void {
     if (!endCauseByChildId.has(childId)) endCauseByChildId.set(childId, cause);
@@ -78,7 +74,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
   const turnStartListenerBySession = new WeakMap<Session, () => void>();
   const turnStartBoundTimerBySession = new WeakMap<Session, TimerHandle>();
   const wakeWaitersBySession = new WeakMap<Session, Map<string, () => void>>();
-  const withheldWakeBySession = new WeakMap<Session, { line: string; origin: WakeOrigin; pastedAt: number; clear: () => void }>();
+  const withheldWakeBySession = new WeakMap<Session, { line: string; pastedAt: number; clear: () => void }>();
 
   function clearWithheldWake(session: Session): void {
     const entry = withheldWakeBySession.get(session);
@@ -87,7 +83,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     entry.clear();
   }
 
-  function rememberWithheldWake(session: Session, line: string, origin: WakeOrigin, pastedAt: number): void {
+  function rememberWithheldWake(session: Session, line: string, pastedAt: number): void {
     clearWithheldWake(session);
     const onCleared = () => clearWithheldWake(session);
     session.on('operator-input', onCleared);
@@ -96,7 +92,6 @@ function createChildChannels(runtime: AgentApiRuntime) {
     session.on('teardown', onCleared);
     withheldWakeBySession.set(session, {
       line,
-      origin,
       pastedAt,
       clear: () => {
         session.off('operator-input', onCleared);
@@ -144,22 +139,12 @@ function createChildChannels(runtime: AgentApiRuntime) {
     turnStartBoundTimerBySession.set(session, unrefTimer(setTimeoutFn(() => releaseWakeLine(session), WAKE_TURN_START_TIMEOUT_MS)));
   }
 
-  function wakeBudgetOf(session: Session): SessionWakeBudget {
-    const existingBudget = wakeBudgetBySession.get(session);
-    if (existingBudget) return existingBudget;
-    const freshBudget: SessionWakeBudget = { lastOperatorInputAt: Number.NEGATIVE_INFINITY, wakesSinceOperatorInput: 0, isOperatorFlagged: false };
-    wakeBudgetBySession.set(session, freshBudget);
-    return freshBudget;
+  function lastOperatorInputAtOf(session: Session): number {
+    return lastOperatorInputAtBySession.get(session) ?? Number.NEGATIVE_INFINITY;
   }
 
-  function operatorWakeFactsOf(session: Session): OperatorWakeFacts {
-    const budget = wakeBudgetOf(session);
-    return { isOperatorFlagged: budget.isOperatorFlagged, wakesSinceOperatorInput: budget.wakesSinceOperatorInput, msSinceOperatorInput: now() - budget.lastOperatorInputAt };
-  }
-
-  function flagWakeCap(session: Session, origin: AttentionNoteOrigin, note: string): void {
-    wakeBudgetOf(session).isOperatorFlagged = true;
-    session.raiseAttention(origin, note);
+  function msSinceOperatorInputOf(session: Session): number {
+    return now() - lastOperatorInputAtOf(session);
   }
 
   function isWakeLineInFlight(session: Session): boolean {
@@ -171,16 +156,15 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return wakeLineSubmittedAtBySession.has(session);
   }
 
-  function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void, { when = 'idle', origin = 'agent' }: WakeLineDelivery = {}): boolean {
+  function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void, { when = 'idle' }: WakeLineDelivery = {}): boolean {
     if (isWakeLineInFlight(recipient)) return false;
     const withheld = withheldWakeBySession.get(recipient);
     if (withheld) {
       if (recipient._destroyed || !recipient.hasLivePty || (when === 'idle' && !recipient.isBetweenTurns())) return false;
       clearWithheldWake(recipient);
-      if (shouldReuseWithheldWakeLine({ pastedAt: withheld.pastedAt, lastOperatorInputAt: wakeBudgetOf(recipient).lastOperatorInputAt })) {
+      if (shouldReuseWithheldWakeLine({ pastedAt: withheld.pastedAt, lastOperatorInputAt: lastOperatorInputAtOf(recipient) })) {
         recipient.write('\r');
         holdWakeLineUntilTurnStart(recipient);
-        if (withheld.origin === 'agent') wakeBudgetOf(recipient).wakesSinceOperatorInput += 1;
         if (withheld.line !== line) return false;
         queueMicrotask(() => onSettled(true));
         return true;
@@ -193,15 +177,14 @@ function createChildChannels(runtime: AgentApiRuntime) {
       onSettled: (settlement) => {
         const isSubmitted = settlement === 'submitted';
         if (!isSubmitted) {
-          if (settlement === 'withheld' && shouldReuseWithheldWakeLine({ pastedAt, lastOperatorInputAt: wakeBudgetOf(recipient).lastOperatorInputAt })) {
-            rememberWithheldWake(recipient, line, origin, pastedAt);
+          if (settlement === 'withheld' && shouldReuseWithheldWakeLine({ pastedAt, lastOperatorInputAt: lastOperatorInputAtOf(recipient) })) {
+            rememberWithheldWake(recipient, line, pastedAt);
           }
           releaseWakeLine(recipient);
           onSettled(false);
           return;
         }
         holdWakeLineUntilTurnStart(recipient);
-        if (origin === 'agent') wakeBudgetOf(recipient).wakesSinceOperatorInput += 1;
         onSettled(true);
       },
     });
@@ -236,16 +219,13 @@ function createChildChannels(runtime: AgentApiRuntime) {
       isRecipientBetweenTurns: recipient.isBetweenTurns(),
       hasUnread: hasWakingUnread(channel[side]),
       isWakePending: link.pendingWakeSides.has(side),
-      ...operatorWakeFactsOf(recipient),
+      msSinceOperatorInput: msSinceOperatorInputOf(recipient),
     });
     switch (decision.kind) {
       case 'none':
         return;
       case 'hold':
         scheduleWakeRetry(childId, link, side, decision.retryInMs);
-        return;
-      case 'flag-operator':
-        flagWakeCap(recipient, 'child-wake-cap', describeWakeCapNote(channel));
         return;
       case 'wake':
         typeWakeLine(childId, link, channel, side, recipient);
@@ -257,10 +237,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     if (sessionsWithOperatorWatch.has(session)) return;
     sessionsWithOperatorWatch.add(session);
     session.on('operator-input', () => {
-      const budget = wakeBudgetOf(session);
-      budget.lastOperatorInputAt = now();
-      budget.wakesSinceOperatorInput = 0;
-      budget.isOperatorFlagged = false;
+      lastOperatorInputAtBySession.set(session, now());
     });
   }
 
@@ -460,7 +437,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return findSibling([...channelsByChildId.values()], child.id, target);
   }
 
-  return { noteEndCause, forgetLink, openChildChannel, linkBranchSession, liveSessionOf, tellParent, settleChildWorktree, post, drain, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, operatorWakeFactsOf, flagWakeCap, isWakeLineInFlight, submitWakeLine };
+  return { noteEndCause, forgetLink, openChildChannel, linkBranchSession, liveSessionOf, tellParent, settleChildWorktree, post, drain, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, msSinceOperatorInputOf, isWakeLineInFlight, submitWakeLine };
 }
 
 type ChildChannels = ReturnType<typeof createChildChannels>;

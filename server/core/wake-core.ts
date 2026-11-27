@@ -15,13 +15,7 @@ interface WakeLimits {
   missedGraceMs: number;
 }
 
-interface OperatorWakeFacts {
-  isOperatorFlagged: boolean;
-  wakesSinceOperatorInput: number;
-  msSinceOperatorInput: number;
-}
-
-interface DueWakeFacts extends OperatorWakeFacts {
+interface DueWakeFacts {
   nowMs: number;
   sessionState: SessionState;
   isBetweenTurns: boolean;
@@ -29,10 +23,11 @@ interface DueWakeFacts extends OperatorWakeFacts {
   rateLimitResetsAtMs: number | null;
   hasConversationId: boolean;
   isDelivering: boolean;
+  msSinceOperatorInput: number;
 }
 
 type ParsedWhen = { ok: true; schedule: WakeSchedule; nextFireAt: number } | { ok: false; reason: string };
-type DueWakeDecision = { kind: 'wait'; untilMs: number } | { kind: 'flag-operator' } | { kind: 'type-line' } | { kind: 'resume-with-line' } | { kind: 'missed' } | { kind: 'failed'; cause: WakeFailureCause };
+type DueWakeDecision = { kind: 'wait'; untilMs: number } | { kind: 'type-line' } | { kind: 'resume-with-line' } | { kind: 'missed' } | { kind: 'failed'; cause: WakeFailureCause };
 type SkippedWakeStatus = 'missed' | 'failed';
 type WakeFailureCause = 'no-conversation' | 'exited' | 'start-failed' | 'missed';
 
@@ -46,7 +41,6 @@ const MS_PER_MINUTE = 60 * MS_PER_SECOND;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 const WAKE_RECHECK_MS = 30 * MS_PER_SECOND;
-const SELF_WAKE_CAP_NOTE = 'Stopped waking this session: it woke itself or was woken 10 times with no input from you. Type in the session to let wakes resume.';
 
 const DEFAULT_WAKE_LIMITS: WakeLimits = Object.freeze({
   maxPendingPerSession: 10,
@@ -146,13 +140,10 @@ function decideDueWake(wake: Wake, facts: DueWakeFacts, limits: WakeLimits): Due
     isRecipientBetweenTurns: facts.isWaitingOnRateLimit || facts.isBetweenTurns,
     hasUnread: true,
     isWakePending: facts.isDelivering,
-    isOperatorFlagged: wake.origin === 'agent' && facts.isOperatorFlagged,
-    wakesSinceOperatorInput: wake.origin === 'agent' ? facts.wakesSinceOperatorInput : 0,
     msSinceOperatorInput: facts.msSinceOperatorInput,
   });
   if (decision.kind === 'none') return { kind: 'wait', untilMs: recheckAt };
   if (decision.kind === 'hold') return { kind: 'wait', untilMs: facts.nowMs + decision.retryInMs };
-  if (decision.kind === 'flag-operator') return { kind: 'flag-operator' };
   return { kind: 'type-line' };
 }
 
@@ -222,5 +213,5 @@ function alarmsOf(wakes: readonly Wake[], maxAlarms: number): Alarm[] {
     .map((wake) => ({ id: `wake:${wake.id}`, at: new Date(wake.nextFireAt).toISOString() }));
 }
 
-export { admitWake, afterFire, alarmsOf, nextCronFireAt, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
-export type { OperatorWakeFacts, WakeFailureCause, WakeLimits };
+export { admitWake, afterFire, alarmsOf, nextCronFireAt, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, WAKE_RECHECK_MS };
+export type { WakeFailureCause, WakeLimits };

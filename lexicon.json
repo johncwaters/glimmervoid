@@ -776,7 +776,7 @@
     },
     {
       "name": "wake",
-      "definition": "A prompt a session schedules with glimmervoid wake (in, at or cron) that Glimmervoid types into that session when due, once it is idle and the operator is not typing; also the line a spawned session's news types into its parent. Both spend one per-session budget of 10 without operator input"
+      "definition": "A prompt a session schedules with glimmervoid wake (in, at or cron) that Glimmervoid types into that session when due, once it is idle and the operator is not typing; also the line a spawned session's news types into its parent"
     },
     {
       "name": "reset",
@@ -1816,6 +1816,10 @@
     {
       "name": "snooze",
       "definition": "Stopping a live session's agent while keeping its worktree, changes and conversation, so its next start resumes the same conversation and a Glimmervoid restart does not start it; done by the Snooze action on a session card, automatically to an unviewed idle session on a host of 32 GiB or less, and to running sessions when a budget is reached, and refused while the session has no saved conversation or a live child session"
+    },
+    {
+      "name": "pause",
+      "definition": "Pause at budget, the Usage setting that, once estimated daily or monthly spend reaches 100% of its budget, snoozes live sessions (stopping those with no conversation to resume) and holds agent spawns and wakes until the day or month rolls over"
     }
   ],
   "retired": [

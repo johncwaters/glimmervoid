@@ -8,7 +8,6 @@ import { relayNewsLine, SIBLING_MESSAGE_LINE } from '../../shared/glimmervoid-li
 const MAX_UNREAD_ENTRIES_PER_SIDE = 50;
 const MAX_ENTRY_CHARS = 4000;
 const MAX_STOP_NOTE_MESSAGE_CHARS = 2000;
-const MAX_WAKES_WITHOUT_OPERATOR = 10;
 const OPERATOR_TYPING_HOLD_OFF_MS = 30_000;
 const WAKE_TURN_START_TIMEOUT_MS = 5000;
 const STARTUP_STATES: readonly SessionState[] = [STATES.DORMANT, STATES.INITIALIZING, STATES.STARTING];
@@ -50,15 +49,12 @@ interface WakeFacts {
   isRecipientBetweenTurns: boolean;
   hasUnread: boolean;
   isWakePending: boolean;
-  isOperatorFlagged: boolean;
-  wakesSinceOperatorInput: number;
   msSinceOperatorInput: number;
 }
 
 type WakeDecision =
   | { kind: 'none' }
   | { kind: 'hold'; retryInMs: number }
-  | { kind: 'flag-operator' }
   | { kind: 'wake' };
 
 type ChildTarget = { ok: true; channel: AgentChannel } | { ok: false; error: string };
@@ -183,10 +179,6 @@ function describeWakeLine(channel: AgentChannel, side: ChannelSide): string {
   return SIBLING_MESSAGE_LINE;
 }
 
-function describeWakeCapNote(channel: AgentChannel): string {
-  return `Glimmervoid stopped waking this session after ${MAX_WAKES_WITHOUT_OPERATOR} wake lines between ${channel.childName} and its parent with no operator input; glimmervoid read shows what is waiting`;
-}
-
 function isWakeLineAwaitingTurnStart(isRecipientBetweenTurns: boolean, msSinceSubmit: number): boolean {
   return isRecipientBetweenTurns && msSinceSubmit < WAKE_TURN_START_TIMEOUT_MS;
 }
@@ -196,15 +188,14 @@ function shouldReuseWithheldWakeLine({ pastedAt, lastOperatorInputAt }: { pasted
 }
 
 function decideWake(facts: WakeFacts): WakeDecision {
-  if (!facts.hasUnread || facts.isWakePending || facts.isOperatorFlagged) return { kind: 'none' };
+  if (!facts.hasUnread || facts.isWakePending) return { kind: 'none' };
   if (!facts.isRecipientBetweenTurns) return { kind: 'none' };
-  if (facts.wakesSinceOperatorInput >= MAX_WAKES_WITHOUT_OPERATOR) return { kind: 'flag-operator' };
   if (facts.msSinceOperatorInput < OPERATOR_TYPING_HOLD_OFF_MS) return { kind: 'hold', retryInMs: OPERATOR_TYPING_HOLD_OFF_MS - facts.msSinceOperatorInput };
   return { kind: 'wake' };
 }
 
 export {
-  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread,
+  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread,
   isWakeLineAwaitingTurnStart, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide };

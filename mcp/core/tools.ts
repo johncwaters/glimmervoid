@@ -361,7 +361,7 @@ const WARGAMES_TOOL: GroupedTool = {
 const WAKE_TOOL: GroupedTool = {
   name: 'wake',
   title: 'Glimmervoid wake',
-  description: "Have Glimmervoid type a prompt into this session later, to come back to a task (check a rollout, a slow job, a pull request) instead of polling or sleeping. It is typed in once the session is idle and the operator is not typing, framed as Glimmervoid wake <id>. in takes a duration (30s, 15m, 2h, 1h30m); at takes a clock time HH:MM or an ISO date-time; cron takes a five-field pattern such as 0 9 * * 1-5 and fires for up to 7 days. Times use the operator's timezone. list shows this session's pending wakes; cancel removes one by id. After 10 wakes with no operator input, wakes stop until the operator types.",
+  description: "Have Glimmervoid type a prompt into this session later, to come back to a task (check a rollout, a slow job, a pull request) instead of polling or sleeping. It is typed in once the session is idle and the operator is not typing, framed as Glimmervoid wake <id>. in takes a duration (30s, 15m, 2h, 1h30m); at takes a clock time HH:MM or an ISO date-time; cron takes a five-field pattern such as 0 9 * * 1-5 and fires for up to 7 days. Times use the operator's timezone. list shows this session's pending wakes; cancel removes one by id.",
   loadsUpfront: false,
   fields: {
     when: z.string().min(1).max(MAX_WAKE_WHEN_CHARS).optional().describe('in: a duration such as 15m; at: HH:MM or an ISO date-time; cron: a five-field pattern'),

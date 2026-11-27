@@ -25,7 +25,6 @@ const NOTE_TRANSITIONS: Readonly<Record<NoteLane, Readonly<Partial<Record<NoteEv
 });
 
 const MAX_HELD_QUESTIONS = 5;
-const DISMISS_SURVIVING_ORIGINS: ReadonlySet<AttentionNoteOrigin> = new Set(["child-wake-cap", "self-wake-cap"]);
 
 const STARTUP_STATES: readonly SessionState[] = Object.freeze([STATES.DORMANT, STATES.INITIALIZING, STATES.STARTING]);
 
@@ -119,15 +118,6 @@ function observeState(lanes: AttentionLanes, state: SessionState, leftWaiting: b
 
 function clearNotes(lanes: AttentionLanes, event: NoteEvent): { lanes: AttentionLanes; effect: AttentionEffect } {
   if (nextNoteLane(lanes, event) !== NOTE_LANES.CLEAR) return { lanes, effect: NO_EFFECT };
-  if (event === "dismiss") {
-    const activeEntries = Object.entries(lanes.notes).filter(([, note]) => note !== undefined);
-    const keptEntries = activeEntries.filter(([origin]) => DISMISS_SURVIVING_ORIGINS.has(origin as AttentionNoteOrigin));
-    if (keptEntries.length === activeEntries.length) return { lanes, effect: NO_EFFECT };
-    return {
-      lanes: { ...lanes, notes: Object.fromEntries(keptEntries) as Partial<Record<AttentionNoteOrigin, AttentionNote>> },
-      effect: { ...NO_EFFECT, records: [{ disposition: "cleared", origin: null, note: null }], hasNotesChanged: true },
-    };
-  }
   return { lanes: { ...lanes, notes: {} }, effect: { ...NO_EFFECT, records: [{ disposition: "cleared", origin: null, note: null }], hasNotesChanged: true } };
 }
 
