@@ -21,10 +21,17 @@ function notifyServerMessageListeners(message: ServerMessage): void {
   }
 }
 
+let isPayloadNotifyQueued = false;
+
 function notifyPayloadListeners(): void {
-  for (const listener of [...payloadListeners]) {
-    listener();
-  }
+  if (isPayloadNotifyQueued) return;
+  isPayloadNotifyQueued = true;
+  queueMicrotask(() => {
+    isPayloadNotifyQueued = false;
+    for (const listener of [...payloadListeners]) {
+      listener();
+    }
+  });
 }
 
 const settingsCollection = defineCollection<SettingsCollectionState>({
@@ -37,12 +44,20 @@ const settingsCollection = defineCollection<SettingsCollectionState>({
 
 watchCollection(
   settingsCollection,
-  (state) => `${state.serverRevision}:${state.optimisticRevision}`,
+  (state) => `${state.serverRevision}:${settingsCollection.overlayVersion()}`,
   notifyPayloadListeners,
 );
 
+let cachedRevisionKey = '';
+let cachedSnapshot: SettingsPayload | null = null;
+
 export function settingsPayloadSnapshot(): SettingsPayload {
-  return cloneValue(settingsCollection.state.payload) as SettingsPayload;
+  const revisionKey = `${settingsCollection.state.serverRevision}:${settingsCollection.overlayVersion()}`;
+  if (cachedSnapshot === null || cachedRevisionKey !== revisionKey) {
+    cachedSnapshot = cloneValue(settingsCollection.state.payload) as SettingsPayload;
+    cachedRevisionKey = revisionKey;
+  }
+  return structuredClone(cachedSnapshot);
 }
 
 export function seedSettingsPayload(freshSettings: unknown): void {

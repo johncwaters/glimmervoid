@@ -25,6 +25,7 @@ export interface CollectionHandle<State extends object> {
   readonly name: CollectionName;
   readonly key: CollectionKey;
   readonly state: Store<State>;
+  readonly overlayVersion: () => number;
   readonly [ADD_OPTIMISTIC_OVERLAY]: (updater: OptimisticDraftUpdater<State>) => () => void;
 }
 
@@ -59,6 +60,7 @@ export function defineCollection<State extends object>({
   let handle!: CollectionHandle<State>;
   let disposeRoot = (): void => {};
   let bumpVersion = (): void => {};
+  let bumpOverlayVersion = (): void => {};
 
   const notifyChanged = (): void => {
     for (const listener of [...changeListeners]) {
@@ -86,6 +88,7 @@ export function defineCollection<State extends object>({
     const overlayIndex = activeOverlays.findIndex((entry) => entry.id === overlayId);
     if (overlayIndex === -1) return false;
     activeOverlays.splice(overlayIndex, 1);
+    bumpOverlayVersion();
     bumpVersion();
     return true;
   };
@@ -94,9 +97,13 @@ export function defineCollection<State extends object>({
     createRoot((dispose) => {
       disposeRoot = dispose;
       const [version, setVersion] = createSignal(0);
+      const [overlayVersion, setOverlayVersion] = createSignal(0);
       bumpVersion = () => {
         currentVersion += 1;
         setVersion(currentVersion);
+      };
+      bumpOverlayVersion = () => {
+        setOverlayVersion((count) => count + 1);
       };
       const seed = structuredClone(initial);
       const [state] = createOptimisticStore<State>(
@@ -116,6 +123,7 @@ export function defineCollection<State extends object>({
         const overlayId = nextOverlayId;
         nextOverlayId += 1;
         activeOverlays.push({ id: overlayId, updater });
+        bumpOverlayVersion();
         bumpVersion();
         try {
           flush();
@@ -135,6 +143,7 @@ export function defineCollection<State extends object>({
         name,
         key,
         state,
+        overlayVersion,
         [ADD_OPTIMISTIC_OVERLAY]: addOverlay,
       };
     });

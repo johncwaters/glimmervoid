@@ -20,6 +20,11 @@ const codemapFolderSetAction = defineAction<CodemapFolderSetInput>({
     });
   },
   isReplyOk: (reply) => reply.type === 'codemap-folder-set-result' && reply.ok,
+  onReply: (reply, { boxId }) => {
+    if (reply.type === 'codemap-folder-set-result' && reply.ok) {
+      applyStudioReply(reply, { confirmedFolderBoxId: boxId });
+    }
+  },
   noticeSource: 'Studio map',
   rollbackNotice: (error, { isOpen }) => {
     const detail = error instanceof Error ? error.message : String(error);
@@ -29,11 +34,7 @@ const codemapFolderSetAction = defineAction<CodemapFolderSetInput>({
 });
 
 export async function runCodemapFolderSet(input: CodemapFolderSetInput) {
-  const outcome = await codemapFolderSetAction(input);
-  if (outcome.ok && outcome.reply.type === 'codemap-folder-set-result' && outcome.reply.ok) {
-    applyStudioReply(outcome.reply, { confirmedFolderBoxId: input.boxId });
-  }
-  return outcome;
+  return codemapFolderSetAction(input);
 }
 
 export default codemapFolderSetAction;

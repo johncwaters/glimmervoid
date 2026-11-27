@@ -18,6 +18,9 @@ import { verifySolidHello } from './solid-hello.ts';
 import { verifySolidIsland } from './solid-island.ts';
 import { verifySolidStoreSignal } from './solid-store-signal.ts';
 import { verifyStateCore } from './state-core.ts';
+import { verifyContinuity } from './continuity.ts';
+import type { ControlFaultController } from './continuity.ts';
+import { SERVER_MESSAGE_CLASS } from '../../shared/contracts/control/message-classes.ts';
 import { verifyPacks } from './packs.ts';
 import { verifyHooks } from './hooks.ts';
 import { verifyUiPrimitivesParity } from './ui-primitives-parity.ts';
@@ -115,10 +118,16 @@ interface Viewer {
   height: number;
   restoreHeight: number;
   silenceOpenSockets: () => number;
+  controlFaults: ControlFaultController;
 }
 
 interface RoutedSocket {
   isSilenced: boolean;
+  isControl: boolean;
+  pageSide: WebSocketRoute;
+  serverSide: WebSocketRoute;
+  isClosed: boolean;
+  timers: Set<ReturnType<typeof setTimeout>>;
 }
 
 interface CaseLog {
@@ -1120,26 +1129,275 @@ function forwardClose(target: WebSocketRoute, code: number | undefined, reason: 
   void target.close({ code, reason });
 }
 
-async function routeDashboardSockets(page: Page): Promise<() => number> {
+function createNoopControlFaults(): ControlFaultController {
+  return {
+    setReplyDelayMs() {},
+    setPushDelayMs() {},
+    failRequestType() {},
+    clearFailedRequestTypes() {},
+    stubRequestReply() {},
+    clearStubbedReplies() {},
+    syncSeqFloor() {},
+    async dropControlSocketFor() {},
+    startCountingClientFrames() {},
+    stopCountingClientFrames() { return []; },
+    reset() {},
+  };
+}
+
+function parseJsonFrame(raw: string | Buffer): Record<string, unknown> | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function isCollectionPushType(frameType: string): boolean {
+  if (!Object.hasOwn(SERVER_MESSAGE_CLASS, frameType)) return false;
+  return SERVER_MESSAGE_CLASS[frameType as keyof typeof SERVER_MESSAGE_CLASS] === 'collection';
+}
+
+function clearSocketTimers(routed: RoutedSocket): void {
+  for (const timer of routed.timers) clearTimeout(timer);
+  routed.timers.clear();
+}
+
+function scheduleSocketSend(
+  routed: RoutedSocket,
+  target: WebSocketRoute,
+  payload: string | Buffer,
+  delayMs: number,
+): void {
+  if (routed.isSilenced || routed.isClosed) return;
+  if (delayMs <= 0) {
+    try { target.send(payload); } catch {}
+    return;
+  }
+  const timer = setTimeout(() => {
+    routed.timers.delete(timer);
+    if (routed.isSilenced || routed.isClosed) return;
+    try { target.send(payload); } catch {}
+  }, delayMs);
+  routed.timers.add(timer);
+}
+
+async function routeDashboardSockets(page: Page): Promise<{
+  silenceOpenSockets: () => number;
+  controlFaults: ControlFaultController;
+}> {
   const routedSockets: RoutedSocket[] = [];
+  let replyDelayMs = 0;
+  let pushDelayMs = 0;
+  const failedRequestTypes = new Map<string, string>();
+  const stubbedRequestResponders = new Map<string, (frame: Record<string, unknown>, nextSeq: number) => { reply: Record<string, unknown>; push?: Record<string, unknown> }>();
+  let lastObservedServerSeq = 0;
+  let syntheticSeqOffset = 0;
+  let reconnectBlockedUntilMs = 0;
+  let isCountingClientFrames = false;
+  let countedClientFrames: string[] = [];
+  const snapshotWaiters = new Set<() => void>();
+
   await page.routeWebSocket(isDashboardSocketUrl, (pageSide) => {
+    const socketUrl = new URL(pageSide.url());
+    const isControl = socketUrl.pathname === '/control';
+    if (isControl && Date.now() < reconnectBlockedUntilMs) {
+      void pageSide.close();
+      return;
+    }
+
     const serverSide = pageSide.connectToServer();
-    const routed: RoutedSocket = { isSilenced: false };
+    const routed: RoutedSocket = {
+      isSilenced: false,
+      isControl,
+      pageSide,
+      serverSide,
+      isClosed: false,
+      timers: new Set(),
+    };
     routedSockets.push(routed);
-    pageSide.onMessage((message) => { if (!routed.isSilenced) serverSide.send(message); });
-    serverSide.onMessage((message) => { if (!routed.isSilenced) pageSide.send(message); });
-    pageSide.onClose((code, reason) => { if (!routed.isSilenced) forwardClose(serverSide, code, reason); });
-    serverSide.onClose((code, reason) => { if (!routed.isSilenced) forwardClose(pageSide, code, reason); });
+
+    pageSide.onMessage((message) => {
+      if (routed.isSilenced || routed.isClosed) return;
+      if (isControl) {
+        const frame = parseJsonFrame(message);
+        const frameType = typeof frame?.type === 'string' ? frame.type : null;
+        if (isCountingClientFrames && frameType !== null) {
+          countedClientFrames.push(frameType);
+        }
+        const requestId = typeof frame?.requestId === 'string' ? frame.requestId : null;
+        if (frameType !== null && requestId !== null && failedRequestTypes.has(frameType)) {
+          const errorMessage = failedRequestTypes.get(frameType) ?? `Injected failure for ${frameType}`;
+          const errorFrame = JSON.stringify({ type: 'error', requestId, message: errorMessage });
+          scheduleSocketSend(routed, pageSide, errorFrame, replyDelayMs);
+          return;
+        }
+        if (frameType !== null && requestId !== null && frame !== null && stubbedRequestResponders.has(frameType)) {
+          const responder = stubbedRequestResponders.get(frameType);
+          if (responder) {
+            syntheticSeqOffset += 1;
+            lastObservedServerSeq += 1;
+            const nextSeq = lastObservedServerSeq;
+            const synthetic = responder(frame, nextSeq);
+            scheduleSocketSend(routed, pageSide, JSON.stringify({ ...synthetic.reply, requestId }), replyDelayMs);
+            if (synthetic.push) {
+              scheduleSocketSend(routed, pageSide, JSON.stringify({ ...synthetic.push, seq: nextSeq }), pushDelayMs);
+            }
+            return;
+          }
+        }
+      }
+      serverSide.send(message);
+    });
+
+    serverSide.onMessage((message) => {
+      if (routed.isSilenced || routed.isClosed) return;
+      if (!isControl) {
+        pageSide.send(message);
+        return;
+      }
+      const frame = parseJsonFrame(message);
+      const frameType = typeof frame?.type === 'string' ? frame.type : null;
+      let outboundPayload: string | Buffer = message;
+      if (frame !== null) {
+        if (frameType === 'snapshot') {
+          syntheticSeqOffset = 0;
+          lastObservedServerSeq = typeof frame.seq === 'number' ? frame.seq : 0;
+        }
+        if (frameType !== 'snapshot' && syntheticSeqOffset > 0) {
+          let didRewrite = false;
+          if (typeof frame.seq === 'number') {
+            frame.seq += syntheticSeqOffset;
+            if (frame.seq > lastObservedServerSeq) lastObservedServerSeq = frame.seq;
+            didRewrite = true;
+          }
+          if (typeof frame.appliedSeq === 'number') {
+            frame.appliedSeq += syntheticSeqOffset;
+            didRewrite = true;
+          }
+          if (didRewrite) outboundPayload = JSON.stringify(frame);
+        }
+        if (frameType !== 'snapshot' && syntheticSeqOffset === 0 && typeof frame.seq === 'number' && frame.seq > lastObservedServerSeq) {
+          lastObservedServerSeq = frame.seq;
+        }
+      }
+      if (frameType === 'snapshot' && snapshotWaiters.size > 0) {
+        for (const resolve of [...snapshotWaiters]) {
+          snapshotWaiters.delete(resolve);
+          resolve();
+        }
+      }
+      const hasRequestId = typeof frame?.requestId === 'string';
+      const isCollectionPush = frameType !== null && isCollectionPushType(frameType);
+      const hasSeq = typeof frame?.seq === 'number';
+      if ((isCollectionPush || (hasSeq && !hasRequestId)) && pushDelayMs > 0) {
+        scheduleSocketSend(routed, pageSide, outboundPayload, pushDelayMs);
+        return;
+      }
+      if (hasRequestId && !isCollectionPush && replyDelayMs > 0) {
+        scheduleSocketSend(routed, pageSide, outboundPayload, replyDelayMs);
+        return;
+      }
+      pageSide.send(outboundPayload);
+    });
+
+    pageSide.onClose((code, reason) => {
+      routed.isClosed = true;
+      clearSocketTimers(routed);
+      if (!routed.isSilenced) forwardClose(serverSide, code, reason);
+    });
+    serverSide.onClose((code, reason) => {
+      routed.isClosed = true;
+      clearSocketTimers(routed);
+      if (!routed.isSilenced) forwardClose(pageSide, code, reason);
+    });
   });
-  return () => {
+
+  const controlFaults: ControlFaultController = {
+    setReplyDelayMs(delayMs: number) {
+      replyDelayMs = Math.max(0, delayMs);
+    },
+    setPushDelayMs(delayMs: number) {
+      pushDelayMs = Math.max(0, delayMs);
+    },
+    failRequestType(requestType: string, errorMessage?: string) {
+      failedRequestTypes.set(requestType, errorMessage ?? `Injected failure for ${requestType}`);
+    },
+    clearFailedRequestTypes() {
+      failedRequestTypes.clear();
+    },
+    stubRequestReply(requestType, responder) {
+      stubbedRequestResponders.set(requestType, responder);
+    },
+    clearStubbedReplies() {
+      stubbedRequestResponders.clear();
+    },
+    syncSeqFloor(seq: number) {
+      if (seq > lastObservedServerSeq) {
+        syntheticSeqOffset += seq - lastObservedServerSeq;
+        lastObservedServerSeq = seq;
+      }
+    },
+    async dropControlSocketFor(durationMs: number) {
+      reconnectBlockedUntilMs = Date.now() + durationMs;
+      for (const routed of routedSockets) {
+        if (!routed.isControl || routed.isClosed) continue;
+        routed.isClosed = true;
+        clearSocketTimers(routed);
+        try { void routed.pageSide.close(); } catch {}
+        try { void routed.serverSide.close(); } catch {}
+      }
+      await sleep(durationMs);
+      reconnectBlockedUntilMs = 0;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          snapshotWaiters.delete(onSnapshot);
+          reject(new Error('control socket did not reconnect and deliver snapshot within 15000ms'));
+        }, 15000);
+        const onSnapshot = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        snapshotWaiters.add(onSnapshot);
+      });
+    },
+    startCountingClientFrames() {
+      countedClientFrames = [];
+      isCountingClientFrames = true;
+    },
+    stopCountingClientFrames() {
+      isCountingClientFrames = false;
+      const recorded = [...countedClientFrames];
+      countedClientFrames = [];
+      return recorded;
+    },
+    reset() {
+      for (const routed of routedSockets) clearSocketTimers(routed);
+      replyDelayMs = 0;
+      pushDelayMs = 0;
+      failedRequestTypes.clear();
+      stubbedRequestResponders.clear();
+      reconnectBlockedUntilMs = 0;
+      isCountingClientFrames = false;
+      countedClientFrames = [];
+    },
+  };
+
+  const silenceOpenSockets = () => {
     let newlySilencedCount = 0;
     for (const routed of routedSockets) {
       if (routed.isSilenced) continue;
       routed.isSilenced = true;
+      clearSocketTimers(routed);
       newlySilencedCount += 1;
     }
     return newlySilencedCount;
   };
+
+  return { silenceOpenSockets, controlFaults };
 }
 
 async function runSuspend(viewer: Viewer): Promise<StepOutcome> {
@@ -1178,7 +1436,9 @@ async function createViewer(
     pushBoundedLine(log.lines, line);
     pushBoundedLine(log.pageErrors, line);
   });
-  const silenceOpenSockets = shouldRouteSockets ? await routeDashboardSockets(page) : () => 0;
+  const routed = shouldRouteSockets
+    ? await routeDashboardSockets(page)
+    : { silenceOpenSockets: () => 0, controlFaults: createNoopControlFaults() };
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   return {
     id: viewerId,
@@ -1189,7 +1449,8 @@ async function createViewer(
     width: viewport.width,
     height: viewport.height,
     restoreHeight: viewport.height,
-    silenceOpenSockets,
+    silenceOpenSockets: routed.silenceOpenSockets,
+    controlFaults: routed.controlFaults,
   };
 }
 
@@ -1414,6 +1675,17 @@ export async function runCase({
       const check = await verifyStateCore(viewer.page);
       if (!check.ok) return failedOutcome('state-core', check.detail);
       return passedOutcome('state-core', check.detail);
+    }
+    if (step.kind === 'assert-continuity') {
+      const check = await verifyContinuity({
+        page: viewer.page,
+        layout: viewer.layout,
+        sessionId,
+        projectDirectory,
+        faults: viewer.controlFaults,
+      });
+      if (!check.ok) return failedOutcome('continuity', check.detail);
+      return passedOutcome('continuity', check.detail);
     }
     if (step.kind === 'assert-packs') {
       const check = await verifyPacks(viewer.page);

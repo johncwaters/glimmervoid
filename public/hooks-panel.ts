@@ -140,7 +140,7 @@ async function runRowRequest(hookId: string, perform: () => Promise<string | nul
   if (failureText) _rowFeedbackById.set(hookId, { tone: 'error', text: failureText });
   if (!failureText) _rowFeedbackById.delete(hookId);
   render({ force: true });
-  requestHooksReport();
+  requestHooksReport({ force: true });
 }
 
 function buildField(label: string, control: HTMLElement, hint = '') {
@@ -337,7 +337,7 @@ async function submitEditor() {
   if (savingStatus !== _editorStatus) return;
   if (failureText) { setEditorError(failureText); return; }
   closeEditor();
-  requestHooksReport();
+  requestHooksReport({ force: true });
 }
 
 function buildPreview(hook: HookRecord) {
@@ -553,5 +553,5 @@ export function renderHooksPage(container: HTMLElement) {
 
 export function refreshHooksPage(reason: ViewRefreshReason) {
   if (reason === 'shown') render({ force: true });
-  requestHooksReport();
+  requestHooksReport({ force: reason !== 'shown' });
 }

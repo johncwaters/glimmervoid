@@ -16,8 +16,17 @@ export const INITIAL_PACKS_STATE: PacksCollectionState = {
   optimisticRevision: 0,
 };
 
+function packsStatusFingerprint(status: PacksStatus): string {
+  const { seq: _seq, ...semanticFields } = status as PacksStatus & { seq?: unknown };
+  return JSON.stringify(semanticFields);
+}
+
 export function applyPacksServerMessage(draft: PacksCollectionState, message: ServerMessage): void {
   if (message.type !== 'packs-status') return;
+  if (draft.status !== null && packsStatusFingerprint(draft.status) === packsStatusFingerprint(message)) {
+    draft.status = message;
+    return;
+  }
   draft.status = message;
   draft.serverRevision += 1;
 }

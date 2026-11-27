@@ -187,7 +187,7 @@ function onControlConnected() {
       if (!msg.settings) return;
       applyDashboardSettings(msg.settings);
       reportOperatorTimezone(msg.settings);
-      if (getActiveView() === 'settings') activateSettingsHash(location.hash);
+      if (awaitedRevealInputs.has('settings') && getActiveView() === 'settings') activateSettingsHash(location.hash);
       awaitedRevealInputs.delete('settings');
       revealAppWhenTerminalsLive();
     })

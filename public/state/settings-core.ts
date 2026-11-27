@@ -58,8 +58,16 @@ export function applySettingsServerMessage(
 ): void {
   if (message.type !== 'settings-updated' && message.type !== 'settings') return;
   if (!isRecord(message.settings)) return;
+  const nextPayload = cloneValue(message.settings) as SettingsPayload;
+  if (
+    draft.serverRevision > 0
+    && draft.optimisticRevision === 0
+    && JSON.stringify(draft.payload) === JSON.stringify(nextPayload)
+  ) {
+    return;
+  }
   helpers.replace({
-    payload: cloneValue(message.settings) as SettingsPayload,
+    payload: nextPayload,
     serverRevision: draft.serverRevision + 1,
     optimisticRevision: 0,
   });

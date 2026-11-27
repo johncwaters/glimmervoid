@@ -30,6 +30,14 @@ const addSessionAction = defineAction<AddSessionInput>({
     });
   },
   isReplyOk: (reply) => reply.type === 'add-session-result' && reply.ok,
+  onReply: (reply, input) => {
+    if (input.studio !== true) return;
+    if (reply.type === 'add-session-result' && reply.ok) {
+      applyStudioReply(reply, {
+        ...(input.agent ? { confirmedRepoBranchAgent: { repoDir: input.path, agentId: input.agent } } : {}),
+      });
+    }
+  },
   noticeSource: 'Add session',
   rollbackNotice: (error, input) => {
     const detail = error instanceof Error ? error.message : String(error);
@@ -39,13 +47,7 @@ const addSessionAction = defineAction<AddSessionInput>({
 });
 
 export async function runStudioAddSession(input: AddSessionInput) {
-  const outcome = await addSessionAction({ ...input, studio: true });
-  if (outcome.ok && outcome.reply.type === 'add-session-result' && outcome.reply.ok) {
-    applyStudioReply(outcome.reply, {
-      ...(input.agent ? { confirmedRepoBranchAgent: { repoDir: input.path, agentId: input.agent } } : {}),
-    });
-  }
-  return outcome;
+  return addSessionAction({ ...input, studio: true });
 }
 
 export default addSessionAction;

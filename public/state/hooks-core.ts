@@ -69,18 +69,31 @@ function removeHookFromReport(report: HooksReport, hookId: string): void {
   report.hooks = report.hooks.filter((entry) => !isRecord(entry) || entry.id !== hookId);
 }
 
+function hooksReportFingerprint(report: HooksReport): string {
+  const { seq: _seq, requestId: _requestId, ts: _ts, ...semanticFields } = report as HooksReport & {
+    seq?: unknown;
+    requestId?: unknown;
+    ts?: unknown;
+  };
+  return JSON.stringify(semanticFields);
+}
+
 export function applyHooksServerMessage(
   draft: HooksCollectionState,
   message: ServerMessage,
   helpers: CollectionHelpers<HooksCollectionState>,
 ): void {
   if (message.type === 'hooks-updated') {
+    if (draft.updatedCount === message.count) return;
     draft.updatedCount = message.count;
     draft.serverRevision += 1;
     return;
   }
   if (message.type === 'hooks-report') {
     const clonedReport = cloneValue(message) as HooksReport;
+    if (draft.report !== null && hooksReportFingerprint(draft.report) === hooksReportFingerprint(clonedReport)) {
+      return;
+    }
     helpers.replace({
       report: clonedReport,
       updatedCount: Array.isArray(clonedReport.hooks) ? clonedReport.hooks.length : draft.updatedCount,

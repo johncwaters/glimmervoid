@@ -50,7 +50,10 @@ export function onHooksChanged(listener: HooksChangeListener): () => void {
   };
 }
 
-export function requestHooksReport(): void {
+export function requestHooksReport({ force = false }: { force?: boolean } = {}): void {
+  const existingReport = hooksCollection.state.report;
+  const hasLoadedReport = existingReport !== null && typeof existingReport.error !== 'string';
+  if (!force && hasLoadedReport && !hasReportSendFailed) return;
   latestRequestId = nextRequestId('hooks-report');
   const wasSent = sendControlMsg({ type: 'request-hooks-report', requestId: latestRequestId });
   if (wasSent === !hasReportSendFailed) return;
@@ -65,7 +68,7 @@ export function applyHooksReport(message: ServerMessageOf<'hooks-report'>): void
 }
 
 export function applyLateHookResult(): void {
-  requestHooksReport();
+  requestHooksReport({ force: true });
 }
 
 export function reconcileSavedHook(hook: unknown): void {

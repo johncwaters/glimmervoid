@@ -174,6 +174,10 @@ export function clearHeaderErrorsForSession(sessionId: string) {
   dismissHeaderStatus();
 }
 
+export function clearAllHeaderErrors() {
+  dismissHeaderStatus();
+}
+
 function dismissHeaderStatus() {
   shownHeaderError = null;
   if (headerAgeTimer !== null) window.clearInterval(headerAgeTimer);

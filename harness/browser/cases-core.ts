@@ -10,6 +10,7 @@ export type Step =
   | { kind: 'assert-solid-island'; viewer?: ViewerId }
   | { kind: 'assert-solid-store-signal'; viewer?: ViewerId }
   | { kind: 'assert-state-core'; viewer?: ViewerId }
+  | { kind: 'assert-continuity'; viewer?: ViewerId }
   | { kind: 'assert-packs'; viewer?: ViewerId }
   | { kind: 'assert-hooks'; viewer?: ViewerId }
   | { kind: 'assert-ui-primitives-parity'; viewer?: ViewerId }
@@ -781,6 +782,12 @@ export const SCENARIOS: readonly Scenario[] = [
     steps: [{ kind: 'open' }, { kind: 'assert-state-core' }],
   },
   {
+    name: 'continuity',
+    viewports: ['desktop-1280', 'phone-393'],
+    projectSeed: 'shop',
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-continuity' }],
+  },
+  {
     name: 'packs',
     viewports: ['desktop-1280', 'phone-393'],
     steps: [{ kind: 'open' }, { kind: 'assert-packs' }],
@@ -854,7 +861,7 @@ function needsSoftKeyboard(scenario: Scenario): boolean {
 }
 
 export function needsSocketRoute(scenario: Pick<Scenario, 'steps'>): boolean {
-  return scenario.steps.some((step) => step.kind === 'suspend');
+  return scenario.steps.some((step) => step.kind === 'suspend' || step.kind === 'assert-continuity');
 }
 
 export function needsTeamReview(scenario: Scenario): boolean {
@@ -862,7 +869,7 @@ export function needsTeamReview(scenario: Scenario): boolean {
 }
 
 export function needsSessionChat(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-plan' || step.kind === 'assert-chat-elicitation' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-away-reply' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session');
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-plan' || step.kind === 'assert-chat-elicitation' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-away-reply' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session' || step.kind === 'assert-continuity');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
