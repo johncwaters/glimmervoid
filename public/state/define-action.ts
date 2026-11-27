@@ -30,7 +30,7 @@ export interface ActionOptions<Input = Record<string, unknown>> {
   optimistic?: (input: Input, apply: OptimisticApplier) => void;
   rollbackNotice: string | ((error: unknown, input: Input) => string);
   noticeSource?: string;
-  timeoutMs?: number;
+  timeoutMs?: number | ((input: Input) => number);
   isReplyOk?: (reply: ServerMessage) => boolean;
   request?: ControlRequester;
 }
@@ -75,11 +75,16 @@ async function awaitAppliedSeqWithBudget(appliedSeq: number, startedAtMs: number
 export function defineAction<Input = Record<string, unknown>>(
   options: ActionOptions<Input>,
 ): (input: Input) => Promise<ActionResult> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS;
+  const resolveTimeoutMs = (input: Input): number => (
+    typeof options.timeoutMs === 'function'
+      ? options.timeoutMs(input)
+      : (options.timeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS)
+  );
   const checkReplyOk = options.isReplyOk ?? defaultIsReplyOk;
 
   const runTransaction = action(async function* (input: Input): AsyncGenerator<unknown, ServerMessage, unknown> {
     const startedAtMs = clock.nowMs();
+    const timeoutMs = resolveTimeoutMs(input);
     const requestPayload = payloadForInput(input, options.payload);
     const sendRequest = options.request ?? sendControlRequest;
     const reply = await sendRequest(options.type, requestPayload, { timeoutMs });
@@ -95,6 +100,7 @@ export function defineAction<Input = Record<string, unknown>>(
   });
 
   return async function runDefinedAction(input: Input): Promise<ActionResult> {
+    const timeoutMs = resolveTimeoutMs(input);
     const releaseOverlays: Array<() => void> = [];
     const applyOptimistic: OptimisticApplier = (collection, updater) => {
       releaseOverlays.push(addCollectionOptimisticOverlay(collection, updater));
@@ -119,6 +125,7 @@ export function defineAction<Input = Record<string, unknown>>(
       for (let index = releaseOverlays.length - 1; index >= 0; index -= 1) {
         releaseOverlays[index]();
       }
+      if (releaseOverlays.length > 0) flush();
     }
   };
 }

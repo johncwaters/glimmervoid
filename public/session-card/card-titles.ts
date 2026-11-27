@@ -1,6 +1,7 @@
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
 import { firstCodePoints } from '#shared/text.ts';
 import { markAsNotCredential } from '../dom-helpers.ts';
+import renameSessionAction from '../state/actions/rename-session.ts';
 import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
 import { sessionActionStatus, sendSessionAction } from './card-actions.ts';
@@ -131,10 +132,8 @@ export function startInlineRename(ui: SessionUi, sessionId: string, { returnsFoc
       finishEditing();
       return;
     }
-    if (!sendSessionAction(ui, { type: 'rename-session', id: sessionId, newName })) {
-      finishEditing();
-      return;
-    }
+    status.clear();
+    void renameSessionAction({ id: sessionId, newName });
     finishEditing(newName);
   }
 

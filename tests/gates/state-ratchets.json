@@ -222,7 +222,7 @@
     },
     "public/session-actions.ts": {
       "sendControlMsg": 1,
-      "sendControlRequest": 4,
+      "sendControlRequest": 2,
       "onControlMessage": 0
     },
     "public/session-card/card-account.ts": {
@@ -397,7 +397,6 @@
     "session-previews",
     "session-review",
     "session-wakes",
-    "sessions",
     "settings",
     "team-review",
     "update",
@@ -466,10 +465,7 @@
     "radar-dismiss-fix",
     "radar-issue-action",
     "radar-open-session",
-    "remove-session",
-    "rename-session",
     "resolve-session-merge",
-    "restart",
     "resume-conversation",
     "resync-branch",
     "review-mark-viewed",

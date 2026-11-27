@@ -31,8 +31,7 @@ function showStaleDashboardError() {
 
 function wireMessageDispatch() {
   onUnreadableServerMessage(showStaleDashboardError);
-  startIngest((msg) => {
-    dispatchControlMessage(msg);
+  startIngest(dispatchControlMessage, (msg) => {
     refreshViewsIfVisible(msg.type);
   });
 }

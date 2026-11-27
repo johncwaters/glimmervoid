@@ -9,6 +9,7 @@ import { sessionUIs } from './card-registry.ts';
 import type { SessionUi } from './card-registry.ts';
 import { buildDialogShell, openConfirmDialog } from './modal.ts';
 import { runRestartChoice } from './restart-menu-core.ts';
+import restartAction from '../state/actions/restart.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { createLineIcon, PLUS_ICON_PATH } from '../svg-dom.ts';
@@ -82,7 +83,13 @@ function restartLiveSessionInto(ui: SessionUi, sessionId: string, target: Restar
   const conversationId = target.kind === 'earlier' ? target.conversationId : '';
   runRestartChoice(RESTART_CHOICE_BY_TARGET_KIND[target.kind], sessionId, {
     readState,
-    send: (message) => { sendSessionAction(ui, message); },
+    send: (message) => {
+      if (message.type === 'restart') {
+        void restartAction({ id: message.id, fresh: message.fresh, conversationId: message.conversationId });
+        return;
+      }
+      sendSessionAction(ui, message);
+    },
     confirm: openConfirmDialog,
   }, conversationId);
 }

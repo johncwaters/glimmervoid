@@ -1,4 +1,4 @@
-import { createOptimisticStore, createRoot, createSignal, runWithOwner } from 'solid-js';
+import { createOptimisticStore, createRoot, createSignal, flush, runWithOwner } from 'solid-js';
 import type { Store } from 'solid-js';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import type { CollectionName } from '#shared/contracts/control/message-classes.ts';
@@ -14,6 +14,7 @@ export interface CollectionOptions<State extends object> {
   key?: CollectionKey;
   initial: State;
   apply?: (draft: State, message: ServerMessage, helpers: CollectionHelpers<State>) => void;
+  onApplied?: (message: ServerMessage) => void;
 }
 
 export type OptimisticDraftUpdater<State extends object> = (draft: State) => void;
@@ -39,6 +40,7 @@ export function defineCollection<State extends object>({
   key = 'id',
   initial,
   apply,
+  onApplied,
 }: CollectionOptions<State>): CollectionHandle<State> {
   if (collectionsByName.has(name)) {
     throw new Error(`Collection "${name}" is already defined.`);
@@ -104,6 +106,8 @@ export function defineCollection<State extends object>({
       };
       apply(serverState, message, helpers);
       bumpVersion();
+      flush();
+      onApplied?.(message);
     },
     dispose() {
       activeOverlays.length = 0;

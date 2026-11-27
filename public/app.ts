@@ -30,7 +30,7 @@ import { mountViewTabs, openBoardsSurface, openView } from './boot/view-tabs.ts'
 import { wireHashRouting } from './boot/hash-routes.ts';
 import { mountHeaderControls, mountHeaderTrays } from './boot/header-controls.ts';
 import { mountConnectionScreen, scheduleServerUnreachableHint } from './boot/connection-screen.ts';
-import { wireStatusPainters } from './boot/session-frames.ts';
+import { wireSessionsCollection, wireStatusPainters } from './boot/session-frames.ts';
 import { wireMessageDispatch } from './boot/message-dispatch.ts';
 import { mountLayoutSwitch } from './boot/layout-switch.ts';
 import { wireDashboardShortcuts } from './boot/shortcuts-dispatch.ts';
@@ -52,6 +52,7 @@ routeExternalAnchorsThroughHost(document);
 mountConnectionScreen();
 
 wireStatusPainters();
+wireSessionsCollection();
 
 setUsageRequestSender(sendControlMsg);
 void import('./your-day-tip.ts').then(

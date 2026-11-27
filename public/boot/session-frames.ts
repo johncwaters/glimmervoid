@@ -1,11 +1,15 @@
-import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { createEffect, createRoot, runWithOwner } from 'solid-js';
+import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { setSessionPlanGate } from '../plan/plan-gate-panel.ts';
 import { STATES } from '#shared/states.ts';
 import { SessionState } from '#shared/contracts/session.ts';
-import { noteChatPlanGate } from '../chat/chat-page.ts';
-import { clearHeaderErrorsForSession } from '../action-status.ts';
+import { applyChatSessionStatus, applyChatSnapshot, noteChatAgentDoneLines, noteChatApproval, noteChatOutbox, noteChatPlanGate } from '../chat/chat-page.ts';
+import { forgetChatDraft } from '../chat/chat-session-state.ts';
+import { noteBoardSessionStatusChanged } from '../board-session/board-session-signals.ts';
+import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from '../action-status.ts';
+import { openInstallDetailsDialog } from '../dialogs.ts';
 import { refreshFavicon } from '../favicon.ts';
-import { refreshFocusRoster, restoreFocusedSession } from '../focus-view/focus-view.ts';
+import { forgetSessionInSavedOrder, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus } from '../focus-view/focus-view.ts';
 import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-pr-chips.ts';
 import { forgetSessionWakes, setSessionWakes } from '../session-card/session-wakes.ts';
@@ -13,12 +17,13 @@ import { refreshPhoneBoard } from '../phone/phone-shell-gate.ts';
 import { decideReloadOnBuild } from '../server-build-core.ts';
 import { sessionQuestionManagerOf, setSessionQuestionManager, setSessionSaneYolo } from '../session-card/card-dom.ts';
 import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
+import { resetSessionModelSelections, setSessionAccountId, setSessionModelSelection, setSessionWorkingDirectory } from '../session-card/card-model.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionUsageLimit, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionMergeStatus, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionUsageLimit, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
 import { setSessionAccount } from '../session-card/card-account.ts';
-import { forgetAttentionNotes, closeAnsweredPassedLine, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
+import { addManagerDecision, forgetAttentionNotes, closeAnsweredPassedLine, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { forgetReview, refreshReview } from '../review/review-store.ts';
@@ -26,6 +31,7 @@ import { getSelectedId, setSelectedId } from '../review/selection.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { showBoardSessionFeed } from '../whiteboard/board-session-feed.ts';
+import sessionsCollection, { onSessionsServerMessage } from '../state/collections/sessions.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
 
@@ -188,8 +194,9 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
 }
 
 function applySessionTransition(msg: SessionStatusMessage, transition: SessionTransition) {
-  const previousState = sessionUIs.get(String(msg.id))?.currentState;
-  if (transition.to === STATES.DORMANT && previousState !== STATES.DORMANT) {
+  const uiPreviousState = sessionUIs.get(String(msg.id))?.currentState;
+  const authoritativePreviousState = transition.from ?? uiPreviousState;
+  if (transition.to === STATES.DORMANT && uiPreviousState !== STATES.DORMANT) {
     rebuildAsDormantCard(msg);
     refreshReview(msg.id);
     return;
@@ -198,7 +205,9 @@ function applySessionTransition(msg: SessionStatusMessage, transition: SessionTr
   setSessionFailureReason(msg.id, msg.failureReason);
   if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
   refreshReview(msg.id);
-  if (isLeavingEndedState(previousState, transition.to)) reconnectDataWs(msg.id);
+  if (isLeavingEndedState(uiPreviousState, transition.to) || isLeavingEndedState(authoritativePreviousState, transition.to)) {
+    reconnectDataWs(msg.id);
+  }
 }
 
 function handleSessionStatus(msg: SessionStatusMessage) {
@@ -228,14 +237,180 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   handleDebugStateRefresh(msg.id);
 }
 
+const WORKTREE_ERROR_SOURCE = 'Worktree';
+const WORKTREE_WARNING_SOURCE = 'Worktree warning';
+
+function handleSessionsCollectionMessage(msg: ServerMessage) {
+  if (msg.type === 'snapshot') {
+    noteServerBuild(msg.serverBuild);
+    handleSnapshot(msg.sessions);
+    applyChatSnapshot(msg.sessions);
+    resetSessionModelSelections(msg.sessions);
+    return;
+  }
+  if (msg.type === 'session-status') {
+    handleSessionStatus(msg);
+    if (msg.conversationApproval !== undefined) noteChatApproval(msg.id, msg.conversationApproval);
+    if (msg.chatOutbox !== undefined) noteChatOutbox(msg.id, msg.chatOutbox);
+    applyChatSessionStatus(msg.id);
+    noteBoardSessionStatusChanged(msg.id);
+    return;
+  }
+  if (msg.type === 'session-added') {
+    setSessionLinkedPrs(msg.id, msg.linkedPrs);
+    noteChatAgentDoneLines(msg.id, msg.agentDoneLines ?? []);
+    if (!hasSession(msg.id)) {
+      createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg));
+      setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen, msg.hasTerminal);
+    }
+    setSessionModelSelection(msg.id, msg.modelSelection ?? null);
+    setSessionAccountId(msg.id, msg.accountId ?? null);
+    setSessionWorkingDirectory(msg.id, msg.workingDirectory);
+    refreshFavicon(attentionTally.counts);
+    refreshRosterAndAttentionSurfaces();
+    syncTraceSessionsFromCards();
+    return;
+  }
+  if (msg.type === 'session-removed') {
+    forgetSession(msg.id);
+    forgetSessionInSavedOrder(msg.id);
+    refreshFavicon(attentionTally.counts);
+    refreshRosterAndAttentionSurfaces();
+    forgetChatDraft(msg.id);
+    syncTraceSessionsFromCards();
+    return;
+  }
+  if (msg.type === 'session-title') {
+    setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom);
+    refreshRosterAndAttentionSurfaces();
+    return;
+  }
+  if (msg.type === 'session-prs') {
+    setSessionLinkedPrs(msg.id, msg.linkedPrs);
+    return;
+  }
+  if (msg.type === 'session-done-lines') {
+    noteChatAgentDoneLines(msg.id, msg.agentDoneLines);
+    return;
+  }
+  if (msg.type === 'session-renamed') {
+    renameSessionCard(msg.id, msg.newName);
+    refreshRosterAndAttentionSurfaces();
+    syncTraceSessionsFromCards();
+    return;
+  }
+  if (msg.type === 'session-modified') {
+    rebuildSessionCard(msg.id, msg.session, msg.state, msg, msg.linkedPrs);
+    setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen, msg.hasTerminal);
+    refreshFavicon(attentionTally.counts);
+    refreshRosterAndAttentionSurfaces();
+    syncTraceSessionsFromCards();
+    setSessionModelSelection(msg.id, msg.modelSelection ?? null);
+    setSessionAccountId(msg.id, msg.accountId ?? null);
+    setSessionWorkingDirectory(msg.id, msg.workingDirectory);
+    return;
+  }
+  if (msg.type === 'session-git') {
+    setSessionWorktree(msg.id, Boolean(msg.worktree));
+    return;
+  }
+  if (msg.type === 'session-merge-status') {
+    setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason);
+    setFocusMergeStatus(msg.id, msg.mergeStatus);
+    refreshAttentionSurfaces();
+    return;
+  }
+  if (msg.type === 'session-manager-decision') {
+    addManagerDecision(msg.id, msg.decision);
+    refreshRosterAndAttentionSurfaces();
+    return;
+  }
+  if (msg.type === 'session-worktree-blocked') {
+    reportHeaderError({
+      source: WORKTREE_ERROR_SOURCE,
+      sessionId: msg.id,
+      message: `${msg.session}: ${msg.notice || 'The integration branch was not found. Check the integration branch in Settings, then restart the session.'}`,
+    });
+    return;
+  }
+  if (msg.type === 'session-worktree-warning') {
+    reportHeaderError({
+      source: WORKTREE_WARNING_SOURCE,
+      sessionId: msg.id,
+      message: `${msg.session}: ${msg.notice || 'The base branch could not be synced. The session keeps working on its current base.'}`,
+      tone: 'warning',
+      ...(msg.failureKind ? { kind: msg.failureKind } : {}),
+      ...(msg.installDetails?.length ? { action: { label: 'Details', run: () => openInstallDetailsDialog(msg.session, msg.installDetails ?? []) } } : {}),
+    });
+    return;
+  }
+  if (msg.type === 'session-worktree-ready') {
+    clearHeaderError(WORKTREE_ERROR_SOURCE, msg.id);
+  }
+}
+
+interface ProjectedSessionSnapshot {
+  orderKey: string;
+  entries: Array<{ id: string; name: string; state: string; stateSince: number }>;
+}
+
+let isSessionsCollectionWired = false;
+
+function wireSessionsCollection() {
+  if (isSessionsCollectionWired) return;
+  isSessionsCollectionWired = true;
+  onSessionsServerMessage(handleSessionsCollectionMessage);
+
+  let previousOrderKey = '';
+  runWithOwner(null, () => {
+    createRoot(() => {
+      createEffect<ProjectedSessionSnapshot>(
+        () => {
+          const order = sessionsCollection.state.order;
+          const entries: ProjectedSessionSnapshot['entries'] = [];
+          for (const sessionId of order) {
+            const record = sessionsCollection.state.byId[sessionId];
+            if (!record) continue;
+            entries.push({
+              id: record.id,
+              name: record.name,
+              state: record.state,
+              stateSince: record.stateSince,
+            });
+          }
+          return { orderKey: order.join('\0'), entries };
+        },
+        (snapshot) => {
+          let changedCount = 0;
+          let traceSyncCount = 0;
+          for (const entry of snapshot.entries) {
+            const ui = sessionUIs.get(entry.id);
+            if (!ui) continue;
+            if (sessionName(ui) !== entry.name) {
+              renameSessionCard(entry.id, entry.name);
+              changedCount += 1;
+              traceSyncCount += 1;
+            }
+            if (ui.currentState !== entry.state) {
+              applyState(entry.id, entry.state, entry.stateSince);
+              changedCount += 1;
+            }
+          }
+          if (snapshot.orderKey !== previousOrderKey) {
+            previousOrderKey = snapshot.orderKey;
+            changedCount += 1;
+            traceSyncCount += 1;
+          }
+          if (changedCount === 0) return;
+          refreshRosterAndAttentionSurfaces();
+          if (traceSyncCount > 0) syncTraceSessionsFromCards();
+        },
+      );
+    });
+  });
+}
+
 export {
-  forgetSession,
-  handleSessionStatus,
-  handleSnapshot,
-  noteServerBuild,
-  rebuildSessionCard,
-  refreshAttentionSurfaces,
-  refreshRosterAndAttentionSurfaces,
-  syncTraceSessionsFromCards,
+  wireSessionsCollection,
   wireStatusPainters,
 };

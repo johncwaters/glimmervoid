@@ -14,6 +14,7 @@ import { SHELL_AGENT_ID } from './agent-core.ts';
 import { sendSessionAction } from './card-actions.ts';
 import { openConfirmDialog } from './modal.ts';
 import { runRestartChoice } from './restart-menu-core.ts';
+import restartAction from '../state/actions/restart.ts';
 import { STATES } from '#shared/states.ts';
 
 const sessionMenus = new WeakMap<SessionUi, PopupMenu>();
@@ -29,7 +30,13 @@ function restartShell(ui: SessionUi, sessionId: string) {
   }
   runRestartChoice('restart', sessionId, {
     readState: () => ui.currentState,
-    send: (message) => { sendSessionAction(ui, message); },
+    send: (message) => {
+      if (message.type === 'restart') {
+        void restartAction({ id: message.id, fresh: message.fresh, conversationId: message.conversationId });
+        return;
+      }
+      sendSessionAction(ui, message);
+    },
     confirm: openConfirmDialog,
   });
 }

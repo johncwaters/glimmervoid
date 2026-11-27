@@ -7,6 +7,7 @@ import { advanceSeq, resetSeq } from './seq.ts';
 type LegacyControlMessageHandler = (message: ServerMessage) => void;
 
 let legacyHandler: LegacyControlMessageHandler | null = null;
+let afterIngestHandler: LegacyControlMessageHandler | null = null;
 
 function syncSeqFromMessage(message: ServerMessage): void {
   if (message.type === 'snapshot') {
@@ -24,17 +25,26 @@ export function ingestControlMessage(message: ServerMessage): 'collection' | 'le
     const collectionName = COLLECTION_OF[message.type as keyof typeof COLLECTION_OF];
     const handledByCollection = applyCollectionServerMessage(collectionName, message);
     syncSeqFromMessage(message);
-    if (handledByCollection) return 'collection';
+    if (handledByCollection) {
+      afterIngestHandler?.(message);
+      return 'collection';
+    }
     legacyHandler?.(message);
+    afterIngestHandler?.(message);
     return 'legacy';
   }
 
   syncSeqFromMessage(message);
   legacyHandler?.(message);
+  afterIngestHandler?.(message);
   return 'legacy';
 }
 
-export function startIngest(onLegacyMessage: LegacyControlMessageHandler): void {
+export function startIngest(
+  onLegacyMessage: LegacyControlMessageHandler,
+  onAfterIngest?: LegacyControlMessageHandler,
+): void {
   legacyHandler = onLegacyMessage;
+  afterIngestHandler = onAfterIngest ?? null;
   onControlMessage(ingestControlMessage);
 }

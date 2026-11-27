@@ -1,4 +1,3 @@
-import { applyChatSnapshot } from '../../chat/chat-page.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { reportHeaderError } from '../../action-status.ts';
 import { applyAgentAccounts } from '../../agent-logins.ts';
@@ -15,12 +14,8 @@ import { SERVER_ERROR_SOURCE, showServerGoingDown } from '../connection-screen.t
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { applyDashboardSettings } from '../dashboard-settings.ts';
 import { applyClientTrust } from '../../server-power.ts';
-import { handleSnapshot, noteServerBuild } from '../session-frames.ts';
-import { resetSessionModelSelections } from '../../session-card/card-model.ts';
 
 const messageHandlers = {
-  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); applyChatSnapshot(msg.sessions); resetSessionModelSelections(msg.sessions); },
-
   'hooks-report':       (msg) => applyHooksReport(msg),
   'save-hook-result':   () => applyLateHookResult(),
   'delete-hook-result': () => applyLateHookResult(),
