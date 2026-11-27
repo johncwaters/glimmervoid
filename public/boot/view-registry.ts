@@ -18,7 +18,7 @@ import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon,
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback, setUsageNavigation } from '../usage/usage-store.ts';
 import { packPanelModule, packTabIcon } from '../packs/pack-views.ts';
 import type { PackPanelView } from '../packs/pack-views.ts';
-import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
+import { packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from '../view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from '../view-registry-core.ts';
 import { clock } from '#shared/clock.ts';
@@ -141,7 +141,7 @@ export function relabelPackView(viewTab: DashboardView, panel: PackPanelView): v
 
 function subscribePackApprovals(notify: (attention: ViewAttention) => void): void {
   const notifyPending = () => notify(packsSnapshot()?.packs.some((row) => row.state === 'pending') ?? false);
-  subscribePacks(notifyPending);
+  watchPacksCollection(notifyPending);
   notifyPending();
 }
 

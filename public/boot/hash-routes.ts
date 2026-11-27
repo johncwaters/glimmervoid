@@ -3,7 +3,7 @@ import { isPhoneShellActive, showPhoneScreen } from '../phone/phone-shell-gate.t
 import { isSettingsHash } from '../settings-link.ts';
 import { activateSettingsSection } from '../settings/settings-panel-bridge.ts';
 import { openPackDetail } from '../packs/pack-approval-content.ts';
-import { PACKS_TAB_HASH } from '../packs/packs-store.ts';
+import { PACKS_TAB_HASH } from '../state/collections/packs.ts';
 import { activateView } from './view-tabs.ts';
 
 function activatePacksHash(hash: string) {

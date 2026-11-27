@@ -4,7 +4,7 @@ import { el } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { PANEL_HELLO_TIMEOUT_MS, bridgePackFrame } from './pack-bridge-host.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { packsSnapshot, subscribePacks } from './packs-store.ts';
+import { packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
 
 export type PackPanelView = PacksStatus['panels'][number];
 
@@ -74,7 +74,7 @@ export function retirePackPanel(viewId: string): void {
 
 export function onPackPanelsChange(listener: (panels: readonly PackPanelView[]) => void): void {
   const notify = () => listener(packsSnapshot()?.panels ?? []);
-  subscribePacks(notify);
+  watchPacksCollection(notify);
   notify();
 }
 

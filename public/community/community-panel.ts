@@ -3,7 +3,7 @@ import '../github/review-queue-panel.css';
 import './community-panel.css';
 import type { CommunityAction, CommunitySource, CommunitySourceView, CommunityStateEntry } from '#shared/contracts/community.ts';
 import { packApprovalHashOf } from '#shared/pack-approval.ts';
-import { PACKS_TAB_HASH } from '../packs/packs-store.ts';
+import { PACKS_TAB_HASH } from '../state/collections/packs.ts';
 import { clock } from '#shared/clock.ts';
 import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';

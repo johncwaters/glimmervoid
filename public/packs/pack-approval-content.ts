@@ -15,7 +15,8 @@ import { tag } from '../ui/tag.ts';
 import { openFirstPackPanel } from './pack-views.ts';
 import { createPackSettingsView } from './pack-settings-view.ts';
 import type { PackSettingsSection } from './pack-settings-view.ts';
-import { packsSnapshot, subscribePacks } from './packs-store.ts';
+import packApproveAction from '../state/actions/pack-approve.ts';
+import { packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
 import './pack-approval-content.css';
 
 type PackApprovalControls = { close: () => void; repaint: () => void; settingsView?: (row: PackRow) => HTMLElement };
@@ -41,14 +42,10 @@ function statusLine(packName: string): HTMLElement {
   return line;
 }
 
-async function requestPackApproval(fingerprint: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  try {
-    const response = await sendControlRequest('pack-approve', { fingerprint }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-    if (response.type !== 'pack-approve-result') return { ok: false, error: 'Unexpected pack approval reply.' };
-    return response.ok ? { ok: true } : { ok: false, error: response.error ?? 'Could not approve this pack.' };
-  } catch (error) {
-    return { ok: false, error: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) };
-  }
+async function requestPackApproval(fingerprint: string, packName: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const outcome = await packApproveAction({ fingerprint, packName });
+  if (!outcome.ok) return { ok: false, error: outcome.error.message };
+  return { ok: true };
 }
 
 async function requestDismissal(packName: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -78,7 +75,7 @@ async function runPackRequest(packName: string, busyText: string, request: () =>
 
 async function approve(row: PackRow, fingerprint: string, controls: PackApprovalControls): Promise<void> {
   const staysOnSetup = row.settings.length > 0 && controls.settingsView !== undefined;
-  const isApproved = await runPackRequest(row.name, `Approving ${row.name}`, () => requestPackApproval(fingerprint), controls, !staysOnSetup);
+  const isApproved = await runPackRequest(row.name, `Approving ${row.name}`, () => requestPackApproval(fingerprint, row.name), controls, !staysOnSetup);
   if (isApproved && !staysOnSetup) openFirstPackPanel(row.name);
 }
 
@@ -250,7 +247,7 @@ export function openPackDetail(packName: string): void {
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-label', `Pack ${packName}`);
-  const unsubscribe = subscribePacks(() => repaint());
+  const unsubscribe = watchPacksCollection(() => repaint());
   let keptSettings: { fingerprint: string | null; section: PackSettingsSection } | null = null;
   const settingsView = (row: PackRow): HTMLElement => {
     if (keptSettings !== null && keptSettings.fingerprint === row.fingerprint) {

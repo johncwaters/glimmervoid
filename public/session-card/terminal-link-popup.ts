@@ -5,7 +5,7 @@ import { el } from '../dom-helpers.ts';
 import { fetchLinkPreview } from '../external-link.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { buildPackApprovalContent } from '../packs/pack-approval-content.ts';
-import { subscribePacks } from '../packs/packs-store.ts';
+import { watchPacksCollection } from '../state/collections/packs.ts';
 import { button } from '../ui/button.ts';
 import { isModalOpen } from '../ui/modal-state.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -196,7 +196,7 @@ export function createLinkPopup<Anchor>(popupHost: LinkPopupHost<Anchor>): LinkP
   function render() {
     const link = hoveredLink;
     if (!link) return;
-    stopRepaintingOnPacksChange ??= subscribePacks(repaintPackApprovalOnPacksChange);
+    stopRepaintingOnPacksChange ??= watchPacksCollection(repaintPackApprovalOnPacksChange);
     const packName = hoveredPackName();
     if (packName !== null) {
       renderPackApproval(link, packName);

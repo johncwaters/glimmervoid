@@ -13,13 +13,17 @@ import { sectionHeading } from '../ui/section-heading.ts';
 import { tag } from '../ui/tag.ts';
 import { disclosure } from '../ui/disclosure.ts';
 import type { ViewModule } from '../view-registry-core.ts';
+import packFolderRemoveAction from '../state/actions/pack-folder-remove.ts';
+import packSourceEnableAction from '../state/actions/pack-source-enable.ts';
+import packSourceRemoveAction from '../state/actions/pack-source-remove.ts';
+import { PACKS_TAB_HASH, packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
+import type { ActionResult } from '../state/define-action.ts';
+import { PACK_SOURCE_REPLY_TIMEOUT_MS } from '../state/packs-core.ts';
 import { kindGlyphPath, openPackDetail } from './pack-approval-content.ts';
 import { openFirstPackPanel, packTabIcon } from './pack-views.ts';
-import { PACKS_TAB_HASH, packsSnapshot, subscribePacks } from './packs-store.ts';
 import './packs-catalog.css';
 
 const PACKS_TRUST_LINE = 'An approved pack runs its commands on this machine; any change to its files asks again.';
-const SOURCE_REPLY_TIMEOUT_MS = 5 * 60_000;
 const MAX_PREVIEW_SWATCHES = 4;
 const SOURCES_STATUS_KEY = 'add-source';
 const sourceStatusByKey = new Map<string, { tone: ActionStatusTone; text: string }>();
@@ -33,20 +37,36 @@ type SourceRequest =
   | { type: 'pack-source-update'; slug: string }
   | { type: 'pack-source-remove'; slug: string }
   | { type: 'pack-source-enable'; slug: string; pack: string; isEnabled: boolean }
-  | { type: 'pack-folder-remove'; dir: string };
+  | { type: 'pack-folder-remove'; dir: string; packName: string };
+
+async function runSourceRequest(request: SourceRequest): Promise<ActionResult> {
+  if (request.type === 'pack-folder-remove') return packFolderRemoveAction({ dir: request.dir, packName: request.packName });
+  if (request.type === 'pack-source-remove') return packSourceRemoveAction({ slug: request.slug });
+  if (request.type === 'pack-source-enable') return packSourceEnableAction({ slug: request.slug, pack: request.pack, isEnabled: request.isEnabled });
+  try {
+    const { type, ...fields } = request;
+    const response = await sendControlRequest(type, fields, { timeoutMs: PACK_SOURCE_REPLY_TIMEOUT_MS });
+    if (response.type !== 'pack-source-result') return { ok: false, error: new Error('Unexpected pack source reply.') };
+    if (!response.ok) return { ok: false, error: new Error(response.error ?? 'The pack source did not change.') };
+    return { ok: true, reply: response };
+  } catch (error) {
+    return { ok: false, error: new Error(requestFailureText(error, PACK_SOURCE_REPLY_TIMEOUT_MS)) };
+  }
+}
 
 async function changeSource(statusKey: string, request: SourceRequest): Promise<void> {
   sourceStatusByKey.set(statusKey, { tone: 'busy', text: 'Working' });
   repaintPacks();
   try {
-    const { type, ...fields } = request;
-    const response = await sendControlRequest(type, fields, { timeoutMs: SOURCE_REPLY_TIMEOUT_MS });
-    if (response.type !== 'pack-source-result') throw new Error('Unexpected pack source reply.');
-    sourceStatusByKey.set(statusKey, response.ok ? { tone: 'ok', text: response.text ?? 'Done' } : { tone: 'error', text: response.error ?? 'The pack source did not change.' });
-    if (response.ok && type === 'pack-source-enable') sourceStatusByKey.delete(statusKey);
-    if (response.ok && type === 'pack-source-add') draftSourceUrl = '';
-  } catch (error) {
-    sourceStatusByKey.set(statusKey, { tone: 'error', text: requestFailureText(error, SOURCE_REPLY_TIMEOUT_MS) });
+    const outcome = await runSourceRequest(request);
+    if (!outcome.ok) {
+      sourceStatusByKey.set(statusKey, { tone: 'error', text: outcome.error.message });
+      return;
+    }
+    const replyText = outcome.reply.type === 'pack-source-result' ? outcome.reply.text : undefined;
+    sourceStatusByKey.set(statusKey, { tone: 'ok', text: replyText ?? 'Done' });
+    if (request.type === 'pack-source-enable') sourceStatusByKey.delete(statusKey);
+    if (request.type === 'pack-source-add') draftSourceUrl = '';
   } finally {
     repaintPacks();
   }
@@ -110,7 +130,7 @@ function removeFolderControls(row: PackRow): HTMLElement[] {
     title: `Remove ${row.name}?`,
     message: `This deletes ${row.dir} and every file in it. Glimmervoid did not install this folder, so nothing can put it back.`,
     confirmLabel: 'Remove folder', danger: true,
-    onConfirm: () => { void changeSource(statusKey, { type: 'pack-folder-remove', dir: row.dir }); },
+    onConfirm: () => { void changeSource(statusKey, { type: 'pack-folder-remove', dir: row.dir, packName: row.name }); },
   });
   const remove = button({ variant: 'secondary', size: 'small', label: 'Remove folder', action: 'pack-folder-remove', disabled: isSourceBusy(statusKey), onClick: confirmRemoval });
   return [remove, statusLine(statusKey)];
@@ -121,12 +141,31 @@ function sourceLabel(source: PackSourceRow): string {
   return source.url.replace(/^https?:\/\/(www\.)?(github\.com\/)?/, '').replace(/\.git$/, '');
 }
 
-function installedFrom(row: PackRow, sources: readonly PackSourceRow[]): { source: PackSourceRow; pack: PackSourceRow['packs'][number] } | null {
+type PackOrigin = { source: PackSourceRow; pack: PackSourceRow['packs'][number] };
+type PackPanelInfo = { hasPanel: boolean; iconUrl: string | null };
+
+function buildOriginByPackName(sources: readonly PackSourceRow[]): Map<string, PackOrigin> {
+  const originByPackName = new Map<string, PackOrigin>();
   for (const source of sources) {
-    const pack = source.packs.find((candidate) => candidate.name === row.name && candidate.isEnabled);
-    if (pack) return { source, pack };
+    for (const pack of source.packs) {
+      if (!pack.isEnabled || originByPackName.has(pack.name)) continue;
+      originByPackName.set(pack.name, { source, pack });
+    }
   }
-  return null;
+  return originByPackName;
+}
+
+function buildPanelInfoByPackName(panels: NonNullable<ReturnType<typeof packsSnapshot>>['panels']): Map<string, PackPanelInfo> {
+  const panelInfoByPackName = new Map<string, PackPanelInfo>();
+  for (const panel of panels) {
+    const existing = panelInfoByPackName.get(panel.pack);
+    if (!existing) {
+      panelInfoByPackName.set(panel.pack, { hasPanel: true, iconUrl: panel.iconUrl });
+      continue;
+    }
+    if (existing.iconUrl === null && panel.iconUrl !== null) existing.iconUrl = panel.iconUrl;
+  }
+  return panelInfoByPackName;
 }
 
 function nameWithVersion(packName: string, version: number | null): string {
@@ -191,17 +230,16 @@ function sourceRemoveControls(statusKey: string, slug: string, packName: string)
   return [remove, statusLine(statusKey)];
 }
 
-function installedActions(row: PackRow, origin: ReturnType<typeof installedFrom>, hasPanel: boolean): HTMLElement[] {
+function installedActions(row: PackRow, origin: PackOrigin | null, hasPanel: boolean): HTMLElement[] {
   const approve = row.state === 'pending' ? [button({ variant: 'primary', size: 'small', label: 'Approve', action: 'pack-approve', onClick: () => openPackDetail(row.name) })] : [];
   const openPanel = row.state === 'approved' && hasPanel ? [button({ variant: 'secondary', size: 'small', label: 'Open panel', action: 'pack-open-panel', onClick: () => openFirstPackPanel(row.name) })] : [];
   const removeControls = origin === null ? removeFolderControls(row) : sourceRemoveControls(`${origin.source.slug}/${origin.pack.name}`, origin.source.slug, origin.pack.name);
   return [...approve, ...openPanel, ...removeControls];
 }
 
-function installedCard(row: PackRow, status: NonNullable<ReturnType<typeof packsSnapshot>>): HTMLElement {
-  const origin = installedFrom(row, status.sources);
-  const panelIconUrl = status.panels.find((panel) => panel.pack === row.name && panel.iconUrl !== null)?.iconUrl ?? null;
-  const hasPanel = status.panels.some((panel) => panel.pack === row.name);
+function installedCard(row: PackRow, origin: PackOrigin | null, panelInfo: PackPanelInfo | null): HTMLElement {
+  const panelIconUrl = panelInfo?.iconUrl ?? null;
+  const hasPanel = panelInfo?.hasPanel ?? false;
   const originText = origin === null ? (row.isPlacedByHand ? 'Placed by hand' : null) : sourceLabel(origin.source);
   const kinds = packKindLabels({ ...row, communitySources: row.community?.sources ?? [] });
   const metaText = [...kinds, ...(originText === null ? [] : [originText])].join(' . ');
@@ -273,6 +311,8 @@ function packsContent(): HTMLElement[] {
   const warnings = status.warnings.map((warning) => el('p', 'settings-view-warning', warning));
   const installedRows = status.packs.filter((row) => matchesSearch(row.name, row.description));
   const installedNames = new Set(status.packs.map((row) => row.name));
+  const originByPackName = buildOriginByPackName(status.sources);
+  const panelInfoByPackName = buildPanelInfoByPackName(status.panels);
   const discoverCards = status.sources.flatMap((source) => source.packs
     .filter((pack) => !installedNames.has(pack.name) && matchesSearch(pack.name, pack.description, sourceLabel(source)))
     .map((pack) => discoverCard(source, pack)));
@@ -280,7 +320,7 @@ function packsContent(): HTMLElement[] {
   return [
     ...warnings,
     packsSectionHeading('Installed', installedRows.length),
-    grid(installedRows.map((row) => installedCard(row, status)), installedEmptyText),
+    grid(installedRows.map((row) => installedCard(row, originByPackName.get(row.name) ?? null, panelInfoByPackName.get(row.name) ?? null)), installedEmptyText),
     packsSectionHeading('Discover', discoverCards.length),
     grid(discoverCards, status.sources.length === 0 ? 'No pack sources yet. Add one under Sources.' : 'Every pack from your sources is installed.'),
     sourcesSection(status.sources),
@@ -292,7 +332,7 @@ function repaintPacks(): void {
   packsBody.replaceChildren(...packsContent());
 }
 
-subscribePacks(repaintPacks);
+watchPacksCollection(repaintPacks);
 
 function mountPacksView(parent: HTMLElement): void {
   if (packsBody) return;

@@ -13,7 +13,7 @@ import { onSessionCardsChanged, sessionName, sessionUIs } from '../session-card/
 import { currentThemeColors, onThemeShown } from '../theme.ts';
 import { uiState } from '../ui-state-core.ts';
 import { subscribeUsage, usageSnapshot } from '../usage/usage-store.ts';
-import { packsSnapshot, subscribePacks } from './packs-store.ts';
+import { packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
 import { planWindowOf } from '../usage/usage-store-core.ts';
 
 const PANEL_ACTION_TIMEOUT_MS = 120_000;
@@ -118,7 +118,7 @@ uiState.subscribe(() => notePackTopicsChanged(['focus']));
 onThemeShown(() => notePackTopicsChanged(['theme']));
 subscribeUsage(() => notePackTopicsChanged(['usage']));
 onReviewQueueRebuilt(() => notePackTopicsChanged(['reviews']));
-subscribePacks(() => notePackTopicsChanged(['providers']));
+watchPacksCollection(() => notePackTopicsChanged(['providers']));
 
 type PackDataReply = { ok: true; data: PackStoreData } | { ok: false; error: string };
 

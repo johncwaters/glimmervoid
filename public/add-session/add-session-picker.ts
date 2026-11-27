@@ -24,7 +24,7 @@ import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts
 import { runStudioAddSession } from '../state/actions/add-session.ts';
 import { clock } from '#shared/clock.ts';
 import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
-import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
+import { packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup, ModelProvider, ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { StartPicks } from '#shared/contracts/start-picks.ts';
@@ -1100,7 +1100,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     advanceFromPick(isPickVisible());
   });
 
-  const stopWatchingPacks = subscribePacks(() => {
+  const stopWatchingPacks = watchPacksCollection(() => {
     if (!dialog.isConnected) {
       stopWatchingPacks();
       return;
