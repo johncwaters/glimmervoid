@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Linux and macOS downloads are now `.tar.gz` instead of `.tar.xz`.** Release binaries publish several minutes sooner after each tag because the archives no longer spend minutes in xz compression. Each archive is about half again as large (the Linux x86_64 one goes from about 117 MB to about 177 MB). The install script, in-app updates and the Homebrew formula pick up the new names on their own. Windows stays `.zip`.
+
 ## [0.66.0] - 2026-11-26
 
 ### Added
