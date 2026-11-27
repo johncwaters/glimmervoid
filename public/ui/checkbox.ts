@@ -1,4 +1,6 @@
 import { el } from '../dom-helpers.ts';
+import { choiceDescriptor } from './checkbox-core.ts';
+import type { ChoiceType } from './checkbox-core.ts';
 
 type ChoiceLabel = string | Node;
 
@@ -36,30 +38,44 @@ export function checkbox(options: CheckboxOptions): Choice {
 }
 
 export function radio(options: RadioOptions): Choice {
-  const choice = buildChoice('radio', options);
-  choice.input.name = options.name;
+  const choice = buildChoice('radio', options, options.name);
   const { onSelect } = options;
   if (onSelect) choice.input.addEventListener('change', () => { if (choice.input.checked) onSelect(); });
   return choice;
 }
 
-function buildChoice(type: 'checkbox' | 'radio', options: CommonChoiceOptions): Choice {
-  const element = el('label', 'ui-checkbox');
-  element.dataset.type = type;
-  const input = el('input', 'ui-checkbox-input');
-  input.type = type;
-  input.checked = options.checked ?? false;
-  input.disabled = options.disabled ?? false;
-  if (options.value !== undefined) input.value = options.value;
-  if (options.accessibleName) input.setAttribute('aria-label', options.accessibleName);
-  const text = el('span', 'ui-checkbox-text');
-  text.append(options.label);
-  element.append(input, text);
+function buildChoice(type: ChoiceType, options: CommonChoiceOptions, name?: string): Choice {
+  let hintId: string | undefined;
   if (options.hint) {
     hintCount += 1;
-    const hint = el('span', 'ui-checkbox-hint', options.hint);
-    hint.id = `ui-checkbox-hint-${hintCount}`;
-    input.setAttribute('aria-describedby', hint.id);
+    hintId = `ui-checkbox-hint-${hintCount}`;
+  }
+  const descriptor = choiceDescriptor({
+    type,
+    checked: options.checked,
+    disabled: options.disabled,
+    value: options.value,
+    name,
+    accessibleName: options.accessibleName,
+    hint: options.hint,
+    hintId,
+  });
+  const element = el('label', descriptor.className);
+  element.dataset.type = descriptor.type;
+  const input = el('input', descriptor.inputClassName);
+  input.type = descriptor.type;
+  if (descriptor.name !== undefined) input.name = descriptor.name;
+  input.checked = descriptor.checked;
+  input.disabled = descriptor.disabled;
+  if (descriptor.value !== undefined) input.value = descriptor.value;
+  if (descriptor.ariaLabel) input.setAttribute('aria-label', descriptor.ariaLabel);
+  const text = el('span', descriptor.textClassName);
+  text.append(options.label);
+  element.append(input, text);
+  if (descriptor.hintText && descriptor.hintId) {
+    const hint = el('span', descriptor.hintClassName, descriptor.hintText);
+    hint.id = descriptor.hintId;
+    if (descriptor.ariaDescribedBy) input.setAttribute('aria-describedby', descriptor.ariaDescribedBy);
     element.append(hint);
   }
   return { element, input };

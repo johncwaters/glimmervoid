@@ -1,5 +1,7 @@
 import { el } from '../dom-helpers.ts';
 import { createPressable } from './pressable.ts';
+import { nextSegmentedValue, segmentedDescriptor, segmentedOptionStates } from './segmented-core.ts';
+import type { SegmentedSize, SegmentedWidth } from './segmented-core.ts';
 
 type SegmentedChoice<V extends string> = { readonly value: V; readonly label: string; readonly icon?: SVGElement };
 
@@ -9,8 +11,8 @@ type SegmentedOptions<V extends string> = SegmentedName & {
   options: readonly SegmentedChoice<V>[];
   value: V;
   onChange: (value: V) => void;
-  width?: 'auto' | 'fill';
-  size?: 'default' | 'small';
+  width?: SegmentedWidth;
+  size?: SegmentedSize;
 };
 
 export type Segmented<V extends string> = {
@@ -19,24 +21,29 @@ export type Segmented<V extends string> = {
   focus(): void;
 };
 
-const STEP_BY_KEY: Readonly<Record<string, number>> = Object.freeze({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 });
-
 export function segmented<const V extends string>(options: SegmentedOptions<V>): Segmented<V> {
-  const element = el('div', 'ui-segmented');
-  element.setAttribute('role', 'radiogroup');
-  if (options.label !== undefined) element.setAttribute('aria-label', options.label);
-  if (options.labelledBy !== undefined) element.setAttribute('aria-labelledby', options.labelledBy);
-  element.dataset.width = options.width ?? 'auto';
-  element.dataset.size = options.size ?? 'default';
+  const descriptor = segmentedDescriptor({
+    label: options.label,
+    labelledBy: options.labelledBy,
+    width: options.width,
+    size: options.size,
+  });
+  const element = el('div', descriptor.className);
+  element.setAttribute('role', descriptor.role);
+  if (descriptor.ariaLabel !== undefined) element.setAttribute('aria-label', descriptor.ariaLabel);
+  if (descriptor.ariaLabelledBy !== undefined) element.setAttribute('aria-labelledby', descriptor.ariaLabelledBy);
+  element.dataset.width = descriptor.width;
+  element.dataset.size = descriptor.size;
   const choices = options.options;
+  const choiceValues = choices.map((choice) => choice.value);
   const segments = choices.map((choice) => {
-    const segment = createPressable('ui-segmented-option', choice.label);
+    const segment = createPressable(descriptor.optionClassName, choice.label);
     segment.dataset.value = choice.value;
     if (choice.icon) {
       choice.icon.setAttribute('aria-hidden', 'true');
       segment.prepend(choice.icon);
     }
-    segment.setAttribute('role', 'radio');
+    segment.setAttribute('role', descriptor.optionRole);
     segment.addEventListener('click', () => choose(choice.value));
     return segment;
   });
@@ -44,10 +51,10 @@ export function segmented<const V extends string>(options: SegmentedOptions<V>):
   let current = options.value;
 
   const paint = () => {
-    const selectedIndex = choices.findIndex((choice) => choice.value === current);
+    const states = segmentedOptionStates(choiceValues, current);
     for (const [index, segment] of segments.entries()) {
-      segment.setAttribute('aria-checked', String(index === selectedIndex));
-      segment.tabIndex = index === Math.max(0, selectedIndex) ? 0 : -1;
+      segment.setAttribute('aria-checked', states[index].ariaChecked);
+      segment.tabIndex = states[index].tabIndex;
     }
   };
 
@@ -67,11 +74,10 @@ export function segmented<const V extends string>(options: SegmentedOptions<V>):
   };
 
   element.addEventListener('keydown', (event) => {
-    const step = STEP_BY_KEY[event.key];
-    if (!step || choices.length === 0) return;
+    const nextValue = nextSegmentedValue(choiceValues, current, event.key);
+    if (nextValue === null) return;
     event.preventDefault();
-    const currentIndex = Math.max(0, choices.findIndex((choice) => choice.value === current));
-    choose(choices[(currentIndex + step + choices.length) % choices.length].value);
+    choose(nextValue);
     focus();
   });
 

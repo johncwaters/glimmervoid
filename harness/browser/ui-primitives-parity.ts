@@ -19,9 +19,17 @@ const MODULE_URLS = {
   textInputSolid: '/ui/TextInput.tsx',
   field: '/ui/field.ts',
   fieldSolid: '/ui/Field.tsx',
+  checkbox: '/ui/checkbox.ts',
+  checkboxSolid: '/ui/Checkbox.tsx',
+  switchMod: '/ui/switch.ts',
+  switchSolid: '/ui/Switch.tsx',
+  select: '/ui/select.ts',
+  selectSolid: '/ui/Select.tsx',
+  segmented: '/ui/segmented.ts',
+  segmentedSolid: '/ui/Segmented.tsx',
 } as const;
 
-interface LoadedSliceAModules {
+interface LoadedParityModules {
   mountIsland: typeof mountIsland;
   createLineIcon: (path: string, strokeWidth?: string) => SVGElement;
   CLOSE_ICON_PATH: string;
@@ -41,6 +49,16 @@ interface LoadedSliceAModules {
   TextArea: SolidComponentFn;
   field: (options: Record<string, unknown>) => { element: HTMLElement; setError: (text: string) => void; setHint: (text: string) => void };
   Field: SolidComponentFn;
+  checkbox: (options: Record<string, unknown>) => { element: HTMLLabelElement; input: HTMLInputElement };
+  radio: (options: Record<string, unknown>) => { element: HTMLLabelElement; input: HTMLInputElement };
+  Checkbox: SolidComponentFn;
+  Radio: SolidComponentFn;
+  switchInput: (options: Record<string, unknown>) => HTMLInputElement;
+  Switch: SolidComponentFn;
+  select: (options: Record<string, unknown>) => { element: HTMLSelectElement; setOptions: (options: readonly unknown[]) => void };
+  Select: SolidComponentFn;
+  segmented: (options: Record<string, unknown>) => { element: HTMLDivElement; setValue: (value: string) => void; focus: () => void };
+  Segmented: SolidComponentFn;
 }
 
 export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResult> {
@@ -56,6 +74,14 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       textInputSolidMod,
       fieldMod,
       fieldSolidMod,
+      checkboxMod,
+      checkboxSolidMod,
+      switchMod,
+      switchSolidMod,
+      selectMod,
+      selectSolidMod,
+      segmentedMod,
+      segmentedSolidMod,
     ] = await Promise.all([
       import(urls.island),
       import(urls.svgDom),
@@ -67,9 +93,17 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       import(urls.textInputSolid),
       import(urls.field),
       import(urls.fieldSolid),
+      import(urls.checkbox),
+      import(urls.checkboxSolid),
+      import(urls.switchMod),
+      import(urls.switchSolid),
+      import(urls.select),
+      import(urls.selectSolid),
+      import(urls.segmented),
+      import(urls.segmentedSolid),
     ]);
 
-    const modules: LoadedSliceAModules = {
+    const modules: LoadedParityModules = {
       mountIsland: islandMod.mountIsland,
       createLineIcon: svgDomMod.createLineIcon,
       CLOSE_ICON_PATH: svgDomMod.CLOSE_ICON_PATH,
@@ -89,6 +123,16 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       TextArea: textInputSolidMod.TextArea,
       field: fieldMod.field,
       Field: fieldSolidMod.Field,
+      checkbox: checkboxMod.checkbox,
+      radio: checkboxMod.radio,
+      Checkbox: checkboxSolidMod.Checkbox,
+      Radio: checkboxSolidMod.Radio,
+      switchInput: switchMod.switchInput,
+      Switch: switchSolidMod.Switch,
+      select: selectMod.select,
+      Select: selectSolidMod.Select,
+      segmented: segmentedMod.segmented,
+      Segmented: segmentedSolidMod.Segmented,
     };
 
     const normalizeIdToken = (raw: string): string => raw
@@ -97,6 +141,7 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
 
     const snapshotNode = (node: Node): unknown => {
       if (node.nodeType === Node.TEXT_NODE) {
+        if ((node.textContent ?? '') === '') return null;
         return { text: node.textContent ?? '' };
       }
       if (node.nodeType === Node.COMMENT_NODE) return null;
@@ -274,6 +319,85 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
           box.textContent = 'Custom';
           return modules.Field({ label: 'Mode', control: box, layout: 'grid' });
         },
+      },
+      {
+        name: 'checkbox/checked-with-hint',
+        buildImperative: () => modules.checkbox({ label: 'Enable alerts', checked: true, hint: 'Browser notifications', accessibleName: 'Alerts toggle' }).element,
+        renderSolid: () => modules.Checkbox({ label: 'Enable alerts', checked: true, hint: 'Browser notifications', accessibleName: 'Alerts toggle' }),
+      },
+      {
+        name: 'checkbox/radio-disabled',
+        buildImperative: () => modules.radio({ label: 'Compact', name: 'density', value: 'compact', disabled: true }).element,
+        renderSolid: () => modules.Radio({ label: 'Compact', name: 'density', value: 'compact', disabled: true }),
+      },
+      {
+        name: 'switch/labelled',
+        buildImperative: () => modules.switchInput({ label: 'Auto-resume', checked: true, onChange: () => {} }),
+        renderSolid: () => modules.Switch({ label: 'Auto-resume', checked: true, onChange: () => {} }),
+      },
+      {
+        name: 'switch/labelledby-disabled',
+        buildImperative: () => modules.switchInput({ labelledBy: 'mute-lbl', checked: false, disabled: true, onChange: () => {} }),
+        renderSolid: () => modules.Switch({ labelledBy: 'mute-lbl', checked: false, disabled: true, onChange: () => {} }),
+      },
+      {
+        name: 'select/selected-small',
+        buildImperative: () => modules.select({
+          options: [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }],
+          value: 'b',
+          size: 'small',
+          id: 'mode-sel',
+          label: 'Mode',
+        }).element,
+        renderSolid: () => modules.Select({
+          options: [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }],
+          value: 'b',
+          size: 'small',
+          id: 'mode-sel',
+          label: 'Mode',
+        }),
+      },
+      {
+        name: 'select/missing-blank-disabled',
+        buildImperative: () => modules.select({
+          options: [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }],
+          value: 'missing',
+          missingValue: 'blank',
+          labelledBy: 'mode-lbl',
+          disabled: true,
+        }).element,
+        renderSolid: () => modules.Select({
+          options: [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }],
+          value: 'missing',
+          missingValue: 'blank',
+          labelledBy: 'mode-lbl',
+          disabled: true,
+        }),
+      },
+      {
+        name: 'segmented/with-icon-fill',
+        buildImperative: () => modules.segmented({
+          label: 'Layout',
+          options: [
+            { value: 'grid', label: 'Grid', icon: makeIcon() },
+            { value: 'list', label: 'List' },
+          ],
+          value: 'list',
+          width: 'fill',
+          size: 'small',
+          onChange: () => {},
+        }).element,
+        renderSolid: () => modules.Segmented({
+          label: 'Layout',
+          options: [
+            { value: 'grid', label: 'Grid', icon: makeIcon() },
+            { value: 'list', label: 'List' },
+          ],
+          value: 'list',
+          width: 'fill',
+          size: 'small',
+          onChange: () => {},
+        }),
       },
     ];
 

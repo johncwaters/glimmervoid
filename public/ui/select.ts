@@ -1,13 +1,11 @@
 import { el } from '../dom-helpers.ts';
-
-type SelectSize = 'default' | 'small';
-
-type SelectChoice<V extends string> = { readonly value: V; readonly label: string };
+import { findSelectChoice, resolveSelectSelection, selectDescriptor } from './select-core.ts';
+import type { SelectChoice, SelectMissingValue, SelectSelection, SelectSize } from './select-core.ts';
 
 type SelectOptions<V extends string> = {
   options: readonly SelectChoice<V>[];
   value?: V | null;
-  missingValue?: 'first' | 'blank';
+  missingValue?: SelectMissingValue;
   onChange?: (value: V) => void;
   label?: string;
   labelledBy?: string;
@@ -21,30 +19,39 @@ type Select<V extends string> = {
   setOptions(options: readonly SelectChoice<V>[]): void;
 };
 
+function applySelection<V extends string>(element: HTMLSelectElement, selection: SelectSelection<V>): void {
+  if (selection.kind === 'value') {
+    element.value = selection.value;
+    return;
+  }
+  if (selection.kind === 'blank') {
+    element.selectedIndex = -1;
+  }
+}
+
 export function select<const V extends string>(options: SelectOptions<V>): Select<V> {
-  const element = el('select', 'ui-select');
-  element.dataset.size = options.size ?? 'default';
-  if (options.id) element.id = options.id;
-  if (options.label) element.setAttribute('aria-label', options.label);
-  if (options.labelledBy) element.setAttribute('aria-labelledby', options.labelledBy);
+  const descriptor = selectDescriptor(options);
+  const element = el('select', descriptor.className);
+  element.dataset.size = descriptor.size;
+  if (descriptor.id) element.id = descriptor.id;
+  if (descriptor.ariaLabel) element.setAttribute('aria-label', descriptor.ariaLabel);
+  if (descriptor.ariaLabelledBy) element.setAttribute('aria-labelledby', descriptor.ariaLabelledBy);
   let choices = options.options;
   element.append(...choices.map(optionElement));
-  const { value } = options;
-  if (value != null && choices.some((choice) => choice.value === value)) element.value = value;
-  else if (value != null && options.missingValue === 'blank') element.selectedIndex = -1;
-  element.disabled = options.disabled ?? false;
+  applySelection(element, descriptor.selection);
+  element.disabled = descriptor.disabled;
   const { onChange } = options;
   if (onChange) {
     element.addEventListener('change', () => {
-      const chosen = choices.find((choice) => choice.value === element.value);
+      const chosen = findSelectChoice(choices, element.value);
       if (chosen) onChange(chosen.value);
     });
   }
   const setOptions = (next: readonly SelectChoice<V>[]) => {
-    const kept = element.value;
+    const kept = element.value as V;
     choices = next;
     element.replaceChildren(...next.map(optionElement));
-    if (next.some((choice) => choice.value === kept)) element.value = kept;
+    applySelection(element, resolveSelectSelection(next, kept));
   };
   return { element, setOptions };
 }

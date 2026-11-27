@@ -8,8 +8,12 @@ import {
   linkButtonDescriptor,
   outlineIconStateAttributes,
 } from '../public/ui/button-core.ts';
+import { choiceDescriptor } from '../public/ui/checkbox-core.ts';
 import { fieldDescriptor, fieldMessageState, isLabelableTagName } from '../public/ui/field-core.ts';
 import { iconPressableLabel, pressableAttributes } from '../public/ui/pressable-core.ts';
+import { nextSegmentedValue, segmentedDescriptor, segmentedOptionStates } from '../public/ui/segmented-core.ts';
+import { findSelectChoice, resolveSelectSelection, selectDescriptor } from '../public/ui/select-core.ts';
+import { switchDescriptor } from '../public/ui/switch-core.ts';
 import { textAreaDescriptor, textInputDescriptor } from '../public/ui/text-input-core.ts';
 
 describe('pressable-core', () => {
@@ -144,5 +148,96 @@ describe('field-core', () => {
     assert.equal(roled.describedIsWrapper, false);
     assert.equal(roled.wrapperRole, undefined);
     assert.equal(roled.ariaLabelledBy, 'ui-field-3-label');
+  });
+});
+
+describe('checkbox-core', () => {
+  test('wires hint id to aria-describedby only when hint text is present', () => {
+    const plain = choiceDescriptor({ type: 'checkbox' });
+    assert.equal(plain.checked, false);
+    assert.equal(plain.disabled, false);
+    assert.equal(plain.ariaDescribedBy, undefined);
+    assert.equal(plain.hintId, undefined);
+
+    const withHint = choiceDescriptor({
+      type: 'radio',
+      name: 'mode',
+      value: 'auto',
+      checked: true,
+      disabled: true,
+      accessibleName: 'Automatic mode',
+      hint: 'Applies immediately',
+      hintId: 'ui-checkbox-hint-1',
+    });
+    assert.equal(withHint.name, 'mode');
+    assert.equal(withHint.value, 'auto');
+    assert.equal(withHint.ariaLabel, 'Automatic mode');
+    assert.equal(withHint.hintId, 'ui-checkbox-hint-1');
+    assert.equal(withHint.ariaDescribedBy, 'ui-checkbox-hint-1');
+  });
+});
+
+describe('switch-core', () => {
+  test('emits checkbox switch role with aria-label or aria-labelledby and defaults disabled false', () => {
+    assert.deepEqual(switchDescriptor({ label: 'Sound', checked: true }), {
+      className: 'ui-switch',
+      type: 'checkbox',
+      role: 'switch',
+      ariaLabel: 'Sound',
+      ariaLabelledBy: undefined,
+      checked: true,
+      disabled: false,
+    });
+    const byId = switchDescriptor({ labelledBy: 'sound-lbl', checked: false, disabled: true });
+    assert.equal(byId.ariaLabel, undefined);
+    assert.equal(byId.ariaLabelledBy, 'sound-lbl');
+    assert.equal(byId.disabled, true);
+  });
+});
+
+describe('select-core', () => {
+  test('resolves matching, missing-first, and missing-blank selection modes', () => {
+    const choices = [
+      { value: 'a', label: 'Alpha' },
+      { value: 'b', label: 'Beta' },
+    ] as const;
+    assert.deepEqual(resolveSelectSelection(choices, 'b'), { kind: 'value', value: 'b' });
+    assert.deepEqual(resolveSelectSelection(choices, 'missing' as 'a', 'first'), { kind: 'default' });
+    assert.deepEqual(resolveSelectSelection(choices, 'missing' as 'a', 'blank'), { kind: 'blank' });
+    assert.deepEqual(resolveSelectSelection(choices, null, 'blank'), { kind: 'default' });
+    assert.equal(findSelectChoice(choices, 'a')?.label, 'Alpha');
+    assert.equal(findSelectChoice(choices, 'z'), undefined);
+
+    const desc = selectDescriptor({ options: choices, value: 'b', size: 'small', id: 'theme-sel', label: 'Theme', disabled: true });
+    assert.equal(desc.size, 'small');
+    assert.equal(desc.id, 'theme-sel');
+    assert.equal(desc.ariaLabel, 'Theme');
+    assert.equal(desc.disabled, true);
+    assert.deepEqual(desc.selection, { kind: 'value', value: 'b' });
+  });
+});
+
+describe('segmented-core', () => {
+  test('assigns roving tabindex and wraps arrow navigation across options', () => {
+    const desc = segmentedDescriptor({ label: 'View', width: 'fill', size: 'small' });
+    assert.equal(desc.role, 'radiogroup');
+    assert.equal(desc.width, 'fill');
+    assert.equal(desc.size, 'small');
+
+    const states = segmentedOptionStates(['day', 'week', 'month'], 'week');
+    assert.deepEqual(states, [
+      { value: 'day', ariaChecked: 'false', tabIndex: -1 },
+      { value: 'week', ariaChecked: 'true', tabIndex: 0 },
+      { value: 'month', ariaChecked: 'false', tabIndex: -1 },
+    ]);
+
+    const fallbackStates = segmentedOptionStates(['day', 'week'], 'missing' as 'day');
+    assert.equal(fallbackStates[0].tabIndex, 0);
+    assert.equal(fallbackStates[0].ariaChecked, 'false');
+
+    assert.equal(nextSegmentedValue(['day', 'week', 'month'], 'month', 'ArrowRight'), 'day');
+    assert.equal(nextSegmentedValue(['day', 'week', 'month'], 'day', 'ArrowLeft'), 'month');
+    assert.equal(nextSegmentedValue(['day', 'week', 'month'], 'day', 'Enter'), null);
+    assert.equal(nextSegmentedValue([], 'day' as never, 'ArrowRight'), null);
   });
 });
