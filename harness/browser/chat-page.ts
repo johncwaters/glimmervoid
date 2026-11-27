@@ -553,8 +553,8 @@ async function verifyBoardCardKeepsPlace(page: Page): Promise<void> {
     const logParts = [...document.querySelectorAll<HTMLElement>('.session-chat .chat-log > [data-part-id]')];
     const hasRecordedPrompt = logParts.some((part) => part.dataset.partId?.startsWith('prompt-') && part.textContent?.includes('ask-chat'));
     const hasStandIn = logParts.some((part) => part.dataset.partId?.startsWith('sent-'));
-    const hasLiveTerminal = logParts.some((part) => part.dataset.cardType === 'live-terminal');
-    return hasRecordedPrompt && !hasStandIn && hasLiveTerminal;
+    const hasPermissionCard = logParts.some((part) => part.dataset.cardType === 'permission');
+    return hasRecordedPrompt && !hasStandIn && hasPermissionCard;
   }, undefined, { timeout: CARD_TIMEOUT_MS });
   const orderBeforeReopen = await logOrder();
   const chatPageButton = page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true });
@@ -741,10 +741,30 @@ export async function verifyChatSignIn(page: Page): Promise<void> {
   assert.equal(await signInCard.locator('.chat-card-heading').textContent(), 'Claude Code needs you to sign in');
   assert.equal(await page.locator('.session-chat .chat-card[data-card-type="live-terminal"]').count(), 0, 'a failed login offers sign-in instead of the bare terminal');
   assert.equal(await page.locator('.session-chat .terminal-wrap').count(), 0, 'the terminal stays home until Sign in is pressed');
-  const cardTopBefore = (await signInCard.boundingBox())?.y ?? -1;
+  const signInPlacementOf = () => page.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>('.session-chat .chat-scroller');
+    const scrollContent = document.querySelector<HTMLElement>('.session-chat .chat-scroll-content');
+    const card = document.querySelector<HTMLElement>('.session-chat .chat-card[data-card-type="sign-in"]');
+    if (!scroller || !scrollContent || !card) return null;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const contentRect = scrollContent.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    return {
+      offsetInContent: cardRect.top - contentRect.top,
+      cardTop: cardRect.top,
+      scrollerTop: scrollerRect.top,
+      scrollTop: scroller.scrollTop,
+    };
+  });
+  const placementBefore = await signInPlacementOf();
+  assert.ok(placementBefore !== null, 'the sign-in card is measured inside the chat scroller before opening the terminal');
   await page.keyboard.press('1');
   await signInCard.locator('.chat-terminal-slot .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
-  assert.equal((await signInCard.boundingBox())?.y ?? -2, cardTopBefore, 'opening the terminal grows the card downward and leaves its top in place');
+  const placementAfter = await signInPlacementOf();
+  assert.ok(placementAfter !== null, 'the sign-in card stays inside the chat scroller after opening the terminal');
+  assert.equal(placementAfter.offsetInContent, placementBefore.offsetInContent, 'opening the terminal keeps the card at the same offset inside the chat content');
+  assert.equal(placementAfter.scrollTop, 0, 'opening the terminal keeps the scroller anchored without auto-scrolling past the card');
+  assert.ok(placementAfter.cardTop >= placementAfter.scrollerTop, 'opening the terminal keeps the card heading inside the scroller');
   await page.locator('.session-chat .chat-card[data-card-type="sign-in"][data-resolved="true"]').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await signInCard.locator('.chat-card-heading').textContent(), 'Signed in to Claude Code');
   assert.equal(await page.locator('.session-chat .terminal-wrap').count(), 0, 'the terminal returns to its session card once the agent reports the sign-in');
