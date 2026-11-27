@@ -211,7 +211,6 @@ test('every public/ui/ stylesheet keeps layout declarations in primitive-layout 
 
 const PREEXISTING_IMPORTED_NESTED_LAYERS = new Set([
   'public/chat/chat.css',
-  'public/plan/plan-review.css',
 ]);
 
 test('every stylesheet outside public/ui/ sits in the components layer and uses no !important', () => {

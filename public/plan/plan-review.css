@@ -14,9 +14,7 @@
   text-transform: uppercase;
   cursor: pointer;
 }
-@layer components {
-  .plan-document { max-width: 76ch; margin-inline: auto; min-width: 0; }
-}
+.plan-document { max-width: 76ch; margin-inline: auto; min-width: 0; }
 .plan-heading { margin: 1.8em 0 0.6em; color: var(--text-head); line-height: 1.3; scroll-margin-top: 16px; overflow-wrap: anywhere; }
 .plan-document > .plan-heading:first-child { margin-top: 0; }
 .plan-document h1 { font-size: var(--type-title); }
