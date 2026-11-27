@@ -29,6 +29,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Session Spawning
 
+- A PTY session spawns only by `pty.spawn` in `session/drivers/pty-driver.ts`; an ACP session spawns its agent on stdio only in `session/drivers/acp-driver.ts` through `server/child-process-safe.ts`, scrubbing env via `session/core/spawn-env.ts` and never using `shell: true`, so spawn sites stay auditable, command-injection free, and isolated from parent Glimmervoid secrets.
 - Claude CLI produces zero output with piped stdio, so a real PTY is required.
 - Resolve-then-branch: a PE image spawns directly, a shim falls back to `cmd.exe /c`, avoiding cmd's double command-line parse and console-title write (`session/core/spawn-command.ts`).
 - The env scrub removes the Glimmervoid marker vars, or Claude believes it runs inside itself. `acp-driver.ts` scrubs `launch.env` through `withoutGlimmervoidSecrets` and `npm_config_*`, then restores only allowlisted session-scoped URLs (`GLIMMERVOID_AGENT_URL`, `GLIMMERVOID_SIGN_URL`, `GLIMMERVOID_GIT_CREDENTIAL_URL`) passed in `DriverLaunch.sessionEnv`, so commands an ACP agent runs can call `glimmervoid` and git helpers without leaking server or parent secrets (`session/core/acp-driver-core.ts`).

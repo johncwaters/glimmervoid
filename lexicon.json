@@ -1791,7 +1791,7 @@
     },
     {
       "name": "solid",
-      "definition": "The Solid 2 component model (solid-js, @solidjs/web, and @solidjs/vite-plugin) used for .tsx dashboard islands"
+      "definition": "The Solid 2 component model (solid-js, @solidjs/web, and @solidjs/vite-plugin) used for .tsx dashboard islands."
     }
   ],
   "retired": [
