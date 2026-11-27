@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Narrow desktop whiteboard panes no longer cover boxes with floating toolbars or the selection panel.** When a desktop board pane is 640 px wide or narrower, the toolbar docks as a flat bar above the viewport and the selection panel docks as a compact flat strip below the viewport instead of floating over boxes.
 - **New whiteboard notes are now typeable immediately without waiting for the server.** Placing a note opens and focuses its inline title editor in the same frame so typed keys go into the note instead of canvas shortcuts, preserves typed text when the save completes, and closes the editor with the server's error if the save is refused.
 - **Trackpad pinch zoom on whiteboards no longer runs away with event rate.** Ctrl/Meta wheel zoom now scales continuously by normalized `deltaY` across `DOM_DELTA_PIXEL`, `DOM_DELTA_LINE`, and `DOM_DELTA_PAGE` modes instead of stepping a fixed 1.1x per event, keeping mouse wheel notches at ~1.1x and holding the board point under the cursor fixed.
 - **Opening a large board no longer stalls its first draw while saving layout warnings.** Saving a board's layout cache now writes route and placement warnings in slices instead of one synchronous transaction, so a board with thousands of wire warnings keeps answering view requests while its cache saves.

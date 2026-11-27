@@ -321,6 +321,8 @@
 .wb-canvas {
   container: wb-canvas / inline-size;
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-height: 320px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -895,6 +897,59 @@
 }
 
 .wb-top-right > * { pointer-events: auto; }
+
+@container wb-canvas (max-width: 640px) {
+  :root:not([data-layout='phone']) .wb-top {
+    display: contents;
+  }
+
+  :root:not([data-layout='phone']) .wb-top-left {
+    order: -1;
+    flex: 0 0 auto;
+    padding: 6px 8px;
+    gap: 6px;
+    border-bottom: 1px solid var(--border-dim);
+    background: var(--bg-card);
+  }
+
+  :root:not([data-layout='phone']) .wb-top-left > .wb-island {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  :root:not([data-layout='phone']) .wb-viewport {
+    order: 0;
+    position: relative;
+    inset: auto;
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  :root:not([data-layout='phone']) .wb-top-right {
+    order: 2;
+    flex: 0 0 auto;
+    align-self: stretch;
+    align-items: stretch;
+    width: 100%;
+    pointer-events: auto;
+  }
+
+  :root:not([data-layout='phone']) .wb-inspect {
+    width: 100%;
+    max-height: 160px;
+    padding: 8px 10px;
+    border: 0;
+    border-top: 1px solid var(--border-dim);
+    border-radius: 0;
+  }
+
+  :root:not([data-layout='phone']) .wb-top:has(~ .wb-bottom-left > .wb-island:not([hidden]):not([data-idle])) > .wb-top-right:has(> .wb-inspect:not([hidden])) {
+    margin-bottom: 52px;
+  }
+}
 
 .wb-sheet-editor {
   display: flex;
