@@ -1,7 +1,7 @@
 import { isRecord } from '#shared/coerce.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { cloneValue } from '#shared/settings/registry-core.ts';
-import { nextRequestId, sendControlMsg } from '../../control-ws.ts';
+import { nextRequestId, onControlSocketChange, sendControlMsg } from '../../control-ws.ts';
 import type { HooksReport } from '../../hooks-view-core.ts';
 import { applyCollectionServerMessage, defineCollection, watchCollection } from '../define-collection.ts';
 import {
@@ -15,7 +15,12 @@ type HooksChangeListener = () => void;
 
 const changeListeners = new Set<HooksChangeListener>();
 let hasReportSendFailed = false;
+let hasDisconnectedSinceReport = false;
 let latestRequestId: string | null = null;
+
+onControlSocketChange((isConnected) => {
+  if (!isConnected) hasDisconnectedSinceReport = true;
+});
 
 function notifyChangeListeners(): void {
   for (const listener of [...changeListeners]) {
@@ -53,7 +58,8 @@ export function onHooksChanged(listener: HooksChangeListener): () => void {
 export function requestHooksReport({ force = false }: { force?: boolean } = {}): void {
   const existingReport = hooksCollection.state.report;
   const hasLoadedReport = existingReport !== null && typeof existingReport.error !== 'string';
-  if (!force && hasLoadedReport && !hasReportSendFailed) return;
+  const isReportStale = hooksCollection.state.isReportStale || hasDisconnectedSinceReport;
+  if (!force && hasLoadedReport && !hasReportSendFailed && !isReportStale) return;
   latestRequestId = nextRequestId('hooks-report');
   const wasSent = sendControlMsg({ type: 'request-hooks-report', requestId: latestRequestId });
   if (wasSent === !hasReportSendFailed) return;
@@ -64,6 +70,7 @@ export function requestHooksReport({ force = false }: { force?: boolean } = {}):
 export function applyHooksReport(message: ServerMessageOf<'hooks-report'>): void {
   if (!shouldApplyHooksReport(message, latestRequestId)) return;
   hasReportSendFailed = false;
+  hasDisconnectedSinceReport = false;
   applyCollectionServerMessage('hooks', message);
 }
 

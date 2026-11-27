@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  ACTION_CONTINUITY_CASES,
+  COLLECTION_CONTINUITY_CASES,
+} from '../harness/browser/continuity-cases.ts';
+import {
   CLIENT_MESSAGE_CLASS,
   wireCollectionNames,
 } from '../shared/contracts/control/message-classes.ts';
@@ -17,9 +21,11 @@ type MutatingClientMessageType = {
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 const COLLECTION_SET = new Set<string>(wireCollectionNames());
-export const CONTINUITY_CASES_RELATIVE_PATH = 'harness/browser/continuity-cases.ts';
-const ACTION_CASES_HEADER = 'export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [';
-const COLLECTION_CASES_HEADER = 'export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = [';
+const REGISTERED_ACTION_CASE_NAMES = new Set<string>(ACTION_CONTINUITY_CASES.map((entry) => entry.name));
+const REGISTERED_COLLECTION_CASE_NAMES = new Set<string>(COLLECTION_CONTINUITY_CASES.map((entry) => entry.name));
+export const CONTINUITY_CASES_RELATIVE_PATH = 'harness/browser/continuity-stubs.ts';
+const ACTION_CASES_HEADER = 'export const ACTION_CONTINUITY_STUBS: readonly ActionContinuityCase[] = [';
+const COLLECTION_CASES_HEADER = 'export const COLLECTION_CONTINUITY_STUBS: readonly CollectionContinuityCase[] = [';
 
 function toPascalCase(kebabName: string): string {
   return kebabName
@@ -344,6 +350,9 @@ export function generateStateAction(rawType: string | undefined, repoRoot = REPO
   if (fs.existsSync(path.join(repoRoot, relativePath))) {
     throw new Error(`Action module already exists at ${relativePath}.`);
   }
+  if (REGISTERED_ACTION_CASE_NAMES.has(actionType)) {
+    throw new Error(`Continuity case "${actionType}" already exists in harness/browser/continuity-cases.ts.`);
+  }
   const updatedRatchets = removeLegacyActionFromRatchets(readRatchetsFromRoot(repoRoot), actionType);
   const updatedContinuityCases = insertContinuityCaseStub(
     readContinuityCasesFromRoot(repoRoot),
@@ -367,6 +376,9 @@ export function generateStateCollection(rawName: string | undefined, repoRoot = 
   const relativePath = `public/state/collections/${collectionName}.ts`;
   if (fs.existsSync(path.join(repoRoot, relativePath))) {
     throw new Error(`Collection module already exists at ${relativePath}.`);
+  }
+  if (REGISTERED_COLLECTION_CASE_NAMES.has(collectionName)) {
+    throw new Error(`Continuity case "${collectionName}" already exists in harness/browser/continuity-cases.ts.`);
   }
   const updatedRatchets = removeLegacyCollectionFromRatchets(readRatchetsFromRoot(repoRoot), collectionName);
   const updatedContinuityCases = insertContinuityCaseStub(

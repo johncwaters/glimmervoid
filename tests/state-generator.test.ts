@@ -108,10 +108,10 @@ test('generator emits no unused named exports and leaves no orphan module on inv
   fs.mkdirSync(path.dirname(ratchetsPath), { recursive: true });
   fs.writeFileSync(ratchetsPath, '{}\n', 'utf8');
 
-  assert.throws(() => generateStateAction('rename-session', malformedRoot), /missing legacyMutatingActions/);
-  assert.equal(fs.existsSync(path.join(malformedRoot, 'public/state/actions/rename-session.ts')), false);
-  assert.throws(() => generateStateCollection('sessions', malformedRoot), /missing legacyMutatingActions/);
-  assert.equal(fs.existsSync(path.join(malformedRoot, 'public/state/collections/sessions.ts')), false);
+  assert.throws(() => generateStateAction('kill', malformedRoot), /missing legacyMutatingActions/);
+  assert.equal(fs.existsSync(path.join(malformedRoot, 'public/state/actions/kill.ts')), false);
+  assert.throws(() => generateStateCollection('health', malformedRoot), /missing legacyMutatingActions/);
+  assert.equal(fs.existsSync(path.join(malformedRoot, 'public/state/collections/health.ts')), false);
 });
 
 test('insertContinuityCaseStub preserves CRLF, handles reordered properties, and detects named constant duplicates', () => {
@@ -120,7 +120,7 @@ test('insertContinuityCaseStub preserves CRLF, handles reordered properties, and
     "  checks: ['C1', 'C2', 'C5'],",
     "  name: 'save-hook',",
     '};',
-    'export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [',
+    'export const ACTION_CONTINUITY_STUBS: readonly ActionContinuityCase[] = [',
     '  {',
     "    checks: ['C1', 'C2', 'C5'],",
     "    name: 'add-repo-roots',",

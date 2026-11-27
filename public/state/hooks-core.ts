@@ -13,6 +13,7 @@ export function isOptimisticHookId(hookId: string): boolean {
 export interface HooksCollectionState {
   report: HooksReport | null;
   updatedCount: number | null;
+  isReportStale: boolean;
   serverRevision: number;
   optimisticRevision: number;
 }
@@ -20,6 +21,7 @@ export interface HooksCollectionState {
 export const INITIAL_HOOKS_STATE: HooksCollectionState = {
   report: null,
   updatedCount: null,
+  isReportStale: false,
   serverRevision: 0,
   optimisticRevision: 0,
 };
@@ -84,6 +86,7 @@ export function applyHooksServerMessage(
   helpers: CollectionHelpers<HooksCollectionState>,
 ): void {
   if (message.type === 'hooks-updated') {
+    draft.isReportStale = true;
     if (draft.updatedCount === message.count) return;
     draft.updatedCount = message.count;
     draft.serverRevision += 1;
@@ -92,11 +95,13 @@ export function applyHooksServerMessage(
   if (message.type === 'hooks-report') {
     const clonedReport = cloneValue(message) as HooksReport;
     if (draft.report !== null && hooksReportFingerprint(draft.report) === hooksReportFingerprint(clonedReport)) {
+      draft.isReportStale = false;
       return;
     }
     helpers.replace({
       report: clonedReport,
       updatedCount: Array.isArray(clonedReport.hooks) ? clonedReport.hooks.length : draft.updatedCount,
+      isReportStale: false,
       serverRevision: draft.serverRevision + 1,
       optimisticRevision: 0,
     });

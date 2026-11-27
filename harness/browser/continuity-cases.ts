@@ -1,6 +1,7 @@
 import type { Page } from 'playwright-core';
 import type { CLIENT_MESSAGE_CLASS, CollectionName } from '#shared/contracts/control/message-classes.ts';
 import type { Layout } from './cases-core.ts';
+import { ACTION_CONTINUITY_STUBS, COLLECTION_CONTINUITY_STUBS } from './continuity-stubs.ts';
 import type { ControlFaultController } from './continuity.ts';
 
 type MutatingClientMessageType = {
@@ -1015,9 +1016,8 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
         fire: async () => {
           await page.evaluate((bridgeUrl) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-            const requestApply = cache[bridgeUrl].requestUpdateApply as () => void;
-            requestApply();
-            Reflect.set(window, '__continuityActionPromise', new Promise<void>((resolve) => { setTimeout(resolve, 200); }));
+            const requestApply = cache[bridgeUrl].requestUpdateApply as () => Promise<void>;
+            Reflect.set(window, '__continuityActionPromise', requestApply());
           }, MODULE_URLS.settingsBridge);
         },
         waitSettled: () => waitPendingAction(page),
@@ -1050,20 +1050,35 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           push: { type: 'hooks-updated', count: 0 },
         }));
       }
-      const readChecking = () => page.evaluate((bridgeUrl) => {
+      const beforeCheckTimestamp = await page.evaluate((bridgeUrl) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const readState = cache[bridgeUrl].settingsUpdateState as () => { isCheckInFlight: boolean };
-        return String(readState().isCheckInFlight);
+        const readState = cache[bridgeUrl].settingsUpdateState as () => { lastAutoCheckAt: number | null };
+        return readState().lastAutoCheckAt;
       }, MODULE_URLS.settingsBridge);
+      const readChecking = () => page.evaluate(({ bridgeUrl, priorTimestamp, trackCompletion }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const readState = cache[bridgeUrl].settingsUpdateState as () => {
+          isCheckInFlight: boolean;
+          lastAutoCheckAt: number | null;
+          checkSendFailure: string | null;
+        };
+        const current = readState();
+        if (!trackCompletion) return String(current.isCheckInFlight);
+        const completed = current.lastAutoCheckAt !== priorTimestamp && current.checkSendFailure === null;
+        return String(current.isCheckInFlight || completed);
+      }, { bridgeUrl: MODULE_URLS.settingsBridge, priorTimestamp: beforeCheckTimestamp, trackCompletion: check !== 'C2' });
       return {
         readValue: readChecking,
-        isOptimisticShown: async () => (await readChecking()) === 'true',
+        isOptimisticShown: async () => page.evaluate((bridgeUrl) => {
+          const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+          const readState = cache[bridgeUrl].settingsUpdateState as () => { isCheckInFlight: boolean };
+          return readState().isCheckInFlight;
+        }, MODULE_URLS.settingsBridge),
         fire: async () => {
           await page.evaluate((bridgeUrl) => {
             const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-            const requestCheck = cache[bridgeUrl].requestUpdateCheck as () => void;
-            requestCheck();
-            Reflect.set(window, '__continuityActionPromise', new Promise<void>((resolve) => { setTimeout(resolve, 200); }));
+            const requestCheck = cache[bridgeUrl].requestUpdateCheck as () => Promise<void>;
+            Reflect.set(window, '__continuityActionPromise', requestCheck());
           }, MODULE_URLS.settingsBridge);
         },
         waitSettled: () => waitPendingAction(page),
@@ -1118,6 +1133,7 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
       };
     },
   },
+  ...ACTION_CONTINUITY_STUBS,
 ];
 
 export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = [
@@ -1232,4 +1248,5 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
       };
     },
   },
+  ...COLLECTION_CONTINUITY_STUBS,
 ];

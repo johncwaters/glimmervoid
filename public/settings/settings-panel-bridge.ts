@@ -64,20 +64,20 @@ function dispatchUpdateRequest(event: UpdateRequestEvent, errorText?: string): v
   notifyUiEvent({ kind: 'update', frame: 'request' });
 }
 
-export function requestUpdateApply(): void {
+export function requestUpdateApply(): Promise<void> {
   dispatchUpdateRequest('request-sent');
-  void updateApplyAction({}).then((outcome) => {
+  return updateApplyAction({}).then((outcome) => {
     if (outcome.ok) return;
     dispatchUpdateRequest('error-frame', updateErrorText(outcome.error.message));
   });
 }
 
-export function requestUpdateCheck(): void {
+export function requestUpdateCheck(): Promise<void> {
   lastAutoUpdateCheckAt = clock.nowMs();
   isUpdateCheckInFlight = true;
   updateCheckSendFailure = null;
   notifyUiEvent({ kind: 'update', frame: 'request' });
-  void updateCheckAction({}).then((outcome) => {
+  return updateCheckAction({}).then((outcome) => {
     isUpdateCheckInFlight = false;
     if (!outcome.ok) updateCheckSendFailure = updateErrorText(outcome.error.message);
     notifyUiEvent({ kind: 'update', frame: 'request' });
