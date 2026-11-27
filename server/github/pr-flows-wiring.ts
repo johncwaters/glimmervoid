@@ -51,6 +51,7 @@ const BRANCH_MOVED_WINDOW_MS = 10 * 60 * 1000;
 
 function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, reportUrlFor = () => null, loadPacks = async () => ({ packs: [], warnings: [] }), now = clock.nowMs }: PrFlowsWiringOptions) {
   let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [], ruleRunsByPr: {}, prActionRunByPr: {} };
+  let persistedState: PrFlowsState = state;
   let warnings: string[] = [];
   let approvals: PrFlowPendingApproval[] = [];
   let runnableActions: PrFlowActionChoice[] = [];
@@ -62,7 +63,10 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   const store = createJsonStateStore({
     name: 'pr flows', filePath: statePath,
     parse: (raw) => PrFlowsState.safeParse(raw).data ?? null,
-    adopt: (loadedState) => { state = loadedState ? withInterruptedRuns(loadedState) : state; },
+    adopt: (loadedState) => {
+      state = loadedState ? withInterruptedRuns(loadedState) : state;
+      persistedState = state;
+    },
     warn: (message, fields) => log.warn(`[pr-flows] ${message} ${JSON.stringify(fields)}`),
   });
   const loaded = store.load();
@@ -85,7 +89,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     for (const pr of openPrs()) {
       const prActionChoices = scopedToRepo(approvedPrActions, pr.repo).map(({ id, label }) => ({ id, label }));
       if (prActionChoices.length > 0) prActionsByPr[pr.key] = prActionChoices;
-      const prActionRuns = Object.values(state.prActionRunByPr[pr.key] ?? {}).flatMap((run) => visibleRun(run, pr) ?? []);
+      const prActionRuns = Object.values(persistedState.prActionRunByPr[pr.key] ?? {}).flatMap((run) => visibleRun(run, pr) ?? []);
       if (prActionRuns.length > 0) prActionRunsByPr[pr.key] = prActionRuns;
       const actionRuns = actionRunsByPr.get(pr.key) ?? [];
       if (actionRuns.length > 0) actionRunsByPrKey[pr.key] = actionRuns.map(({ itemKey, actionId, label, state: runState, message }) => ({ itemKey, actionId, label, state: runState, message }));
@@ -95,7 +99,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
       reviewItemsByPr[pr.key] = reviewItemsFor(pr);
     }
     return {
-      type: 'pr-flows-status', handledByPr: state.handledByPr, warnings, pendingApprovals: approvals, sourceRunsByPr: sourceRunsByPrKey, reviewItemsByPr,
+      type: 'pr-flows-status', handledByPr: persistedState.handledByPr, warnings, pendingApprovals: approvals, sourceRunsByPr: sourceRunsByPrKey, reviewItemsByPr,
       actions: runnableActions, actionRunsByPr: actionRunsByPrKey, prActionsByPr, prActionRunsByPr,
     };
   }
@@ -116,8 +120,9 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
 
   async function persist(nextState: PrFlowsState): Promise<void> {
     state = withOnlyOpenPrs(nextState, new Set(openPrs().map((pr) => pr.key)));
-    const persistedState = state;
-    await store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
+    const writtenState = state;
+    await store.write(writtenState, () => `${JSON.stringify(writtenState, null, 2)}\n`);
+    persistedState = writtenState;
     broadcastIfChanged();
   }
 

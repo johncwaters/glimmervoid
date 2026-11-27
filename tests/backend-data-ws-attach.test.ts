@@ -21,6 +21,9 @@ import { capturingPty, fakePty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
+import { waitFor } from './helpers/wait-for.ts';
+
+const STREAM_DEADLINE_MS = 10_000;
 
 const { Terminal } = headless;
 
@@ -103,6 +106,14 @@ function settle(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(() => resolve(), ms); });
 }
 
+function yieldTurn(): Promise<void> {
+  return new Promise((resolve) => { setImmediate(resolve); });
+}
+
+async function waitForScreenParsed(session: Session): Promise<void> {
+  await session.getDeepScreenSnapshot();
+}
+
 test.before(async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-dataws-attach-'));
   const projectDir = path.join(tmpDir, 'project');
@@ -150,15 +161,19 @@ test('a socket attaching under continuous output ends up on the live screen, byt
   };
 
   for (let index = 0; index < 120; index += 1) emit(buildLine(index));
-  await settle(30);
+  await waitForScreenParsed(session);
 
   const viewer = await openViewer();
 
   for (let index = 120; index < 200; index += 1) {
     emit(buildLine(index));
-    if (index % 8 === 0) await settle(4);
+    if (index % 8 === 0) await yieldTurn();
   }
-  await settle(250);
+  await waitFor(
+    () => binaryFramesOf(viewer).length >= 1 && textFramesOf(viewer).join('').includes('build step 199'),
+    'viewer received attach snapshot and live tail through step 199',
+    STREAM_DEADLINE_MS,
+  );
 
   assert.equal(binaryFramesOf(viewer).length, 1, 'exactly one size frame on attach and no change after it');
   const size = PtySizeFrame.parse(JSON.parse(binaryFramesOf(viewer)[0] ?? ''));
@@ -199,10 +214,19 @@ test('a second socket attaching to the same session lands on the same screen', a
     emitted.push(line);
     session._handlePtyData(line);
   }
-  await settle(120);
+  await waitFor(
+    () => textFramesOf(first).join('').includes('build step 259'),
+    'first viewer received output through step 259',
+    STREAM_DEADLINE_MS,
+  );
+  await waitForScreenParsed(session);
 
   const second = await openViewer();
-  await settle(150);
+  await waitFor(
+    () => textFramesOf(second).join('').includes('build step 259'),
+    'second viewer received snapshot through step 259',
+    STREAM_DEADLINE_MS,
+  );
 
   const firstReplay = newTerminal(80, 24);
   await write(firstReplay, textFramesOf(first).join(''));
@@ -221,24 +245,41 @@ test('a hidden card attaching paused gets no screen until it resumes, then lands
   attachFakePty();
   const session = ctx().session;
   for (let index = 300; index < 340; index += 1) session._handlePtyData(buildLine(index));
-  await settle(30);
+  await waitForScreenParsed(session);
 
   const hidden = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?output=paused`);
   let live: Awaited<ReturnType<typeof openViewer>> | null = null;
   try {
     for (let index = 340; index < 360; index += 1) session._handlePtyData(buildLine(index));
-    await settle(150);
+    await waitFor(
+      () => binaryFramesOf(hidden).some((frame) => frame.includes('output-beat')),
+      'paused viewer received output-beat frame',
+      STREAM_DEADLINE_MS,
+    );
 
     assert.deepEqual(textFramesOf(hidden), [], 'no replay or live bytes reach a paused card');
     const beatFrames = binaryFramesOf(hidden).filter((frame) => frame.includes('output-beat'));
     assert.ok(beatFrames.length >= 1, 'output while paused still reaches the card as an activity beat');
 
     hidden.ws.send(JSON.stringify({ type: 'resume-output' }));
-    await settle(150);
+    await waitFor(
+      () => (textFramesOf(hidden)[0] ?? '').startsWith(SCREEN_RESET),
+      'resumed viewer received reset screen frame',
+      STREAM_DEADLINE_MS,
+    );
     for (let index = 360; index < 380; index += 1) session._handlePtyData(buildLine(index));
-    await settle(150);
+    await waitFor(
+      () => textFramesOf(hidden).join('').includes('build step 379'),
+      'resumed viewer received output through step 379',
+      STREAM_DEADLINE_MS,
+    );
+    await waitForScreenParsed(session);
     live = await openViewer();
-    await settle(150);
+    await waitFor(
+      () => textFramesOf(live as Viewer).join('').includes('build step 379'),
+      'live viewer received snapshot through step 379',
+      STREAM_DEADLINE_MS,
+    );
 
     assert.ok((textFramesOf(hidden)[0] ?? '').startsWith(SCREEN_RESET), 'resume opens with the shared reset prefix and the current screen');
     const hiddenReplay = newTerminal(80, 24);
@@ -251,6 +292,11 @@ test('a hidden card attaching paused gets no screen until it resumes, then lands
     hidden.ws.send(JSON.stringify({ type: 'pause-output' }));
     await settle(150);
     for (let index = 380; index < 400; index += 1) session._handlePtyData(buildLine(index));
+    await waitFor(
+      () => textFramesOf(live as Viewer).join('').includes('build step 399'),
+      'live viewer received output through step 399 while hidden viewer is paused',
+      STREAM_DEADLINE_MS,
+    );
     await settle(150);
     assert.equal(textFramesOf(hidden).length, textFrameCountBeforePause, 'a card that pauses again mid-stream gets no live bytes');
 
@@ -275,15 +321,19 @@ test('a deep attach carries history past the attach depth, loses no live byte an
 
   const historyLineCount = SCREEN_KEEPER_ATTACH_SCROLLBACK * 3;
   for (let index = 0; index < historyLineCount; index += 1) emit(buildLine(index));
-  await settle(60);
+  await waitForScreenParsed(session);
 
   const viewer = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?history=deep`);
   viewer.ws.send(JSON.stringify({ type: 'input', data: 'typed during the deep serialize' }));
   for (let index = historyLineCount; index < historyLineCount + 80; index += 1) {
     emit(buildLine(index));
-    if (index % 8 === 0) await settle(4);
+    if (index % 8 === 0) await yieldTurn();
   }
-  await settle(300);
+  await waitFor(
+    () => ptyWrites.length >= 1 && binaryFramesOf(viewer).length >= 1 && textFramesOf(viewer).join('').includes(`build step ${historyLineCount + 79}`),
+    'deep attach delivered input, size frame, and live tail',
+    STREAM_DEADLINE_MS,
+  );
 
   assert.deepEqual(ptyWrites, ['typed during the deep serialize'], 'input sent before the socket was wired still reaches the PTY');
 
@@ -311,16 +361,24 @@ test('a deep attach made while hidden still carries its deep history once the ca
   const session = ctx().session;
   const historyLineCount = SCREEN_KEEPER_ATTACH_SCROLLBACK * 3;
   for (let index = 0; index < historyLineCount; index += 1) session._handlePtyData(buildLine(index));
-  await settle(60);
+  await waitForScreenParsed(session);
 
   const hidden = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?history=deep&output=paused`);
-  await settle(200);
+  await waitFor(
+    () => binaryFramesOf(hidden).length >= 1,
+    'paused deep attach delivered size frame',
+    STREAM_DEADLINE_MS,
+  );
   assert.deepEqual(textFramesOf(hidden), [], 'no history reaches the card while it is hidden');
   for (let index = historyLineCount; index < historyLineCount + 20; index += 1) session._handlePtyData(buildLine(index));
-  await settle(60);
+  await waitForScreenParsed(session);
 
   hidden.ws.send(JSON.stringify({ type: 'resume-output' }));
-  await settle(300);
+  await waitFor(
+    () => textFramesOf(hidden).length >= 1,
+    'resumed deep attach delivered coalesced screen frame',
+    STREAM_DEADLINE_MS,
+  );
 
   const resumedFrames = textFramesOf(hidden);
   assert.equal(resumedFrames.length, 1, 'resuming a held deep attach coalesces snapshot and missed bytes into one frame');
@@ -331,7 +389,11 @@ test('a deep attach made while hidden still carries its deep history once the ca
   await write(replay, resumedFrames.join(''));
   assert.ok(replay.buffer.active.length > SCREEN_KEEPER_ATTACH_SCROLLBACK + size.rows, 'the revealed card reaches past the attach depth');
   const live = await openViewer();
-  await settle(150);
+  await waitFor(
+    () => textFramesOf(live).join('').includes(`build step ${historyLineCount + 19}`),
+    'live viewer received snapshot through latest hidden step',
+    STREAM_DEADLINE_MS,
+  );
   const liveReplay = newTerminal(size.cols, size.rows);
   await write(liveReplay, textFramesOf(live).join(''));
   assert.deepEqual(dump(replay).slice(-size.rows), dump(liveReplay).slice(-size.rows), 'and it ends on the live screen, output while hidden included');

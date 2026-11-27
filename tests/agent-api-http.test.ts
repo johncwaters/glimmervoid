@@ -1482,7 +1482,8 @@ test('a spawned child that stops wakes its idle parent with one submitted line e
   fixture.parent.raiseAttention = (_origin, note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
   const pasted = () => written.filter((text) => text.startsWith('\x1b[200~')).map((text) => text.slice(6, -6));
   const enters = () => written.filter((text) => text === '\r');
-  const waitForSubmitDelay = () => new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+  const wakeDeliveryDeadlineMs = 10_000;
+  const waitNegativeSubmitWindow = () => new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
   try {
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build U2' });
     const childId = String(spawned.body.sessionId);
@@ -1490,14 +1491,14 @@ test('a spawned child that stops wakes its idle parent with one submitted line e
     await fixture.parent.start();
     fixture.parent.transition('first_output');
     assert.equal(fixture.parent.state, STATES.IDLE);
-    const endChildTurn = async () => {
+    const triggerChildIdle = () => {
       child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
       advanceBy(1000);
-      await waitForSubmitDelay();
     };
 
     child.emit('hook-event', { event: 'Stop', payload: { last_assistant_message: 'held U2 over a HIGH finding' } });
-    await endChildTurn();
+    triggerChildIdle();
+    await waitFor(() => enters().length === 1, 'first child wake submitted', wakeDeliveryDeadlineMs);
     assert.deepEqual(pasted(), [`Glimmervoid: ${String(spawned.body.name)}, the session you spawned, has news. Run glimmervoid read ${childId} and act on it.`]);
     assert.deepEqual(enters(), ['\r']);
     const notes = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', {})).body).channels[0]?.entries ?? [];
@@ -1506,24 +1507,26 @@ test('a spawned child that stops wakes its idle parent with one submitted line e
 
     for (let turn = 0; turn < 10; turn += 1) {
       advanceBy(WAKE_TURN_START_TIMEOUT_MS);
-      await endChildTurn();
+      triggerChildIdle();
+      await waitFor(() => enters().length === turn + 2, `child wake ${turn + 2} submitted`, wakeDeliveryDeadlineMs);
     }
     assert.deepEqual([pasted().length, enters().length, attentionNotes.length], [11, 11, 0], 'the eleventh wake is typed with no operator input and nothing flags the operator');
 
     advanceBy(WAKE_TURN_START_TIMEOUT_MS);
     fixture.parent.emit('operator-input');
-    await endChildTurn();
+    triggerChildIdle();
+    await waitNegativeSubmitWindow();
     assert.equal(pasted().length, 11, 'no wake while the operator typed in the last 30 seconds');
     advanceBy(30_000);
     advanceBy(1000);
-    await waitForSubmitDelay();
+    await waitFor(() => enters().length === 12, 'held wake submitted after operator hold-off', wakeDeliveryDeadlineMs);
     assert.deepEqual([pasted().length, enters().length], [12, 12], 'the held wake fires after the hold-off');
 
     advanceBy(WAKE_TURN_START_TIMEOUT_MS);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
     fixture.parent.noteOperatorInput('r');
-    await waitForSubmitDelay();
+    await waitFor(() => !fixture.parent.isDeliveryInFlight(), 'interrupted wake settled without submit', wakeDeliveryDeadlineMs);
     assert.deepEqual([pasted().length, enters().length], [13, 12], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
   } finally {
     fixture.destroyAll();
@@ -1552,11 +1555,11 @@ test('a child that stops while its parent works wakes the parent once the parent
     assert.equal(wakeLines().length, 0, 'no wake while the parent is mid-turn');
 
     fixture.parent.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 2, payload: { background_tasks: [{ id: 'match-watch', type: 'shell', status: 'running' }] } });
-    for (let waitedMs = 0; waitedMs < 3000 && !fixture.parent.isBetweenTurns(); waitedMs += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => fixture.parent.isBetweenTurns(), 'parent entered between-turns state', 5_000);
     assert.equal(fixture.parent.state, STATES.RUNNING);
     assert.equal(fixture.parent.isBetweenTurns(), true);
     advanceBy(1000);
-    await waitForSubmitDelay();
+    await waitFor(() => written.filter((text) => text === '\r').length === 1, 'child wake submitted between turns', 10_000);
     assert.deepEqual([wakeLines().length, written.filter((text) => text === '\r').length], [1, 1]);
   } finally {
     fixture.destroyAll();
@@ -1615,7 +1618,7 @@ test('a child resuming after the parent wake line was submitted, before the pare
     fixture.parent.transition('first_output');
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE });
     advanceBy(1000);
-    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+    await waitFor(() => written.filter((text) => text === '\r').length === 1, 'child wake submitted after complete', 10_000);
     assert.deepEqual([wakeLines().length, written.filter((text) => text === '\r').length], [1, 1]);
     assert.equal(fixture.parent.state, STATES.IDLE);
     child.emit('state-change', { from: STATES.COMPLETE, to: STATES.RUNNING });
@@ -1641,9 +1644,17 @@ test('a child wake refused while a prompt is still queued for its parent is type
     fixture.parent.transition('first_output');
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await waitFor(
+      () => written[0] === '\x1b[200~radar fix prompt\x1b[201~' && !fixture.parent.hasPendingPaste(),
+      'queued prompt landed before child wake',
+      10_000,
+    );
     advanceBy(1000);
-    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+    await waitFor(
+      () => written.length >= 3 && written[2] === '\r',
+      'child wake submitted after queued prompt landed',
+      10_000,
+    );
     assert.equal(written[0], '\x1b[200~radar fix prompt\x1b[201~');
     assert.match(written[1] ?? '', /has news/);
     assert.equal(written[2], '\r');

@@ -589,9 +589,9 @@ function createWhiteboardWiring({
     return null;
   }
 
-  function linkedCardFollowOf(target: WatchedFolder): LinkedCardFollow | null {
+  function linkedCardFollowOf(target: WatchedFolder): { follow: LinkedCardFollow; isNew: boolean } | null {
     const current = linkedCardFollowByFolder.get(target.folder);
-    if (current?.watcher.active && current.inode === target.inode) return current;
+    if (current?.watcher.active && current.inode === target.inode) return { follow: current, isNew: false };
     current?.watcher.stop();
     linkedCardFollowByFolder.delete(target.folder);
     const boxIdsByBoardId = current?.boxIdsByBoardId ?? new Map<string, Set<string>>();
@@ -604,7 +604,7 @@ function createWhiteboardWiring({
     if (!watcher.watch(target.folder)) return null;
     const follow = { ...target, watcher, boxIdsByBoardId };
     linkedCardFollowByFolder.set(target.folder, follow);
-    return follow;
+    return { follow, isNew: true };
   }
 
   function refollowLinkedCards(boardId: string): Promise<void> {
@@ -635,7 +635,13 @@ function createWhiteboardWiring({
     for (const [folder, follow] of linkedCardFollowByFolder) {
       if (!boxIdsByWatchedFolder.has(folder)) follow.boxIdsByBoardId.delete(board.id);
     }
-    for (const { target, boxIds } of boxIdsByWatchedFolder.values()) linkedCardFollowOf(target)?.boxIdsByBoardId.set(board.id, boxIds);
+    for (const { target, boxIds } of boxIdsByWatchedFolder.values()) {
+      const opened = linkedCardFollowOf(target);
+      if (!opened) continue;
+      const isNewBoard = !opened.follow.boxIdsByBoardId.has(board.id);
+      opened.follow.boxIdsByBoardId.set(board.id, boxIds);
+      if (opened.isNew || isNewBoard) opened.follow.watcher.fire();
+    }
     stopIdleLinkedCardFollows();
   }
 

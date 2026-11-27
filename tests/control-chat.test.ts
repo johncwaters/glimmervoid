@@ -15,6 +15,9 @@ import { SUBMIT_DELAY_MS } from '../session/core/input-delivery-core.ts';
 import { capturingPty, exitablePty } from './helpers/fake-pty.ts';
 import { permissionRequestDecisionOf } from './helpers/permission-reply.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import { waitFor } from './helpers/wait-for.ts';
+
+const DELIVERY_DEADLINE_MS = 10_000;
 
 const QUESTION_REQUEST = {
   tool_name: 'AskUserQuestion',
@@ -88,7 +91,7 @@ test('Chat reads a held question from the session status and answers it and send
     assert.equal(session.toSnapshot().conversationApproval, null);
 
     const outboxOf = () => session.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`);
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 1000));
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
     const writesBeforeHeldSend = writes.length;
     connection.send({ type: 'chat-send', id: session.id, text: 'Mid-turn thought', attachments: [ATTACHED_FILE] });
     assert.equal(connection.sent.at(-1)?.ok, true);
@@ -103,7 +106,11 @@ test('Chat reads a held question from the session status and answers it and send
     assert.deepEqual((connection.sent.at(-1) as { cancelledAttachments?: string[] }).cancelledAttachments, [SECOND_ATTACHED_FILE]);
 
     session.transition('task_complete');
-    await settle();
+    await waitFor(
+      () => writes.at(-1) === '\r' && session.toSnapshot().chatOutbox[0]?.state === 'submitted',
+      'held chat message submitted on task_complete',
+      DELIVERY_DEADLINE_MS,
+    );
     assert.ok(writes.join('').includes(`${path.join(projectPath, ATTACHED_FILE)} Mid-turn thought`));
     assert.deepEqual(sentAttachments, [[ATTACHED_FILE]]);
     assert.doesNotMatch(writes.join(''), /Second thought/);
@@ -116,7 +123,11 @@ test('Chat reads a held question from the session status and answers it and send
 
     connection.send({ type: 'chat-send', id: session.id, text: 'Typed over' });
     session.noteOperatorInput('x');
-    await settle();
+    await waitFor(
+      () => session.toSnapshot().chatOutbox[0]?.state === 'failed',
+      'typed-over chat message marked failed',
+      DELIVERY_DEADLINE_MS,
+    );
     assert.match(session.toSnapshot().chatOutbox[0]?.failure ?? '', /typed in the terminal/);
     connection.send({ type: 'chat-send', id: session.id, text: 'Waits behind the failure' });
     const queuedStopBackground = session.queueChatMessage('Stop every background task and subagent you started, then end your turn.', [], 'stop-background');
@@ -140,7 +151,11 @@ test('Chat reads a held question from the session status and answers it and send
     assert.deepEqual(outboxOf(), []);
 
     connection.send({ type: 'chat-send', id: session.id, text: 'Lands in a held input box' });
-    await settle();
+    await waitFor(
+      () => session.toSnapshot().chatOutbox[0]?.state === 'failed',
+      'chat message in held input box marked failed',
+      DELIVERY_DEADLINE_MS,
+    );
     assert.equal(session.toSnapshot().chatOutbox[0]?.state, 'failed');
     assert.match(session.toSnapshot().chatOutbox[0]?.failure ?? '', /input box/);
 
@@ -200,7 +215,7 @@ test('Chat switches the model between turns, keeping the conversation and the se
     session.transition('task_complete');
     const promptInFlight = await switchTo({ agent: 'claude-code', model: 'opus', options: [] });
     assert.equal(promptInFlight?.ok, false);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await waitFor(() => writes.at(-1) === '\r', 'held prompt submitted before model switch', DELIVERY_DEADLINE_MS);
     assert.equal(writes.at(-1), '\r');
     session.transition('new_output');
     session.transition('task_complete');

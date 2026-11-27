@@ -2375,40 +2375,35 @@ test('a linked page follows live an edit in a subfolder it loads from, a rebuilt
   const shown = await firstWiring.handleAgent(linker, { sub: 'show', path: 'out/page.html', link: true });
   assert.equal(shown.status, 200, JSON.stringify(shown.body));
   const boardId = (shown.body as { board: { id: string } }).board.id;
-  const followedLive = async (wiring: typeof firstWiring, previousAsset: string | undefined) => {
-    const deadline = Date.now() + 5000;
-    for (;;) {
-      const card = (await wiring.boardOf(boardId))?.elements.get('shown-1');
-      const asset = card?.kind === 'box' ? card.media?.asset : undefined;
-      if (asset !== previousAsset || Date.now() > deadline) return asset;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  };
   const assetOf = async (wiring: typeof firstWiring) => {
     const card = (await wiring.boardOf(boardId))?.elements.get('shown-1');
     return card?.kind === 'box' ? card.media?.asset : undefined;
+  };
+  const followedLive = async (wiring: typeof firstWiring, previousAsset: string | undefined, label: string) => {
+    await waitFor(async () => (await assetOf(wiring)) !== previousAsset, label, 15_000);
+    return assetOf(wiring);
   };
 
   await firstWiring.handleOperator.get(boardId);
   const shownAsset = await assetOf(firstWiring);
   writeBuild('document.body.append("second");');
-  const afterSubfolderEdit = await followedLive(firstWiring, shownAsset);
+  const afterSubfolderEdit = await followedLive(firstWiring, shownAsset, 'an edit to a script under assets/ reaches the card with no read');
   assert.notEqual(afterSubfolderEdit, shownAsset, 'an edit to a script under assets/ reaches the card with no read');
 
   fs.rmSync(outFolder, { recursive: true });
   await new Promise((resolve) => setTimeout(resolve, 600));
   writeBuild('document.body.append("third");');
-  const afterRebuild = await followedLive(firstWiring, afterSubfolderEdit);
+  const afterRebuild = await followedLive(firstWiring, afterSubfolderEdit, 'a deleted and rebuilt out folder is followed');
   assert.notEqual(afterRebuild, afterSubfolderEdit, 'a deleted and rebuilt out folder is followed');
   writeBuild('document.body.append("fourth");');
-  const afterSecondRebuildEdit = await followedLive(firstWiring, afterRebuild);
+  const afterSecondRebuildEdit = await followedLive(firstWiring, afterRebuild, 'the rebuilt folder keeps being followed');
   assert.notEqual(afterSecondRebuildEdit, afterRebuild, 'the rebuilt folder keeps being followed');
   firstWiring.stopFollowingLinkedFolders();
 
   const restartedWiring = await restartWhiteboardWiring(firstWiring, { boardsRoot, codeContextOf });
   await restartedWiring.followLinkedFolders();
   writeBuild('document.body.append("fifth");');
-  const afterRestart = await followedLive(restartedWiring, afterSecondRebuildEdit);
+  const afterRestart = await followedLive(restartedWiring, afterSecondRebuildEdit, 'a restarted server follows linked cards with no read');
   assert.notEqual(afterRestart, afterSecondRebuildEdit, 'a restarted server follows linked cards with no read');
   restartedWiring.stopFollowingLinkedFolders();
 });

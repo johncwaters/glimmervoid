@@ -24,6 +24,7 @@ import { createPackStore } from '../server/packs/pack-store.ts';
 import { PACK_HOOK_AGENTS_TEXT, packJsonSchemaText } from '../shared/contracts/pack.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { waitFor } from './helpers/wait-for.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { configFileViewOf, readSettingsForAgent } from '../server/core/settings-readout-core.ts';
 import { commandFingerprint, expandPlaceholders, packPathsOf, mergeItems, plannedActions, prFlowsConfig, savedRuleFor, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
@@ -355,7 +356,7 @@ test('a failed source run retries at the same head after the backoff, and a defi
   assert.equal(runCount, 1);
   clockMs = 6 * 60 * 1000;
   await prFlows.applyRules();
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  await waitFor(() => runCount === 2, 'retried source run after backoff', 5_000);
   assert.equal(runCount, 2);
 });
 
@@ -464,7 +465,11 @@ test('an action reporting refused is never taken as done, and a failed rule run 
     await first.applyRules();
     for (const approval of first.statusFrame().pendingApprovals) await first.approve({ fingerprint: approval.fingerprint });
     await first.applyRules();
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await waitFor(
+      () => runCount === 1 && (first.statusFrame().actionRunsByPr['acme/app#1'] ?? []).some((run) => run.state === 'failed'),
+      'initial failed action run settled',
+      5_000,
+    );
     assert.equal(runCount, 1);
     const restarted = wiringAt();
     await restarted.applyRules();

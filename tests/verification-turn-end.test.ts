@@ -7,6 +7,17 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createVerificationWiring } from '../server/verification/verification-wiring.ts';
 import { PANEL_MIN_CHANGED_LINES, VerificationRun, VerificationSettings } from '../shared/contracts/verification.ts';
+import { waitFor } from './helpers/wait-for.ts';
+
+const VERIFICATION_RUN_DEADLINE_MS = 15_000;
+
+function waitForFinishedRun(broadcastRuns: readonly VerificationRun[], afterCount: number, label: string): Promise<void> {
+  return waitFor(
+    () => broadcastRuns.length > afterCount && broadcastRuns.at(-1)?.status !== 'running',
+    label,
+    VERIFICATION_RUN_DEADLINE_MS,
+  );
+}
 
 function git(repoPath: string, args: string[]): string {
   return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: repoPath }).toString().trim();
@@ -65,8 +76,9 @@ test('a turn end below the panel line threshold shows no panel until the session
   await sleep(1000);
   assert.equal(broadcastRuns.length, 0, 'a small diff shows no panel, even after a check and with the integration branch moved on');
   writeFiles(repoPath, { 'README.md': Array.from({ length: PANEL_MIN_CHANGED_LINES + 1 }, (_, lineIndex) => `line ${lineIndex}`).join('\n') });
+  const runsBeforeThresholdTurn = broadcastRuns.length;
   onTurnEnd();
-  await sleep(1500);
+  await waitForFinishedRun(broadcastRuns, runsBeforeThresholdTurn, 'verification run after diff passed panel line threshold');
   assert.deepEqual(broadcastRuns.at(-1)?.checks.map((check) => `${check.id} ${check.status}`), ['node pass', 'agent-done-1 pass']);
   const checked = await verification.checkNow('changed-lines', 10_000);
   assert.equal(checked.ok, true);
@@ -77,7 +89,8 @@ test('a turn end below the panel line threshold shows no panel until the session
 test('the newest turn end decides the verdict: an unreadable tree shows skipped checks, a slower earlier run never overwrites it, and a readable turn shows its run again', async (context) => {
   const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-unread-tree-'));
   context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(repoPath, 'slow.js'), 'setTimeout(() => process.exit(1), 1500);\n');
+  const slowDonePath = path.join(repoPath, 'slow-done');
+  fs.writeFileSync(path.join(repoPath, 'slow.js'), `const fs = require('node:fs'); setTimeout(() => { fs.writeFileSync(${JSON.stringify(slowDonePath)}, 'done'); process.exit(1); }, 1500);\n`);
   const broadcastRuns: VerificationRun[] = [];
   const gateTrees = [{ sig: 'turn-1', dirty: true, headSha: 'unused' }, null, { sig: 'turn-1', dirty: true, headSha: 'unused' }];
   let onTurnEnd = () => {};
@@ -105,13 +118,17 @@ test('the newest turn end decides the verdict: an unreadable tree shows skipped 
   const shownVerdict = () => broadcastRuns.at(-1)?.checks.map((check) => check.status);
 
   onTurnEnd();
-  await sleep(200);
+  await waitFor(() => broadcastRuns.some((run) => run.status === 'running'), 'slow verification run started', VERIFICATION_RUN_DEADLINE_MS);
+  const runsBeforeUnreadTurn = broadcastRuns.length;
   onTurnEnd();
-  await sleep(3000);
+  await waitForFinishedRun(broadcastRuns, runsBeforeUnreadTurn, 'skipped verdict for unreadable tree');
+  await waitFor(() => fs.existsSync(slowDonePath), 'slow check process exited', VERIFICATION_RUN_DEADLINE_MS);
+  await sleep(100);
   assert.deepEqual(shownVerdict(), ['skipped'], 'the earlier turn run finishing late does not replace the newer skipped verdict');
   assert.deepEqual(verification.latestRun('unread-tree')?.checks.map((check) => check.status), ['skipped'], 'a reopened panel gets the verdict last shown');
+  const runsBeforeReadableTurn = broadcastRuns.length;
   onTurnEnd();
-  await sleep(500);
+  await waitForFinishedRun(broadcastRuns, runsBeforeReadableTurn, 'cached fail verdict on readable turn');
   assert.deepEqual(shownVerdict(), ['fail'], 'a readable turn end on the same tree shows its cached run again');
 });
 
@@ -146,20 +163,22 @@ test('an agent command runs at turn end with no operator step, reruns when chang
     },
   };
   verification.attachSession(session);
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const shownAgentChecks = () => broadcastRuns.at(-1)?.checks.map((check) => `${check.id} ${check.status}`);
 
+  const runsBeforeFirstAgentTurn = broadcastRuns.length;
   onTurnEnd();
-  await sleep(1500);
+  await waitForFinishedRun(broadcastRuns, runsBeforeFirstAgentTurn, 'first agent done-line verification run');
   assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 pass']);
   session.agentDoneLines = [{ text: 'node fails', command: 'node --check missing-entry.js' }];
+  const runsBeforeFailingAgentTurn = broadcastRuns.length;
   onTurnEnd();
-  await sleep(1500);
+  await waitForFinishedRun(broadcastRuns, runsBeforeFailingAgentTurn, 'failing agent done-line verification run');
   assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 fail']);
   assert.equal(broadcastRuns.at(-1)?.status, 'passed', 'a failing agent command leaves the repo checks passed');
   session.agentDoneLines = [{ text: 'restored from a saved session', command: 'git reset --hard HEAD' }];
+  const runsBeforeRefusedAgentTurn = broadcastRuns.length;
   onTurnEnd();
-  await sleep(1500);
+  await waitForFinishedRun(broadcastRuns, runsBeforeRefusedAgentTurn, 'refused agent done-line verification run');
   const refusedCheck = broadcastRuns.at(-1)?.checks.find((check) => check.id === 'agent-done-1');
   assert.equal(refusedCheck?.status, 'fail');
   assert.match(refusedCheck?.outputTail ?? '', /Sane YOLO refused to run it/);
