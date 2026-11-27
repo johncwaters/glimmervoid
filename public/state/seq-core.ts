@@ -1,14 +1,25 @@
 interface SeqWaiter {
   targetSeq: number;
   resolve: () => void;
+  cleanup: () => void;
+}
+
+export interface WhenReachedOptions {
+  signal?: AbortSignal;
 }
 
 export interface SeqTracker {
   current(): number;
   advance(nextSeq: number): boolean;
   reset(nextSeq?: number): void;
-  whenReached(targetSeq: number): Promise<void>;
+  whenReached(targetSeq: number, options?: WhenReachedOptions): Promise<void>;
   pendingCount(): number;
+}
+
+function abortReasonToError(reason: unknown): Error {
+  if (reason instanceof Error) return reason;
+  if (typeof reason === 'string' && reason.length > 0) return new Error(reason);
+  return new Error('Sequence wait aborted.');
 }
 
 export function createSeqTracker(initialSeq = 0): SeqTracker {
@@ -27,7 +38,10 @@ export function createSeqTracker(initialSeq = 0): SeqTracker {
       remaining.push(waiter);
     }
     waiters = remaining;
-    for (const waiter of ready) waiter.resolve();
+    for (const waiter of ready) {
+      waiter.cleanup();
+      waiter.resolve();
+    }
   }
 
   function current(): number {
@@ -45,15 +59,34 @@ export function createSeqTracker(initialSeq = 0): SeqTracker {
     currentSeq = Number.isFinite(nextSeq) && nextSeq >= 0 ? nextSeq : 0;
     const superseded = waiters;
     waiters = [];
-    for (const waiter of superseded) waiter.resolve();
+    for (const waiter of superseded) {
+      waiter.cleanup();
+      waiter.resolve();
+    }
   }
 
-  function whenReached(targetSeq: number): Promise<void> {
+  function whenReached(targetSeq: number, options?: WhenReachedOptions): Promise<void> {
     if (!Number.isFinite(targetSeq) || targetSeq <= currentSeq) {
       return Promise.resolve();
     }
-    return new Promise<void>((resolve) => {
-      waiters.push({ targetSeq, resolve });
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      return Promise.reject(abortReasonToError(signal.reason));
+    }
+    return new Promise<void>((resolve, reject) => {
+      let waiter!: SeqWaiter;
+      const handleAbort = (): void => {
+        waiters = waiters.filter((entry) => entry !== waiter);
+        reject(abortReasonToError(signal?.reason));
+      };
+      const cleanup = (): void => {
+        signal?.removeEventListener('abort', handleAbort);
+      };
+      waiter = { targetSeq, resolve, cleanup };
+      if (signal) {
+        signal.addEventListener('abort', handleAbort, { once: true });
+      }
+      waiters.push(waiter);
     });
   }
 

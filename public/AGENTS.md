@@ -54,6 +54,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `settings/` | Settings view: the DOM shell over the shared registry, pure search, hash, draft and phone-screen rules (`settings-link.ts` builds `#settings/` and `#settings?q=` links) |
 | `radar/` | Radar panel: the DOM shell, its pure view core and the hold rules |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |
+| `state/` | Client store core (`seq`, `ingest`, `define-collection`, `define-action`, `persist`) over Solid 2 stores and actions |
 
 ## For AI Agents
 

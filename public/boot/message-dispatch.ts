@@ -1,6 +1,7 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { UNREADABLE_SERVER_MESSAGE_TEXT, onControlMessage, onUnreadableServerMessage } from '../control-ws.ts';
+import { UNREADABLE_SERVER_MESSAGE_TEXT, onUnreadableServerMessage } from '../control-ws.ts';
 import { reportHeaderError } from '../action-status.ts';
+import { startIngest } from '../state/ingest.ts';
 import { mergeMessageHandlerGroups } from './core/message-dispatch-core.ts';
 import { faceHandlers } from './handlers/face-handlers.ts';
 import { githubHandlers } from './handlers/github-handlers.ts';
@@ -30,7 +31,7 @@ function showStaleDashboardError() {
 
 function wireMessageDispatch() {
   onUnreadableServerMessage(showStaleDashboardError);
-  onControlMessage((msg) => {
+  startIngest((msg) => {
     dispatchControlMessage(msg);
     refreshViewsIfVisible(msg.type);
   });

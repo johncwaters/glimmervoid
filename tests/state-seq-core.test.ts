@@ -32,4 +32,11 @@ test('seq-core advances monotonically, resolves reached waiters in order, and se
   assert.equal(tracker.pendingCount(), 0);
   await waitTwenty;
   assert.deepEqual(settled, [12, 15, 20]);
+
+  const abortController = new AbortController();
+  const abortedWait = tracker.whenReached(50, { signal: abortController.signal });
+  assert.equal(tracker.pendingCount(), 1);
+  abortController.abort(new Error('Request timed out'));
+  await assert.rejects(abortedWait, /Request timed out/);
+  assert.equal(tracker.pendingCount(), 0);
 });

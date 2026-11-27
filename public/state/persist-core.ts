@@ -1,4 +1,7 @@
-import type { ZodType } from 'zod';
+export interface PersistedSchema<Value> {
+  safeParse(value: unknown): { success: true; data: Value } | { success: false };
+  parse(value: unknown): Value;
+}
 
 export interface StorageAdapter {
   getItem(key: string): string | null;
@@ -8,7 +11,7 @@ export interface StorageAdapter {
 
 export interface PersistedCoreOptions<Value> {
   key: string;
-  schema: ZodType<Value>;
+  schema: PersistedSchema<Value>;
   fallback: Value;
   storage: StorageAdapter;
 }
