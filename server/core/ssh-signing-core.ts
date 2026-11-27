@@ -81,6 +81,10 @@ function gitCredentialShimText(cliLaunch: readonly string[]): string {
   return cliShimText(cliLaunch, 'git-credential');
 }
 
+function shouldWriteCliShim(existingText: string | null, expectedText: string): boolean {
+  return existingText !== expectedText;
+}
+
 const GH_SHIM_NAME = 'gh';
 const GH_SHIM_MARKER_LINE = 'GLIMMERVOID_GH_SHIM=1';
 const GH_SHIM_HEAD_BYTES = 64;
@@ -113,5 +117,5 @@ function ghShimText(cliLaunch: readonly string[], shimDir: string): string {
 
 const NO_AGENT_HOLDS_KEY = 'no reachable ssh agent holds the signing key; connect to this machine with agent forwarding (ssh -A, or ForwardAgent yes from coder config-ssh) and commit again';
 
-export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GH_SHIM_HEAD_BYTES, GH_SHIM_NAME, ghShimText, isGhShimHead, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, isSameSshKey, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths };
+export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GH_SHIM_HEAD_BYTES, GH_SHIM_NAME, ghShimText, isGhShimHead, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, isSameSshKey, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, shouldWriteCliShim, wellKnownAgentSocketPaths };
 export type { AgentSocketCandidate, SshPublicKey };

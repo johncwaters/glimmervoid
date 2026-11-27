@@ -34,6 +34,8 @@ import { packMcpLaunchOf, packSecretNamesOf } from '../packs/core/pack-core.ts';
 type SessionSpawnOverrides = Pick<SessionOptions,
   'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'parent' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'doneMeans' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
+type ShimPathSource = string | (() => string | null);
+
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
   getConfig?: () => GlimmervoidConfig;
@@ -44,9 +46,9 @@ interface SessionFactoryDependencies {
   getUserHooks: (projectId: string) => UserHook[];
   getTerminalColors?: () => TerminalColors;
   questionManager?: { forSession: (session: { projectPath: string; isOn: boolean }) => QuestionManagerPort } | null;
-  commitSigningProgram?: string | null;
-  gitCredentialProgram?: string | null;
-  ghShimDir?: string | null;
+  commitSigningProgram?: ShimPathSource | null;
+  gitCredentialProgram?: ShimPathSource | null;
+  ghShimDir?: ShimPathSource | null;
   hostSigningKeys?: Pick<HostSigningKeyStore, 'gitEnvFor'> | null;
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
@@ -91,12 +93,17 @@ async function packMcpLaunchFor(servers: readonly PackMcpServer[], project: Need
   return packMcpLaunchOf(servers, secrets.values);
 }
 
-function gitCredentialHelperResolverFor(helperProgram: string | null | undefined, isSandboxed: boolean): ((cwd: string) => Promise<string | null>) | null {
+function resolveShimPath(source: ShimPathSource | null | undefined): string | null {
+  if (!source) return null;
+  return typeof source === 'function' ? source() : source;
+}
+
+function gitCredentialHelperResolverFor(helperProgram: ShimPathSource | null | undefined, isSandboxed: boolean): ((cwd: string) => Promise<string | null>) | null {
   if (!helperProgram) return null;
-  if (isSandboxed) return async () => helperProgram;
+  if (isSandboxed) return async () => resolveShimPath(helperProgram);
   return async (cwd) => {
     const ownHelper = await runGit(['config', '--get-urlmatch', 'credential.helper', GITHUB_CREDENTIAL_SCOPE], { cwd });
-    return ownHelper.ok && ownHelper.out !== '' ? null : helperProgram;
+    return ownHelper.ok && ownHelper.out !== '' ? null : resolveShimPath(helperProgram);
   };
 }
 
@@ -112,7 +119,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   }
 
   function ghShimDirsForSpawn(): string[] {
-    const shimDir = dependencies.ghShimDir;
+    const shimDir = resolveShimPath(dependencies.ghShimDir);
     return shimDir && hasGhOutside(shimDir, process.env.PATH) ? [shimDir] : [];
   }
 
@@ -174,6 +181,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       sharedPackMcpServers: isMachineShell ? null : dependencies.sharedPackMcpServers ?? null,
       packMcpServers: packMcpServersOf === null ? null : async (agentId, cwd) => packMcpLaunchFor(await packMcpServersOf(agentId, cwd), { id: project.id, project: project.path, cwd }, dependencies.getSecretsBroker?.() ?? null),
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
+      ensureGhShim: typeof dependencies.ghShimDir === 'function' ? dependencies.ghShimDir : null,
       resolveGitCredentialHelper: gitCredentialHelperResolverFor(dependencies.gitCredentialProgram, prepareSandbox !== null),
       resolveHostSigningEnv: dependencies.hostSigningKeys?.gitEnvFor ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,

@@ -63,21 +63,15 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     sweepOrphans();
   } catch {}
 
-  const commitSigningProgram = installCommitSigningShim({
-    binDir: configSiblingPath(dependencies.configStore.configPath, 'bin'),
-    cliLaunch: selfLaunch('cli'),
-    log: dependencies.logger,
-  });
-  const gitCredentialProgram = installGitCredentialShim({
-    binDir: configSiblingPath(dependencies.configStore.configPath, 'bin'),
-    cliLaunch: selfLaunch('cli'),
-    log: dependencies.logger,
-  });
-  const ghShimDir = installGhShim({
-    binDir: configSiblingPath(dependencies.configStore.configPath, 'gh-bin'),
-    cliLaunch: selfLaunch('cli'),
-    log: dependencies.logger,
-  });
+  const cliLaunch = selfLaunch('cli');
+  const shimBinDir = configSiblingPath(dependencies.configStore.configPath, 'bin');
+  const ghShimBinDir = configSiblingPath(dependencies.configStore.configPath, 'gh-bin');
+  const ensureCommitSigningProgram = () => installCommitSigningShim({ binDir: shimBinDir, cliLaunch, log: dependencies.logger });
+  const ensureGitCredentialProgram = () => installGitCredentialShim({ binDir: shimBinDir, cliLaunch, log: dependencies.logger });
+  const ensureGhShimDir = () => installGhShim({ binDir: ghShimBinDir, cliLaunch, log: dependencies.logger });
+  const commitSigningProgram = ensureCommitSigningProgram();
+  const gitCredentialProgram = ensureGitCredentialProgram();
+  const ghShimDir = ensureGhShimDir();
   const hostSigningKeys = createHostSigningKeyStore({ folder: configSiblingPath(dependencies.configStore.configPath, 'commit-signing') });
   const sshSigner = commitSigningProgram ? createSshSigner({ hostSigningKeys }) : null;
   const launchAgentCommand = (agent: string, agentArgs: string[]) => {
@@ -130,9 +124,9 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     isolationForProject,
     getPackAgentLaunch: packSessionFiles.launch,
     getSecretsBroker: dependencies.getSecretsBroker,
-    commitSigningProgram,
-    gitCredentialProgram,
-    ghShimDir,
+    commitSigningProgram: commitSigningProgram === null ? null : ensureCommitSigningProgram,
+    gitCredentialProgram: gitCredentialProgram === null ? null : ensureGitCredentialProgram,
+    ghShimDir: ghShimDir === null ? null : ensureGhShimDir,
     hostSigningKeys,
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,

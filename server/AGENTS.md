@@ -36,6 +36,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 - Environment-provided secrets resolve in the config loader and are stripped from every write, so a dashboard save cannot re-persist them; the bound variables live in `server/core/config-secrets-core.ts`.
 - Session worktrees use the configured integration branch, or each repo's default branch when unset. Origin is the source of truth, as pinned by the git-workspace tests.
 - Before saying no newer build exists, read the install's channel in `~/.glimmervoid/update-check.json` (experimental takes the newer of npm `next` and `latest`, so `npm view glimmervoid version` alone misleads) and the `[update]` lines in `~/.glimmervoid/logs/server.log`, which name a staged build and a rollback.
+- Every session start re-verifies and repairs the CLI shims (`glimmervoid-ssh-sign`, `glimmervoid-git-credential`, `gh`) on that cold path (`session/session-launch.ts`, `server/backend/backend-session-runtime.ts`), because a second backend (such as `npm run dev`) booted on the same home overwrites them with its own launch path and leaves them dangling once its worktree is removed.
 - See root `AGENTS.md` for architecture and conventions.
 
 ## Invariants

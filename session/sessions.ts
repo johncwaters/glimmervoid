@@ -257,7 +257,8 @@ interface SessionOptions {
   attentionOwner?: AttentionOwner | null;
   parent?: ParentLink | null;
   isStudioMain?: boolean;
-  commitSigningProgram?: string | null;
+  commitSigningProgram?: string | (() => string | null) | null;
+  ensureGhShim?: (() => string | null) | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
   resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
   resolveLaunchSecrets?: ResolveLaunchSecrets | null;
@@ -367,7 +368,7 @@ class Session extends EventEmitter {
   agentDoneLines: readonly AgentDoneLine[];
   readonly attentionOwner: AttentionOwner;
   _agentToken: string | null;
-  _commitSigningProgram: string | null;
+  _commitSigningProgram: string | (() => string | null) | null;
   _commitSigningToken: string | null;
   _gitCredentialToken: string | null;
   _canRunHelpCommand: boolean;
@@ -489,6 +490,7 @@ class Session extends EventEmitter {
     parent = null,
     isStudioMain = false,
     commitSigningProgram = null,
+    ensureGhShim = null,
     resolveGitCredentialHelper = null,
     resolveHostSigningEnv = null,
     resolveLaunchSecrets = null,
@@ -765,7 +767,8 @@ class Session extends EventEmitter {
         spawnCommand: () => this._spawnCommand,
         agentToken: () => this._agentToken,
         commitSigningToken: () => this._commitSigningToken,
-        commitSigningProgram: () => this._commitSigningProgram,
+        commitSigningProgram: () => (typeof this._commitSigningProgram === 'function' ? this._commitSigningProgram() : this._commitSigningProgram),
+        ensureGhShim,
         gitCredentialToken: () => this._gitCredentialToken,
         resolveGitCredentialHelper,
         resolveHostSigningEnv: commitSigningProgram === null ? null : resolveHostSigningEnv,

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { execFileAsync } from './child-process-safe.ts';
 import { writeTextAtomicSync } from './json-file.ts';
-import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GH_SHIM_HEAD_BYTES, GH_SHIM_NAME, ghShimText, isGhShimHead, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
+import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GH_SHIM_HEAD_BYTES, GH_SHIM_NAME, ghShimText, isGhShimHead, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, shouldWriteCliShim, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
 import type { AgentSocketCandidate, SshPublicKey } from './core/ssh-signing-core.ts';
 import type { HostSigningKeyStore } from './commit-signing.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -128,7 +128,7 @@ function installCliShim({ binDir, platform = process.platform, log = console }: 
   if (platform === 'win32') return null;
   const shimPath = path.join(binDir, shimName);
   try {
-    if (readTextOrNull(shimPath) !== shimText) writeTextAtomicSync(shimPath, shimText, { mode: 0o755, mkdir: true, enforceMode: true });
+    if (shouldWriteCliShim(readTextOrNull(shimPath), shimText)) writeTextAtomicSync(shimPath, shimText, { mode: 0o755, mkdir: true, enforceMode: true });
     return shimPath;
   } catch (error) {
     log.warn(`${offWarning}: could not write ${shimPath}: ${errorMessage(error)}`);

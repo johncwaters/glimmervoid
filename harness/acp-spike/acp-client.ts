@@ -36,6 +36,7 @@ const osUserName = userInfo().username;
 export function redact(text: string): string {
   const withoutKnownSecrets = secretValues.reduce((current, secret) => current.split(secret).join('<redacted:secret>'), text);
   return withoutKnownSecrets
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g, '<redacted:email>')
     .split(homedir())
     .join('~')
     .split(osUserName)
@@ -48,8 +49,7 @@ export function redact(text: string): string {
     .replace(/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, '<redacted:jwt>')
     .replace(/sk-[A-Za-z0-9_-]{16,}/g, '<redacted:key>')
     .replace(/("organization"\s*:\s*")[^"]*"/g, '$1<redacted:account>"')
-    .replace(/(\\"organization\\"\s*:\s*\\")[^"\\]*\\"/g, '$1<redacted:account>\\"')
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g, '<redacted:email>');
+    .replace(/(\\"organization\\"\s*:\s*\\")[^"\\]*\\"/g, '$1<redacted:account>\\"');
 }
 
 export type RecordedDirection = 'client->agent' | 'agent->client' | 'note';

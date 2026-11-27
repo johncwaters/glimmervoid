@@ -73,6 +73,7 @@ interface LaunchPort {
   agentToken: () => string | null;
   commitSigningToken: () => string | null;
   commitSigningProgram: () => string | null;
+  ensureGhShim?: (() => string | null) | null;
   gitCredentialToken: () => string | null;
   resolveGitCredentialHelper: ((cwd: string) => Promise<string | null>) | null;
   resolveHostSigningEnv: ((cwd: string) => Promise<Record<string, string>>) | null;
@@ -143,6 +144,8 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
   let packMcpEnv: Readonly<Record<string, string>> = {};
   let approvedLaunchSecrets: Record<string, string> | null = null;
   let approvedPackMcpLaunch: PackMcpLaunch | null = null;
+  let resolvedCommitSigningProgram: string | null = null;
+  let hasResolvedCommitSigningProgram = false;
   let gitCredentialProgram: string | null = null;
   let hostSigningEnv: Record<string, string> = {};
   let sandboxLaunch: SandboxLaunch | null = null;
@@ -174,7 +177,7 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
       port: hooks.listenerPort(),
       sessionId: id,
       token: port.commitSigningToken(),
-      signingProgram: port.commitSigningProgram(),
+      signingProgram: hasResolvedCommitSigningProgram ? resolvedCommitSigningProgram : port.commitSigningProgram(),
     });
     const credential = gitCredentialSetting({
       port: hooks.listenerPort(),
@@ -220,6 +223,9 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
   }
 
   async function resolveGitAndSigning(cwd: string, isSuperseded: () => boolean): Promise<boolean> {
+    resolvedCommitSigningProgram = port.commitSigningProgram();
+    hasResolvedCommitSigningProgram = true;
+    port.ensureGhShim?.();
     if (port.resolveGitCredentialHelper) {
       gitCredentialProgram = await port.resolveGitCredentialHelper(cwd);
       if (isSuperseded()) return false;

@@ -8,7 +8,9 @@ import path from 'node:path';
 import { execFileAsync, spawn } from '../server/child-process-safe.ts';
 import { parseSshPublicKey } from '../server/core/ssh-signing-core.ts';
 import { parseRawCommitLog } from '../shared/git-text.ts';
-import { createSshSigner, installCommitSigningShim } from '../server/ssh-signing.ts';
+import { createSshSigner, installCommitSigningShim, installGhShim, installGitCredentialShim } from '../server/ssh-signing.ts';
+import { createBackendSessionRuntime } from '../server/backend/backend-session-runtime.ts';
+import { createConfigStore } from '../server/config-store.ts';
 import http from 'node:http';
 import { createCommitSigning, createHostSigningKeyStore, followingGithubConnection } from '../server/commit-signing.ts';
 import type { GithubConnection } from '../shared/contracts/watcher-link.ts';
@@ -388,6 +390,68 @@ test('a host that cannot be prepared announces nothing, and a connection that ch
     await githubConnection('read');
     assert.equal(announcedChanges, 2, 'the same account connecting again is announced');
   } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a session start repairs commit signing, git credential, and gh shims after another server overwrote them', async () => {
+  if (process.platform === 'win32') return;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gv-shim-heal-'));
+  const binDir = path.join(root, 'bin');
+  const ghBinDir = path.join(root, 'gh-bin');
+  const repoDir = await newRepository(root, 'repo');
+  const configPath = path.join(root, 'config.json');
+  await fs.writeFile(configPath, '{"projects":[]}\n');
+  const previousConfigEnv = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  let configStore: ReturnType<typeof createConfigStore>;
+  try {
+    configStore = createConfigStore();
+  } finally {
+    if (previousConfigEnv === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigEnv !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigEnv;
+  }
+  const config = { ...configStore.config, recordSignals: false, projects: [] };
+  const runtime = createBackendSessionRuntime({
+    config,
+    configStore,
+    getGitWorkspace: () => null,
+    getBroadcastControl: () => null,
+    logger: { warn: () => {} },
+    liveSessionNamesUsing: () => [],
+    githubUserToken: async () => null,
+    onConfigSaved: () => {},
+  });
+  await listenOnLoopback(runtime.agentIngressServer);
+  const project = { id: 'shim-heal-session', name: 'shim-heal', path: repoDir };
+  const session = runtime.makeSession(project, config);
+  session._spawnCommand = { path: process.execPath, kind: 'exe' };
+  session._ptySpawn = () => fakePty();
+  try {
+    const signingShimPath = path.join(binDir, 'glimmervoid-ssh-sign');
+    const credentialShimPath = path.join(binDir, 'glimmervoid-git-credential');
+    const ghShimPath = path.join(ghBinDir, 'gh');
+    const firstSigningShim = await fs.readFile(signingShimPath, 'utf8');
+    const firstCredentialShim = await fs.readFile(credentialShimPath, 'utf8');
+    const firstGhShim = await fs.readFile(ghShimPath, 'utf8');
+
+    const secondServerLaunch = ['/other/node', '/deleted/worktree/bin/glimmervoid.ts'];
+    installCommitSigningShim({ binDir, cliLaunch: secondServerLaunch });
+    installGitCredentialShim({ binDir, cliLaunch: secondServerLaunch });
+    installGhShim({ binDir: ghBinDir, cliLaunch: secondServerLaunch });
+    assert.match(await fs.readFile(signingShimPath, 'utf8'), /\/deleted\/worktree\/bin\/glimmervoid\.ts/);
+    assert.match(await fs.readFile(credentialShimPath, 'utf8'), /\/deleted\/worktree\/bin\/glimmervoid\.ts/);
+    assert.match(await fs.readFile(ghShimPath, 'utf8'), /\/deleted\/worktree\/bin\/glimmervoid\.ts/);
+
+    await session.start();
+
+    assert.equal(await fs.readFile(signingShimPath, 'utf8'), firstSigningShim, 'session start restores the first server commit signing shim');
+    assert.equal(await fs.readFile(credentialShimPath, 'utf8'), firstCredentialShim, 'session start restores the first server git credential shim');
+    assert.equal(await fs.readFile(ghShimPath, 'utf8'), firstGhShim, 'session start restores the first server gh shim');
+  } finally {
+    session.destroy();
+    runtime.agentAccounts.stop();
+    await closeServer(runtime.agentIngressServer);
     await fs.rm(root, { recursive: true, force: true });
   }
 });
