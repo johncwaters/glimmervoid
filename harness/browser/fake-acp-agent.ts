@@ -303,6 +303,9 @@ async function handlePrompt(id: JsonRpcId, command: string): Promise<void> {
     send({ id, result: { stopReason: 'end_turn' } });
     return;
   }
+  if (command === 'stall-fail') {
+    process.exit(1);
+  }
   sendAssistantText('Done.');
   send({ id, result: { stopReason: 'end_turn' } });
 }

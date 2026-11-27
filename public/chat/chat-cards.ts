@@ -16,8 +16,12 @@ import { keycap } from '../ui/keycap.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ChatCard, ChatCardType } from './chat-part.ts';
 
+interface RenderCardOptions {
+  readonly hasTerminal?: boolean;
+}
+
 type ChatCardByType = { [Card in ChatCard as Card['cardType']]: Card };
-type ChatCardRenderer<Type extends ChatCardType> = (card: ChatCardByType[Type]) => HTMLElement;
+type ChatCardRenderer<Type extends ChatCardType> = (card: ChatCardByType[Type], options: RenderCardOptions) => HTMLElement;
 type ChatCardRendererTable = { [Type in ChatCardType]: ChatCardRenderer<Type> };
 
 const DECISION_RECEIPT_BY_DECISION = { allow: 'Allowed', deny: 'Denied' } as const;
@@ -330,9 +334,15 @@ const SIGN_IN_TEXT_BY_STAGE = {
   'refused-key': 'The API key this session started with no longer works. Replace it, then resend your message.',
 } as const;
 
-function renderSignInCard(card: ChatCardByType['sign-in']): HTMLElement {
+const STUDIO_SIGN_IN_TEXT = 'Its login expired, so this turn stopped. Sign in with this agent outside Glimmervoid, then resend your message.';
+
+function renderSignInCard(card: ChatCardByType['sign-in'], options: RenderCardOptions): HTMLElement {
   const shell = cardShell(card, signInHeadingOf(card));
   if (card.resolution) return shell;
+  if (options.hasTerminal === false && card.data.stage !== 'refused-key') {
+    shell.appendChild(el('p', 'chat-card-text', STUDIO_SIGN_IN_TEXT));
+    return shell;
+  }
   shell.appendChild(el('p', 'chat-card-text', SIGN_IN_TEXT_BY_STAGE[card.data.stage]));
   if (card.data.stage === 'signing-in') {
     shell.appendChild(el('div', 'chat-terminal-slot'));
@@ -364,12 +374,17 @@ function planReceiptOf(resolution: NonNullable<ChatCardByType['plan']['resolutio
   return resolution.feedback ? `${verdictText}: ${resolution.feedback}` : verdictText;
 }
 
-function renderPlanCard(card: ChatCardByType['plan']): HTMLElement {
+function renderPlanCard(card: ChatCardByType['plan'], options: RenderCardOptions): HTMLElement {
   const shell = cardShell(card, `${card.data.agentName} proposes a plan`);
   const plan = el('div', 'chat-card-plan');
   plan.append(renderPlanBlocks(parsePlanMarkdown(card.data.planText)));
   shell.appendChild(plan);
-  if (card.data.isPlanTruncated) shell.appendChild(el('p', 'chat-card-text', 'The plan is longer than the card shows; read the rest in the terminal.'));
+  if (card.data.isPlanTruncated) {
+    const truncatedText = options.hasTerminal === false
+      ? 'The plan is longer than the card shows.'
+      : 'The plan is longer than the card shows; read the rest in the terminal.';
+    shell.appendChild(el('p', 'chat-card-text', truncatedText));
+  }
   if (card.resolution) {
     shell.appendChild(receipt(planReceiptOf(card.resolution)));
     return shell;
@@ -542,10 +557,20 @@ const RENDERER_BY_CARD_TYPE = {
 
 const rendererByCardType: ChatCardRendererTable = RENDERER_BY_CARD_TYPE;
 
-function renderCardOfType<Type extends ChatCardType>(cardType: Type, card: ChatCardByType[Type]): HTMLElement {
-  return rendererByCardType[cardType](card);
+function renderCardOfType<Type extends ChatCardType>(cardType: Type, card: ChatCardByType[Type], options: RenderCardOptions): HTMLElement {
+  return rendererByCardType[cardType](card, options);
 }
 
 export function renderCard(card: ChatCard): HTMLElement {
-  return renderCardOfType(card.cardType, card);
+  return renderCardOfType(card.cardType, card, {});
+}
+
+export function renderStudioCard(card: ChatCard): HTMLElement | null {
+  if (card.cardType === 'live-terminal') return null;
+  if (card.cardType === 'sign-in' && card.data.stage === 'signing-in') return null;
+  return renderCardOfType(card.cardType, card, { hasTerminal: false });
+}
+
+export function isStudioCardAction(action: string): boolean {
+  return action !== 'open-terminal' && action !== 'sign-in';
 }

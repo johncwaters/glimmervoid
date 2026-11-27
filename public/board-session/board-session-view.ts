@@ -41,7 +41,9 @@ import { createAgentCards, isBusyPhase } from './agent-card.ts';
 import type { AgentCardModel, AgentCards } from './agent-card.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { sessionRailFieldsOf } from '../chat/chat-page.ts';
-import { chatOutboxEntriesOf } from '../state/collections/chat-outbox.ts';
+import { chatOutboxEntriesOf, watchChatOutbox } from '../state/collections/chat-outbox.ts';
+import { studioQueuedStatusOf } from '../chat/chat-view.ts';
+import { RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
 import { createAgentWaits } from './agent-waits.ts';
 import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
@@ -74,6 +76,8 @@ const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const RESTART_ORCHESTRATOR_TEXT = 'Restart Orchestrator';
 const ACCOUNT_TEXT = 'Model and account';
 const NO_REPO_TEXT = 'No repo';
+const AGENT_FAILED_TEXT = 'The agent stopped unexpectedly.';
+const AGENT_STALLED_TEXT = 'The agent stopped answering.';
 const TURN_OPENINGS_KEPT = 20;
 
 interface SessionWatch {
@@ -82,6 +86,7 @@ interface SessionWatch {
   lastBeat: ActivityBeat | null;
   turnOpenedAts: number[];
   waits: AgentWaits;
+  stopOutboxWatch: () => void;
 }
 
 interface ViewParts {
@@ -240,6 +245,9 @@ function openWatch(sessionId: string): SessionWatch {
     lastBeat: null,
     turnOpenedAts: [],
     waits: createAgentWaits(sessionId, showNotice),
+    stopOutboxWatch: watchChatOutbox(sessionId, () => {
+      if (isActive) paintPresence();
+    }),
   };
   return watch;
 }
@@ -256,6 +264,7 @@ function syncWatches(): void {
     if (wantedIds.has(sessionId)) continue;
     watch.feed.close();
     watch.waits.close();
+    watch.stopOutboxWatch();
     watchBySessionId.delete(sessionId);
     dirtyTraceSessionIds.delete(sessionId);
     watchChangeCount += 1;
@@ -477,6 +486,21 @@ function latestDigestOf(sessionId: string, watch: SessionWatch): string | null {
   return null;
 }
 
+function agentFailureOf(sessionId: string, isAsking: boolean): string | null {
+  const sessionRecord = sessionsCollection.state.byId[sessionId];
+  const ui = sessionUIs.get(sessionId);
+  const state = sessionRecord?.state ?? ui?.currentState;
+  if (state === STATES.FAILED) {
+    const reason = sessionRecord?.failureReason?.trim() ?? '';
+    return reason.length > 0 ? reason : AGENT_FAILED_TEXT;
+  }
+  const failedOutbox = chatOutboxEntriesOf(sessionId).find((entry) => entry.state === 'failed');
+  if (failedOutbox !== undefined) return studioQueuedStatusOf(failedOutbox);
+  const isWaitingOnLimit = ui?.pendingPromptKind === RATE_LIMIT_PROMPT_KIND;
+  if (state === STATES.WAITING && !isAsking && !isWaitingOnLimit) return AGENT_STALLED_TEXT;
+  return null;
+}
+
 function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardModel | null {
   const ui = sessionUIs.get(sessionId);
   if (!ui) return null;
@@ -484,6 +508,7 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
   const phase = phaseOfSession(sessionId);
   if (isBusyPhase(phase)) openedBranchIds.delete(sessionId);
   watch.waits.sync();
+  const isAsking = watch.waits.isAsking();
   return {
     sessionId,
     name: sessionId === shownId ? ORCHESTRATOR_TEXT : ui.parent?.box?.title ?? (sessionName(ui) || sessionId.slice(0, 8)),
@@ -496,8 +521,9 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
     beat: phase === 'working' ? watch.lastBeat : null,
     digest: sessionId === shownId ? null : latestDigestOf(sessionId, watch),
     misfit: latestMisfitOf(sessionId, watch),
+    failure: agentFailureOf(sessionId, isAsking),
     approvals: watch.waits.element,
-    isAsking: watch.waits.isAsking(),
+    isAsking,
     isOpened: openedBranchIds.has(sessionId),
   };
 }
@@ -737,6 +763,7 @@ function mountDock(): void {
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? ui?.path ?? null,
     agentId: ui?.agent ?? null,
     isTurnOver: () => chatPhaseOf(sessionsCollection.state.byId[sessionId]?.state ?? sessionUIs.get(sessionId)?.currentState) !== 'working',
+    hasFailure: () => agentFailureOf(sessionId, watchBySessionId.get(sessionId)?.waits.isAsking() ?? false) !== null,
     boxChoices: () => studioCollection.state.boxChoices,
     digestOf: directorChatLineOf,
     progressAnswers: () => studioCollection.state.progressAnswers.filter((answer) => answer.sessionId === sessionId),

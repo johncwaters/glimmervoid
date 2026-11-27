@@ -924,9 +924,30 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   await verifyShownPageOnMap(page);
   await verifyPrCardOnMap(page);
+  await verifyStalledAgentShowsFailureWithoutTerminal(root);
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');
   await page.locator('.focus-view button.session-row[data-id]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await page.locator(`.focus-view button.session-row[data-id="${studioMainId}"]`).count(), 0, 'the Studio main stays out of Focus session rows');
+}
+
+async function verifyStalledAgentShowsFailureWithoutTerminal(root: Locator): Promise<void> {
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
+  await pillInput.fill('stall-fail');
+  await pillInput.press('Enter');
+  const failedCard = root.locator('.bs-card[data-main][data-failed]');
+  await failedCard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const failureLine = failedCard.locator('.bs-card-failure:not([hidden])');
+  await failureLine.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const failureText = (await failureLine.textContent())?.trim() ?? '';
+  assert.ok(failureText.length > 0, 'a stalled Studio agent shows its failure on its Studio card');
+  assert.equal(/terminal/i.test(failureText), false, `Studio agent failure text never mentions a terminal (got ${JSON.stringify(failureText)})`);
+  const failedQueueRow = root.locator('.bs-row-queued[data-state="failed"]').first();
+  await failedQueueRow.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const queueStatusText = (await failedQueueRow.locator('.bs-queued-status').textContent())?.trim() ?? '';
+  assert.ok(queueStatusText.length > 0, 'the Studio dock shows the failed message status');
+  assert.equal(/terminal/i.test(queueStatusText), false, `Studio dock failure status never mentions a terminal (got ${JSON.stringify(queueStatusText)})`);
+  assert.equal(await root.getByRole('button', { name: /terminal/i }).count(), 0, 'Studio offers no Open Terminal button when an agent stalls');
+  assert.equal(await root.locator('.chat-card[data-card-type="live-terminal"], .chat-terminal-slot').count(), 0, 'Studio renders no live-terminal card or terminal slot when an agent stalls');
 }

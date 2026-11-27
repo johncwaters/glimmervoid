@@ -1,6 +1,6 @@
 import { createChatActivity } from '../chat/chat-activity.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
-import { renderCard, showOnBoardButton } from '../chat/chat-cards.ts';
+import { renderStudioCard, showOnBoardButton } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import { createComposer } from '../chat/composer.ts';
 import { listenForModelChange } from '../chat/model-picker.ts';
@@ -8,7 +8,7 @@ import { canSwitchSessionModel } from '../session-card/card-model.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
 import { chatDraftOf, saveChatDraft, scheduleChatDraftSave } from '../chat/chat-session-state.ts';
-import { queuedStatusOf } from '../chat/chat-view.ts';
+import { studioQueuedStatusOf } from '../chat/chat-view.ts';
 import { createChatOutboxProjection, isOptimisticOutboxEntryId, reconcileChatOutboxProjection, takeStandInsForPrompts } from '../state/chat-outbox-core.ts';
 import { watchChatOutbox } from '../state/collections/chat-outbox.ts';
 import chatCancelAction from '../state/actions/chat-cancel.ts';
@@ -66,6 +66,7 @@ interface DockSession {
   workingDirectory: string | null;
   agentId: string | null;
   isTurnOver: () => boolean;
+  hasFailure: () => boolean;
   boxChoices: () => readonly BoxChoice[];
   digestOf: (sessionId: string, openedAt: number) => string | null;
   progressAnswers: () => readonly SessionProgressAnswer[];
@@ -269,8 +270,10 @@ function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, digestOf: DockSess
     return unshownTurn;
   }
   if (part.kind !== 'card') return null;
+  const rendered = renderStudioCard(part.card);
+  if (rendered === null) return null;
   const row = el('div', 'bs-row bs-row-card');
-  row.append(renderCard(part.card));
+  row.append(rendered);
   return row;
 }
 
@@ -562,11 +565,12 @@ export function createDock(session: DockSession): Dock {
     element.dataset.logOpen = 'true';
     followLatest();
   };
+  const hasFailedOutbox = () => session.outbox().some((entry) => entry.state === 'failed');
   const openLogWhenTurnLive = () => {
-    if (!session.isTurnOver()) openLog();
+    if (!session.isTurnOver() || hasFailedOutbox() || session.hasFailure()) openLog();
   };
   const foldLogWhenTurnOver = () => {
-    if (session.isTurnOver() && !isAddressedTurnRunning()) delete element.dataset.logOpen;
+    if (session.isTurnOver() && !isAddressedTurnRunning() && !hasFailedOutbox() && !session.hasFailure()) delete element.dataset.logOpen;
   };
   const isOutsideDock = (target: EventTarget | null) => target instanceof Node && !element.contains(target);
   const dockListeners = new AbortController();
@@ -618,7 +622,7 @@ export function createDock(session: DockSession): Dock {
       cancelButton.disabled = true;
       cancelEntry(entry.entryId);
     });
-    return queuedRowOf(entry.text, queuedStatusOf(entry), entry.state, cancelButton);
+    return queuedRowOf(entry.text, studioQueuedStatusOf(entry), entry.state, cancelButton);
   };
   const pendingRowOf = (pending: PendingSend) => queuedRowOf(pending.text, session.isTurnOver() ? PENDING_IDLE_STATUS_TEXT : PENDING_RUNNING_STATUS_TEXT, 'pending', cancelButtonOf(true));
   const paintQueue = () => {
@@ -630,6 +634,7 @@ export function createDock(session: DockSession): Dock {
     const shownPendingSends = pendingSends.filter((pending) => !pending.isClaimed);
     const standInRows = [...outboxProjection.standInByEntryId.values()].flatMap((standIn) => standIn.kind === 'prompt' ? [promptRowOf(standIn, mainSpeaker)] : []);
     queueRows.replaceChildren(...standInRows, ...update.queuedEntries.map(queuedEntryRowOf), ...shownPendingSends.map(pendingRowOf));
+    if (update.queuedEntries.some((entry) => entry.state === 'failed')) openLog();
     if (update.clearedStandInEntryIds.length > 0) mainFeed.refresh();
   };
   const dropPendingSend = (pending: PendingSend) => {

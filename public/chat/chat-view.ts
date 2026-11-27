@@ -148,9 +148,16 @@ function keepChatKeyed(chat: KeyedChat): void {
   window.addEventListener('storage', () => applyChatBriefOff(isChatBriefOff()));
 }
 
-export function queuedStatusOf(entry: ChatOutboxEntry): string {
+const STUDIO_OUTBOX_FAILED_TEXT = 'The message was not sent. Cancel to get the text back.';
+
+function queuedStatusOf(entry: ChatOutboxEntry): string {
   if (entry.state === 'failed') return entry.failure ?? 'Not sent.';
   return QUEUED_STATUS_TEXT[entry.state];
+}
+
+export function studioQueuedStatusOf(entry: ChatOutboxEntry): string {
+  if (entry.state === 'failed' && entry.shouldOpenTerminal) return STUDIO_OUTBOX_FAILED_TEXT;
+  return queuedStatusOf(entry);
 }
 
 function sendNowButtonOf(entry: ChatOutboxEntry): HTMLButtonElement {

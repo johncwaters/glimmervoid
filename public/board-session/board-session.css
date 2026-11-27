@@ -245,12 +245,13 @@
   .bs-card-digest[hidden] { display: none; }
   .bs-card-misfit { display: flex; gap: 6px; align-items: flex-start; color: var(--state-waiting); }
   .bs-card-misfit svg { flex: none; width: 14px; height: 14px; margin-top: 1px; }
+  .bs-card-failure { color: var(--state-failed); }
+  .bs-card[data-failed] { border-color: var(--state-failed); }
   .bs-card-shrunk[data-flagged] .bs-card-shrunk-face { opacity: 1; outline: 1.5px solid var(--state-waiting); outline-offset: 2px; }
   .bs-card[data-asking] { width: 340px; border-color: var(--state-waiting); }
   .bs-card-approvals { display: flex; flex-direction: column; gap: 6px; }
   .bs-card-approvals-slot:has(> .bs-card-approvals:empty) { display: none; }
   .bs-card .chat-card { margin: 0; width: auto; }
-  .bs-card .chat-card[data-card-type='live-terminal'] .chat-card-actions { display: none; }
   .bs-card:has(> .bs-card-menu:not([hidden])) { z-index: 1; }
   .bs-card-menu { top: 40px; right: 8px; left: auto; min-width: 180px; }
   .bs-repo-menu { right: auto; left: 40px; min-width: 240px; }

@@ -35,6 +35,7 @@ export interface AgentCardModel {
   beat: ActivityBeat | null;
   digest: string | null;
   misfit: string | null;
+  failure: string | null;
   approvals: HTMLElement;
   isAsking: boolean;
   isOpened: boolean;
@@ -80,7 +81,7 @@ export function isBusyPhase(phase: ChatPhase): boolean {
 }
 
 function isShrunk(model: AgentCardModel): boolean {
-  return model.isBranch && !model.isOpened && !isBusyPhase(model.phase) && !model.isAsking;
+  return model.isBranch && !model.isOpened && !isBusyPhase(model.phase) && !model.isAsking && model.failure === null;
 }
 
 function faceOf(model: AgentCardModel, classNames: readonly string[]): HTMLButtonElement {
@@ -162,8 +163,11 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   const misfit = el('p', 'bs-card-digest bs-card-misfit');
   misfit.setAttribute('role', 'status');
   misfit.append(createLineIcon(FLAG_ICON_PATH, '1.5'), misfitText);
+  const failure = el('p', 'bs-card-digest bs-card-failure');
+  failure.setAttribute('role', 'status');
+  failure.hidden = true;
   const approvals = el('div', 'bs-card-approvals-slot');
-  card.append(head, activity.element, misfit, digest, refusal, approvals, menu);
+  card.append(head, activity.element, misfit, failure, digest, refusal, approvals, menu);
   card.addEventListener('chat-card', (event) => {
     const cardId = stringDetailOf(event, 'cardId');
     const action = stringDetailOf(event, 'action');
@@ -229,8 +233,12 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       digest.hidden = model.digest === null;
       misfitText.textContent = model.misfit ?? '';
       misfit.hidden = model.misfit === null;
+      failure.textContent = model.failure ?? '';
+      failure.hidden = model.failure === null;
       card.toggleAttribute('data-flagged', model.misfit !== null);
       shrunkFace.toggleAttribute('data-flagged', model.misfit !== null);
+      card.toggleAttribute('data-failed', model.failure !== null);
+      shrunkFace.toggleAttribute('data-failed', model.failure !== null);
       card.toggleAttribute('data-asking', model.isAsking);
       if (approvals.firstElementChild !== model.approvals) approvals.replaceChildren(model.approvals);
     },
