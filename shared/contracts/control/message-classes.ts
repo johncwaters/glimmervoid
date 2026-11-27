@@ -220,7 +220,7 @@ export const MUTATION_COLLECTIONS = {
   'agent-account-sign-in': ['agent-accounts'],
   'agent-lane-account': ['agent-accounts'],
   'answer-approval': ['sessions'],
-  'board-ask-answer': ['board-tiles', 'studio'],
+  'board-ask-answer': ['board-tiles', 'studio', 'chat-outbox'],
   'branch-spawn': ['sessions', 'studio'],
   'cancel-repository-clone': ['repository-clones'],
   'cancel-wake': ['session-wakes'],

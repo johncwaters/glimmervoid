@@ -340,15 +340,15 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'wargames-abort-result', requestId: 'w2', ok: true, error: null },
   { type: 'wargames-watch-result', requestId: 'w3', ok: true, error: null, matchId: 'wg-1' },
   { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxesBySessionId: { s2: { boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, fallbackBoxId: 'm-root', changedBoxIds: ['m-src-payments'] } }, areas: [{ repoKey: '0a1b2c3d', repoName: 'shop', repoDir: '/repos/shop', isFolded: false, anchorBoxId: 'm-area', mapError: null, branchAgentId: 'claude-code' }], boxRectById: { 'm-src-payments': { x: 0, y: 440, width: 220, height: 116 } }, boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments', repoName: 'shop' }], isMapFailed: false, error: null },
-  { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.' },
+  { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.', appliedSeq: 1 },
   { type: 'board-asks-of-result', requestId: 'b3', ok: true, asks: [{ askBoxId: 'ask-1a2b3c4d', ask: { sessionId: 's1', question: 'Reuse the card module?', options: ['Yes', 'No'] }, rect: { x: 900, y: 40, width: 360, height: 240 } }] },
-  { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
-  { type: 'studio-main-ensure-result', id: 's1', requestId: 'b4', ok: true, mainId: 's3', error: null },
-  { type: 'codemap-folder-set-result', id: 's1', requestId: 'b5', ok: true, isOpen: true, error: null },
+  { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null, appliedSeq: 1 },
+  { type: 'studio-main-ensure-result', id: 's1', requestId: 'b4', ok: true, mainId: 's3', error: null, appliedSeq: 1 },
+  { type: 'codemap-folder-set-result', id: 's1', requestId: 'b5', ok: true, isOpen: true, error: null, appliedSeq: 1 },
   { type: 'director-digest-kept', id: 's1' },
   { type: 'director-digests-result', id: 's1', requestId: 'b6', ok: true, verdictByKey: { 'dir-0pc501t-334': { chatLine: null, digest: 'Checkout totals now add tax', fitsTask: false, misfit: 'It rewrote the mail templates.' } }, progressAnswers: [{ sessionId: 's1', askedAt: 334, question: 'How is it going?', answer: 'Checkout totals are in.' }], error: null },
-  { type: 'studio-progress-ask-result', id: 's1', requestId: 'b7', ok: true, isAnswered: true, error: null },
-  { type: 'studio-guide-result', requestId: 'b8', ok: true, doneSteps: ['talk', 'diff'], error: null },
+  { type: 'studio-progress-ask-result', id: 's1', requestId: 'b7', ok: true, isAnswered: true, error: null, appliedSeq: 1 },
+  { type: 'studio-guide-result', requestId: 'b8', ok: true, doneSteps: ['talk', 'diff'], error: null, appliedSeq: 1 },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {

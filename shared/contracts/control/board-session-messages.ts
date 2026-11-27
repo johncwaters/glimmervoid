@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { loose, optionalError, requestId, sessionId } from './control-fields.ts';
+import { loose, looseMutatingReply, optionalError, requestId, sessionId } from './control-fields.ts';
 import { SessionProgressAnswer } from '../director-digests.ts';
 import { StudioGuideStep } from '../studio-guide.ts';
 import { BoardAsk } from '../whiteboard.ts';
@@ -60,10 +60,10 @@ export const boardSessionServerVariants = [
     error: optionalError,
   }),
   loose('board-asks-of-result', { requestId, ok: z.boolean(), asks: z.array(OpenBoardAsk).default([]), error: optionalError }),
-  loose('board-ask-answer-result', { requestId, ok: z.boolean(), error: optionalError }),
-  loose('branch-spawn-result', { id: sessionId, requestId, ok: z.boolean(), branchId: z.string().nullable().default(null), error: optionalError }),
-  loose('studio-main-ensure-result', { id: sessionId, requestId, ok: z.boolean(), mainId: z.string().nullable().default(null), error: optionalError }),
-  loose('codemap-folder-set-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
+  looseMutatingReply('board-ask-answer-result', { requestId, ok: z.boolean(), error: optionalError }),
+  looseMutatingReply('branch-spawn-result', { id: sessionId, requestId, ok: z.boolean(), branchId: z.string().nullable().default(null), error: optionalError }),
+  looseMutatingReply('studio-main-ensure-result', { id: sessionId, requestId, ok: z.boolean(), mainId: z.string().nullable().default(null), error: optionalError }),
+  looseMutatingReply('codemap-folder-set-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
   loose('director-digest-kept', { id: sessionId }),
   loose('director-digests-result', {
     id: sessionId,
@@ -73,6 +73,6 @@ export const boardSessionServerVariants = [
     progressAnswers: z.array(SessionProgressAnswer).default([]),
     error: optionalError,
   }),
-  loose('studio-progress-ask-result', { id: sessionId, requestId, ok: z.boolean(), isAnswered: z.boolean().default(false), error: optionalError }),
-  loose('studio-guide-result', { requestId, ok: z.boolean(), doneSteps: z.array(StudioGuideStep).default([]), error: optionalError }),
+  looseMutatingReply('studio-progress-ask-result', { id: sessionId, requestId, ok: z.boolean(), isAnswered: z.boolean().default(false), error: optionalError }),
+  looseMutatingReply('studio-guide-result', { requestId, ok: z.boolean(), doneSteps: z.array(StudioGuideStep).default([]), error: optionalError }),
 ] as const;
