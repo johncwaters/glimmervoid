@@ -1,7 +1,6 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
-import { CHAT_SEND_MAX_ATTACHMENTS, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
+import { CHAT_SEND_MAX_ATTACHMENTS, type AgentDoneLine, type ConversationApproval } from '#shared/contracts/session.ts';
 import type { PlanGate } from '#shared/contracts/plan-gate.ts';
-import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { SHELL_AGENT_ID } from '../session-card/agent-core.ts';
@@ -33,13 +32,16 @@ import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { donePanelModelOf } from './done-panel-core.ts';
-import { chatDraftOf, chatSessionStateOf, clearChatSnapshotState, noteChatOutboxEntries, pruneChatDraftsForSessions, saveChatDraft, scheduleChatDraftSave } from './chat-session-state.ts';
-import { createOutboxEchoState, isOutboxAwaitingTurn, newestCancellableOutboxEntryOf, queuedOutboxEntriesOf, reconcileOutboxEcho, takeStandInsForPrompts } from './outbox-echo-core.ts';
+import { chatDraftOf, chatSessionStateOf, clearChatSnapshotState, pruneChatDraftsForSessions, saveChatDraft, scheduleChatDraftSave } from './chat-session-state.ts';
+import { createChatOutboxProjection, isChatOutboxAwaitingTurn, newestCancellableChatOutboxEntryOf, queuedChatOutboxEntriesOf, reconcileChatOutboxProjection, takeStandInsForPrompts } from '../state/chat-outbox-core.ts';
+import { chatOutboxEntriesOf, watchChatOutbox } from '../state/collections/chat-outbox.ts';
+import sessionsCollection from '../state/collections/sessions.ts';
+import chatCancelAction from '../state/actions/chat-cancel.ts';
+import chatSendAction from '../state/actions/chat-send.ts';
 import { cardPartOf, createChatWaits } from './chat-waits.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
-const CHAT_SEND_TIMEOUT_MS = 10000;
 const RAIL_TICK_MS = 30_000;
 const RUN_TIME_TICK_MS = 1000;
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
@@ -83,7 +85,7 @@ export function draftWithRestoredText(restoredText: string, draft: string): stri
 }
 
 function sessionPhaseOf(sessionId: string): ChatPhase {
-  return chatPhaseOf(sessionUIs.get(sessionId)?.currentState);
+  return chatPhaseOf(sessionsCollection.state.byId[sessionId]?.state ?? sessionUIs.get(sessionId)?.currentState);
 }
 
 function isSessionWorking(sessionId: string): boolean {
@@ -226,13 +228,15 @@ function showSessionFailure(sessionId: string, failureText: string): void {
 }
 
 function cancelOutboxEntry(sessionId: string, entryId: string): void {
-  sendControlRequest('chat-cancel', { id: sessionId, entryId }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
-    .then((reply) => {
-      if (reply.type !== 'chat-cancel-result') return;
-      restoreTextToSession(sessionId, reply.cancelledTexts.join('\n\n'));
-      restoreAttachmentsToSession(sessionId, reply.cancelledAttachments);
-    })
-    .catch((reason: unknown) => showSessionFailure(sessionId, `Could not cancel the message: ${errorMessage(reason)}`));
+  void chatCancelAction({ id: sessionId, entryId }).then((cancelOutcome) => {
+    if (!cancelOutcome.ok) {
+      showSessionFailure(sessionId, `Could not cancel the message: ${cancelOutcome.error.message}`);
+      return;
+    }
+    if (cancelOutcome.reply.type !== 'chat-cancel-result') return;
+    restoreTextToSession(sessionId, cancelOutcome.reply.cancelledTexts.join('\n\n'));
+    restoreAttachmentsToSession(sessionId, cancelOutcome.reply.cancelledAttachments);
+  });
 }
 
 function uploadUrlFor(sessionId: string): (fileName: string) => string {
@@ -249,12 +253,15 @@ function sendChatText(sessionId: string, text: string, attachments: readonly str
     failSend(TOO_MANY_TO_SEND_TEXT);
     return;
   }
-  sendControlRequest('chat-send', { id: sessionId, text, attachments: [...attachments] }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
-    .then((reply) => {
-      if (reply.type !== 'chat-send-result' || reply.ok) return;
-      failSend(reply.error ?? NOT_SENT_TEXT);
-    })
-    .catch((reason: unknown) => failSend(`Could not confirm the message was queued: ${errorMessage(reason)}`));
+  void chatSendAction({
+    id: sessionId,
+    text,
+    attachments,
+    isTurnRunning: isSessionWorking(sessionId),
+  }).then((sendOutcome) => {
+    if (sendOutcome.ok) return;
+    failSend(sendOutcome.error.message);
+  });
 }
 
 interface RememberedBoardChange {
@@ -313,14 +320,14 @@ function buildChat(sessionId: string): MountedChat {
   };
   let chatView = createSeededView(chatDraftOf(sessionId), sessionState.draftAttachments);
   sessionState.draftAttachments = [];
-  const outboxEcho = createOutboxEchoState();
+  const outboxProjection = createChatOutboxProjection();
   const entryIdsAwaitingPrompt = new Set<string>();
   const shownPromptPartIds = new Set<string>();
   const removeStandIns = (entryIds: readonly string[]) => {
     for (const entryId of entryIds) {
-      const standIn = outboxEcho.standInByEntryId.get(entryId);
+      const standIn = outboxProjection.standInByEntryId.get(entryId);
       if (standIn) chatView.remove([standIn.id]);
-      outboxEcho.standInByEntryId.delete(entryId);
+      outboxProjection.standInByEntryId.delete(entryId);
       entryIdsAwaitingPrompt.delete(entryId);
     }
   };
@@ -346,11 +353,11 @@ function buildChat(sessionId: string): MountedChat {
   };
   const arrivingPartIdsOf = (changedParts: readonly ChatPart[], newPromptParts: readonly ChatPart[]): ReadonlySet<string> => {
     if (!isOperatorWatching()) return NO_ARRIVING_PARTS;
-    const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, outboxEcho.standInByEntryId.size).map((part) => part.id));
+    const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, outboxProjection.standInByEntryId.size).map((part) => part.id));
     return new Set(changedParts.map((part) => part.id).filter((partId) => !promptIdsTakingStandIns.has(partId)));
   };
   const swapStandInsForPrompts = (newPromptCount: number) => {
-    removeStandIns(takeStandInsForPrompts(outboxEcho, newPromptCount));
+    removeStandIns(takeStandInsForPrompts(outboxProjection, newPromptCount));
   };
   const showFailure = (failureText: string | null) => {
     failureLine.hidden = failureText === null;
@@ -373,11 +380,11 @@ function buildChat(sessionId: string): MountedChat {
   const phaseToShow = () => {
     if (waits.isTerminalBorrowed()) return 'quiet';
     const phase = sessionPhaseOf(sessionId);
-    const isSentMessageAwaitingTurn = isOutboxAwaitingTurn(outboxEcho, sessionState.outbox, phase === 'working');
+    const isSentMessageAwaitingTurn = isChatOutboxAwaitingTurn(outboxProjection, chatOutboxEntriesOf(sessionId), phase === 'working');
     return shownChatPhaseOf(phase, isSentMessageAwaitingTurn, sessionUIs.get(sessionId)?.awaitingBackgroundTasks === true);
   };
   const showOutbox = () => {
-    const update = reconcileOutboxEcho(outboxEcho, sessionState.outbox, isSessionWorking(sessionId), clock.nowMs());
+    const update = reconcileChatOutboxProjection(outboxProjection, chatOutboxEntriesOf(sessionId), isSessionWorking(sessionId), clock.nowMs());
     if (update.addedStandIns.length > 0) chatView.upsert(update.addedStandIns, new Set(update.addedStandIns.map((standIn) => standIn.id)));
     removeStandIns(update.removedStandInEntryIds);
     chatView.showQueued(update.queuedEntries);
@@ -386,6 +393,9 @@ function buildChat(sessionId: string): MountedChat {
     for (const entryId of update.clearedStandInEntryIds) awaitPromptFor(entryId);
     feed.refresh();
   };
+  const stopWatchingOutbox = watchChatOutbox(sessionId, () => {
+    if (mountedChat?.sessionId === sessionId) showOutbox();
+  });
   const donePanel = createDonePanel(chatView.showTurnEnd);
   const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: sessionState.agentDoneLines, phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
@@ -462,7 +472,7 @@ function buildChat(sessionId: string): MountedChat {
   };
 
   const keepPendingPartsLast = () => {
-    const standInIds = [...outboxEcho.standInByEntryId.values()].map((standIn) => standIn.id);
+    const standInIds = [...outboxProjection.standInByEntryId.values()].map((standIn) => standIn.id);
     chatView.keepLast([...standInIds, ...waits.pendingCardIds()]);
   };
 
@@ -481,7 +491,7 @@ function buildChat(sessionId: string): MountedChat {
     root,
     readAttachmentCount: () => chatView.readAttachments().length,
     showFailure,
-    newestCancellableEntryId: () => newestCancellableOutboxEntryOf(outboxEcho, sessionState.outbox)?.entryId ?? null,
+    newestCancellableEntryId: () => newestCancellableChatOutboxEntryOf(outboxProjection, chatOutboxEntriesOf(sessionId))?.entryId ?? null,
     answerCard,
     handleKeydown: waits.handleKeydown,
   });
@@ -527,9 +537,9 @@ function buildChat(sessionId: string): MountedChat {
       waits.releaseTerminal();
       waits.clearApproval();
       const freshView = createSeededView(chatView.readDraft(), chatView.readAttachments());
-      freshView.showQueued(queuedOutboxEntriesOf(outboxEcho, sessionState.outbox));
+      freshView.showQueued(queuedChatOutboxEntriesOf(outboxProjection, chatOutboxEntriesOf(sessionId)));
       shownPromptPartIds.clear();
-      freshView.upsert([...outboxEcho.standInByEntryId.values()], NO_ARRIVING_PARTS);
+      freshView.upsert([...outboxProjection.standInByEntryId.values()], NO_ARRIVING_PARTS);
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
       boardChangeByCardId = new Map();
@@ -584,6 +594,7 @@ function buildChat(sessionId: string): MountedChat {
       waits.releaseTerminal();
     },
     close: () => {
+      stopWatchingOutbox();
       stopRail();
       chatView.stopActivityStats();
       if (sessionUIs.has(sessionId)) saveChatDraft(sessionId, chatView.readDraft());
@@ -661,25 +672,20 @@ export function noteChatAgentDoneLines(sessionId: string, agentDoneLines: readon
   if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
 }
 
-export function noteChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): void {
-  noteChatOutboxEntries(sessionId, entries);
-  if (mountedChat?.sessionId === sessionId) mountedChat.showOutbox();
-}
-
 export function applyChatTraceChanged(sessionId: string): void {
   if (mountedChat?.sessionId !== sessionId) return;
   mountedChat.feed.refresh();
 }
 
-export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[]; agentDoneLines?: readonly AgentDoneLine[] }[]): void {
+export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; agentDoneLines?: readonly AgentDoneLine[] }[]): void {
   clearChatSnapshotState();
   pruneChatDraftsForSessions(new Set(rows.map((row) => row.id)));
   for (const row of rows) {
     noteChatApproval(row.id, row.conversationApproval ?? null);
-    noteChatOutbox(row.id, row.chatOutbox ?? []);
     noteChatAgentDoneLines(row.id, row.agentDoneLines ?? []);
   }
   if (!mountedChat) return;
+  mountedChat.showOutbox();
   mountedChat.catchUp();
   applyChatSessionStatus(mountedChat.sessionId);
 }

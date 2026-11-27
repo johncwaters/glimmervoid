@@ -1,5 +1,5 @@
 import type { SessionPermissionMode } from './status-rail-core.ts';
-import type { AgentDoneLine, ChatOutboxEntry, ConversationApproval } from '#shared/contracts/session.ts';
+import type { AgentDoneLine, ConversationApproval } from '#shared/contracts/session.ts';
 import type { PlanGate } from '#shared/contracts/plan-gate.ts';
 import { getChatDraft, pruneChatDrafts, setChatDraft } from '../ui-prefs.ts';
 
@@ -7,7 +7,6 @@ interface ChatSessionState {
   approval: ConversationApproval | null;
   planGate: PlanGate | null;
   draftAttachments: string[];
-  outbox: ChatOutboxEntry[];
   agentDoneLines: readonly AgentDoneLine[];
   uploadingCount: number;
   permissionMode: SessionPermissionMode | null;
@@ -20,12 +19,11 @@ interface PendingDraftSave {
 
 const CHAT_DRAFT_SAVE_DELAY_MS = 250;
 const stateBySessionId = new Map<string, ChatSessionState>();
-const outboxListeners = new Set<(sessionId: string) => void>();
 const pendingDraftBySessionId = new Map<string, PendingDraftSave>();
 let isPageHideListenerInstalled = false;
 
 function freshSessionState(): ChatSessionState {
-  return { approval: null, planGate: null, draftAttachments: [], outbox: [], agentDoneLines: [], uploadingCount: 0, permissionMode: null };
+  return { approval: null, planGate: null, draftAttachments: [], agentDoneLines: [], uploadingCount: 0, permissionMode: null };
 }
 
 function clearPendingDraftSave(sessionId: string): void {
@@ -92,21 +90,10 @@ export function chatSessionStateOf(sessionId: string): ChatSessionState {
   return created;
 }
 
-export function noteChatOutboxEntries(sessionId: string, entries: ChatOutboxEntry[]): void {
-  chatSessionStateOf(sessionId).outbox = entries;
-  for (const listener of outboxListeners) listener(sessionId);
-}
-
-export function onChatOutboxNoted(listener: (sessionId: string) => void): () => void {
-  outboxListeners.add(listener);
-  return () => outboxListeners.delete(listener);
-}
-
 export function clearChatSnapshotState(): void {
   for (const state of stateBySessionId.values()) {
     state.approval = null;
     state.planGate = null;
-    state.outbox = [];
     state.agentDoneLines = [];
   }
 }

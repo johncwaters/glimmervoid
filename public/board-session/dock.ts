@@ -7,9 +7,12 @@ import { listenForModelChange } from '../chat/model-picker.ts';
 import { canSwitchSessionModel } from '../session-card/card-model.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
-import { chatDraftOf, onChatOutboxNoted, saveChatDraft, scheduleChatDraftSave } from '../chat/chat-session-state.ts';
+import { chatDraftOf, saveChatDraft, scheduleChatDraftSave } from '../chat/chat-session-state.ts';
 import { queuedStatusOf } from '../chat/chat-view.ts';
-import { createOutboxEchoState, reconcileOutboxEcho, takeStandInsForPrompts } from '../chat/outbox-echo-core.ts';
+import { createChatOutboxProjection, isOptimisticOutboxEntryId, reconcileChatOutboxProjection, takeStandInsForPrompts } from '../state/chat-outbox-core.ts';
+import { watchChatOutbox } from '../state/collections/chat-outbox.ts';
+import chatCancelAction from '../state/actions/chat-cancel.ts';
+import chatSendAction from '../state/actions/chat-send.ts';
 import { stickToBottom } from '../chat/stick-to-bottom.ts';
 import type { RailField } from '../chat/status-rail-core.ts';
 import { BRANCH_PROMPT_MAX_CHARS } from '#shared/contracts/control/board-session-messages.ts';
@@ -35,7 +38,6 @@ import { addressLabelOf, boxMentionAt, matchingBoxChoices, placeTitleOf, textWit
 import type { BoxChoice, BoxMention, DockAddress } from './branch-core.ts';
 
 const TRACE_PAGE_TIMEOUT_MS = 10000;
-const CHAT_SEND_TIMEOUT_MS = 10000;
 const PROGRESS_ASK_TIMEOUT_MS = 130000;
 const GLIMMERVOID_NAME = 'Glimmervoid';
 const BRANCH_SPAWN_TIMEOUT_MS = 30000;
@@ -491,13 +493,13 @@ export function createDock(session: DockSession): Dock {
     }
   };
 
-  const outboxEcho = createOutboxEchoState();
+  const outboxProjection = createChatOutboxProjection();
   const shownPromptPartIds = new Set<string>();
   const entryIdsAwaitingPrompt = new Set<string>();
   let pendingSends: PendingSend[] = [];
   const removeStandIns = (entryIds: readonly string[]) => {
     for (const entryId of entryIds) {
-      outboxEcho.standInByEntryId.delete(entryId);
+      outboxProjection.standInByEntryId.delete(entryId);
       entryIdsAwaitingPrompt.delete(entryId);
     }
   };
@@ -506,7 +508,7 @@ export function createDock(session: DockSession): Dock {
     const newPromptParts = changedParts.filter((part) => part.kind === 'prompt' && !part.isBoardAnswer && !shownPromptPartIds.has(part.id));
     for (const promptPart of newPromptParts) shownPromptPartIds.add(promptPart.id);
     if (!isLive) return;
-    const takenEntryIds = takeStandInsForPrompts(outboxEcho, newPromptParts.length);
+    const takenEntryIds = takeStandInsForPrompts(outboxProjection, newPromptParts.length);
     removeStandIns(takenEntryIds);
     if (takenEntryIds.length > 0) paintQueue();
   };
@@ -582,12 +584,14 @@ export function createDock(session: DockSession): Dock {
 
   const restoreToBar = (text: string) => composer.restoreDraft(draftWithRestoredText(text, composer.readDraft()));
   const cancelEntry = (entryId: string) => {
-    sendControlRequest('chat-cancel', { id: session.sessionId, entryId }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
-      .then((reply) => {
-        if (reply.type !== 'chat-cancel-result' || reply.cancelledTexts.length === 0) return;
-        restoreToBar(reply.cancelledTexts.join('\n\n'));
-      })
-      .catch((reason: unknown) => showFailure(`Could not cancel the message: ${errorMessage(reason)}`));
+    void chatCancelAction({ id: session.sessionId, entryId }).then((cancelOutcome) => {
+      if (!cancelOutcome.ok) {
+        showFailure(`Could not cancel the message: ${cancelOutcome.error.message}`);
+        return;
+      }
+      if (cancelOutcome.reply.type !== 'chat-cancel-result' || cancelOutcome.reply.cancelledTexts.length === 0) return;
+      restoreToBar(cancelOutcome.reply.cancelledTexts.join('\n\n'));
+    });
   };
   const awaitPromptFor = (entryId: string) => {
     if (entryIdsAwaitingPrompt.has(entryId)) return;
@@ -609,7 +613,7 @@ export function createDock(session: DockSession): Dock {
     }
   };
   const queuedEntryRowOf = (entry: ChatOutboxEntry) => {
-    const cancelButton = cancelButtonOf(entry.state === 'sending');
+    const cancelButton = cancelButtonOf(entry.state === 'sending' || isOptimisticOutboxEntryId(entry.entryId));
     cancelButton.addEventListener('click', () => {
       cancelButton.disabled = true;
       cancelEntry(entry.entryId);
@@ -619,12 +623,12 @@ export function createDock(session: DockSession): Dock {
   const pendingRowOf = (pending: PendingSend) => queuedRowOf(pending.text, session.isTurnOver() ? PENDING_IDLE_STATUS_TEXT : PENDING_RUNNING_STATUS_TEXT, 'pending', cancelButtonOf(true));
   const paintQueue = () => {
     const entries = session.outbox();
-    const update = reconcileOutboxEcho(outboxEcho, entries, !session.isTurnOver(), clock.nowMs());
+    const update = reconcileChatOutboxProjection(outboxProjection, entries, !session.isTurnOver(), clock.nowMs());
     removeStandIns(update.removedStandInEntryIds);
     for (const entryId of update.clearedStandInEntryIds) awaitPromptFor(entryId);
     claimPendingSends(entries);
     const shownPendingSends = pendingSends.filter((pending) => !pending.isClaimed);
-    const standInRows = [...outboxEcho.standInByEntryId.values()].flatMap((standIn) => standIn.kind === 'prompt' ? [promptRowOf(standIn, mainSpeaker)] : []);
+    const standInRows = [...outboxProjection.standInByEntryId.values()].flatMap((standIn) => standIn.kind === 'prompt' ? [promptRowOf(standIn, mainSpeaker)] : []);
     queueRows.replaceChildren(...standInRows, ...update.queuedEntries.map(queuedEntryRowOf), ...shownPendingSends.map(pendingRowOf));
     if (update.clearedStandInEntryIds.length > 0) mainFeed.refresh();
   };
@@ -636,8 +640,7 @@ export function createDock(session: DockSession): Dock {
     if (pending.isAwaitingOutboxEcho && !pending.isClaimed) return;
     dropPendingSend(pending);
   };
-  const stopFollowingOutbox = onChatOutboxNoted((sessionId) => {
-    if (sessionId !== session.sessionId) return;
+  const stopFollowingOutbox = watchChatOutbox(session.sessionId, () => {
     claimPendingSends(session.outbox());
     pendingSends = pendingSends.filter((pending) => !pending.isAwaitingOutboxEcho);
     paintQueue();
@@ -735,11 +738,17 @@ export function createDock(session: DockSession): Dock {
   input.addEventListener('blur', closeMentions);
 
   let mainSendQueue: Promise<string | null> = Promise.resolve(null);
-  const sendToAgent = (targetId: string, text: string) => sendControlRequest('chat-send', { id: targetId, text, attachments: [] }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
-    .then((reply) => {
-      if (reply.type === 'chat-send-result' && reply.ok) return null;
-      return reply.type === 'chat-send-result' ? reply.error ?? NOT_SENT_TEXT : NOT_SENT_TEXT;
-    });
+  const isTargetTurnRunning = (targetId: string) => (
+    targetId === session.sessionId
+      ? !session.isTurnOver()
+      : !(branchTurnOverBySessionId.get(targetId)?.() ?? true)
+  );
+  const sendToAgent = (targetId: string, text: string) => chatSendAction({
+    id: targetId,
+    text,
+    attachments: [],
+    isTurnRunning: isTargetTurnRunning(targetId),
+  }).then((sendOutcome) => (sendOutcome.ok ? null : sendOutcome.error.message));
 
   const deliveredAs = (kind: DockDelivery, sending: Promise<string | null>) => sending.then((failureText) => {
     if (failureText === null) session.onDelivered(kind);

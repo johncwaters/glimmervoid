@@ -41,7 +41,8 @@ import { createAgentCards, isBusyPhase } from './agent-card.ts';
 import type { AgentCardModel, AgentCards } from './agent-card.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { sessionRailFieldsOf } from '../chat/chat-page.ts';
-import { chatSessionStateOf } from '../chat/chat-session-state.ts';
+import { chatOutboxEntriesOf } from '../state/collections/chat-outbox.ts';
+import sessionsCollection from '../state/collections/sessions.ts';
 import { createAgentWaits } from './agent-waits.ts';
 import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
@@ -224,7 +225,7 @@ function openWatch(sessionId: string): SessionWatch {
         watch.lastBeat = beats.at(-1) ?? watch.lastBeat;
         paintPresence();
       },
-      isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
+      isTurnOver: () => chatPhaseOf(sessionsCollection.state.byId[sessionId]?.state ?? sessionUIs.get(sessionId)?.currentState) !== 'working',
       onReset: () => {},
       onRebuilt: () => {},
       onFailure: () => {},
@@ -682,13 +683,13 @@ function mountDock(): void {
     name: ORCHESTRATOR_TEXT,
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? ui?.path ?? null,
     agentId: ui?.agent ?? null,
-    isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
+    isTurnOver: () => chatPhaseOf(sessionsCollection.state.byId[sessionId]?.state ?? sessionUIs.get(sessionId)?.currentState) !== 'working',
     boxChoices: () => studioCollection.state.boxChoices,
     digestOf: directorChatLineOf,
     progressAnswers: () => studioCollection.state.progressAnswers.filter((answer) => answer.sessionId === sessionId),
     railFields: (canChangeModel) => sessionRailFieldsOf(sessionId, canChangeModel),
     onDelivered: (kind) => parts?.guide.markDone(kind),
-    outbox: () => chatSessionStateOf(sessionId).outbox.filter((entry) => entry.origin === 'operator'),
+    outbox: () => chatOutboxEntriesOf(sessionId).filter((entry) => entry.origin === 'operator'),
     activity: () => {
       const phase = phaseOfSession(sessionId);
       return { phase, beat: phase === 'working' ? watchBySessionId.get(sessionId)?.lastBeat ?? null : null };

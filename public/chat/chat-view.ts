@@ -1,4 +1,5 @@
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
+import { isOptimisticOutboxEntryId } from '../state/chat-outbox-core.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { paintStatusIcon } from '../status-icon.ts';
@@ -173,12 +174,18 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
   const row = el('div', 'chat-queued-row');
   row.dataset.state = entry.state;
   const status = el('span', 'chat-queued-status', queuedStatusOf(entry));
-  const cancelButton = button({ variant: 'quiet', size: 'small', textCase: 'inline', label: 'Cancel', disabled: entry.state === 'sending' });
+  const cancelButton = button({
+    variant: 'quiet',
+    size: 'small',
+    textCase: 'inline',
+    label: 'Cancel',
+    disabled: entry.state === 'sending' || isOptimisticOutboxEntryId(entry.entryId),
+  });
   cancelButton.addEventListener('click', () => {
     row.dispatchEvent(new CustomEvent('chat-cancel', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
   });
   const meta = el('div', 'chat-queued-meta');
-  if (canSendNow && entry.state === 'held') meta.append(sendNowButtonOf(entry));
+  if (canSendNow && entry.state === 'held' && !isOptimisticOutboxEntryId(entry.entryId)) meta.append(sendNowButtonOf(entry));
   if (entry.state === 'failed' && entry.shouldOpenTerminal) meta.append(openTerminalButtonOf());
   meta.append(cancelButton);
   const queuedPrompt = renderPromptBubble(entry.text, entry.attachments, uploadUrlOf);

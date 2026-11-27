@@ -485,7 +485,9 @@ export async function verifyChatAwayReply(page: Page): Promise<void> {
   await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   await page.evaluate(() => { delete document.documentElement.dataset.sawArrivingText; });
   await page.evaluate(async ({ replyText, timeoutMs }) => {
-    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const sessionId = document.querySelector('#focus-pane-terminal .session-card[data-id]')?.getAttribute('data-id')
+      ?? document.querySelector('.session-card[data-id]')?.getAttribute('data-id')
+      ?? '';
     const controlWsUrl = '/control-ws.ts';
     const { sendControlRequest } = await import(controlWsUrl);
     const traceRecordsWithReply = async () => {
@@ -516,7 +518,7 @@ async function verifyInterimRepliesRideActivityLine(page: Page): Promise<void> {
   assert.equal(runningTexts.length, 1, `a running turn shows only its long reply, not the short ones (${runningTexts.join(' | ')})`);
   assert.match(runningTexts[0] ?? '', /^Build passed/, 'the long reply stays in the turn');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   await page.waitForFunction(() => document.querySelector('.session-chat .chat-activity:not([data-idle]) .chat-activity-verb')?.textContent === 'Ready', undefined, { timeout: CARD_TIMEOUT_MS, polling: 'raf' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -564,7 +566,9 @@ async function verifyBoardCardKeepsPlace(page: Page): Promise<void> {
 
 async function verifyBoardChangeCard(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const sessionId = document.querySelector('#focus-pane-terminal .session-card[data-id]')?.getAttribute('data-id')
+      ?? document.querySelector('.session-card[data-id]')?.getAttribute('data-id')
+      ?? '';
     const tileStoreUrl = '/whiteboard/board-tile-store.ts';
     const { applyAgentChange } = await import(tileStoreUrl);
     const changeOf = (title: string) => ({ type: 'whiteboard-agent-change', boardId: 'harness-board', version: 1, at: Date.now(), change: { author: { id: sessionId, name: 'Claude' }, boxes: [{ id: title, title, rect: { x: 0, y: 0, width: 200, height: 100 } }] } });
@@ -579,7 +583,9 @@ async function verifyBoardChangeCard(page: Page): Promise<void> {
   const showOnBoard = page.locator('.session-chat .chat-board-change .ui-button');
   assert.match(await showOnBoard.innerText(), process.platform === 'darwin' ? /B$/ : /Alt\+B$/, 'Show on board carries the board shortcut');
   const unshownBoardId = await page.evaluate(async () => {
-    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const sessionId = document.querySelector('#focus-pane-terminal .session-card[data-id]')?.getAttribute('data-id')
+      ?? document.querySelector('.session-card[data-id]')?.getAttribute('data-id')
+      ?? '';
     const tileStoreUrl = '/whiteboard/board-tile-store.ts';
     const { unshownAgentChangeOf } = await import(tileStoreUrl);
     return unshownAgentChangeOf(sessionId)?.boardId ?? null;
@@ -594,7 +600,9 @@ async function verifyBoardChangeCard(page: Page): Promise<void> {
     return takeBoardFocusFor('harness-board')?.boxes.map((box: { id: string }) => box.id) ?? null;
   });
   const unshownAfterClick = await page.evaluate(async () => {
-    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const sessionId = document.querySelector('#focus-pane-terminal .session-card[data-id]')?.getAttribute('data-id')
+      ?? document.querySelector('.session-card[data-id]')?.getAttribute('data-id')
+      ?? '';
     const tileStoreUrl = '/whiteboard/board-tile-store.ts';
     const { unshownAgentChangeOf } = await import(tileStoreUrl);
     return unshownAgentChangeOf(sessionId)?.boardId ?? null;

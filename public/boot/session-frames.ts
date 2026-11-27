@@ -3,7 +3,7 @@ import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-m
 import { setSessionPlanGate } from '../plan/plan-gate-panel.ts';
 import { STATES } from '#shared/states.ts';
 import { SessionState } from '#shared/contracts/session.ts';
-import { applyChatSessionStatus, applyChatSnapshot, noteChatAgentDoneLines, noteChatApproval, noteChatOutbox, noteChatPlanGate } from '../chat/chat-page.ts';
+import { applyChatSessionStatus, applyChatSnapshot, noteChatAgentDoneLines, noteChatApproval, noteChatPlanGate } from '../chat/chat-page.ts';
 import { forgetChatDraft } from '../chat/chat-session-state.ts';
 import { noteBoardSessionStatusChanged } from '../board-session/board-session-signals.ts';
 import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from '../action-status.ts';
@@ -247,7 +247,6 @@ function handleSessionsCollectionMessage(msg: ServerMessage) {
   if (msg.type === 'session-status') {
     handleSessionStatus(msg);
     if (msg.conversationApproval !== undefined) noteChatApproval(msg.id, msg.conversationApproval);
-    if (msg.chatOutbox !== undefined) noteChatOutbox(msg.id, msg.chatOutbox);
     applyChatSessionStatus(msg.id);
     noteBoardSessionStatusChanged(msg.id);
     return;

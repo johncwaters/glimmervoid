@@ -52,7 +52,7 @@
     },
     "public/board-session/dock.ts": {
       "sendControlMsg": 1,
-      "sendControlRequest": 5,
+      "sendControlRequest": 3,
       "onControlMessage": 0
     },
     "public/board-session/studio-guide.ts": {
@@ -62,7 +62,7 @@
     },
     "public/chat/chat-page.ts": {
       "sendControlMsg": 4,
-      "sendControlRequest": 3,
+      "sendControlRequest": 1,
       "onControlMessage": 0
     },
     "public/chat/chat-waits.ts": {
