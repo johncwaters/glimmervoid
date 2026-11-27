@@ -1820,6 +1820,10 @@
     {
       "name": "pause",
       "definition": "Pause at budget, the Usage setting that, once estimated daily or monthly spend reaches 100% of its budget, snoozes live sessions (stopping those with no conversation to resume) and holds agent spawns and wakes until the day or month rolls over"
+    },
+    {
+      "name": "dialog",
+      "definition": "A modal window on the dashboard that the operator answers or closes before going on, such as Restart, Add Session, Pull requests and every confirm prompt; confirm prompts come from openConfirmDialog, built on the browser's native dialog element in public/ui/Dialog.tsx"
     }
   ],
   "retired": [
