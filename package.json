@@ -81,6 +81,7 @@
     "docs:config": "node scripts/generate-config-docs.ts",
     "docs:packs": "node scripts/generate-packs-docs.ts",
     "animals:build": "node scripts/generate-animal-sprites.ts",
+    "state:inventory": "node scripts/state-inventory.ts",
     "dist": "node scripts/build.mjs --binary --binary-out ."
   },
   "dependencies": {
