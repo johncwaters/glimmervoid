@@ -1,5 +1,3 @@
-@layer components {
-
 .session-chat {
   position: relative;
   display: flex;
@@ -1017,8 +1015,6 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 .chat-prompt-thumbnails .chat-prompt-thumbnail-image { object-fit: contain; }
 
 .chat-prompt-thumbnail-name { padding: 0 6px; overflow: hidden; color: var(--text-muted); font-size: var(--type-meta); white-space: nowrap; text-overflow: ellipsis; }
-
-}
 
 .chat-terminal-slot {
   display: flex;
