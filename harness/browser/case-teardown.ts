@@ -17,14 +17,21 @@ export interface PendingWakeSummary {
   wakeId: string;
 }
 
+export interface SnapshotBoardSummary {
+  id: string;
+  title: string;
+}
+
 export interface CaseTeardownPlan {
   wakesToCancel: PendingWakeSummary[];
   sessionIdsToRemove: string[];
   baselineSessionIdsToKill: string[];
+  boardIdsToDelete: string[];
 }
 
 export interface CaseBaseline {
   sessionIds: Set<string>;
+  boardIds: Set<string>;
 }
 
 export interface CaseTeardownOutcome {
@@ -77,6 +84,21 @@ const SessionActionResultFrame = z.object({
   error: z.string().nullish(),
 });
 
+const WhiteboardsSnapshotFrame = z.object({
+  type: z.literal('whiteboards-snapshot'),
+  boards: z.array(z.object({
+    id: z.string(),
+    title: z.string().default(''),
+  })),
+});
+
+const WhiteboardResultFrame = z.object({
+  type: z.literal('whiteboard-result'),
+  requestId: z.string().nullish(),
+  ok: z.boolean(),
+  error: z.string().nullish(),
+});
+
 function isKillableSessionState(state: string): boolean {
   return KILLABLE_STATE_SET.has(state);
 }
@@ -84,13 +106,17 @@ function isKillableSessionState(state: string): boolean {
 export function planCaseTeardown({
   caseSessionId,
   baselineSessionIds,
+  baselineBoardIds,
   sessions,
   wakes,
+  boards,
 }: {
   caseSessionId: string;
   baselineSessionIds: ReadonlySet<string>;
+  baselineBoardIds: ReadonlySet<string>;
   sessions: readonly SnapshotSessionSummary[];
   wakes: readonly PendingWakeSummary[];
+  boards: readonly SnapshotBoardSummary[];
 }): CaseTeardownPlan {
   const childSessionIds: string[] = [];
   const topLevelSessionIds: string[] = [];
@@ -111,23 +137,32 @@ export function planCaseTeardown({
     }
   }
 
+  const boardIdsToDelete = boards
+    .filter((board) => !baselineBoardIds.has(board.id))
+    .map((board) => board.id);
+
   return {
     wakesToCancel: [...wakes],
     sessionIdsToRemove: [...childSessionIds, ...topLevelSessionIds],
     baselineSessionIdsToKill,
+    boardIdsToDelete,
   };
 }
 
 export function describeTeardownSurvivors({
   caseSessionId,
   baselineSessionIds,
+  baselineBoardIds,
   sessions,
   wakes,
+  boards,
 }: {
   caseSessionId: string;
   baselineSessionIds: ReadonlySet<string>;
+  baselineBoardIds: ReadonlySet<string>;
   sessions: readonly SnapshotSessionSummary[];
   wakes: readonly PendingWakeSummary[];
+  boards: readonly SnapshotBoardSummary[];
 }): string | null {
   const parts: string[] = [];
   const survivingCaseSessions = sessions.filter((session) => session.id === caseSessionId || !baselineSessionIds.has(session.id));
@@ -140,6 +175,10 @@ export function describeTeardownSurvivors({
   }
   if (wakes.length > 0) {
     parts.push(`wakes=[${wakes.map((wake) => `${wake.sessionId}:${wake.wakeId}`).join(', ')}]`);
+  }
+  const survivingCaseBoards = boards.filter((board) => !baselineBoardIds.has(board.id));
+  if (survivingCaseBoards.length > 0) {
+    parts.push(`boards=[${survivingCaseBoards.map((board) => board.title || board.id).join(', ')}]`);
   }
   if (parts.length === 0) return null;
   return `leaked server state after case teardown: ${parts.join(' ')}`;
@@ -157,6 +196,7 @@ function portFromBaseUrl(baseUrl: string): number {
 interface ServerControlState {
   sessions: SnapshotSessionSummary[];
   wakes: PendingWakeSummary[];
+  boards: SnapshotBoardSummary[];
 }
 
 function closeControlSocket(ws: WebSocket): Promise<void> {
@@ -199,8 +239,10 @@ async function readServerControlState(baseUrl: string, timeoutMs: number): Promi
     );
 
     const sessions: SnapshotSessionSummary[] = [];
+    const boards: SnapshotBoardSummary[] = [];
     const wakesBySessionId = new Map<string, string[]>();
     let hasSnapshot = false;
+    let hasWhiteboardsSnapshot = false;
     for (const frame of socket.received) {
       const snapshot = SnapshotFrame.safeParse(frame);
       if (snapshot.success) {
@@ -219,10 +261,22 @@ async function readServerControlState(baseUrl: string, timeoutMs: number): Promi
       const wakeFrame = SessionWakesFrame.safeParse(frame);
       if (wakeFrame.success) {
         wakesBySessionId.set(wakeFrame.data.id, wakeFrame.data.wakes.map((wake) => wake.id));
+        continue;
+      }
+      const boardsSnapshot = WhiteboardsSnapshotFrame.safeParse(frame);
+      if (boardsSnapshot.success) {
+        hasWhiteboardsSnapshot = true;
+        boards.length = 0;
+        for (const board of boardsSnapshot.data.boards) {
+          boards.push({ id: board.id, title: board.title });
+        }
       }
     }
     if (!hasSnapshot) {
       throw new Error('control server answered start-picks without a valid snapshot');
+    }
+    if (!hasWhiteboardsSnapshot) {
+      throw new Error('control server answered start-picks without a valid whiteboards-snapshot');
     }
 
     const wakes: PendingWakeSummary[] = [];
@@ -231,7 +285,7 @@ async function readServerControlState(baseUrl: string, timeoutMs: number): Promi
         wakes.push({ sessionId, wakeId });
       }
     }
-    return { sessions, wakes };
+    return { sessions, wakes, boards };
   } finally {
     await closeControlSocket(socket.ws);
   }
@@ -301,6 +355,24 @@ async function sendActionForTeardown(
   );
 }
 
+async function deleteBoardForTeardown(
+  socket: Awaited<ReturnType<typeof openRecordingSocket<unknown>>>,
+  boardId: string,
+  timeoutMs: number,
+): Promise<void> {
+  const requestId = `harness-teardown-board-${boardId}-${Date.now()}`;
+  socket.ws.send(JSON.stringify({ type: 'whiteboard-delete', boardId, requestId }));
+  await waitForMessage(
+    socket.received,
+    (frame) => {
+      const parsed = WhiteboardResultFrame.safeParse(frame);
+      return parsed.success && parsed.data.requestId === requestId;
+    },
+    `whiteboard-delete ${boardId}`,
+    timeoutMs,
+  );
+}
+
 async function executeTeardownPlan(baseUrl: string, plan: CaseTeardownPlan, timeoutMs: number): Promise<void> {
   const client = await dashboardClient(portFromBaseUrl(baseUrl), AbortSignal.timeout(timeoutMs));
   const socket = await openRecordingSocket<unknown>(client, '/control');
@@ -314,6 +386,9 @@ async function executeTeardownPlan(baseUrl: string, plan: CaseTeardownPlan, time
     for (const sessionId of plan.baselineSessionIdsToKill) {
       await sendActionForTeardown(socket, { type: 'kill', id: sessionId }, `kill ${sessionId}`, timeoutMs);
     }
+    for (const boardId of plan.boardIdsToDelete) {
+      await deleteBoardForTeardown(socket, boardId, timeoutMs);
+    }
   } finally {
     await closeControlSocket(socket.ws);
   }
@@ -321,22 +396,28 @@ async function executeTeardownPlan(baseUrl: string, plan: CaseTeardownPlan, time
 
 export async function captureCaseBaseline(baseUrl: string, timeoutMs = CONTROL_REPLY_TIMEOUT_MS): Promise<CaseBaseline> {
   const state = await readServerControlState(baseUrl, timeoutMs);
-  return { sessionIds: new Set(state.sessions.map((session) => session.id)) };
+  return {
+    sessionIds: new Set(state.sessions.map((session) => session.id)),
+    boardIds: new Set(state.boards.map((board) => board.id)),
+  };
 }
 
 export async function teardownCaseServerState({
   baseUrl,
   caseSessionId,
   baselineSessionIds,
+  baselineBoardIds,
 }: {
   baseUrl: string;
   caseSessionId: string;
   baselineSessionIds: ReadonlySet<string>;
+  baselineBoardIds: ReadonlySet<string>;
 }): Promise<CaseTeardownOutcome> {
   const deadline = Date.now() + TEARDOWN_DEADLINE_MS;
   let removedSessionCount = 0;
   let cancelledWakeCount = 0;
   let killedBaselineCount = 0;
+  let deletedBoardCount = 0;
   let lastSurvivorDetail = 'teardown did not complete';
 
   while (Date.now() < deadline) {
@@ -345,25 +426,30 @@ export async function teardownCaseServerState({
     const survivors = describeTeardownSurvivors({
       caseSessionId,
       baselineSessionIds,
+      baselineBoardIds,
       sessions: state.sessions,
       wakes: state.wakes,
+      boards: state.boards,
     });
     if (survivors === null) {
       return {
         ok: true,
-        detail: `removed ${removedSessionCount} sessions, cancelled ${cancelledWakeCount} wakes, killed ${killedBaselineCount} baseline sessions`,
+        detail: `removed ${removedSessionCount} sessions, cancelled ${cancelledWakeCount} wakes, killed ${killedBaselineCount} baseline sessions, deleted ${deletedBoardCount} boards`,
       };
     }
     lastSurvivorDetail = survivors;
     const plan = planCaseTeardown({
       caseSessionId,
       baselineSessionIds,
+      baselineBoardIds,
       sessions: state.sessions,
       wakes: state.wakes,
+      boards: state.boards,
     });
     removedSessionCount += plan.sessionIdsToRemove.length;
     cancelledWakeCount += plan.wakesToCancel.length;
     killedBaselineCount += plan.baselineSessionIdsToKill.length;
+    deletedBoardCount += plan.boardIdsToDelete.length;
     await executeTeardownPlan(baseUrl, plan, remainingMs);
     if (Date.now() + TEARDOWN_POLL_INTERVAL_MS < deadline) {
       await new Promise((resolve) => { setTimeout(resolve, TEARDOWN_POLL_INTERVAL_MS); });

@@ -32,6 +32,7 @@ import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
 import type { CaseRecord, GridSnapshot, Outcome, StepRecord } from './report-core.ts';
 import { captureCaseBaseline, teardownCaseServerState } from './case-teardown.ts';
+import type { CaseBaseline } from './case-teardown.ts';
 
 export interface Deadlines {
   pageReadyMs: number;
@@ -1727,9 +1728,9 @@ export async function runCase({
     return shot;
   };
 
-  let baselineSessionIds: ReadonlySet<string> | null = null;
+  let caseBaseline: CaseBaseline | null = null;
   try {
-    baselineSessionIds = (await captureCaseBaseline(baseUrl, deadlines.pageReadyMs)).sessionIds;
+    caseBaseline = await captureCaseBaseline(baseUrl, deadlines.pageReadyMs);
     for (const [index, step] of harnessCase.scenario.steps.entries()) {
       const stepStartedAt = Date.now();
       let result: StepOutcome;
@@ -1793,14 +1794,15 @@ export async function runCase({
   await closeViewer(viewerA);
 
   let teardownFailed = false;
-  if (baselineSessionIds !== null) {
+  if (caseBaseline !== null) {
     const teardownStartedAt = Date.now();
     let teardownOutcome: { ok: boolean; detail: string };
     try {
       teardownOutcome = await teardownCaseServerState({
         baseUrl,
         caseSessionId: sessionId,
-        baselineSessionIds,
+        baselineSessionIds: caseBaseline.sessionIds,
+        baselineBoardIds: caseBaseline.boardIds,
       });
     } catch (error) {
       teardownOutcome = { ok: false, detail: driverFailureTextOf(error) };
