@@ -30,8 +30,11 @@ export interface ActionCaseHandle {
 export interface CollectionCaseHandle {
   listSelector: string;
   scrollSelector: string;
-  focusSelector: string;
+  focusSelector: string | null;
+  observeRemovedNodesOnC4?: boolean;
+  allowControlRequestsOnC4?: boolean;
   switchAwayAndBack: () => Promise<void>;
+  verifyAfterReturn?: () => Promise<string | null>;
   cleanup: () => Promise<void>;
 }
 
@@ -164,7 +167,7 @@ async function openStudioScreen(page: Page, layout: Layout): Promise<void> {
     const moreButton = page.locator(PHONE_MORE_SELECTOR).first();
     if (await moreButton.isVisible()) {
       await moreButton.click();
-      const studioItem = page.locator('button.phone-nav-menu-item[data-screen="studio"]').first();
+      const studioItem = page.locator('button.phone-nav-menu-item[data-screen="board-session"]').first();
       if (await studioItem.isVisible()) {
         await studioItem.click();
         return;
@@ -173,7 +176,7 @@ async function openStudioScreen(page: Page, layout: Layout): Promise<void> {
     }
     return;
   }
-  const studioTab = page.locator('#tab-studio').first();
+  const studioTab = page.locator('#tab-board-session').first();
   if (await studioTab.isVisible()) await studioTab.click();
 }
 
@@ -1166,10 +1169,34 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
       return {
         listSelector: '.hooks-panel',
         scrollSelector: '.settings-view-main, .settings-view-body',
-        focusSelector: check === 'C3' ? '.hooks-panel [data-action="new-hook"]' : (layout === 'phone' ? '.settings-view' : '.hooks-panel'),
+        focusSelector: check === 'C3' || layout !== 'phone' ? '.hooks-panel [data-action="new-hook"]' : null,
+        observeRemovedNodesOnC4: layout !== 'phone',
         switchAwayAndBack: async () => {
           await openPacksScreen(page, layout);
           await openSettingsSection(page, layout, null);
+        },
+        verifyAfterReturn: layout === 'phone' ? undefined : async () => {
+          await page.locator('.hooks-panel [data-action="new-hook"]').click();
+          const nameInput = page.locator('.hooks-editor input[placeholder="Lint after edits"]');
+          await nameInput.waitFor({ state: 'visible', timeout: 5000 });
+          const draftName = 'Keep editor draft across view return';
+          await nameInput.fill(draftName);
+          await openPacksScreen(page, layout);
+          await openSettingsSection(page, layout, null);
+          const editorState = await page.evaluate((expectedName) => {
+            const input = document.querySelector<HTMLInputElement>('.hooks-editor input[placeholder="Lint after edits"]');
+            if (!input) return 'open hook editor was lost on view return';
+            if (input.value !== expectedName) return `editor draft changed to ${JSON.stringify(input.value)}`;
+            if (document.activeElement !== input) return 'editor input lost focus on view return';
+            return null;
+          }, draftName);
+          const cancelButton = page.locator('.hooks-editor [data-action="cancel-hook-edit"]');
+          if (await cancelButton.isVisible()) {
+            await cancelButton.click();
+            const discardButton = page.locator('dialog.dialog [data-action="confirm-dialog"]');
+            if (await discardButton.isVisible()) await discardButton.click();
+          }
+          return editorState;
         },
         cleanup: async () => {},
       };
@@ -1220,7 +1247,8 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
       return {
         listSelector: '.settings-view-nav',
         scrollSelector: '.settings-view-main, .settings-view-body',
-        focusSelector: check === 'C3' ? 'button.settings-view-nav-item' : '.settings-view',
+        focusSelector: check === 'C3' || layout !== 'phone' ? 'button.settings-view-nav-item' : '.settings-view-search',
+        observeRemovedNodesOnC4: layout !== 'phone',
         switchAwayAndBack: async () => {
           await openPacksScreen(page, layout);
           await openSettingsSection(page, layout, null);
@@ -1232,14 +1260,20 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
   {
     name: 'studio',
     checks: ['C3', 'C4'],
-    async prepare(ctx) {
+    async prepare(ctx, check) {
       const { page, layout, sessionId, projectDirectory } = ctx;
-      await openStudioScreen(page, layout);
       await seedStudioAreaFixture(page, sessionId, projectDirectory);
+      if (check === 'C4' && layout !== 'phone') {
+        await openStudioScreen(page, layout);
+        await page.locator('#view-board-session .bs-pill textarea.chat-composer-input').first().waitFor({ state: 'visible', timeout: 10000 });
+      }
       return {
-        listSelector: '.board-session-view, #studio-view',
-        scrollSelector: '.board-session-view, #studio-view',
-        focusSelector: '#studio-view button, .board-session-view button',
+        listSelector: '.board-session-view, #view-board-session',
+        scrollSelector: '.board-session-view, #view-board-session',
+        focusSelector: check === 'C4' && layout !== 'phone'
+          ? '#view-board-session .bs-pill textarea.chat-composer-input'
+          : '#studio-view button, .board-session-view button',
+        allowControlRequestsOnC4: layout !== 'phone',
         switchAwayAndBack: async () => {
           await openPacksScreen(page, layout);
           await openStudioScreen(page, layout);

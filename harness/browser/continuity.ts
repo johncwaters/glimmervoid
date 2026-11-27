@@ -293,7 +293,7 @@ async function runCollectionContinuityCase(
   const c3Handle = await collectionCase.prepare(ctx, 'C3');
   try {
     await page.evaluate(({ listSelector, focusSelector, scrollSelector }) => {
-      const focusTarget = document.querySelector<HTMLElement>(focusSelector);
+      const focusTarget = focusSelector ? document.querySelector<HTMLElement>(focusSelector) : null;
       focusTarget?.focus();
       const scrollContainers = [...document.querySelectorAll<HTMLElement>(scrollSelector)];
       const initialScrollTops = scrollContainers.map((container) => container.scrollTop);
@@ -359,17 +359,37 @@ async function runCollectionContinuityCase(
   faults.reset();
   const c4Handle = await collectionCase.prepare(ctx, 'C4');
   try {
-    await page.evaluate(({ focusSelector, scrollSelector }) => {
-      const focusTarget = document.querySelector<HTMLElement>(focusSelector);
+    await page.evaluate(({ listSelector, focusSelector, scrollSelector }) => {
+      const focusTarget = focusSelector
+        ? ([...document.querySelectorAll<HTMLElement>(focusSelector)].find(
+          (candidate) => candidate.closest('[hidden], [inert]') === null && !candidate.hasAttribute('disabled') && candidate.getClientRects().length > 0,
+        ) ?? document.querySelector<HTMLElement>(focusSelector))
+        : null;
       focusTarget?.focus();
       const scrollContainers = [...document.querySelectorAll<HTMLElement>(scrollSelector)];
       const initialScrollTops = scrollContainers.map((container) => container.scrollTop);
+      let removedNodeCount = 0;
+      const observers: MutationObserver[] = [];
+      for (const listEl of document.querySelectorAll<HTMLElement>(listSelector)) {
+        const observer = new MutationObserver((records) => {
+          for (const record of records) {
+            for (const removedNode of record.removedNodes) {
+              if (removedNode.nodeType === Node.ELEMENT_NODE) removedNodeCount += 1;
+            }
+          }
+        });
+        observer.observe(listEl, { childList: true });
+        observers.push(observer);
+      }
       Reflect.set(window, '__continuityC4', {
         focusTarget,
         scrollContainers,
         initialScrollTops,
+        observers,
+        readRemovedCount: () => removedNodeCount,
       });
     }, {
+      listSelector: c4Handle.listSelector,
       focusSelector: c4Handle.focusSelector,
       scrollSelector: c4Handle.scrollSelector,
     });
@@ -385,18 +405,35 @@ async function runCollectionContinuityCase(
         focusTarget: HTMLElement | null;
         scrollContainers: HTMLElement[];
         initialScrollTops: number[];
+        observers: MutationObserver[];
+        readRemovedCount: () => number;
       };
+      for (const observer of state.observers) observer.disconnect();
+      const removedCount = state.readRemovedCount();
       const scrollUnchanged = state.scrollContainers.every(
         (container, index) => container.scrollTop === state.initialScrollTops[index],
       );
       const focusNodeRetained = state.focusTarget === null || state.focusTarget.isConnected;
+      const activeElementUnchanged = state.focusTarget === null || document.activeElement === state.focusTarget;
+      const activeDesc = document.activeElement
+        ? `${document.activeElement.tagName.toLowerCase()}#${document.activeElement.id}.${document.activeElement.className}`
+        : 'null';
       Reflect.deleteProperty(window, '__continuityC4');
-      return { scrollUnchanged, focusNodeRetained };
+      return { removedCount, scrollUnchanged, focusNodeRetained, activeElementUnchanged, activeDesc };
     });
 
-    c4Passed = c4ControlRequests.length === 0 && c4Check.scrollUnchanged && c4Check.focusNodeRetained;
+    const extraFailure = c4Handle.verifyAfterReturn ? await c4Handle.verifyAfterReturn() : null;
+    const isRemovedOk = c4Handle.observeRemovedNodesOnC4 === false || c4Check.removedCount === 0;
+    const isRequestsOk = c4Handle.allowControlRequestsOnC4 === true || c4ControlRequests.length === 0;
+    c4Passed = isRequestsOk
+      && isRemovedOk
+      && c4Check.scrollUnchanged
+      && c4Check.focusNodeRetained
+      && c4Check.activeElementUnchanged
+      && extraFailure === null;
     if (!c4Passed) {
-      failures.push(`C4 view return failed (requests=[${c4ControlRequests.join(',')}], scrollUnchanged=${String(c4Check.scrollUnchanged)}, focusNodeRetained=${String(c4Check.focusNodeRetained)})`);
+      const extraPart = extraFailure ? `, extra=${extraFailure}` : '';
+      failures.push(`C4 view return failed (requests=[${c4ControlRequests.join(',')}], removed=${c4Check.removedCount}, scrollUnchanged=${String(c4Check.scrollUnchanged)}, focusNodeRetained=${String(c4Check.focusNodeRetained)}, activeUnchanged=${String(c4Check.activeElementUnchanged)}[${c4Check.activeDesc}]${extraPart})`);
     }
   } finally {
     faults.reset();

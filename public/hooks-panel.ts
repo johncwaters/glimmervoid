@@ -82,6 +82,7 @@ import {
   requestHooksReport,
 } from './state/collections/hooks.ts';
 import { isOptimisticHookId } from './state/hooks-core.ts';
+import { placeRowsInOrder } from './status-paint.ts';
 import type { ViewRefreshReason } from './view-registry-core.ts';
 
 let _hooks = hooksSnapshot();
@@ -104,6 +105,38 @@ type RowFeedback = { tone: 'busy' | 'error'; text: string };
 const _rowFeedbackById = new Map<string, RowFeedback>();
 
 let _focusAddOnRender = false;
+let _collectionRevision = 0;
+let _renderedRevision = -1;
+
+interface MountedHookRow {
+  element: HTMLElement;
+  fingerprint: string;
+}
+
+interface MountedHookGroup {
+  element: HTMLElement;
+  list: HTMLElement;
+}
+
+interface MountedHooksShell {
+  content: HTMLElement;
+  totalsSection: HTMLElement;
+  yoursSection: HTMLElement;
+  addButton: HTMLButtonElement;
+  filterInput: HTMLInputElement | null;
+  yoursListWrap: HTMLElement;
+  builtinSection: HTMLElement;
+  notesSection: HTMLElement;
+  totalsFingerprint: string;
+  builtinFingerprint: string;
+  notesFingerprint: string;
+  emptyMode: 'none' | 'empty' | 'filter-empty';
+  rowByHookId: Map<string, MountedHookRow>;
+  groupByEvent: Map<string, MountedHookGroup>;
+}
+
+let _shell: MountedHooksShell | null = null;
+let _statusKey: string | null = null;
 
 const buildSection = (title: string | null | undefined, hint?: string | null) => buildPanelSection('hooks', title, hint);
 
@@ -434,8 +467,7 @@ function buildTotalsSection() {
 function buildFilter() {
   const input = textInput({ type: 'search', size: 'small', value: _filter, placeholder: FILTER_PLACEHOLDER, label: FILTER_PLACEHOLDER, onInput: (value) => {
     _filter = value;
-    const list = _root?.querySelector('.hooks-list-yours');
-    if (list) list.replaceWith(buildYoursList());
+    if (_shell) syncYoursList(_shell);
   } });
   input.classList.add('hooks-filter');
   return input;
@@ -445,37 +477,98 @@ function buildEmptyState() {
   return emptyState({ text: HOOKS_EMPTY_TEXT, actions: [buildTemplateRow(eventsOf(_hooks.report))], variant: 'boxed' });
 }
 
-function buildYoursList() {
-  const wrap = el('div', 'hooks-list-yours');
+function hookRowFingerprint(hook: HookRecord, projects: HookProject[]): string {
+  return JSON.stringify({
+    hook,
+    scope: scopeLabel(hook, projects),
+    missing: missingProjectIds(hook, projects),
+    busy: _busyIds.has(hook.id) || isOptimisticHookId(hook.id),
+    feedback: _rowFeedbackById.get(hook.id) ?? null,
+  });
+}
+
+function syncYoursList(shell: MountedHooksShell) {
+  const wrap = shell.yoursListWrap;
   const hooks = hooksOf(_hooks.report);
   if (hooks.length === 0) {
-    wrap.append(buildEmptyState());
-    return wrap;
+    shell.rowByHookId.clear();
+    shell.groupByEvent.clear();
+    if (shell.emptyMode !== 'empty') {
+      wrap.replaceChildren(buildEmptyState());
+      shell.emptyMode = 'empty';
+    }
+    return;
   }
   const shown = filterHooks(sortHooks(hooks, eventsOf(_hooks.report)), _filter);
   if (shown.length === 0) {
-    wrap.append(emptyState({ text: FILTER_EMPTY_TEXT }));
-    return wrap;
+    shell.rowByHookId.clear();
+    shell.groupByEvent.clear();
+    if (shell.emptyMode !== 'filter-empty') {
+      wrap.replaceChildren(emptyState({ text: FILTER_EMPTY_TEXT }));
+      shell.emptyMode = 'filter-empty';
+    }
+    return;
   }
-  for (const group of groupHooksByEvent(shown)) {
-    const groupEl = el('div', 'hooks-group');
-    groupEl.append(el('h3', 'hooks-group-title', group.event));
-    const list = el('div', 'hooks-list');
-    for (const hook of group.hooks) list.append(buildRow(hook, { grouped: true }));
-    groupEl.append(list);
-    wrap.append(groupEl);
+  if (shell.emptyMode !== 'none') {
+    wrap.replaceChildren();
+    shell.emptyMode = 'none';
   }
-  return wrap;
-}
+  const projects = projectsOf<HookProject>(_hooks.report);
+  const groups = groupHooksByEvent(shown);
+  const activeGroupKeys = new Set<string>();
+  const seenEventCounts = new Map<string, number>();
+  const activeHookIds = new Set<string>();
+  const orderedGroupEls: HTMLElement[] = [];
 
-function buildYoursSection() {
-  const section = buildSection(YOUR_HOOKS_TITLE, null);
-  const add = button({ variant: 'primary', size: 'small', label: NEW_HOOK_TITLE, icon: createLineIcon(PLUS_ICON_PATH), action: 'new-hook', disabled: !!_draft, onClick: () => openEditor(null) });
-  const head = section.querySelector('.hooks-section-head');
-  if (head) head.append(add);
-  if (showsFilter(hooksOf(_hooks.report))) section.append(buildFilter());
-  section.append(buildYoursList());
-  return section;
+  for (const group of groups) {
+    const occurrence = seenEventCounts.get(group.event) ?? 0;
+    seenEventCounts.set(group.event, occurrence + 1);
+    const groupKey = occurrence === 0 ? group.event : `${group.event}#${occurrence}`;
+    activeGroupKeys.add(groupKey);
+    let mountedGroup = shell.groupByEvent.get(groupKey);
+    if (!mountedGroup) {
+      const groupEl = el('div', 'hooks-group');
+      groupEl.append(el('h3', 'hooks-group-title', group.event));
+      const list = el('div', 'hooks-list');
+      groupEl.append(list);
+      mountedGroup = { element: groupEl, list };
+      shell.groupByEvent.set(groupKey, mountedGroup);
+    }
+    const orderedRowEls: HTMLElement[] = [];
+    const activeRowSet = new Set<HTMLElement>();
+    for (const hook of group.hooks) {
+      activeHookIds.add(hook.id);
+      const nextFingerprint = hookRowFingerprint(hook, projects);
+      const existing = shell.rowByHookId.get(hook.id);
+      if (existing && existing.fingerprint === nextFingerprint) {
+        orderedRowEls.push(existing.element);
+        activeRowSet.add(existing.element);
+        continue;
+      }
+      const nextRowEl = buildRow(hook, { grouped: true });
+      if (existing && existing.element.parentElement === mountedGroup.list) {
+        existing.element.replaceWith(nextRowEl);
+      }
+      shell.rowByHookId.set(hook.id, { element: nextRowEl, fingerprint: nextFingerprint });
+      orderedRowEls.push(nextRowEl);
+      activeRowSet.add(nextRowEl);
+    }
+    for (const child of Array.from(mountedGroup.list.children)) {
+      if (child instanceof HTMLElement && !activeRowSet.has(child)) child.remove();
+    }
+    placeRowsInOrder(mountedGroup.list, orderedRowEls);
+    orderedGroupEls.push(mountedGroup.element);
+  }
+
+  for (const [groupKey, mountedGroup] of shell.groupByEvent) {
+    if (activeGroupKeys.has(groupKey)) continue;
+    mountedGroup.element.remove();
+    shell.groupByEvent.delete(groupKey);
+  }
+  for (const hookId of [...shell.rowByHookId.keys()]) {
+    if (!activeHookIds.has(hookId)) shell.rowByHookId.delete(hookId);
+  }
+  placeRowsInOrder(wrap, orderedGroupEls);
 }
 
 function buildAgentGroup(group: AgentHookGroup) {
@@ -515,36 +608,139 @@ function buildAgentNotesSection() {
   return buildBuiltinDisclosure(`${AGENT_NOTES_TITLE} (${notes.length})`, AGENT_NOTES_HINT, list);
 }
 
-function buildBody() {
+function buildMountedShell(): MountedHooksShell {
   const content = el('div', 'hooks-content');
-  if (!_hooks.report) {
-    content.append(_hooks.hasReportSendFailed ? buildLine('hooks-warning', NOT_CONNECTED_TEXT) : buildLine('hooks-empty', HOOKS_LOADING_TEXT));
-    return content;
-  }
-  if (isHooksUnavailable(_hooks.report)) {
-    content.append(buildLine('hooks-warning', hooksErrorLine(_hooks.report)));
-    return content;
-  }
-  content.append(buildTotalsSection());
+  const totalsSection = buildTotalsSection();
+  const yoursSection = buildSection(YOUR_HOOKS_TITLE, null);
+  const addButton = button({ variant: 'primary', size: 'small', label: NEW_HOOK_TITLE, icon: createLineIcon(PLUS_ICON_PATH), action: 'new-hook', disabled: !!_draft, onClick: () => openEditor(null) });
+  const head = yoursSection.querySelector('.hooks-section-head');
+  if (head) head.append(addButton);
+  const yoursListWrap = el('div', 'hooks-list-yours');
+  yoursSection.append(yoursListWrap);
+  const builtinSection = buildBuiltinSection();
+  const notesSection = buildAgentNotesSection();
+  content.append(totalsSection);
   if (_editorEl) content.append(_editorEl);
-  content.append(buildYoursSection(), buildBuiltinSection(), buildAgentNotesSection());
-  return content;
+  content.append(yoursSection, builtinSection, notesSection);
+  return {
+    content,
+    totalsSection,
+    yoursSection,
+    addButton,
+    filterInput: null,
+    yoursListWrap,
+    builtinSection,
+    notesSection,
+    totalsFingerprint: JSON.stringify(totalsChips(_hooks.report)),
+    builtinFingerprint: JSON.stringify(builtinGroupsOf(_hooks.report)),
+    notesFingerprint: JSON.stringify(agentNotesOf(_hooks.report)),
+    emptyMode: 'none',
+    rowByHookId: new Map(),
+    groupByEvent: new Map(),
+  };
+}
+
+function syncEditorSlot(shell: MountedHooksShell) {
+  const existingEditor = shell.content.querySelector('.hooks-editor');
+  if (_editorEl && existingEditor === _editorEl) return;
+  if (existingEditor && existingEditor !== _editorEl) existingEditor.remove();
+  if (_editorEl) shell.totalsSection.after(_editorEl);
+}
+
+function syncFilterControl(shell: MountedHooksShell) {
+  const needsFilter = showsFilter(hooksOf(_hooks.report));
+  if (needsFilter && !shell.filterInput) {
+    shell.filterInput = buildFilter();
+    shell.yoursListWrap.before(shell.filterInput);
+    return;
+  }
+  if (!needsFilter && shell.filterInput) {
+    shell.filterInput.remove();
+    shell.filterInput = null;
+  }
+}
+
+function syncMountedShell(shell: MountedHooksShell) {
+  const nextTotalsFingerprint = JSON.stringify(totalsChips(_hooks.report));
+  if (nextTotalsFingerprint !== shell.totalsFingerprint) {
+    const nextTotals = buildTotalsSection();
+    shell.totalsSection.replaceWith(nextTotals);
+    shell.totalsSection = nextTotals;
+    shell.totalsFingerprint = nextTotalsFingerprint;
+  }
+  syncEditorSlot(shell);
+  shell.addButton.disabled = !!_draft;
+  syncFilterControl(shell);
+  syncYoursList(shell);
+
+  const nextBuiltinFingerprint = JSON.stringify(builtinGroupsOf(_hooks.report));
+  if (nextBuiltinFingerprint !== shell.builtinFingerprint) {
+    const wasOpen = shell.builtinSection instanceof HTMLDetailsElement && shell.builtinSection.open;
+    const nextBuiltin = buildBuiltinSection();
+    if (nextBuiltin instanceof HTMLDetailsElement) nextBuiltin.open = wasOpen;
+    shell.builtinSection.replaceWith(nextBuiltin);
+    shell.builtinSection = nextBuiltin;
+    shell.builtinFingerprint = nextBuiltinFingerprint;
+  }
+
+  const nextNotesFingerprint = JSON.stringify(agentNotesOf(_hooks.report));
+  if (nextNotesFingerprint !== shell.notesFingerprint) {
+    const wasOpen = shell.notesSection instanceof HTMLDetailsElement && shell.notesSection.open;
+    const nextNotes = buildAgentNotesSection();
+    if (nextNotes instanceof HTMLDetailsElement) nextNotes.open = wasOpen;
+    shell.notesSection.replaceWith(nextNotes);
+    shell.notesSection = nextNotes;
+    shell.notesFingerprint = nextNotesFingerprint;
+  }
+}
+
+function renderStatusContent(className: string, text: string) {
+  if (!_root) return;
+  const nextKey = `${className}:${text}`;
+  if (_shell === null && _statusKey === nextKey && _root.firstElementChild) return;
+  _shell = null;
+  _statusKey = nextKey;
+  const content = el('div', 'hooks-content');
+  content.append(buildLine(className, text));
+  _root.replaceChildren(content);
 }
 
 function render({ force = false }: { force?: boolean } = {}) {
   if (!_root) return;
   if (!force && isPanelHidden(_root)) return;
+  _renderedRevision = _collectionRevision;
   _hooks = hooksSnapshot();
-  _root.replaceChildren(buildBody());
+  if (!_hooks.report) {
+    renderStatusContent(
+      _hooks.hasReportSendFailed ? 'hooks-warning' : 'hooks-empty',
+      _hooks.hasReportSendFailed ? NOT_CONNECTED_TEXT : HOOKS_LOADING_TEXT,
+    );
+    return;
+  }
+  if (isHooksUnavailable(_hooks.report)) {
+    renderStatusContent('hooks-warning', hooksErrorLine(_hooks.report));
+    return;
+  }
+  _statusKey = null;
+  if (!_shell || !_shell.content.isConnected) {
+    _shell = buildMountedShell();
+    _root.replaceChildren(_shell.content);
+  }
+  syncMountedShell(_shell);
   if (!_focusAddOnRender) return;
   _focusAddOnRender = false;
-  const add = _root.querySelector('[data-action="new-hook"]');
-  if (add instanceof HTMLButtonElement) add.focus();
+  _shell.addButton.focus();
 }
 
-onHooksChanged(() => render());
+onHooksChanged(() => {
+  _collectionRevision += 1;
+  render();
+});
 
 export function renderHooksPage(container: HTMLElement) {
+  _shell = null;
+  _statusKey = null;
+  _renderedRevision = -1;
   _root = el('div', 'hooks-panel');
   container.append(_root);
   render({ force: true });
@@ -552,6 +748,10 @@ export function renderHooksPage(container: HTMLElement) {
 }
 
 export function refreshHooksPage(reason: ViewRefreshReason) {
-  if (reason === 'shown') render({ force: true });
-  requestHooksReport({ force: reason !== 'shown' });
+  if (reason === 'shown') {
+    if (_renderedRevision !== _collectionRevision) render();
+    requestHooksReport({ force: false });
+    return;
+  }
+  requestHooksReport({ force: true });
 }

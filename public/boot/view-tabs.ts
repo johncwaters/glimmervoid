@@ -9,6 +9,7 @@ import updateSettingsAction from '../state/actions/update-settings.ts';
 import { isSettingsHash } from '../settings-link.ts';
 import { setTraceNavigate } from '../trace-store.ts';
 import { hasSession } from '../session-card/lifecycle.ts';
+import { isModalOpen } from '../ui/modal-state.ts';
 import { getActiveView as getSavedActiveView, setActiveView } from '../ui-prefs.ts';
 import { getActiveView, uiState } from '../ui-state-core.ts';
 import { createDashboardViews, createPackView, mountEagerViews, mountedViewModule, relabelPackView, showView } from './view-registry.ts';
@@ -86,6 +87,43 @@ function acknowledgeViewAttention(view: string) {
 }
 
 let unsentShownView: string | null = null;
+const savedFocusByView = new Map<string, HTMLElement>();
+
+function viewContainerFor(view: string): HTMLElement | null {
+  if (isPhoneShellActive()) {
+    return document.querySelector<HTMLElement>(`.phone-screen[data-screen="${CSS.escape(view)}"]`);
+  }
+  return findViewTab(view)?.el ?? null;
+}
+
+function viewIdForElement(element: Element): string | null {
+  if (isPhoneShellActive()) {
+    return element.closest<HTMLElement>('.phone-screen[data-screen]')?.dataset.screen ?? null;
+  }
+  return VIEW_TABS.find((viewTab) => viewTab.el?.contains(element) ?? false)?.view ?? null;
+}
+
+function recordFocusInView(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return;
+  const viewId = viewIdForElement(target);
+  if (!viewId) return;
+  savedFocusByView.set(viewId, target);
+}
+
+function isFocusableInContainer(element: HTMLElement, container: HTMLElement): boolean {
+  if (!element.isConnected || !container.contains(element)) return false;
+  if (element.hasAttribute('disabled')) return false;
+  return element.closest('[hidden], [inert]') === null;
+}
+
+function restoreViewFocus(view: string) {
+  if (isModalOpen()) return;
+  const savedElement = savedFocusByView.get(view);
+  if (!savedElement) return;
+  const container = viewContainerFor(view);
+  if (!container || !isFocusableInContainer(savedElement, container)) return;
+  savedElement.focus({ preventScroll: true });
+}
 
 function reportViewShown(view: string) {
   const isSent = sendControlMsg({ type: 'dashboard-telemetry', event: 'view_shown', properties: { view } });
@@ -98,8 +136,14 @@ function resendUnsentShownView() {
 
 function refreshViewOnShow(view: string) {
   const viewTab = findViewTab(view);
-  if (!viewTab) return;
-  showView(viewTab, (module) => refreshViewOnReason(viewTab, module, 'shown'));
+  if (!viewTab) {
+    if (isPhoneShellActive()) restoreViewFocus(view);
+    return;
+  }
+  showView(viewTab, (module) => {
+    refreshViewOnReason(viewTab, module, 'shown');
+    if (isPhoneShellActive()) restoreViewFocus(view);
+  });
   reportViewShown(view);
 }
 
@@ -127,6 +171,7 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   const viewTab = findViewTab(view);
   if (!viewTab || !isViewAvailable(view)) return;
   const prev = getActiveView();
+  if (prev !== view) recordFocusInView(document.activeElement);
   uiState.dispatch('setActiveView', view);
   shouldPersistActiveView = persist;
   if (persist) savedViewAwaitingSurface = null;
@@ -147,6 +192,7 @@ function activateView(view: string, { section, setting, persist = true }: Activa
     module.activate?.();
     refreshViewOnReason(viewTab, module, 'shown');
     if (view === 'settings' && section) activateSettingsSection(section, setting ?? null);
+    if (prev !== view && !(view === 'settings' && section) && !isPhoneShellActive()) restoreViewFocus(view);
   });
   reportViewShown(view);
   if (prev === 'settings' && view !== 'settings') clearSettingsHash();
@@ -192,9 +238,12 @@ function activateViewTabAt(availableTabs: typeof VIEW_TABS, index: number) {
 }
 
 function stepViewTab(fromView: string, direction: number) {
+  const wasHeaderTabFocused = VIEW_TABS.some((viewTab) => viewTab.tab === document.activeElement);
   const availableTabs = availableViewTabs();
   const fromIndex = availableTabs.findIndex((viewTab) => viewTab.view === fromView);
-  return activateViewTabAt(availableTabs, wrapIndex(fromIndex, direction, availableTabs.length));
+  const nextTab = activateViewTabAt(availableTabs, wrapIndex(fromIndex, direction, availableTabs.length));
+  if (wasHeaderTabFocused) nextTab.focus();
+  return nextTab;
 }
 
 function focusViewTabIfFocused(tab: HTMLElement) {
@@ -312,6 +361,7 @@ function mountViewTabs() {
     activateView('trace');
   });
 
+  document.addEventListener('focusin', (event) => recordFocusInView(event.target));
   for (const viewTab of VIEW_TABS) wireViewTab(viewTab);
   selectInitialView();
   onPackPanelsChange(syncPackViews);
