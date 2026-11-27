@@ -12,6 +12,7 @@ interface HealthSession {
   readonly id: string;
   readonly state: Session['state'];
   readonly stateSince: number;
+  readonly hasTerminal: boolean;
   readonly hasLivePty: boolean;
   readonly resumeSessionId: string | null;
   readonly ephemeral?: boolean;
@@ -126,6 +127,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     if (session.ephemeral || !session.hasLivePty || !session.resumeSessionId) return false;
     if (session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) return false;
     if (hasActiveTerminalViewer(id)) return false;
+    if (!session.hasTerminal && dependencies.viewerControlClientCount() > 0) return false;
     if (session.hasBackgroundWork) return false;
     if (session.hasLiveChildren) return false;
     return true;

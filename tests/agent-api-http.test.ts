@@ -1106,6 +1106,62 @@ test('a session with a live child refuses snooze and is passed over by the idle 
   }
 });
 
+test('non-terminal ACP sessions stay awake while a dashboard viewer is connected, hibernate when unviewed, and wake when chat-send arrives', async () => {
+  const acpSession = new Session({
+    id: 'acp-studio-main',
+    name: 'Orchestrator',
+    path: process.cwd(),
+    isStudioMain: true,
+    driver: {
+      kind: 'acp',
+      command: { file: process.execPath, args: [path.resolve('harness/browser/fake-acp-agent.ts')] },
+      mcpServers: [],
+      clientVersion: 'test',
+    },
+  });
+  let viewerCount = 1;
+  const liveSessions = new Map([[acpSession.id, acpSession]]);
+  const health = createBackendHealth({
+    sessions: liveSessions,
+    getAllSessions: () => [...liveSessions.values()],
+    sessionDataClients: new Map(),
+    getMemoryGateStatus: () => ({ headroomBytes: 0, headroomReadAtMs: null, heldStartCount: 0 }),
+    idleHibernation: { idleHibernateMs: null, headroomFloorBytes: 1, readHeadroom: async () => ({ ok: true, headroomBytes: 0 }) },
+    controlWss: { clients: new Set() },
+    viewerControlClientCount: () => viewerCount,
+    dataWss: { clients: new Set() },
+    broadcastControl: () => {},
+  });
+  const config: GlimmervoidConfig = { projects: [] };
+  const control = connectControl<{ type: string; ok?: boolean; id?: string }>(createControlServer(controlDeps(config, { sessions: liveSessions })));
+  try {
+    await acpSession.start();
+    await waitFor(() => acpSession.state === STATES.IDLE && acpSession.resumeSessionId !== null, 'ACP session to reach IDLE with resume id', 10_000);
+    assert.deepEqual(await health.runIdleHibernationSweep(), [], 'a viewed non-terminal ACP session is not snoozed under memory pressure');
+    assert.equal(acpSession.state, STATES.IDLE);
+
+    viewerCount = 0;
+    assert.deepEqual(await health.runIdleHibernationSweep(), [acpSession.id], 'an unviewed idle ACP session still hibernates under memory pressure');
+    await waitFor(() => acpSession.state === STATES.DORMANT, 'ACP session to enter DORMANT after snooze', 5_000);
+
+    const replyTexts: string[] = [];
+    acpSession.on('driver-update', ({ update }: { update?: { sessionUpdate?: string; content?: { type?: string; text?: string } } }) => {
+      if (update?.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text' && typeof update.content.text === 'string') {
+        replyTexts.push(update.content.text);
+      }
+    });
+    const pausedAtMs = Date.now();
+    control.send({ type: 'chat-send', id: acpSession.id, text: 'Where does tax get added?' });
+    const sendReply = control.sent.find((frame) => frame.type === 'chat-send-result');
+    assert.equal(sendReply?.ok, true);
+    assert.ok(acpSession._lastOperatorInputAt >= pausedAtMs, 'chat-send records operator activity so budget-hold repause does not re-snooze the woken session');
+    await waitFor(() => replyTexts.some((text) => text.includes('Tax is added in src/checkout/checkout.js.')), 'woken ACP session to answer queued chat prompt', 10_000);
+  } finally {
+    clearInterval(health.healthInterval);
+    acpSession.destroy();
+  }
+});
+
 test('a Studio main refuses snooze while a branch agent is live, and a budget hold pauses its branches first, snoozing one and stopping one with no conversation, so the main ends dormant, not killed, and once restarted waits for a branch the operator is using', async () => {
   const studioBranch = (id: string, title: string) => new Session({ id, name: `parent ${title}`, path: process.cwd(), ptySpawn: () => fakePty(), parent: { sessionId: 'parent', box: { id: `box-${title}`, title, repoName: 'glimmervoid' } } });
   const resumableBranch = studioBranch('branch-server', 'server');
