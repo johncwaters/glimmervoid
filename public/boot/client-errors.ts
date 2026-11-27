@@ -1,5 +1,6 @@
 import { createClientErrorReporter, describeFailure } from '../client-error-core.ts';
 import { reportToServerLog, sendControlMsg } from '../control-ws.ts';
+import { getSessionStorage } from '../local-store.ts';
 import { reloadOnceOnPreloadError } from './view-registry.ts';
 
 function wireClientErrorReporting() {
@@ -12,7 +13,7 @@ function wireClientErrorReporting() {
     reportClientError(event.reason);
     reportToServerLog('unhandled-rejection', describeFailure(event.reason));
   });
-  reloadOnceOnPreloadError(() => window.sessionStorage);
+  reloadOnceOnPreloadError(getSessionStorage);
 }
 
 export { wireClientErrorReporting };

@@ -14,6 +14,7 @@ import { getActiveView } from '../ui-state-core.ts';
 import { prefetchViewsWhenIdle, reloadOnceIfBundleRetired } from './view-registry.ts';
 import { applyDashboardSettings, reportOperatorTimezone } from './dashboard-settings.ts';
 import { playLoadingUnlock } from '../loading-unlock.ts';
+import { getSessionStorage } from '../local-store.ts';
 import { activateSettingsHash } from './hash-routes.ts';
 import { VIEW_TABS, refreshViewsIfVisible, resendUnsentShownView } from './view-tabs.ts';
 
@@ -162,7 +163,7 @@ function clearServerUnreachableHint() {
 
 function onControlConnected() {
   clearServerUnreachableHint();
-  reloadOnceIfBundleRetired(import.meta.url, () => window.sessionStorage);
+  reloadOnceIfBundleRetired(import.meta.url, getSessionStorage);
   resendUnsentShownView();
   if (shutdownScreen.classList.contains('active')) {
     location.reload();

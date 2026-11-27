@@ -66,6 +66,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 - New persistent UI state goes through `ui-prefs.ts`, not raw localStorage: add a key to its `PREFS` table and a one-line accessor pair, never a second load/mutate/save copy.
 - A confirm prompt comes from `session-card/modal.ts` `openConfirmDialog`, never a hand-rolled overlay.
 - Section heads, stat chips, `projectsOf` and `isPanelHidden` come from `dom-helpers.ts`; a new tab panel passes its class prefix rather than copying the builders.
+- Client state rules are enforced by `tests/gates/state-*.test.ts`, and each failure message states the fix.
 
 ### Solid 2 Components
 

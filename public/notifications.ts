@@ -6,6 +6,7 @@ import { reportToServerLog, sendControlMsg } from './control-ws.ts';
 import { alertGroupBannerOptions, desktopNotificationOptions, foldAlertGroupLines } from './desktop-notification-core.ts';
 import { el } from './dom-helpers.ts';
 import { isPhoneLayout } from './form-factor.ts';
+import { localStorageBackend } from './local-store.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { getVisiblePhoneSessionId } from './phone/phone-shell-gate.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
@@ -142,7 +143,7 @@ function showAlertGroupBanner(msg: ServerMessageOf<'notify'>, group: NotifyAlert
   if (!notificationApi) return;
   alertGroupLines = foldAlertGroupLines(alertGroupLines, group, msg.message);
   clearHeaderError(NOTIFICATIONS_ERROR_SOURCE);
-  if (!claimNotification(window.localStorage, claimKey(`group-${group.id}`, `${msg.session}-${msg.category}`), clock.nowMs())) return;
+  if (!claimNotification(localStorageBackend, claimKey(`group-${group.id}`, `${msg.session}-${msg.category}`), clock.nowMs())) return;
   const onlySessionUi = group.sessionIds.length === 1 ? sessionUIs.get(msg.session) : undefined;
   const title = group.sessionIds.length > 1 ? `${group.sessionIds.length} sessions` : (onlySessionUi ? sessionName(onlySessionUi) : 'Glimmervoid');
   try {
@@ -229,7 +230,7 @@ export function showDesktopNotification({
   if (notificationApi.permission !== 'granted') return;
   clearHeaderError(NOTIFICATIONS_ERROR_SOURCE);
 
-  if (!claimNotification(window.localStorage, claimKey(session, category), clock.nowMs())) return;
+  if (!claimNotification(localStorageBackend, claimKey(session, category), clock.nowMs())) return;
   const sessionId = typeof session === 'string' ? session : '';
   const sessionUi = sessionUIs.get(sessionId);
   const shownSessionName = sessionUi ? sessionName(sessionUi) : '';

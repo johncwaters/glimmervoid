@@ -2,6 +2,7 @@ import type { YourDay } from '#shared/contracts/your-day.ts';
 import { clock } from '#shared/clock.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { isHintCardShown, showHintCard } from './feature-hint.ts';
+import { getString, localStorageBackend, setString } from './local-store.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { attentionTally } from './session-card/card-registry.ts';
 import { subscribeUsage, usageSnapshot } from './usage/usage-store.ts';
@@ -20,25 +21,9 @@ function minutesText(ms: number) {
   return twoUnitDurationText(Math.round(ms / MINUTE_MS) * 60, { smallestUnit: 'm', dropsZeroRemainder: true });
 }
 
-function readStorage(key: string) {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeStorage(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    return;
-  }
-}
-
 function claim(category: string, now: number, ttlMs: number) {
   try {
-    return claimNotification(localStorage, claimKey('your-day', category), now, ttlMs);
+    return claimNotification(localStorageBackend, claimKey('your-day', category), now, ttlMs);
   } catch {
     return true;
   }
@@ -83,7 +68,7 @@ function tryLiveTip(yourDay: YourDay, now: number) {
   const stretchMs = now - stretchStartedAt;
   if (waitingCount <= yourDay.usual.peakWaiting || stretchMs <= yourDay.usual.stretchMs) return;
   const silencedKey = claimKey('your-day', `live-silenced-${clock.dayKeyOf(now)}`);
-  if (readStorage(silencedKey)) return;
+  if (getString(silencedKey)) return;
   if (!claim('live', now, LIVE_TIP_GAP_MS)) return;
   showHintCard({
     eyebrow: 'Right now',
@@ -92,7 +77,7 @@ function tryLiveTip(yourDay: YourDay, now: number) {
     ariaLabel: 'Your day',
     openLabel: 'Open usage',
     onOpen: openUsageView,
-    onDismiss: () => writeStorage(silencedKey, String(now)),
+    onDismiss: () => setString(silencedKey, String(now)),
   });
 }
 

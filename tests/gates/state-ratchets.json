@@ -1,0 +1,354 @@
+{
+  "socketCalls": {
+    "public/action-status.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/add-session/add-session-picker.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/agent-logins.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/app.ts": {
+      "sendControlMsg": 3,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/arena/arena-panel.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/arena/new-race-form.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/arena/race-card.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/board-session/agent-waits.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/board-session/ask-card.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/board-session/board-session-view.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 7,
+      "onControlMessage": 0
+    },
+    "public/board-session/dock.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 5,
+      "onControlMessage": 0
+    },
+    "public/board-session/studio-guide.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/chat/chat-page.ts": {
+      "sendControlMsg": 4,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/chat/chat-waits.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/community/community-setup-card.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/dialogs.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/doc-editor/doc-editor-ui.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/feature-hint.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/focus-view/focus-view.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/github/lane-read-token-step.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/github/my-prs-panel.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 4,
+      "onControlMessage": 0
+    },
+    "public/github/review-setup-card.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/github/review-skill-notice.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/github/team-review-detail-parts.ts": {
+      "sendControlMsg": 2,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/github/team-review-panel.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/health-monitor.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/hooks-panel.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/host-ready/host-ready-rows.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/notifications.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/onboarding/clone-jobs.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/onboarding/first-run-checklist.ts": {
+      "sendControlMsg": 3,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/onboarding/repo-roots-adder.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/packs/pack-approval-content.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/packs/pack-bridge-host.ts": {
+      "sendControlMsg": 2,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/packs/pack-settings-view.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/packs/packs-catalog.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/plan/plan-gate-panel.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/radar/radar-panel.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/review/review-reader.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/review/review-store.ts": {
+      "sendControlMsg": 8,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/secrets/commit-signing.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/secrets/github-connect.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/secrets/secrets-settings.ts": {
+      "sendControlMsg": 2,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/server-power.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-actions.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 4,
+      "onControlMessage": 0
+    },
+    "public/session-card/card-account.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/session-card/card-debug.ts": {
+      "sendControlMsg": 2,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-card/card-dom.ts": {
+      "sendControlMsg": 3,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-card/card-model.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/session-card/card-problems.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-card/lifecycle.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-card/resume-dialog.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/session-card/secret-request-face.ts": {
+      "sendControlMsg": 2,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-card/terminal.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-card/watched-completion.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/session-card/workspace-repos-dialog.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/settings/settings-controls.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/settings/settings-readouts.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/settings/settings-save.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 2,
+      "onControlMessage": 0
+    },
+    "public/settings/settings-store.ts": {
+      "sendControlMsg": 2,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/terminal-color-report.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/wake-timeline.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    },
+    "public/wargames/wargames-panel.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 3,
+      "onControlMessage": 0
+    },
+    "public/whiteboard/board-store.ts": {
+      "sendControlMsg": 0,
+      "sendControlRequest": 1,
+      "onControlMessage": 0
+    },
+    "public/whiteboard/board-tile-store.ts": {
+      "sendControlMsg": 1,
+      "sendControlRequest": 0,
+      "onControlMessage": 0
+    }
+  },
+  "localStoreImports": {
+    "public/boot/client-errors.ts": 1,
+    "public/boot/connection-screen.ts": 1,
+    "public/feature-hint.ts": 1,
+    "public/notifications.ts": 1,
+    "public/review/review-reader.ts": 1,
+    "public/ui-prefs.ts": 1,
+    "public/ui/store-signal.ts": 1,
+    "public/your-day-tip.ts": 1
+  },
+  "subscribeModules": [
+    "public/arena/race-store.ts",
+    "public/community/community-store.ts",
+    "public/github/github-prs-store.ts",
+    "public/github/my-prs-store.ts",
+    "public/github/review-queue-store.ts",
+    "public/github/team-review-store.ts",
+    "public/hooks-store.ts",
+    "public/packs/packs-store.ts",
+    "public/radar/radar-store.ts",
+    "public/settings/settings-store.ts",
+    "public/trace-store.ts",
+    "public/usage/usage-store.ts",
+    "public/wargames/wargames-store.ts"
+  ]
+}

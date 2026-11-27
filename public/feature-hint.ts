@@ -4,6 +4,7 @@ import { sendControlMsg } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { openExternalUrl } from './external-link.ts';
 import { buildLockMark, playLockMark } from './loading-unlock.ts';
+import { localStorageBackend } from './local-store.ts';
 import { button } from './ui/button.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { clock } from '#shared/clock.ts';
@@ -13,7 +14,7 @@ let isStarHintWaiting = false;
 
 function claimCard(category: string, cardKey: string) {
   try {
-    return claimNotification(localStorage, claimKey(category, cardKey), clock.nowMs());
+    return claimNotification(localStorageBackend, claimKey(category, cardKey), clock.nowMs());
   } catch {
     return true;
   }

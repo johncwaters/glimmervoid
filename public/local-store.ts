@@ -45,3 +45,12 @@ export function removeKeysWithPrefix(prefix: string, shouldKeepKey: (key: string
   } catch {
   }
 }
+
+export function getSessionStorage(): Storage {
+  return window.sessionStorage;
+}
+
+export const localStorageBackend: Pick<Storage, 'getItem' | 'setItem'> = {
+  getItem: (key) => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
+};
