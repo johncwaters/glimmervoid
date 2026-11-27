@@ -361,17 +361,14 @@
     "server/control/handlers/settings-handlers.ts": 24,
     "server/control/handlers/wargames-handlers.ts": 2,
     "server/control/handlers/whiteboard-handlers.ts": 7,
-    "server/control/handlers/worktree-handlers.ts": 3
+    "server/control/handlers/worktree-handlers.ts": 1
   },
   "legacyMutatingWithoutRequestId": [
-    "resolve-session-merge",
-    "resync-branch",
     "run-session-review"
   ],
   "legacyMutatingRepliesWithoutAppliedSeq": [
     "board-ask-answer-result",
     "branch-spawn-result",
-    "branch-sync-status",
     "codemap-folder-set-result",
     "commit-signing-result",
     "community-action-result",

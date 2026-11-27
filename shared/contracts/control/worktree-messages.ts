@@ -3,14 +3,27 @@ import { ChangeMap } from '../change-map.ts';
 import { VerificationRun } from '../verification.ts';
 import { SessionReviewResult } from '../session-review.ts';
 import { MergeStatus } from '../session.ts';
-import { sessionId, requestId, loose, looseCollection, nullableString, DiffBase, SessionCommit, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
+import { sessionId, requestId, loose, looseCollection, looseMutatingReply, nullableString, DiffBase, SessionCommit, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
 
 const diffFilePath = z.string().min(1).max(4096);
 const blobId = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
+const branchSyncStatusShape = {
+  id: sessionId,
+  branch: nullableString,
+  upstream: nullableString,
+  state: z.string(),
+  ahead: z.number().int().nonnegative(),
+  behind: z.number().int().nonnegative(),
+  fetched: z.boolean().nullable(),
+  action: z.string().optional(),
+  error: optionalError,
+};
 
 export const worktreeClientVariants = [
   loose('watch-session-changes', { id: sessionId.nullable() }),
   loose('request-diff-file', { id: sessionId, requestId, path: diffFilePath, oldBlobId: blobId.nullable(), newBlobId: blobId }),
+  loose('resolve-session-merge', { id: sessionId, force: z.unknown().optional(), requestId }),
+  loose('resync-branch', { id: sessionId, force: z.unknown().optional(), requestId }),
 ] as const;
 
 export const worktreeServerVariants = [
@@ -66,16 +79,7 @@ export const worktreeServerVariants = [
   loose('change-map', { id: sessionId, map: ChangeMap }),
   looseCollection('verification-run', { id: sessionId, run: VerificationRun.nullable() }),
   looseCollection('session-review', { id: sessionId, result: SessionReviewResult.nullable() }),
-  loose('branch-sync-status', {
-    id: sessionId,
-    branch: nullableString,
-    upstream: nullableString,
-    state: z.string(),
-    ahead: z.number().int().nonnegative(),
-    behind: z.number().int().nonnegative(),
-    fetched: z.boolean().nullable(),
-    action: z.string().optional(),
-    error: optionalError,
-  }),
+  loose('branch-sync-status', branchSyncStatusShape),
+  looseMutatingReply('resync-branch-result', { requestId, ...branchSyncStatusShape }),
   loose('session-changed', { id: sessionId }),
 ] as const;

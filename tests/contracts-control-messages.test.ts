@@ -134,6 +134,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-review', id: 'session-1', result: { sessionId: 'session-1', sig: 'sig-1', reviewer: { agent: 'codex', model: null }, status: 'done', verdict: 'REQUEST CHANGES', summary: 'One defect blocks.', findings: [{ path: 'src/a.ts', line: 3, side: 'RIGHT', severity: 'HIGH', reviewer: 'logic', disposition: 'ACTIONABLE', body: 'Off by one.' }], error: null, startedAt: NOW, finishedAt: NOW } },
   { type: 'verification-run', id: 'session-1', run: { sessionId: 'session-1', sig: 'sig-1', status: 'failed', checks: [{ id: 'test', command: 'npm test', status: 'fail', exitCode: 1, outputTail: 'not ok 1' }], finishedAt: NOW } },
   { type: 'branch-sync-status', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true },
+  { type: 'resync-branch-result', requestId: 'resync-1', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true, appliedSeq: 1 },
   { type: 'session-changed', id: 'session-1', sig: 'sha' },
   { type: 'debug-state-response', id: 'session-1', payload: { state: STATES.RUNNING } },
   { type: 'session-trace-response', id: 'session-1', records: [], start: 0, next: 0, reset: false, path: '/traces/session-1.jsonl' },

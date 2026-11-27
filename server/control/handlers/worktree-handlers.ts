@@ -6,11 +6,12 @@ import { createChangesWatch } from '../../changes-watch.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { firstGitErrorLine } from '../../core/branch-sync-core.ts';
 import type { ControlContext } from '../control-context.ts';
+import { SESSION_GONE_TEXT } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
 
 function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
-  const { sessions, agentSessions, findSession } = context;
+  const { sessions, agentSessions, findSession, replyApplied } = context;
 
   const { changeMaps } = deps;
   const changesWatch = createChangesWatch<ControlSocket>({
@@ -18,7 +19,17 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
   });
 
   const handlers = {
-    'resolve-session-merge': (msg: ClientMessageOf<'resolve-session-merge'>) => { const s = findSession(msg); if (s) s.pasteMergePrompt(); },
+    'resolve-session-merge': (msg: ClientMessageOf<'resolve-session-merge'>, ws: ControlSocket) => {
+      const session = findSession(msg);
+      if (!session) {
+        replyApplied(ws, msg, 'session-action-result', { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+        return;
+      }
+      const outcome = session.pasteMergePrompt();
+      const isPasted = outcome.ok === true;
+      const reason = typeof outcome.reason === 'string' ? outcome.reason : 'Merge prompt could not be pasted.';
+      replyApplied(ws, msg, 'session-action-result', { id: session.id, ok: isPasted, error: isPasted ? null : reason });
+    },
     'request-session-diff': async (msg: ClientMessageOf<'request-session-diff'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) return;
@@ -78,18 +89,25 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
       ws.send(JSON.stringify({ type: 'branch-sync-status', id: s.id, ...sync }));
     },
     'resync-branch': async (msg: ClientMessageOf<'resync-branch'>, ws: ControlSocket) => {
-      const s = findSession(msg);
-      if (!s) return;
-      const sync = await s.resyncBranch();
-      ws.send(JSON.stringify({ type: 'branch-sync-status', id: s.id, ...sync }));
+      const session = findSession(msg);
+      if (!session) {
+        replyApplied(ws, msg, 'resync-branch-result', {
+          id: msg.id, branch: null, upstream: null, state: 'error', ahead: 0, behind: 0, fetched: null, action: 'none', error: SESSION_GONE_TEXT,
+        });
+        return;
+      }
+      const sync = await session.resyncBranch();
+      replyApplied(ws, msg, 'resync-branch-result', { id: session.id, ...sync });
     },
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
     'request-diff-file': (msg, requestId, message) => ({ type: 'diff-file', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, oldContents: null, newContents: null, error: message }),
+    'resolve-session-merge': (msg, requestId, message) => ({ type: 'session-action-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'resync-branch': (msg, requestId, message) => ({ type: 'resync-branch-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', branch: null, upstream: null, state: 'error', ahead: 0, behind: 0, fetched: null, action: 'none', error: message }),
   } satisfies InvalidReplyTable;
 
-  return { handlers, invalidReplies, genericErrorTypes: ['request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch'] };
+  return { handlers, invalidReplies, genericErrorTypes: ['request-session-diff', 'request-change-map', 'request-branch-sync'] };
 }
 
 export { createWorktreeHandlers };

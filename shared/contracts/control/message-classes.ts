@@ -397,6 +397,7 @@ export const SERVER_MESSAGE_CLASS = {
   'repository-clones': 'collection',
   'restarting': 'event',
   'resume-conversation-ack': 'reply',
+  'resync-branch-result': 'reply',
   'review-result': 'reply',
   'review-state': 'collection',
   'save-hook-result': 'reply',
