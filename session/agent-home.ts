@@ -21,6 +21,7 @@ const CLEAN_HOME_FOLDER_NAME = "clean";
 const SANDBOXED_HOME_FOLDER_NAME = "sandboxed";
 const SANDBOXED_ACCOUNT_HOME_PREFIX = "account-";
 const PRIVATE_HOME_PREFIX = "private-";
+const ACP_HOME_VARIANT_NAME = "acp";
 
 type AgentHomeEnv = Record<string, string | undefined>;
 
@@ -44,6 +45,7 @@ interface SessionAgentHomeChoice {
   accountFolder?: string | null;
   isSandboxed?: boolean;
   privateKey?: string | null;
+  homeVariant?: string | null;
 }
 
 interface ScratchAgentHomeOptions {
@@ -58,21 +60,28 @@ function realAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv = process.en
   return resolveRealAgentHome(profile, env, homeDir, readOptionalText);
 }
 
-function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir(), isClean?: boolean): string {
-  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
+function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir(), isClean?: boolean, homeVariant: string | null = null): string {
+  const variantSegment = homeVariant ? safePathSegment(homeVariant) : "";
+  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor, variantSegment, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
 }
 
 function sandboxedHomesRootOf(profile: AgentHomeProfile, env: AgentHomeEnv): string {
   return path.join(glimmervoidHomeDir(os.homedir(), env), "agent-homes", profile.vendor, SANDBOXED_HOME_FOLDER_NAME);
 }
 
-function sessionAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv, { isClean = false, accountFolder = null, isSandboxed = false, privateKey = null }: SessionAgentHomeChoice): string {
-  if (!isSandboxed) return accountFolder === null ? generatedAgentHomePath(profile, env, os.homedir(), isClean) : accountHomeOf(profile, accountFolder);
+function sessionAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv, { isClean = false, accountFolder = null, isSandboxed = false, privateKey = null, homeVariant = null }: SessionAgentHomeChoice): string {
+  const variantSegment = homeVariant ? safePathSegment(homeVariant) : "";
+  if (!isSandboxed) {
+    if (accountFolder === null) return generatedAgentHomePath(profile, env, os.homedir(), isClean, homeVariant);
+    if (!variantSegment) return accountHomeOf(profile, accountFolder);
+    const accountKey = createHash("sha256").update(path.resolve(accountFolder)).digest("hex").slice(0, 16);
+    return path.join(glimmervoidHomeDir(os.homedir(), env), "agent-homes", profile.vendor, variantSegment, `${SANDBOXED_ACCOUNT_HOME_PREFIX}${accountKey}`, profile.homeEnvSubfolder ?? "");
+  }
   const sandboxedRoot = sandboxedHomesRootOf(profile, env);
-  if (privateKey !== null) return path.join(sandboxedRoot, `${PRIVATE_HOME_PREFIX}${safePathSegment(privateKey)}`, profile.homeEnvSubfolder ?? "");
-  if (accountFolder === null) return path.join(sandboxedRoot, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
+  if (privateKey !== null) return path.join(sandboxedRoot, `${PRIVATE_HOME_PREFIX}${safePathSegment(privateKey)}`, variantSegment, profile.homeEnvSubfolder ?? "");
+  if (accountFolder === null) return path.join(sandboxedRoot, variantSegment, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
   const accountKey = createHash("sha256").update(path.resolve(accountFolder)).digest("hex").slice(0, 16);
-  return path.join(sandboxedRoot, `${SANDBOXED_ACCOUNT_HOME_PREFIX}${accountKey}`, profile.homeEnvSubfolder ?? "");
+  return path.join(sandboxedRoot, `${SANDBOXED_ACCOUNT_HOME_PREFIX}${accountKey}`, variantSegment, profile.homeEnvSubfolder ?? "");
 }
 
 function everySandboxedHomesRoot(env: AgentHomeEnv = process.env): string[] {
@@ -622,11 +631,52 @@ interface HeldAgentHomeOptions {
   isSandboxed?: boolean;
   privateKey?: string | null;
   managedMcpServers?: Readonly<Record<string, unknown>>;
+  homeVariant?: string | null;
 }
 
-function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers }: HeldHomeContent, accountFolder: string): { home: string } | { refusal: string } {
+function linkAccountEntries(profile: AgentHomeProfile, accountHome: string, generatedHome: string, platform: NodeJS.Platform): string | null {
+  const seam = profile.account;
+  if (!seam) return null;
+  for (const dirent of listFolder(accountHome)) {
+    if (!seam.isAccountEntryName(dirent.name)) continue;
+    const target = path.join(accountHome, dirent.name);
+    const targetStat = statOrNull(target);
+    if (targetStat === null) continue;
+    const entryPath = path.join(generatedHome, dirent.name);
+    const entryStat = fs.lstatSync(entryPath, { throwIfNoEntry: false }) ?? null;
+    if (entryStat !== null && isLinkTo(entryPath, entryStat, target)) continue;
+    try {
+      if (entryStat !== null) fs.unlinkSync(entryPath);
+      const linkKind = linkKindFor(targetStat.isDirectory() ? "folder" : "file", platform);
+      createLink(entryPath, target, linkKind);
+    } catch (error) {
+      return `${entryPath} cannot be linked to ${target}: ${errorMessage(error)}`;
+    }
+  }
+  return null;
+}
+
+function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers }: HeldHomeContent, accountFolder: string, homeVariant: string | null = null): { home: string } | { refusal: string } {
   const refusal = accountFolderRefusal(profile, env, accountFolder, os.homedir());
   if (refusal !== null) return { refusal };
+  if (homeVariant) {
+    const accountHome = accountHomeOf(profile, accountFolder);
+    const generatedHome = sessionAgentHomePath(profile, env, { accountFolder, isSandboxed: false, homeVariant });
+    const linkRefusal = agentHomeLinkRefusal(generatedHome);
+    if (linkRefusal !== null) return { refusal: linkRefusal };
+    holdAgentHome(generatedHome);
+    const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome, isAccountHome: true, packSkillDirs, managedMcpServers });
+    if ("refusal" in prepared) {
+      releaseAgentHome(generatedHome);
+      return prepared;
+    }
+    const accountLinkRefusal = linkAccountEntries(profile, accountHome, generatedHome, process.platform);
+    if (accountLinkRefusal !== null) {
+      releaseAgentHome(generatedHome);
+      return { refusal: accountLinkRefusal };
+    }
+    return prepared;
+  }
   const accountHome = accountHomeOf(profile, accountFolder);
   holdAgentHome(accountHome);
   const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome: accountHome, isAccountHome: true, packSkillDirs, managedMcpServers });
@@ -666,18 +716,18 @@ function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv,
   return prepared;
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, { renderGeneratedFiles = () => ({}), isClean, accountFolder = null, packSkillDirs = [], isSandboxed = false, privateKey = null, managedMcpServers }: HeldAgentHomeOptions = {}): { home: string } | { refusal: string } {
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, { renderGeneratedFiles = () => ({}), isClean, accountFolder = null, packSkillDirs = [], isSandboxed = false, privateKey = null, managedMcpServers, homeVariant = null }: HeldAgentHomeOptions = {}): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
   if (isClean && accountFolder !== null) return { refusal: `a clean ${profile.vendor} home cannot run under an added account` };
   const content = { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers };
-  if (isSandboxed) return holdPreparedSandboxedHome(profile, env, content, { isClean, accountFolder, isSandboxed, privateKey });
-  if (accountFolder !== null) return holdPreparedAccountHome(profile, env, content, accountFolder);
-  const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
+  if (isSandboxed) return holdPreparedSandboxedHome(profile, env, content, { isClean, accountFolder, isSandboxed, privateKey, homeVariant });
+  if (accountFolder !== null) return holdPreparedAccountHome(profile, env, content, accountFolder, homeVariant);
+  const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean, homeVariant);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
   if (linkRefusal !== null) return { refusal: linkRefusal };
   holdAgentHome(generatedHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean, packSkillDirs, managedMcpServers });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome, isClean, packSkillDirs, managedMcpServers });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }
@@ -800,14 +850,36 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
 function releaseEveryUnheldSandboxedHomeSecrets(profile: AgentHomeProfile, env: AgentHomeEnv): void {
   const sandboxedRoot = sandboxedHomesRootOf(profile, env);
   const accountHomeNames = listFolder(sandboxedRoot).filter((entry) => entry.isDirectory() && entry.name.startsWith(SANDBOXED_ACCOUNT_HOME_PREFIX)).map((entry) => entry.name);
-  for (const homeName of ["", CLEAN_HOME_FOLDER_NAME, ...accountHomeNames]) releaseUnheldAgentHomeSecrets(path.join(sandboxedRoot, homeName, profile.homeEnvSubfolder ?? ""));
+  const candidateDirs = [
+    "",
+    CLEAN_HOME_FOLDER_NAME,
+    ACP_HOME_VARIANT_NAME,
+    path.join(ACP_HOME_VARIANT_NAME, CLEAN_HOME_FOLDER_NAME),
+    ...accountHomeNames,
+    ...accountHomeNames.map((name) => path.join(name, ACP_HOME_VARIANT_NAME)),
+  ];
+  for (const homeName of candidateDirs) releaseUnheldAgentHomeSecrets(path.join(sandboxedRoot, homeName, profile.homeEnvSubfolder ?? ""));
+}
+
+function releaseEveryUnheldAcpAccountHomeSecrets(profile: AgentHomeProfile, env: AgentHomeEnv): void {
+  const acpRoot = path.join(glimmervoidHomeDir(os.homedir(), env), "agent-homes", profile.vendor, ACP_HOME_VARIANT_NAME);
+  const accountHomeNames = listFolder(acpRoot).filter((entry) => entry.isDirectory() && entry.name.startsWith(SANDBOXED_ACCOUNT_HOME_PREFIX)).map((entry) => entry.name);
+  for (const homeName of accountHomeNames) releaseUnheldAgentHomeSecrets(path.join(acpRoot, homeName, profile.homeEnvSubfolder ?? ""));
 }
 
 function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env, accountHomes: readonly { profile: AgentHomeProfile; folder: string }[] = []): void {
-  for (const { profile, folder } of accountHomes) releaseUnheldAccountHomeSecrets(profile, folder);
+  for (const { profile, folder } of accountHomes) {
+    releaseUnheldAccountHomeSecrets(profile, folder);
+    releaseUnheldAgentHomeSecrets(sessionAgentHomePath(profile, env, { accountFolder: folder, isSandboxed: false, homeVariant: ACP_HOME_VARIANT_NAME }));
+  }
   for (const profile of AGENT_HOME_PROFILES) {
     releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env));
-    if (profile.cleanOmits) releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env, undefined, true));
+    releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env, undefined, false, ACP_HOME_VARIANT_NAME));
+    releaseEveryUnheldAcpAccountHomeSecrets(profile, env);
+    if (profile.cleanOmits) {
+      releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env, undefined, true));
+      releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env, undefined, true, ACP_HOME_VARIANT_NAME));
+    }
     if (profile.sandboxLogin !== undefined) releaseEveryUnheldSandboxedHomeSecrets(profile, env);
   }
 }

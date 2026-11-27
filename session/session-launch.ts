@@ -4,13 +4,15 @@ import { projectDirCandidates } from '../server/core/claude-config-paths-core.ts
 import { resolveHostResourceProfile } from '../server/core/memory-admission-core.ts';
 import { launchSecretNames } from '../shared/agent-models-core.ts';
 import type { LaunchPlan } from '../shared/agent-models-core.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 import { clock } from '../shared/clock.ts';
 import type { PackMcpLaunch, PackMcpLaunchHold, PackMcpServer } from '../shared/contracts/pack.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { errorMessage } from '../shared/text.ts';
 import { commandFor, hookProfileOf } from './adapters/index.ts';
 import type { AgentAdapter } from './adapters/index.ts';
-import { prepareAccountHome, prepareSandboxedAccountHome } from './agent-home.ts';
+import { holdPreparedAgentHome, prepareAccountHome, prepareSandboxedAccountHome, realAgentHome, releaseAgentHome, sessionAgentHomePath } from './agent-home.ts';
+import { CODEX_HOME_PROFILE, renderCodexHooksBlock } from './core/agent-home-core.ts';
 import type { SessionAccountHome } from './core/agent-account-core.ts';
 import { resolveResumeTarget } from './core/auto-resume.ts';
 import { commitSigningSetting, gitConfigEnv } from './core/commit-signing-env.ts';
@@ -121,12 +123,35 @@ interface SessionLaunch {
   acceptApprovedPackMcpLaunch(launch: PackMcpLaunch): void;
   clearApprovedLaunches(): void;
   prepareAccountAndPacks(isCleanHome: boolean, packMcpLaunch: PackMcpLaunch, isSuperseded: () => boolean): Promise<string | null>;
+  prepareAcpAgentHome(isCleanHome: boolean): string | null;
+  releaseAcpAgentHome(): void;
   resolveResumeSessionId(configuredId: string | null, transcriptPath: string | null, env: SpawnEnv): { resumeSessionId: string | null; checkedTranscriptPaths: string[] };
   sandboxedCommand(command: SpawnCommand, env: SpawnEnv, launchSetEnvNames: readonly string[], isSuperseded: () => boolean): Promise<{ file: string; args: string[]; env: SpawnEnv } | null>;
   osSandboxArgs(dangerouslySkipPermissions: boolean): string[];
   shouldDetachDesktopBus(): Promise<boolean>;
   disposeSandbox(): void;
   sandboxLoginProof(): (() => Promise<string | null>) | null;
+}
+
+const liveAcpTrustedFoldersByHome = new Map<string, Map<string, number>>();
+
+function holdAcpTrustedFolder(generatedHome: string, folder: string): string[] {
+  const counts = liveAcpTrustedFoldersByHome.get(generatedHome) ?? new Map<string, number>();
+  counts.set(folder, (counts.get(folder) ?? 0) + 1);
+  liveAcpTrustedFoldersByHome.set(generatedHome, counts);
+  return [...new Set([...counts.keys()].flatMap((liveFolder) => [liveFolder, canonicalizePath(liveFolder)]))];
+}
+
+function releaseAcpTrustedFolder(generatedHome: string, folder: string): void {
+  const counts = liveAcpTrustedFoldersByHome.get(generatedHome);
+  if (!counts) return;
+  const remaining = (counts.get(folder) ?? 0) - 1;
+  if (remaining > 0) {
+    counts.set(folder, remaining);
+    return;
+  }
+  counts.delete(folder);
+  if (counts.size === 0) liveAcpTrustedFoldersByHome.delete(generatedHome);
 }
 
 function launchSecretEnvOf(plan: LaunchPlan, valuesByName: Readonly<Record<string, string>>): Record<string, string> {
@@ -149,6 +174,7 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
   let gitCredentialProgram: string | null = null;
   let hostSigningEnv: Record<string, string> = {};
   let sandboxLaunch: SandboxLaunch | null = null;
+  let heldAcpHome: { home: string; folder: string } | null = null;
 
   function gitConfigForm(): GitConfigForm {
     return port.prepareSandbox === null ? 'parameters' : 'numbered';
@@ -316,6 +342,59 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
     return null;
   }
 
+  function releaseAcpAgentHome(): void {
+    if (heldAcpHome === null) return;
+    const { home, folder } = heldAcpHome;
+    heldAcpHome = null;
+    releaseAcpTrustedFolder(home, folder);
+    releaseAgentHome(home);
+  }
+
+  function prepareAcpAgentHome(isCleanHome: boolean): string | null {
+    releaseAcpAgentHome();
+    if (adapter.id !== 'codex') return null;
+    const isSandboxed = port.prepareSandbox !== null;
+    const privateKey = isSandboxed ? port.privateHomeKey : null;
+    const realHome = realAgentHome(CODEX_HOME_PROFILE, process.env);
+    const generatedHome = sessionAgentHomePath(CODEX_HOME_PROFILE, process.env, {
+      isClean: isCleanHome,
+      accountFolder,
+      isSandboxed,
+      privateKey,
+      homeVariant: 'acp',
+    });
+    const sessionFolder = port.effectiveCwd();
+    const trustedFolders = holdAcpTrustedFolder(generatedHome, sessionFolder);
+    const prepared = holdPreparedAgentHome(
+      CODEX_HOME_PROFILE,
+      process.env,
+      (operatorText) => renderCodexHooksBlock({
+        hooks: [],
+        trustedHashes: null,
+        projectHookTrust: [],
+        operatorText,
+        realHome,
+        generatedHome: canonicalizePath(generatedHome),
+        trustedFolders,
+      }),
+      {
+        isClean: isCleanHome,
+        accountFolder,
+        packSkillDirs: packLaunch?.namedSkillDirs ?? [],
+        isSandboxed,
+        privateKey,
+        homeVariant: 'acp',
+      },
+    );
+    if ('refusal' in prepared) {
+      releaseAcpTrustedFolder(generatedHome, sessionFolder);
+      return `${adapter.label} cannot start over ACP: ${prepared.refusal}`;
+    }
+    heldAcpHome = { home: prepared.home, folder: sessionFolder };
+    accountEnv = { ...accountEnv, [CODEX_HOME_PROFILE.homeEnvName]: prepared.home };
+    return null;
+  }
+
   function resolveResumeSessionId(configuredId: string | null, transcriptPath: string | null, env: SpawnEnv): { resumeSessionId: string | null; checkedTranscriptPaths: string[] } {
     if (usageVendor !== 'claude') return { resumeSessionId: configuredId, checkedTranscriptPaths: [] };
     return resolveResumeTarget({
@@ -393,6 +472,8 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
     acceptApprovedPackMcpLaunch: (launch) => { approvedPackMcpLaunch = launch; },
     clearApprovedLaunches,
     prepareAccountAndPacks,
+    prepareAcpAgentHome,
+    releaseAcpAgentHome,
     resolveResumeSessionId,
     sandboxedCommand,
     osSandboxArgs,

@@ -11,8 +11,11 @@ import { errorMessage } from "../../shared/text.ts";
 import {
   CODEX_HOOKS_LIST_METHOD,
   CODEX_HOOKS_TRUST_METHOD,
+  acpCodexProviderConfigFor,
   acpCodexSaneYoloEnvFor,
+  acpPackSystemPromptFor,
   acpSaneYoloMetaFor,
+  acpSessionMetaFor,
   acpSpawnEnvFor,
   classifyAcpPromptError,
   decideAcpSend,
@@ -23,8 +26,11 @@ import {
   isCodexHooksTrustConfirmed,
   openingModePlanFor,
   permissionFieldsOf,
+  planAcpConfigOption,
   planSessionOpen,
   questionFieldsOf,
+  supportsAcpSystemPrompt,
+  wantedAcpConfigValues,
 } from "../core/acp-driver-core.ts";
 import type { AcpPhase } from "../core/acp-driver-core.ts";
 import type { ResolvedHookTool } from "../core/hook-tools.ts";
@@ -148,6 +154,43 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     }
   }
 
+  async function applyOpeningConfigOptions(
+    generation: number,
+    activeConnection: ClientConnection,
+    sessionId: string,
+    agentId: string,
+    initialConfigOptions: unknown,
+    modelSelection: DriverLaunch["modelSelection"],
+  ): Promise<void> {
+    const wanted = wantedAcpConfigValues(agentId, modelSelection);
+    let currentConfigOptions = initialConfigOptions;
+    const steps: readonly { category: "model" | "thought_level"; wantedValue: string | null }[] = [
+      { category: "model", wantedValue: wanted.model },
+      { category: "thought_level", wantedValue: wanted.effort },
+    ];
+    for (const { category, wantedValue } of steps) {
+      if (generation !== runGeneration || phase !== "opening") return;
+      const plan = planAcpConfigOption(currentConfigOptions, category, wantedValue);
+      if (plan.kind === "skip") continue;
+      if (plan.kind === "warn") {
+        console.warn(`[acp-driver] ${plan.message}`);
+        continue;
+      }
+      try {
+        const updated = await activeConnection.agent.request(methods.agent.session.setConfigOption, {
+          sessionId,
+          configId: plan.configId,
+          value: plan.value,
+        });
+        if (typeof updated === "object" && updated !== null && "configOptions" in updated && Array.isArray(updated.configOptions)) {
+          currentConfigOptions = updated.configOptions;
+        }
+      } catch (error: unknown) {
+        console.warn(`[acp-driver] failed to set ${category} option "${plan.configId}" to "${plan.value}" on ${agentId}: ${errorMessage(error)}`);
+      }
+    }
+  }
+
   async function openSession(
     generation: number,
     activeConnection: ClientConnection,
@@ -157,8 +200,20 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
   ): Promise<void> {
     const initialized = await activeConnection.agent.request(methods.agent.initialize, initializeRequestFor(PROTOCOL_VERSION, options.clientName, options.clientVersion));
     const agentId = options.agentId ?? "";
-    const sessionMeta = acpSaneYoloMetaFor(agentId, saneYoloConfig?.tool, saneYoloConfig?.homeDir ?? "");
-    const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId, sessionMeta);
+    const hasClaudeSaneYoloMeta = acpSaneYoloMetaFor(agentId, saneYoloConfig?.tool, saneYoloConfig?.homeDir ?? "") !== undefined;
+    const sessionMeta = acpSessionMetaFor({
+      agentId,
+      saneYoloTool: saneYoloConfig?.tool,
+      saneYoloHomeDir: saneYoloConfig?.homeDir,
+      isCleanHome: launch.isCleanHome,
+      claudePluginDirs: launch.claudePluginDirs,
+    });
+    const hasSystemPromptSupport = supportsAcpSystemPrompt(initialized);
+    const systemPrompt = acpPackSystemPromptFor(launch.packContextLines, hasSystemPromptSupport);
+    if ((launch.packContextLines?.length ?? 0) > 0 && !hasSystemPromptSupport) {
+      console.warn(`[acp-driver] ${agentId} does not advertise sessionCapabilities.systemPrompt; skipping pack context`);
+    }
+    const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId, sessionMeta, systemPrompt);
     if (plan.method === "refuse") throw new Error(plan.message);
     if (generation !== runGeneration || phase !== "opening") return;
     const isCodexHookTrusted = codexHookCommand !== null
@@ -172,6 +227,9 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     if (typeof openedSessionId !== "string" || openedSessionId.length === 0) {
       throw new Error("the ACP agent returned an invalid session id");
     }
+    const openedConfigOptions = typeof opened === "object" && opened !== null && "configOptions" in opened ? opened.configOptions : undefined;
+    await applyOpeningConfigOptions(generation, activeConnection, openedSessionId, agentId, openedConfigOptions, launch.modelSelection);
+    if (generation !== runGeneration || phase !== "opening") return;
     const openedModes = typeof opened === "object" && opened !== null && "modes" in opened ? opened.modes : undefined;
     const modePlan = openingModePlanFor(agentId, saneYoloConfig !== null, openedModes);
     const modeOutcome = modePlan.kind === "set-mode"
@@ -185,7 +243,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     if (generation !== runGeneration || phase !== "opening") return;
     agentSessionId = openedSessionId;
     phase = "ready";
-    const hasHookConfig = agentId === "codex" ? codexHookCommand !== null : sessionMeta !== undefined;
+    const hasHookConfig = agentId === "codex" ? codexHookCommand !== null : hasClaudeSaneYoloMeta;
     const isConfirmed = agentId === "codex" ? isCodexHookTrusted : modeOutcome === "confirmed";
     options.onSaneYoloCoverageChange?.(isAcpSaneYoloCovered(agentId, saneYoloConfig !== null, hasHookConfig, isConfirmed));
     emit({ kind: "agent-session", agentSessionId: openedSessionId, isResumed: plan.method === "session/load" });
@@ -230,7 +288,9 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     dropActivePrompt();
     const saneYoloConfig = options.saneYolo?.() ?? null;
     const baseEnv = acpSpawnEnvFor(launch.env, launch.sessionEnv);
-    const codexSaneYolo = acpCodexSaneYoloEnvFor(baseEnv, options.agentId ?? "", saneYoloConfig?.tool, saneYoloConfig?.homeDir ?? "");
+    const codexProviderConfig = acpCodexProviderConfigFor(options.agentId ?? "", launch.modelSelection, process.platform);
+    const codexSaneYolo = acpCodexSaneYoloEnvFor(baseEnv, options.agentId ?? "", saneYoloConfig?.tool, saneYoloConfig?.homeDir ?? "", codexProviderConfig);
+    if (codexSaneYolo.warning) console.warn(`[acp-driver] ${codexSaneYolo.warning}`);
     const agentProcess = spawn(launch.file, launch.args, {
       cwd: spawnCwd,
       env: codexSaneYolo.env,

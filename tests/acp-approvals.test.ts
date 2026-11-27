@@ -477,3 +477,69 @@ test("a Codex async question still open at turn-end stays held for the operator 
   assert.deepEqual(replay.answersOnWire, recordedClientAnswers(codexQuestion));
   assert.equal(replay.approvalAtEnd, null);
 });
+
+test("Codex over ACP uses a generated ACP CODEX_HOME with zero PTY status hooks and never writes the operator's real config.toml", { timeout: 30_000 }, async () => {
+  const scratchDir = scratchFolder();
+  const realCodexHome = path.join(scratchDir, "real-codex-home");
+  const envCapturePath = path.join(scratchDir, "captured-env.json");
+  fs.mkdirSync(realCodexHome, { recursive: true });
+  const originalRealConfig = 'model = "gpt-6.1-sol"\n';
+  fs.writeFileSync(path.join(realCodexHome, "config.toml"), originalRealConfig, "utf8");
+  fs.writeFileSync(path.join(realCodexHome, "auth.json"), JSON.stringify({ tokens: { access_token: "a.b.c", id_token: "d.e.f", refresh_token: "r" } }), "utf8");
+  const priorCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = realCodexHome;
+  const agentScript = `
+import fs from "node:fs";
+import readline from "node:readline";
+const outPath = process.argv[1];
+fs.writeFileSync(outPath, JSON.stringify({
+  CODEX_HOME: process.env.CODEX_HOME ?? null,
+  CODEX_CONFIG: process.env.CODEX_CONFIG ?? null,
+}));
+const input = readline.createInterface({ input: process.stdin });
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+input.on("line", (line) => {
+  if (!line.trim()) return;
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    return;
+  }
+  if (message.method === "session/new") {
+    send({ jsonrpc: "2.0", id: message.id, result: { sessionId: "codex-home-test-1" } });
+  }
+});
+`;
+  const session = new Session({
+    id: "acp-codex-generated-home",
+    name: "acp-codex-generated-home",
+    path: ROOT,
+    agent: "codex",
+    driver: {
+      kind: "acp",
+      command: { file: process.execPath, args: ["--input-type=module", "-e", agentScript, "--", envCapturePath] },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  try {
+    const opened = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.agentSession, () => resolve()));
+    await session.start();
+    await opened;
+    const captured = JSON.parse(fs.readFileSync(envCapturePath, "utf8")) as { CODEX_HOME: string | null };
+    assert.ok(captured.CODEX_HOME !== null);
+    assert.notEqual(path.resolve(captured.CODEX_HOME), path.resolve(realCodexHome));
+    assert.equal(captured.CODEX_HOME.endsWith(path.join("agent-homes", "codex", "acp")), true);
+    const generatedConfig = fs.readFileSync(path.join(captured.CODEX_HOME, "config.toml"), "utf8");
+    assert.equal(generatedConfig.includes("[[hooks."), false, "ACP CODEX_HOME must not carry PTY status hooks");
+    assert.equal(fs.existsSync(path.join(captured.CODEX_HOME, "auth.json")), true);
+    assert.equal(fs.readFileSync(path.join(realCodexHome, "config.toml"), "utf8"), originalRealConfig);
+  } finally {
+    if (priorCodexHome === undefined) delete process.env.CODEX_HOME;
+    if (priorCodexHome !== undefined) process.env.CODEX_HOME = priorCodexHome;
+    session.kill();
+    await new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    session.destroy();
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
+});

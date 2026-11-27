@@ -781,7 +781,10 @@ class Session extends EventEmitter {
         privateHomeKey: prepareSandbox === null ? null : privateHomeKey,
         probeGraphicalSession: () => this._probeGraphicalSession(),
         onSandboxRefused: (cause) => this._abandonSpawn(cause),
-        onSupersededSandbox: () => this._hooks.cleanup(),
+        onSupersededSandbox: () => {
+          this._hooks.cleanup();
+          this._launch.releaseAcpAgentHome();
+        },
       },
     });
 
@@ -2129,6 +2132,11 @@ class Session extends EventEmitter {
       this._abandonSpawn(new Error(accountRefusal));
       return;
     }
+    const acpHomeRefusal = this._launch.prepareAcpAgentHome(this._isCleanHome);
+    if (acpHomeRefusal !== null) {
+      this._abandonSpawn(new Error(acpHomeRefusal));
+      return;
+    }
     const mcpServers = mergeAcpMcpServers(
       this._acpLaunch.mcpServers,
       acpMcpServersFor({
@@ -2148,9 +2156,15 @@ class Session extends EventEmitter {
       : baseLaunchEnv;
     const env = this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: spawnExtraEnv });
     if (await this._launch.shouldDetachDesktopBus()) env.DBUS_SESSION_BUS_ADDRESS = DETACHED_DESKTOP_BUS_ADDRESS;
-    if (isStartSuperseded()) return;
+    if (isStartSuperseded()) {
+      this._launch.releaseAcpAgentHome();
+      return;
+    }
     const scopeHost = await resolveSessionScopeHost();
-    if (isStartSuperseded()) return;
+    if (isStartSuperseded()) {
+      this._launch.releaseAcpAgentHome();
+      return;
+    }
     const sandboxedCommand = await this._launch.sandboxedCommand(this._acpLaunch.command, env, Object.keys(spawnExtraEnv ?? {}), isStartSuperseded);
     if (sandboxedCommand === null) return;
     const scopeUnit = scopeHost === null ? null : sessionScopeUnitName(this.id, randomBytes(4).toString("hex"));
@@ -2160,7 +2174,20 @@ class Session extends EventEmitter {
     const sessionEnv = pickAcpSessionEnv(sandboxedCommand.env, [...Object.keys(agentApiEnv), ...Object.keys(gitEnv)]);
     const resumeAgentSessionId = validResumeSessionId(this._resumeSessionId);
     try {
-      this._driver.start({ file: launch.file, args: launch.args, cwd: this.effectiveCwd(), env: launch.env, scopeUnit, resumeAgentSessionId, mcpServers, sessionEnv });
+      this._driver.start({
+        file: launch.file,
+        args: launch.args,
+        cwd: this.effectiveCwd(),
+        env: launch.env,
+        scopeUnit,
+        resumeAgentSessionId,
+        mcpServers,
+        sessionEnv,
+        modelSelection: this._agentSetup,
+        isCleanHome: this._isCleanHome,
+        claudePluginDirs: this._launch.packLaunch?.claudePluginDirs ?? [],
+        packContextLines: this._launch.packLaunch?.contextLines ?? [],
+      });
     } catch (error) {
       this._abandonSpawn(error);
       return;
@@ -2316,6 +2343,7 @@ class Session extends EventEmitter {
     this._launch.clearApprovedLaunches();
     this._hooks.deactivateSaneYolo();
     this._hooks.cleanup();
+    this._launch.releaseAcpAgentHome();
     this._launch.disposeSandbox();
     this._approvals.releaseAll();
     this.transition("spawn_fail", { error: errorMessage(cause) });
@@ -2403,6 +2431,7 @@ class Session extends EventEmitter {
         this._stepAcpStatus({ kind: "turn-end", survivingAskCount: survivingAsks });
         this.emit(SESSION_DRIVER_EVENTS.turnEnd, { stopReason: event.stopReason });
         if (survivingAsks === 0) this._chatOutbox.drain();
+        this.worktreeLifecycle.scheduleCheck();
         return;
       }
       case "prompt-error": {
@@ -2477,6 +2506,7 @@ class Session extends EventEmitter {
     this._dispatchAttention({ type: "teardown" });
 
     this._hooks.cleanup();
+    this._launch.releaseAcpAgentHome();
     this._pty?.markExited();
     this._pty?.forget();
     this._lastClaudeSessionReport = null;
@@ -2828,6 +2858,7 @@ class Session extends EventEmitter {
     this._clearPendingPaste();
 
     this._hooks.cleanup();
+    this._launch.releaseAcpAgentHome();
     this._approvals.releaseAll();
 
     this.kill();

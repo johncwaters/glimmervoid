@@ -1,4 +1,5 @@
 import type { McpServer, PermissionOption, SessionUpdate, StopReason, ToolKind } from "@agentclientprotocol/sdk";
+import type { ModelSelection } from "../../shared/contracts/agent-models.ts";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
 
 interface DriverLaunch {
@@ -10,6 +11,10 @@ interface DriverLaunch {
   resumeAgentSessionId: string | null;
   mcpServers?: McpServer[];
   sessionEnv?: Readonly<Record<string, string>>;
+  modelSelection?: ModelSelection | null;
+  isCleanHome?: boolean;
+  claudePluginDirs?: readonly string[];
+  packContextLines?: readonly string[];
 }
 
 type DriverFailureStage = "open" | "prompt";

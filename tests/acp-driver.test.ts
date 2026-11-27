@@ -945,3 +945,169 @@ input.on("line", (line) => {
     fs.rmSync(scratchDir, { recursive: true, force: true });
   }
 });
+
+test("ACP session applies configured model and effort after session/new and session/load, and fails soft when unoffered", { timeout: 30_000 }, async () => {
+  const cases = [
+    { agent: "claude-code" as const, recording: "claude/model.jsonl", launchNumber: 1, resumeSessionId: null, model: "default", effort: "low", expectedEffortId: "effort" },
+    { agent: "claude-code" as const, recording: "claude/resume.jsonl", launchNumber: 2, resumeSessionId: "b06ca19c-bf20-4fbe-915b-ee52c8e8eb6c", model: "default", effort: "low", expectedEffortId: "effort" },
+    { agent: "codex" as const, recording: "codex/model.jsonl", launchNumber: 1, resumeSessionId: null, model: "gpt-6.2-sol", effort: "low", expectedEffortId: "reasoning_effort" },
+    { agent: "codex" as const, recording: "codex/resume.jsonl", launchNumber: 2, resumeSessionId: "01a2161a-8d3a-73a2-b96a-8131ff33fb4a", model: "gpt-6.2-sol", effort: "low", expectedEffortId: "reasoning_effort" },
+  ];
+  for (const scenario of cases) {
+    const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-options-"));
+    const receivedLogPath = path.join(scratchDir, "received.jsonl");
+    const session = new Session({
+      id: `acp-options-${scenario.agent}-${scenario.launchNumber}`,
+      name: `acp-options-${scenario.agent}`,
+      path: ROOT,
+      agent: scenario.agent,
+      resumeSessionId: scenario.resumeSessionId,
+      agentSetup: { agent: scenario.agent, model: scenario.model, options: [{ id: "effort", value: scenario.effort }], instructions: "" },
+      driver: {
+        kind: "acp",
+        command: { file: process.execPath, args: [REPLAY_AGENT, fixtures.recordingPath(scenario.recording), String(scenario.launchNumber), ACCOUNT_EMAIL, ACCOUNT_PLAN, receivedLogPath] },
+        mcpServers: [],
+        clientVersion: "test",
+      },
+    });
+    try {
+      const opened = new Promise<{ isResumed: boolean }>((resolve) => session.once(SESSION_DRIVER_EVENTS.agentSession, (payload) => resolve(payload)));
+      await session.start();
+      const openedEvent = await opened;
+      assert.equal(openedEvent.isResumed, scenario.resumeSessionId !== null);
+      const wireMessages = fs.readFileSync(receivedLogPath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: { configId?: string; value?: string } });
+      const configCalls = wireMessages
+        .filter((message) => message.method === "session/set_config_option")
+        .map((message) => [message.params?.configId, message.params?.value]);
+      assert.deepEqual(configCalls, [["model", scenario.model], [scenario.expectedEffortId, scenario.effort]]);
+    } finally {
+      session.kill();
+      await new Promise<void>((resolve) => session.once("exit", () => resolve()));
+      session.destroy();
+      fs.rmSync(scratchDir, { recursive: true, force: true });
+    }
+  }
+
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-options-warn-"));
+  const receivedLogPath = path.join(scratchDir, "received.jsonl");
+  const consoleCapture = captureConsole();
+  const session = new Session({
+    id: "acp-options-unoffered",
+    name: "acp-options-unoffered",
+    path: ROOT,
+    agent: "claude-code",
+    agentSetup: { agent: "claude-code", model: "nonexistent-model-xyz", options: [{ id: "effort", value: "turbo-ultra" }], instructions: "" },
+    driver: {
+      kind: "acp",
+      command: { file: process.execPath, args: [REPLAY_AGENT, fixtures.recordingPath("claude/setup.jsonl"), "1", ACCOUNT_EMAIL, ACCOUNT_PLAN, receivedLogPath] },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  try {
+    const opened = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.agentSession, () => resolve()));
+    await session.start();
+    await opened;
+    const wireMessages = fs.readFileSync(receivedLogPath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string });
+    assert.equal(wireMessages.some((message) => message.method === "session/set_config_option"), false);
+    assert.match(consoleCapture.text(), /does not offer "nonexistent-model-xyz"/);
+    assert.match(consoleCapture.text(), /does not offer "turbo-ultra"/);
+  } finally {
+    consoleCapture.restore();
+    session.kill();
+    await new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    session.destroy();
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
+});
+
+test("ACP session passes Claude clean-home, pack plugins, and pack context systemPrompt, and schedules worktree check on turn-end", { timeout: 30_000 }, async () => {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-pack-"));
+  const receivedLogPath = path.join(scratchDir, "received.jsonl");
+  const pluginDir = path.join(scratchDir, "sample-pack-plugin");
+  const session = new Session({
+    id: "acp-pack-and-turn-end",
+    name: "acp-pack-and-turn-end",
+    path: ROOT,
+    agent: "claude-code",
+    isCleanHome: true,
+    getPackAgentLaunch: () => ({
+      contextLines: ["Pack demo context: /tmp/demo.md. Read it when needed."],
+      claudePluginDirs: [pluginDir],
+      namedSkillDirs: [],
+      hookFiles: [],
+    }),
+    driver: {
+      kind: "acp",
+      command: { file: process.execPath, args: [REPLAY_AGENT, fixtures.recordingPath("claude/setup.jsonl"), "1", ACCOUNT_EMAIL, ACCOUNT_PLAN, receivedLogPath] },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  let scheduledChecks = 0;
+  const originalScheduleCheck = session.worktreeLifecycle.scheduleCheck;
+  session.worktreeLifecycle.scheduleCheck = () => {
+    scheduledChecks += 1;
+    originalScheduleCheck();
+  };
+  try {
+    const turnEnded = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.turnEnd, () => resolve()));
+    const opened = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.agentSession, () => resolve()));
+    await session.start();
+    await opened;
+    assert.equal(scheduledChecks, 0);
+    assert.deepEqual(session.deliver("hello", { when: "now", submit: true }), { ok: true, kind: "pasted" });
+    await turnEnded;
+    assert.equal(scheduledChecks, 1);
+
+    const wireMessages = fs.readFileSync(receivedLogPath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: { _meta?: { claudeCode?: { options?: { settingSources?: string[]; plugins?: { type: string; path: string }[] } } }; systemPrompt?: { mode?: string; content?: { type: string; text: string }[] } } });
+    const sessionNew = wireMessages.find((message) => message.method === "session/new");
+    assert.deepEqual(sessionNew?.params?._meta?.claudeCode?.options?.settingSources, ["project", "local"]);
+    assert.equal(sessionNew?.params?._meta?.claudeCode?.options?.plugins, undefined);
+    assert.equal(sessionNew?.params?.systemPrompt, undefined);
+  } finally {
+    session.kill();
+    await new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    session.destroy();
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
+
+  const packContextScratch = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-pack-ctx-"));
+  const packContextLogPath = path.join(packContextScratch, "received.jsonl");
+  const packContextSession = new Session({
+    id: "acp-pack-context",
+    name: "acp-pack-context",
+    path: ROOT,
+    agent: "claude-code",
+    getPackAgentLaunch: () => ({
+      contextLines: ["Pack demo context: /tmp/demo.md. Read it when needed."],
+      claudePluginDirs: [pluginDir],
+      namedSkillDirs: [],
+      hookFiles: [],
+    }),
+    driver: {
+      kind: "acp",
+      command: { file: process.execPath, args: [REPLAY_AGENT, fixtures.recordingPath("claude/setup.jsonl"), "1", ACCOUNT_EMAIL, ACCOUNT_PLAN, packContextLogPath] },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  try {
+    const opened = new Promise<void>((resolve) => packContextSession.once(SESSION_DRIVER_EVENTS.agentSession, () => resolve()));
+    await packContextSession.start();
+    await opened;
+    const wireMessages = fs.readFileSync(packContextLogPath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: { _meta?: { claudeCode?: { options?: { settingSources?: string[]; plugins?: { type: string; path: string }[] } } }; systemPrompt?: { mode?: string; content?: { type: string; text: string }[] } } });
+    const sessionNew = wireMessages.find((message) => message.method === "session/new");
+    assert.equal(sessionNew?.params?._meta?.claudeCode?.options?.settingSources, undefined);
+    assert.deepEqual(sessionNew?.params?._meta?.claudeCode?.options?.plugins, [{ type: "local", path: pluginDir }]);
+    assert.deepEqual(sessionNew?.params?.systemPrompt, {
+      mode: "append",
+      content: [{ type: "text", text: "Pack demo context: /tmp/demo.md. Read it when needed." }],
+    });
+  } finally {
+    packContextSession.kill();
+    await new Promise<void>((resolve) => packContextSession.once("exit", () => resolve()));
+    packContextSession.destroy();
+    fs.rmSync(packContextScratch, { recursive: true, force: true });
+  }
+});
