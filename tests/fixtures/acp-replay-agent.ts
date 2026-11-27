@@ -38,6 +38,13 @@ function send(message: WireMessage): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
+function unrecordedReplyFor(method: string | undefined): Record<string, unknown> | null {
+  if (method === "session/set_mode") return {};
+  if (method === "_codex/hooks/list") return { cwd: "", hooks: [] };
+  if (method === "_codex/hooks/trust") return { trusted: false };
+  return null;
+}
+
 async function replay(): Promise<void> {
   const liveIdByRecordedId = new Map<number | string, number | string>();
   const skippedRecordedIds = new Set<number | string>();
@@ -54,20 +61,15 @@ async function replay(): Promise<void> {
       send(recorded);
       continue;
     }
-    const live = await peekClientMessage();
-    if (live === null) return;
-    if (live.method === "session/set_mode" && recorded.method !== "session/set_mode") {
+    let live = await peekClientMessage();
+    while (live !== null && live.method !== recorded.method) {
+      const unrecordedReply = unrecordedReplyFor(live.method);
+      if (unrecordedReply === null) break;
       incoming.shift();
-      if (live.id !== undefined) send({ jsonrpc: "2.0", id: live.id, result: {} });
-      const nextLive = await peekClientMessage();
-      if (nextLive === null) return;
-      const isNextSame = recorded.method === undefined ? nextLive.method === undefined && nextLive.id === recorded.id : nextLive.method === recorded.method;
-      if (!isNextSame && recorded.id !== undefined) skippedRecordedIds.add(recorded.id);
-      if (!isNextSame) continue;
-      incoming.shift();
-      if (recorded.method !== undefined && recorded.id !== undefined && nextLive.id !== undefined) liveIdByRecordedId.set(recorded.id, nextLive.id);
-      continue;
+      if (live.id !== undefined) send({ jsonrpc: "2.0", id: live.id, result: unrecordedReply });
+      live = await peekClientMessage();
     }
+    if (live === null) return;
     const isSameMessage = recorded.method === undefined ? live.method === undefined && live.id === recorded.id : live.method === recorded.method;
     if (!isSameMessage && recorded.id !== undefined) skippedRecordedIds.add(recorded.id);
     if (!isSameMessage) continue;

@@ -6,6 +6,11 @@ interface ClaudeHookEntry {
   hooks: { type: string; command: string }[];
 }
 
+interface CodexHookEntry {
+  matcher: string;
+  hooks: { type: 'command'; command: string }[];
+}
+
 function toForwardSlashes(commandPath: string): string {
   return commandPath.replace(/\\/g, '/');
 }
@@ -23,8 +28,14 @@ interface HookToolDescriptor {
   purpose: string;
   env(tool: ResolvedHookTool, homeDir: string): Record<string, string>;
   claudeEntry(tool: ResolvedHookTool): ClaudeHookEntry;
+  codexEntry(tool: ResolvedHookTool): CodexHookEntry | null;
   codexGroup(tool: ResolvedHookTool): string | null;
   codexTrustedArgs(tool: ResolvedHookTool): string[];
+}
+
+function codexEntry(command: string | null, matcher = 'Bash'): CodexHookEntry | null {
+  if (!command) return null;
+  return { matcher, hooks: [{ type: 'command', command }] };
 }
 
 function codexGroup(command: string | null, matcher = 'Bash'): string | null {
@@ -59,6 +70,7 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
       matcher: 'Bash|PowerShell|Monitor|Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep',
       hooks: [{ type: 'command', command: saneYoloClaudeCommand(tool) }],
     }),
+    codexEntry: (tool) => codexEntry(buildHookCommand(tool.launch, 'hook', ['--codex'])),
     codexGroup: (tool) => codexGroup(buildHookCommand(tool.launch, 'hook', ['--codex'])),
     codexTrustedArgs: () => [],
   },
@@ -70,6 +82,7 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
       matcher: posthogToolMatcher(tool),
       hooks: [{ type: 'command', command: posthogGateCommand(tool) }],
     }),
+    codexEntry: (tool) => codexEntry(posthogGateCommand(tool), posthogToolMatcher(tool)),
     codexGroup: (tool) => codexGroup(posthogGateCommand(tool), posthogToolMatcher(tool)),
     codexTrustedArgs: (tool) => ['-c', 'features.hooks=true', '-c', `mcp_servers.${tool.serverName ?? ''}.default_tools_approval_mode="approve"`],
   },

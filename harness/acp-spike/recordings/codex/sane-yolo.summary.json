@@ -1,0 +1,106 @@
+{
+  "agent": "codex",
+  "scenario": "sane-yolo",
+  "initialize": {
+    "protocolVersion": 1,
+    "agentInfo": {
+      "name": "@agentclientprotocol/codex-acp",
+      "title": "Codex",
+      "version": "2.12.0"
+    },
+    "agentCapabilities": {
+      "auth": {
+        "logout": {},
+        "status": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "list": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "options": {},
+        "title": {},
+        "additionalDirectories": {},
+        "systemPrompt": {}
+      },
+      "mcpCapabilities": {
+        "acp": true,
+        "http": true,
+        "sse": false
+      },
+      "_meta": {
+        "authStatus": {}
+      }
+    },
+    "authMethods": [
+      {
+        "id": "api-key",
+        "name": "API Key",
+        "description": "Use an API key to authenticate",
+        "_meta": {
+          "api-key": {
+            "provider": "openai"
+          }
+        }
+      },
+      {
+        "id": "chat-gpt",
+        "name": "ChatGPT",
+        "description": "Use ChatGPT to authenticate"
+      }
+    ],
+    "_meta": {
+      "steering": {
+        "supported": true
+      }
+    }
+  },
+  "matchedHook": {
+    "key": "/<session-flags>/config.toml:pre_tool_use:0:0",
+    "isTrustedBefore": false,
+    "isTrustedAfter": true
+  },
+  "modes": {
+    "availableModes": [
+      {
+        "id": "read-only",
+        "name": "Read-only",
+        "description": "Requires approval to edit files and access the internet."
+      },
+      {
+        "id": "workspace-write",
+        "name": "Workspace access",
+        "description": "Edit workspace files; ask before writing outside the workspace or accessing the network."
+      },
+      {
+        "id": "agent",
+        "name": "Auto review",
+        "description": "Only ask for actions detected as potentially unsafe"
+      },
+      {
+        "id": "agent-full-access",
+        "name": "Full access",
+        "description": "Unrestricted access to the internet and any file on your computer"
+      }
+    ],
+    "currentModeId": "agent"
+  },
+  "turn1": {
+    "stopReason": "end_turn",
+    "agentText": "I’ll run the command.SAFE-OK"
+  },
+  "turn2": {
+    "stopReason": "end_turn",
+    "agentText": "I’ll run `git stash` as requested.PreToolUse hook blocked the tool call: BLOCKED by CC Safety Net\n\nReason: [git/stash] Sane YOLO blocks git stash: every worktree shares one stash stack. Set work aside with a WIP commit, or undo an edit with git show HEAD:<path> > <path>.\n\nRule: custom.git/stash\n\nCommand: git stash\n\nIf this operation is truly needed, ask the user for explicit permission and have them run the command manually.\n\n```text\nCommand blocked by PreToolUse hook: BLOCKED by CC Safety Net\n\nReason: [git/stash] Sane YOLO blocks git stash: every worktree shares one stash stack. Set work aside with a WIP commit, or undo an edit with git show HEAD:<path> > <path>.\n\nRule: custom.git/stash\n\nCommand: git stash\n\nIf this operation is truly needed, ask the user for explicit permission and have them run the command manually.. Command: git stash\n```"
+  },
+  "gitStatusAfter": "M notes.txt",
+  "gitStashListAfter": "",
+  "saneYoloBlockedGitStash": true
+}

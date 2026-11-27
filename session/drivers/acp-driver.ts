@@ -8,7 +8,24 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "../../server/child-process-safe.ts";
 import { glimmervoidHomeDir } from "../../server/core/config-path-core.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { acpSaneYoloMetaFor, acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, isAcpSaneYoloCovered, openingModePlanFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
+import {
+  CODEX_HOOKS_LIST_METHOD,
+  CODEX_HOOKS_TRUST_METHOD,
+  acpCodexSaneYoloEnvFor,
+  acpSaneYoloMetaFor,
+  acpSpawnEnvFor,
+  classifyAcpPromptError,
+  decideAcpSend,
+  doesUpdateConfirmPrompt,
+  findCodexSaneYoloHook,
+  initializeRequestFor,
+  isAcpSaneYoloCovered,
+  isCodexHooksTrustConfirmed,
+  openingModePlanFor,
+  permissionFieldsOf,
+  planSessionOpen,
+  questionFieldsOf,
+} from "../core/acp-driver-core.ts";
 import type { AcpPhase } from "../core/acp-driver-core.ts";
 import type { ResolvedHookTool } from "../core/hook-tools.ts";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
@@ -109,13 +126,45 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     );
   }
 
-  async function openSession(generation: number, activeConnection: ClientConnection, launch: DriverLaunch): Promise<void> {
+  async function trustCodexSaneYoloHook(activeConnection: ClientConnection, cwd: string, hookCommand: string): Promise<boolean> {
+    try {
+      const listed = await activeConnection.agent.request(CODEX_HOOKS_LIST_METHOD, { cwd });
+      const matched = findCodexSaneYoloHook(listed, hookCommand);
+      if (matched === null) {
+        console.warn("[acp-driver] Codex did not list the Sane YOLO hook as an enabled session flag; reporting Sane YOLO off");
+        return false;
+      }
+      if (matched.isTrusted) return true;
+      const trustResult = await activeConnection.agent.request(CODEX_HOOKS_TRUST_METHOD, {
+        cwd,
+        hooks: [{ key: matched.key, currentHash: matched.currentHash }],
+      });
+      if (isCodexHooksTrustConfirmed(trustResult)) return true;
+      console.warn("[acp-driver] Codex did not confirm trust for the Sane YOLO hook; reporting Sane YOLO off");
+      return false;
+    } catch (error: unknown) {
+      console.warn(`[acp-driver] failed to trust Codex Sane YOLO hook: ${errorMessage(error)}`);
+      return false;
+    }
+  }
+
+  async function openSession(
+    generation: number,
+    activeConnection: ClientConnection,
+    launch: DriverLaunch,
+    saneYoloConfig: { tool: ResolvedHookTool; homeDir: string } | null,
+    codexHookCommand: string | null,
+  ): Promise<void> {
     const initialized = await activeConnection.agent.request(methods.agent.initialize, initializeRequestFor(PROTOCOL_VERSION, options.clientName, options.clientVersion));
     const agentId = options.agentId ?? "";
-    const saneYoloConfig = options.saneYolo?.() ?? null;
     const sessionMeta = acpSaneYoloMetaFor(agentId, saneYoloConfig?.tool, saneYoloConfig?.homeDir ?? "");
     const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId, sessionMeta);
     if (plan.method === "refuse") throw new Error(plan.message);
+    if (generation !== runGeneration || phase !== "opening") return;
+    const isCodexHookTrusted = codexHookCommand !== null
+      ? await trustCodexSaneYoloHook(activeConnection, launch.cwd, codexHookCommand)
+      : false;
+    if (generation !== runGeneration || phase !== "opening") return;
     const opened = plan.method === "session/load"
       ? await activeConnection.agent.request(methods.agent.session.load, plan.request)
       : await activeConnection.agent.request(methods.agent.session.new, plan.request);
@@ -136,7 +185,9 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     if (generation !== runGeneration || phase !== "opening") return;
     agentSessionId = openedSessionId;
     phase = "ready";
-    options.onSaneYoloCoverageChange?.(isAcpSaneYoloCovered(agentId, saneYoloConfig !== null, sessionMeta !== undefined, modeOutcome === "confirmed"));
+    const hasHookConfig = agentId === "codex" ? codexHookCommand !== null : sessionMeta !== undefined;
+    const isConfirmed = agentId === "codex" ? isCodexHookTrusted : modeOutcome === "confirmed";
+    options.onSaneYoloCoverageChange?.(isAcpSaneYoloCovered(agentId, saneYoloConfig !== null, hasHookConfig, isConfirmed));
     emit({ kind: "agent-session", agentSessionId: openedSessionId, isResumed: plan.method === "session/load" });
   }
 
@@ -177,9 +228,12 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     isPromptOpen = false;
     options.onSaneYoloCoverageChange?.(false);
     dropActivePrompt();
+    const saneYoloConfig = options.saneYolo?.() ?? null;
+    const baseEnv = acpSpawnEnvFor(launch.env, launch.sessionEnv);
+    const codexSaneYolo = acpCodexSaneYoloEnvFor(baseEnv, options.agentId ?? "", saneYoloConfig?.tool, saneYoloConfig?.homeDir ?? "");
     const agentProcess = spawn(launch.file, launch.args, {
       cwd: spawnCwd,
-      env: acpSpawnEnvFor(launch.env, launch.sessionEnv),
+      env: codexSaneYolo.env,
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
@@ -209,7 +263,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
         emit({ kind: "exit", exitCode: exitCode ?? 0, signal: signalNumberOf(signalName) });
       });
     });
-    openSession(generation, activeConnection, launch).catch((error: unknown) => {
+    openSession(generation, activeConnection, launch, saneYoloConfig, codexSaneYolo.hookCommand).catch((error: unknown) => {
       if (generation !== runGeneration) return;
       reportFailure(generation, "open", error);
       stop();

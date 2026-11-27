@@ -8,6 +8,7 @@ import { SESSION_DRIVER_EVENTS } from "../session/drivers/driver.ts";
 import { Session } from "../session/sessions.ts";
 import type { SessionOptions } from "../session/sessions.ts";
 import { resolveHookTools } from "../server/hook-tools.ts";
+import { HOOK_TOOLS } from "../session/core/hook-tools.ts";
 import { waitFor } from "./helpers/wait-for.ts";
 import { STATES } from "../shared/states.ts";
 import type { ConversationAnswers, ConversationApproval, PermissionDecision } from "../shared/contracts/session.ts";
@@ -311,12 +312,112 @@ test("Claude over ACP with Sane YOLO and skip-permissions injects PreToolUse hoo
   assert.equal(setMode?.params?.modeId, "default");
 });
 
-test("Codex over ACP does not claim saneYolo active even when Sane YOLO is configured", { timeout: 30_000 }, async () => {
+test("Codex over ACP fails closed with saneYolo false when the adapter does not list or trust the Sane YOLO hook", { timeout: 30_000 }, async () => {
   const replay = await replayWithOperator("codex", CODEX_PERMISSIONS, decideInOrder(ALLOW_ALLOW_DENY), {
     hookTools: resolveHookTools({}),
   });
   assert.equal(replay.saneYoloWhileLive, false);
   assert.equal(replay.saneYoloAfterExit, false);
+});
+
+test("Codex over ACP injects only the Sane YOLO PreToolUse hook via CODEX_CONFIG, trusts it via _codex/hooks/trust, reports saneYolo active, and fails closed when trust is denied", { timeout: 30_000 }, async () => {
+  const codexSaneYolo = path.join(RECORDINGS, "codex", "sane-yolo.jsonl");
+  const hookTools = resolveHookTools({});
+  const saneYoloTool = hookTools.find((tool) => tool.id === "saneYolo");
+  assert.ok(saneYoloTool);
+  const expectedEntry = HOOK_TOOLS.saneYolo.codexEntry(saneYoloTool);
+  assert.ok(expectedEntry);
+  const expectedCommand = expectedEntry.hooks[0].command;
+  const recordedCommand = "node ~/Projects/.glimmervoid-worktrees/glimmervoid-L6n1dR/node_modules/cc-safety-net/dist/bin/cc-safety-net.js hook --codex";
+  const escapedExpectedCommand = JSON.stringify(expectedCommand).slice(1, -1);
+  const trustedRecording = derivedRecording(codexSaneYolo, (lines) =>
+    lines.map((line) => line.split(recordedCommand).join(escapedExpectedCommand)));
+
+  const envReportPath = path.join(scratchFolder(), "codex-env.json");
+  const receivedLogPath = path.join(scratchFolder(), "received.jsonl");
+  const envCaptureWrapper = `
+import fs from "node:fs";
+import { spawn } from "node:child_process";
+const [reportPath, replayAgent, ...rest] = process.argv.slice(1);
+fs.writeFileSync(reportPath, JSON.stringify({
+  codexConfig: process.env.CODEX_CONFIG ?? null,
+  safetyNetHome: process.env.CC_SAFETY_NET_HOME ?? null,
+  saneYoloPath: process.env.GLIMMERVOID_SANE_YOLO_PATH ?? null,
+  hookUrl: process.env.GLIMMERVOID_HOOK_URL ?? null,
+}), "utf8");
+const child = spawn(process.execPath, [replayAgent, ...rest], { stdio: "inherit" });
+child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
+`;
+  const session = new Session({
+    id: "acp-codex-sane-yolo-trusted",
+    name: "codex-sane-yolo",
+    path: ROOT,
+    agent: "codex",
+    hookTools,
+    driver: {
+      kind: "acp",
+      command: {
+        file: process.execPath,
+        args: ["--input-type=module", "-e", envCaptureWrapper, "--", envReportPath, REPLAY_AGENT, trustedRecording, "1", "carbon.unit@example.test", "plan-marker-7c1f", receivedLogPath],
+      },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  let saneYoloWhileLive = false;
+  const stopReasons: string[] = [];
+  const exited = new Promise<void>((resolveExit) => session.once("exit", () => resolveExit()));
+  const turnsDone = new Promise<void>((resolveTurns) => {
+    let promptsSent = 0;
+    const sendNextPrompt = () => {
+      if (promptsSent >= 2) return;
+      promptsSent += 1;
+      assert.deepEqual(session.deliver(`replayed prompt ${promptsSent}`, { when: "now", submit: true }), { ok: true, kind: "pasted" });
+    };
+    session.on(SESSION_DRIVER_EVENTS.agentSession, () => {
+      saneYoloWhileLive = session.saneYolo;
+      sendNextPrompt();
+    });
+    session.on(SESSION_DRIVER_EVENTS.turnEnd, ({ stopReason }: { stopReason: string }) => {
+      stopReasons.push(stopReason);
+      sendNextPrompt();
+      if (stopReasons.length === 2) resolveTurns();
+    });
+  });
+  await session.start();
+  await turnsDone;
+  session.kill();
+  await exited;
+  const saneYoloAfterExit = session.saneYolo;
+  session.destroy();
+
+  assert.equal(saneYoloWhileLive, true);
+  assert.equal(saneYoloAfterExit, false);
+  assert.deepEqual(stopReasons, ["end_turn", "end_turn"]);
+
+  const envReport = JSON.parse(fs.readFileSync(envReportPath, "utf8")) as {
+    codexConfig: string | null;
+    safetyNetHome: string | null;
+    saneYoloPath: string | null;
+    hookUrl: string | null;
+  };
+  assert.ok(envReport.codexConfig !== null);
+  const parsedCodexConfig = JSON.parse(envReport.codexConfig) as { hooks?: Record<string, unknown> };
+  assert.deepEqual(Object.keys(parsedCodexConfig.hooks ?? {}), ["PreToolUse"]);
+  assert.deepEqual(parsedCodexConfig.hooks?.PreToolUse, [expectedEntry]);
+  assert.ok(envReport.safetyNetHome !== null && envReport.safetyNetHome.length > 0);
+  assert.equal(envReport.saneYoloPath, null);
+  assert.equal(envReport.hookUrl, null);
+
+  const wireRequests = wireMessagesReceivedBy(receivedLogPath);
+  assert.ok(wireRequests.some((message) => message.method === "_codex/hooks/list"));
+  assert.ok(wireRequests.some((message) => message.method === "_codex/hooks/trust"));
+
+  const untrustedRecording = derivedRecording(trustedRecording, (lines) =>
+    lines.map((line) => line.split('"trusted":true').join('"trusted":false')));
+  const untrustedReplay = await replayWithOperator("codex", untrustedRecording, () => {}, { hookTools });
+  assert.equal(untrustedReplay.saneYoloWhileLive, false);
+  assert.equal(untrustedReplay.saneYoloAfterExit, false);
 });
 
 for (const { agent, folder } of AGENTS) {

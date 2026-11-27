@@ -1,8 +1,11 @@
 import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest, SessionModeState, SessionUpdate, ToolKind } from "@agentclientprotocol/sdk";
+import { z } from "zod";
+import { isRecord } from "../../shared/coerce.ts";
 import { AGENT_URL_ENV, GIT_CREDENTIAL_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import type { DeliverOptions, DeliveryOutcome } from "./input-delivery-core.ts";
 import { HOOK_TOOLS } from "./hook-tools.ts";
 import type { ResolvedHookTool } from "./hook-tools.ts";
+import { saneYoloEnv } from "./sane-yolo.ts";
 import { withoutGlimmervoidSecrets } from "./spawn-env.ts";
 
 type AcpPhase = "idle" | "opening" | "ready" | "closed";
@@ -63,12 +66,123 @@ function initializeRequestFor(protocolVersion: number, clientName: string, clien
 
 const CLAUDE_AGENT_ID = "claude-code";
 const CLAUDE_ASKING_MODE_ID = "default";
+const CODEX_AGENT_ID = "codex";
+const CODEX_HOOKS_LIST_METHOD = "_codex/hooks/list";
+const CODEX_HOOKS_TRUST_METHOD = "_codex/hooks/trust";
+const CODEX_CONFIG_ENV = "CODEX_CONFIG";
+const SAFETY_NET_ENV_PREFIXES: readonly string[] = ["CC_SAFETY_NET_", "SAFETY_NET_"];
 
 type AcpOpeningModePlan =
   | { kind: "none" }
   | { kind: "already-asking" }
   | { kind: "set-mode"; modeId: string }
   | { kind: "unreachable" };
+
+interface CodexSaneYoloEnv {
+  env: Record<string, string | undefined>;
+  hookCommand: string | null;
+}
+
+interface MatchedCodexSaneYoloHook {
+  key: string;
+  currentHash: string;
+  isTrusted: boolean;
+}
+
+const codexListedHookSchema = z.object({
+  key: z.string().min(1),
+  eventName: z.string(),
+  handlerType: z.string().optional(),
+  async: z.boolean().optional(),
+  matcher: z.string().nullable().optional(),
+  command: z.string().nullable().optional(),
+  source: z.string().optional(),
+  currentHash: z.string().min(1),
+  trustStatus: z.string().optional(),
+  enabled: z.boolean().optional(),
+});
+
+const codexHooksListResultSchema = z.object({
+  hooks: z.array(z.unknown()),
+});
+
+function parseExistingCodexConfig(rawConfig: string | undefined): Record<string, unknown> | null {
+  if (rawConfig === undefined || rawConfig.trim() === "") return {};
+  try {
+    const parsed: unknown = JSON.parse(rawConfig);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function existingCodexConfigValue(env: Record<string, string | undefined>): { ok: true; value: string | undefined; keys: string[] } | { ok: false } {
+  const keys = Object.keys(env).filter((key) => key.toUpperCase() === CODEX_CONFIG_ENV);
+  if (keys.length === 0) return { ok: true, value: undefined, keys };
+  if (keys.length > 1) return { ok: false };
+  return { ok: true, value: env[keys[0]], keys };
+}
+
+function acpCodexSaneYoloEnvFor(
+  env: Record<string, string | undefined>,
+  agentId: string,
+  tool: ResolvedHookTool | undefined,
+  homeDir: string,
+): CodexSaneYoloEnv {
+  if (agentId !== CODEX_AGENT_ID || tool === undefined) return { env, hookCommand: null };
+  const entry = HOOK_TOOLS.saneYolo.codexEntry(tool);
+  if (entry === null) return { env, hookCommand: null };
+  const existingEntry = existingCodexConfigValue(env);
+  if (!existingEntry.ok) return { env, hookCommand: null };
+  const existingConfig = parseExistingCodexConfig(existingEntry.value);
+  if (existingConfig === null) return { env, hookCommand: null };
+  const existingHooks = existingConfig.hooks;
+  if (existingHooks !== undefined && !isRecord(existingHooks)) return { env, hookCommand: null };
+  const existingPreToolUse = existingHooks?.PreToolUse;
+  if (existingPreToolUse !== undefined && !Array.isArray(existingPreToolUse)) return { env, hookCommand: null };
+  const mergedConfig: Record<string, unknown> = {
+    ...existingConfig,
+    hooks: {
+      ...(existingHooks ?? {}),
+      PreToolUse: [...(existingPreToolUse ?? []), entry],
+    },
+  };
+  const nextEnv: Record<string, string | undefined> = { ...env };
+  for (const key of existingEntry.keys) delete nextEnv[key];
+  for (const key of Object.keys(nextEnv)) {
+    const upperKey = key.toUpperCase();
+    if (SAFETY_NET_ENV_PREFIXES.some((prefix) => upperKey.startsWith(prefix))) delete nextEnv[key];
+  }
+  Object.assign(nextEnv, saneYoloEnv(homeDir));
+  nextEnv[CODEX_CONFIG_ENV] = JSON.stringify(mergedConfig);
+  return { env: nextEnv, hookCommand: entry.hooks[0].command };
+}
+
+function findCodexSaneYoloHook(listResult: unknown, expectedCommand: string): MatchedCodexSaneYoloHook | null {
+  const parsed = codexHooksListResultSchema.safeParse(listResult);
+  if (!parsed.success) return null;
+  for (const candidate of parsed.data.hooks) {
+    const hookResult = codexListedHookSchema.safeParse(candidate);
+    if (!hookResult.success) continue;
+    const hook = hookResult.data;
+    if (
+      hook.source === "sessionFlags"
+      && hook.eventName === "preToolUse"
+      && hook.handlerType === "command"
+      && hook.async === false
+      && hook.matcher === "Bash"
+      && hook.command === expectedCommand
+      && hook.enabled === true
+    ) {
+      return { key: hook.key, currentHash: hook.currentHash, isTrusted: hook.trustStatus === "trusted" };
+    }
+  }
+  return null;
+}
+
+function isCodexHooksTrustConfirmed(trustResult: unknown): boolean {
+  return isRecord(trustResult) && trustResult.trusted === true;
+}
 
 function acpSaneYoloMetaFor(agentId: string, tool: ResolvedHookTool | undefined, homeDir: string): Record<string, unknown> | undefined {
   if (agentId !== CLAUDE_AGENT_ID || tool === undefined) return undefined;
@@ -91,8 +205,8 @@ function openingModePlanFor(agentId: string, hasSaneYolo: boolean, modes: Sessio
   return hasAskingMode ? { kind: "set-mode", modeId: CLAUDE_ASKING_MODE_ID } : { kind: "unreachable" };
 }
 
-function isAcpSaneYoloCovered(agentId: string, hasSaneYolo: boolean, hasHookMeta: boolean, isAskingModeConfirmed: boolean): boolean {
-  return agentId === CLAUDE_AGENT_ID && hasSaneYolo && hasHookMeta && isAskingModeConfirmed;
+function isAcpSaneYoloCovered(agentId: string, hasSaneYolo: boolean, hasHookConfig: boolean, isConfirmed: boolean): boolean {
+  return (agentId === CLAUDE_AGENT_ID || agentId === CODEX_AGENT_ID) && hasSaneYolo && hasHookConfig && isConfirmed;
 }
 
 function planSessionOpen(
@@ -192,5 +306,24 @@ function mergeAcpMcpServers(staticServers: readonly McpServer[], dynamicServers:
   return [...staticServers.filter((server) => !dynamicNames.has(server.name)), ...dynamicServers];
 }
 
-export { acpSaneYoloMetaFor, acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, isAcpSaneYoloCovered, mergeAcpMcpServers, openingModePlanFor, permissionFieldsOf, pickAcpSessionEnv, planSessionOpen, questionFieldsOf };
+export {
+  CODEX_HOOKS_LIST_METHOD,
+  CODEX_HOOKS_TRUST_METHOD,
+  acpCodexSaneYoloEnvFor,
+  acpSaneYoloMetaFor,
+  acpSpawnEnvFor,
+  classifyAcpPromptError,
+  decideAcpSend,
+  doesUpdateConfirmPrompt,
+  findCodexSaneYoloHook,
+  initializeRequestFor,
+  isAcpSaneYoloCovered,
+  isCodexHooksTrustConfirmed,
+  mergeAcpMcpServers,
+  openingModePlanFor,
+  permissionFieldsOf,
+  pickAcpSessionEnv,
+  planSessionOpen,
+  questionFieldsOf,
+};
 export type { AcpPhase };
