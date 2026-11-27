@@ -237,7 +237,7 @@ test('a status line refresh broadcasts the session meter only when a field chang
   const reconnected = await openRecordingSocket<{ type?: string }>(dash);
   const replayed = await waitForMessage(reconnected.received, (frame) => frame.type === 'session-meter', 'the replayed meter');
   await closeSocket(reconnected.ws);
-  const { ts: _ts, callCostUSD: _callCostUSD, ...meter } = replayed as Record<string, unknown>;
+  const { ts: _ts, callCostUSD: _callCostUSD, seq: _seq, ...meter } = replayed as Record<string, unknown>;
   assert.deepEqual(meter, { type: 'session-meter', id: SESSION_ID, model: 'Opus 4.5', effort: 'high', contextTokens: 38_710, contextWindow: 1_000_000, outputStyle: 'Explanatory' });
 });
 
