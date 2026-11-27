@@ -1,4 +1,4 @@
-import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
+import { forEachSlotTouching, gridOfRects, hasSlotTouching, placeSlot } from '#shared/spatial-grid-core.ts';
 import type { SpatialGrid } from '#shared/spatial-grid-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import { rectsOverlap } from '#shared/whiteboard-route-core.ts';
@@ -18,10 +18,40 @@ interface CardPlacementArea {
   view: Rect;
 }
 
-interface CardSize {
+export interface CardSize {
   width: number;
   height: number;
 }
+
+interface CardCamera {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+export interface CardPlacement {
+  key: string;
+  offsetX: number;
+  offsetY: number;
+  side: CardSide;
+  isClearWhenPlaced: boolean;
+}
+
+interface CardLayoutInput {
+  sessionId: string;
+  boxRect: Rect | null;
+  isCardShrunk: boolean;
+}
+
+interface ComputedCardLayout {
+  cardTransform: string | null;
+  shrunkTransform: string | null;
+  wirePath: string | null;
+}
+
+export const FACE_SIZE_PX = 28;
+export const UNPLACED_MAIN_LEFT_PX = 16;
+export const UNPLACED_MAIN_TOP_PX = 64;
 
 const SIDE_OFFSET_PX = 48;
 const STACK_GAP_PX = 10;
@@ -142,4 +172,131 @@ function clampedIntoView(spot: CardSpot, card: CardSize, view: Rect): CardSpot {
   const clampedLeft = Math.max(view.x, Math.min(spot.x, view.x + view.width - card.width));
   const clampedTop = Math.max(view.y, Math.min(spot.y, view.y + view.height - card.height));
   return { ...spot, x: clampedLeft, y: clampedTop };
+}
+
+export function screenRectOf(rect: Rect, camera: CardCamera): Rect {
+  return {
+    x: (rect.x - camera.x) * camera.scale,
+    y: (rect.y - camera.y) * camera.scale,
+    width: rect.width * camera.scale,
+    height: rect.height * camera.scale,
+  };
+}
+
+export function wirePathOf(box: Rect, card: Rect, side: CardSide): string {
+  if (side === 'right' || side === 'left') {
+    const boxEdgeX = side === 'right' ? box.x + box.width : box.x;
+    const cardEdgeX = side === 'right' ? card.x : card.x + card.width;
+    const boxMiddleY = box.y + box.height / 2;
+    const cardEndY = card.y + Math.min(card.height / 2, FACE_SIZE_PX);
+    const bendX = (boxEdgeX + cardEdgeX) / 2;
+    return `M${boxEdgeX} ${boxMiddleY} C ${bendX} ${boxMiddleY}, ${bendX} ${cardEndY}, ${cardEdgeX} ${cardEndY}`;
+  }
+  const boxEdgeY = side === 'below' ? box.y + box.height : box.y;
+  const cardEdgeY = side === 'below' ? card.y : card.y + card.height;
+  const boxMiddleX = box.x + box.width / 2;
+  const cardEndX = card.x + Math.min(card.width / 2, FACE_SIZE_PX);
+  const bendY = (boxEdgeY + cardEdgeY) / 2;
+  return `M${boxMiddleX} ${boxEdgeY} C ${boxMiddleX} ${bendY}, ${cardEndX} ${bendY}, ${cardEndX} ${cardEdgeY}`;
+}
+
+export function computeCardLayouts(options: {
+  cards: readonly CardLayoutInput[];
+  placementBySessionId: Readonly<Record<string, CardPlacement>>;
+  cardSizeBySessionId: Readonly<Record<string, CardSize>>;
+  mapBounds: readonly Rect[];
+  mapBoundsRevision: number;
+  viewSize: CardSize;
+  camera: CardCamera;
+  fixedAreas: readonly Rect[];
+}): {
+  nextPlacementBySessionId: Record<string, CardPlacement>;
+  layoutsBySessionId: Record<string, ComputedCardLayout>;
+} {
+  const { cards, placementBySessionId, cardSizeBySessionId, mapBounds, mapBoundsRevision, viewSize, camera, fixedAreas } = options;
+  const nextPlacementBySessionId: Record<string, CardPlacement> = { ...placementBySessionId };
+  const layoutsBySessionId: Record<string, ComputedCardLayout> = {};
+  const placedCardRects: Rect[] = [...fixedAreas];
+  const placedGrid = gridOfRects(placedCardRects, GRID_CELL_PX);
+  const overlapsPlaced = (candidate: Rect): boolean => hasSlotTouching(
+    placedGrid,
+    candidate,
+    (slot) => {
+      const placed = placedCardRects[slot];
+      return placed !== undefined && rectsOverlap(candidate, placed);
+    },
+  );
+  const view: Rect = {
+    x: 0,
+    y: UNPLACED_MAIN_TOP_PX,
+    width: viewSize.width,
+    height: Math.max(0, viewSize.height - UNPLACED_MAIN_TOP_PX),
+  };
+  const placementSignature = `${view.width} ${view.height} ${camera.scale} ${mapBoundsRevision}`;
+  let lazyPlacementArea: CardPlacementArea | null = null;
+  const placementAreaOf = (): CardPlacementArea => {
+    if (lazyPlacementArea === null) {
+      lazyPlacementArea = cardPlacementAreaOf(mapBounds.map((rect) => screenRectOf(rect, camera)), view);
+    }
+    return lazyPlacementArea;
+  };
+
+  for (const card of cards) {
+    const rect = card.boxRect;
+    if (rect === null) {
+      layoutsBySessionId[card.sessionId] = {
+        cardTransform: `translate(${UNPLACED_MAIN_LEFT_PX}px, ${UNPLACED_MAIN_TOP_PX}px)`,
+        shrunkTransform: null,
+        wirePath: null,
+      };
+      continue;
+    }
+    const boxOnScreen = screenRectOf(rect, camera);
+    if (card.isCardShrunk) {
+      layoutsBySessionId[card.sessionId] = {
+        cardTransform: null,
+        shrunkTransform: `translate(${boxOnScreen.x + boxOnScreen.width - FACE_SIZE_PX / 2}px, ${boxOnScreen.y - FACE_SIZE_PX / 2}px)`,
+        wirePath: null,
+      };
+      continue;
+    }
+    const cardSize = cardSizeBySessionId[card.sessionId] ?? { width: 0, height: 0 };
+    const placementKey = `${rect.x} ${rect.y} ${rect.width} ${rect.height} ${cardSize.width} ${cardSize.height} ${placementSignature}`;
+    const existingPlacement = nextPlacementBySessionId[card.sessionId] ?? null;
+    const cachedRect = existingPlacement === null
+      ? null
+      : { x: boxOnScreen.x + existingPlacement.offsetX, y: boxOnScreen.y + existingPlacement.offsetY, ...cardSize };
+    const isCachedSpotNewlyBlocked = cachedRect !== null
+      && existingPlacement?.isClearWhenPlaced === true
+      && overlapsPlaced(cachedRect);
+    let resolvedPlacement = existingPlacement;
+    if (resolvedPlacement === null || resolvedPlacement.key !== placementKey || isCachedSpotNewlyBlocked) {
+      const spot = cardSpotOf(boxOnScreen, cardSize, placementAreaOf(), placedCardRects);
+      const spotRect = { x: spot.x, y: spot.y, ...cardSize };
+      const isClearWhenPlaced = !overlapsPlaced(spotRect);
+      resolvedPlacement = {
+        key: placementKey,
+        offsetX: spot.x - boxOnScreen.x,
+        offsetY: spot.y - boxOnScreen.y,
+        side: spot.side,
+        isClearWhenPlaced,
+      };
+      nextPlacementBySessionId[card.sessionId] = resolvedPlacement;
+    }
+    const cardRect = {
+      x: boxOnScreen.x + resolvedPlacement.offsetX,
+      y: boxOnScreen.y + resolvedPlacement.offsetY,
+      ...cardSize,
+    };
+    const placedSlot = placedCardRects.length;
+    placedCardRects.push(cardRect);
+    placeSlot(placedGrid, placedSlot, cardRect);
+    layoutsBySessionId[card.sessionId] = {
+      cardTransform: `translate(${cardRect.x}px, ${cardRect.y}px)`,
+      shrunkTransform: null,
+      wirePath: wirePathOf(boxOnScreen, cardRect, resolvedPlacement.side),
+    };
+  }
+
+  return { nextPlacementBySessionId, layoutsBySessionId };
 }

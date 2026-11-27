@@ -37,6 +37,7 @@ import { requestSessionTracePage } from '../state/collections/sessions.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { Button } from '../ui/Button.tsx';
 import { mountIsland } from '../ui/island.ts';
+import { createSyncedSignal } from '../ui/store-signal.ts';
 import { Pressable } from '../ui/Pressable.tsx';
 import { labelIconPressable } from '../ui/pressable.ts';
 import { onAgentChange } from '../whiteboard/board-tile-store.ts';
@@ -244,29 +245,6 @@ function bindPressableElement(target: HTMLElement, label: string, press: () => v
     event.preventDefault();
     press();
   });
-}
-
-function createSyncedSignal<Value>(initial: Value): {
-  read: () => Value;
-  peek: () => Value;
-  update: (next: Value | ((previous: Value) => Value)) => Value;
-} {
-  let current = initial;
-  const [version, setVersion] = createSignal(0);
-  return {
-    read: () => {
-      version();
-      return current;
-    },
-    peek: () => current,
-    update: (next) => {
-      const nextValue = typeof next === 'function' ? (next as (previous: Value) => Value)(current) : next;
-      if (Object.is(nextValue, current)) return current;
-      current = nextValue;
-      setVersion((count) => count + 1);
-      return current;
-    },
-  };
 }
 
 function Dock(props: DockProps): JSX.Element {

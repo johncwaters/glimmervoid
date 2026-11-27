@@ -126,6 +126,31 @@ export function traceStateSignal(): Accessor<TraceSnapshot> {
   return createExternalSignal(traceSnapshot, listenToTraceStore);
 }
 
+interface SyncedSignal<Value> {
+  read: () => Value;
+  peek: () => Value;
+  update: (next: Value | ((previous: Value) => Value)) => Value;
+}
+
+export function createSyncedSignal<Value>(initial: Value): SyncedSignal<Value> {
+  let current = initial;
+  const [version, setVersion] = createSignal(0);
+  return {
+    read: () => {
+      version();
+      return current;
+    },
+    peek: () => current,
+    update: (next) => {
+      const nextValue = typeof next === 'function' ? (next as (previous: Value) => Value)(current) : next;
+      if (Object.is(nextValue, current)) return current;
+      current = nextValue;
+      setVersion((count) => count + 1);
+      return current;
+    },
+  };
+}
+
 export function controlConnectionSignal(): Accessor<ControlConnectionState> {
   return createExternalSignal(readControlConnectionState, listenToControlConnection);
 }
