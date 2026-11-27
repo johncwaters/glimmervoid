@@ -50,7 +50,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 - No new top-level feature area until Studio runs on ACP: Studio is the primary surface, so new top-level work waits until its ACP foundation is in place.
 - A new tab or panel arrives as a pack, not a built-in: Packs is how operators add their own tabs without growing core chrome.
-- Studio work ships when it works over ACP on the first-class agents that passed the ACP spike (`docs/acp-spike-2026-11.md`): Claude Code and Codex; Antigravity CLI joins once the whiteboard tool reaches its model over ACP.
+- Studio work ships when it works over ACP on the first-class agents that passed the ACP spike (`docs/acp-spike-2026-11.md`): Claude Code, Codex and Antigravity CLI.
 - On boards, agents author and the operator annotates: keeping authoring with agents and markup with the operator avoids competing board tools.
 
 ### Feature freeze

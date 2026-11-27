@@ -22,28 +22,25 @@ const AskQuestion = z.string().trim().min(1, { error: 'an ask needs a question' 
 const AskOptions = z.array(z.string().trim().min(1).max(WHITEBOARD_LIMITS.askOption, { error: `an ask option is at most ${WHITEBOARD_LIMITS.askOption} characters` }))
   .max(WHITEBOARD_LIMITS.askOptions, { error: `an ask offers at most ${WHITEBOARD_LIMITS.askOptions} options` });
 
-export const BoardAsk = z.object({ sessionId: z.string().min(1), question: AskQuestion, options: AskOptions }).strict()
-  .describe('a question a session asked the operator on the board; the server sets it');
+export const BoardAsk = z.object({ sessionId: z.string().min(1), question: AskQuestion, options: AskOptions }).strict();
 export type BoardAsk = z.infer<typeof BoardAsk>;
 
-export const BoxPullRequest = z.object({ url: z.url({ protocol: /^https$/, hostname: /^github\.com$/ }).max(WHITEBOARD_LIMITS.ref) }).strict()
-  .describe('the pull request a card follows, which a click opens; the server sets it');
+export const BoxPullRequest = z.object({ url: z.url({ protocol: /^https$/, hostname: /^github\.com$/ }).max(WHITEBOARD_LIMITS.ref) }).strict();
 export type BoxPullRequest = z.infer<typeof BoxPullRequest>;
 
 export const AnchorRef = z.string().min(1).max(WHITEBOARD_LIMITS.ref, { error: `a ref is at most ${WHITEBOARD_LIMITS.ref} characters` })
   .regex(/^[^#\s]+(#L[1-9]\d*(-L[1-9]\d*)?)?$/, { error: 'a ref is path, path#L12 or path#L12-L30' })
-  .meta({ id: 'AnchorRef', description: 'a code location: path, path#L12 or path#L12-L30' });
+  .meta({ id: 'AnchorRef' });
 
-export const IconName = z.enum(ICON_NAMES).meta({ id: 'IconName', description: 'a catalog icon, drawn in the text color' });
-export const DeviceName = z.enum(DEVICE_NAMES).meta({ id: 'DeviceName', description: 'a catalog device drawn around the box media' });
-const DeviceFit = z.enum(DEVICE_FITS).default('fill').describe('fill covers the screen and crops; fit shows all of the media, letterboxed');
+export const IconName = z.enum(ICON_NAMES).meta({ id: 'IconName' });
+export const DeviceName = z.enum(DEVICE_NAMES).meta({ id: 'DeviceName' });
+const DeviceFit = z.enum(DEVICE_FITS).default('fill');
 
 export const LINE_STYLES = ['text', 'code', 'item', 'kv'] as const;
 
 const RefHashes = z.record(z.string(), z.string().regex(/^[0-9a-f]{40}$/))
   .refine((hashByRef) => Object.keys(hashByRef).length <= WHITEBOARD_LIMITS.refsPerElement, { error: `a box keeps at most ${WHITEBOARD_LIMITS.refsPerElement} ref hashes` })
-  .default({})
-  .describe('a hash of the lines each ref named when the box was last put with its refs; the server sets it');
+  .default({});
 const AnchorRefs = z.array(AnchorRef).max(WHITEBOARD_LIMITS.refsPerElement, { error: `an element carries at most ${WHITEBOARD_LIMITS.refsPerElement} refs` }).default([]);
 
 export const BoxLine = z.object({
@@ -145,50 +142,49 @@ export const Dial = z.discriminatedUnion('kind', [
   z.object({ id: DialId, label: DialLabel, kind: z.literal('color'), default: DialColor }).strict(),
   z.object({ id: DialId, label: DialLabel, kind: z.literal('choice'), options: z.array(DialChoice).min(1).max(WHITEBOARD_LIMITS.dialChoices, { error: `a choice dial has at most ${WHITEBOARD_LIMITS.dialChoices} options` }), default: DialChoice }).strict()
     .refine((dial) => dial.options.includes(dial.default), { error: 'a choice dial default is one of its options' }),
-], { error: 'a dial kind is range, toggle, color or choice' }).meta({ id: 'Dial', description: 'a control a page declares in its application/glimmervoid-params script tag' });
+], { error: 'a dial kind is range, toggle, color or choice' }).meta({ id: 'Dial' });
 
 export const DialManifest = z.array(Dial).max(WHITEBOARD_LIMITS.dialsPerPage, { error: `a page declares at most ${WHITEBOARD_LIMITS.dialsPerPage} dials` })
   .refine((dials) => new Set(dials.map((dial) => dial.id)).size === dials.length, { error: 'each dial id is used once' });
 
 export const DialValue = z.union([z.number(), z.boolean(), DialChoice]);
-const DialParams = z.record(DialId, DialValue).default({}).describe('dial values for a page box, by dial id; a value must suit the dial its page declares');
+const DialParams = z.record(DialId, DialValue).default({});
 
 const LINK_STATES = ['in-sync', 'file-ahead', 'card-ahead', 'diverged', 'broken'] as const;
-const LinkPath = z.string().min(1, { error: 'a linked file path is not empty' }).max(4096, { error: 'a linked file path is at most 4096 characters' })
-  .describe('a file path relative to the board code session worktree, with no .. segment');
+const LinkPath = z.string().min(1, { error: 'a linked file path is not empty' }).max(4096, { error: 'a linked file path is at most 4096 characters' });
 const CodeSessionId = z.string().min(1).max(64);
 
 export const MediaLink = z.object({
   path: LinkPath,
-  sessionId: CodeSessionId.nullable().default(null).describe('the session whose worktree the path is in; null is the board code session'),
-  syncedHash: AssetId.nullable().default(null).describe('the sha256 of the file at the last sync; leave null to take the file content on the next read'),
+  sessionId: CodeSessionId.nullable().default(null),
+  syncedHash: AssetId.nullable().default(null),
 }).strict().meta({ id: 'MediaLink' });
 
 const SOURCE_NAME_MAX = 255;
 const MediaSource = z.discriminatedUnion('from', [
   z.object({
     from: z.literal('file'),
-    path: z.string().min(1).max(4096, { error: 'a media source path is at most 4096 characters' }).describe('the absolute path on the Glimmervoid host the media was read from'),
-    sessionId: z.string().min(1).nullable().default(null).describe('the session that showed or attached it'),
+    path: z.string().min(1).max(4096, { error: 'a media source path is at most 4096 characters' }),
+    sessionId: z.string().min(1).nullable().default(null),
   }).strict(),
   z.object({
     from: z.literal('upload'),
-    name: z.string().min(1).max(SOURCE_NAME_MAX, { error: `an uploaded file name is at most ${SOURCE_NAME_MAX} characters` }).describe('the file name the operator uploaded from the dashboard'),
+    name: z.string().min(1).max(SOURCE_NAME_MAX, { error: `an uploaded file name is at most ${SOURCE_NAME_MAX} characters` }),
   }).strict(),
 ], { error: 'a media source is {"from":"file","path":...} or {"from":"upload","name":...}' }).meta({ id: 'MediaSource' });
 
 export const BoxMedia = z.object({
-  kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
+  kind: z.enum(BOARD_MEDIA_KINDS),
   asset: AssetId,
-  mime: z.enum(BOARD_MEDIA_MIMES).describe('the media type, as attach returned it'),
-  width: z.number().int().min(1).max(BOARD_MEDIA_MAX_EDGE_PX).describe('the media width in pixels, as attach returned it'),
-  height: z.number().int().min(1).max(BOARD_MEDIA_MAX_EDGE_PX).describe('the media height in pixels, as attach returned it'),
+  mime: z.enum(BOARD_MEDIA_MIMES),
+  width: z.number().int().min(1).max(BOARD_MEDIA_MAX_EDGE_PX),
+  height: z.number().int().min(1).max(BOARD_MEDIA_MAX_EDGE_PX),
   alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `a media alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
-  hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
-  dials: DialManifest.default([]).describe('the dials a page declares, as attach returned them'),
-  sheets: z.array(z.string().max(WHITEBOARD_LIMITS.line)).max(BOARD_WORKBOOK_SHEETS_MAX).default([]).describe('the sheet names of an XLSX workbook, as attach returned them'),
-  link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows every change to the file live, and an operator save of a doc writes it'),
-  source: MediaSource.nullable().default(null).describe('the file this media came from, as attach returned it'),
+  hasPreview: z.boolean().default(false),
+  dials: DialManifest.default([]),
+  sheets: z.array(z.string().max(WHITEBOARD_LIMITS.line)).max(BOARD_WORKBOOK_SHEETS_MAX).default([]),
+  link: MediaLink.nullable().default(null),
+  source: MediaSource.nullable().default(null),
 }).strict().meta({ id: 'BoxMedia' });
 
 export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
@@ -206,7 +202,7 @@ const Place = z.union([
 ], { error: PLACE_ERROR }).meta({ id: 'Place' });
 
 const PlaceInput = z.union([...Place.options, z.object({ near: Near }).strict()], { error: PLACE_ERROR })
-  .describe('where the box sits: {"at":point}; {"near":{of,side}} beside another box, stored as the point it lands on; "aside" stacked right of the drawing by order; "plan" the build-order band, plan steps only');
+  .describe('{"at":point}, {"near":{of,side}}, "aside", or "plan"');
 
 const BoxWidth = z.number().int()
   .min(WHITEBOARD_LIMITS.boxWidthMin, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
@@ -218,32 +214,32 @@ const BoxHeight = z.number().int()
 const boxFields = {
   kind: z.literal('box'),
   id: ElementId,
-  shape: z.enum(BOX_SHAPES, { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).default('box').describe('decision draws a diamond; ellipse an oval; note a note card; icon its icon large, with no lines or media; device a catalog device around its media, with no lines'),
+  shape: z.enum(BOX_SHAPES, { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).default('box'),
   title: Title.min(1, { error: 'a box needs a title' }),
-  icon: IconName.nullable().default(null).describe('drawn before the title; the big glyph of an icon box'),
+  icon: IconName.nullable().default(null),
   place: Place,
-  order: z.number().int().default(0).describe('position in the aside stack, lowest first'),
-  width: BoxWidth.nullable().default(null).describe(`null is the 220 default`),
-  height: BoxHeight.nullable().default(null).describe('the least height; content can still grow the box'),
-  borderless: z.boolean().nullable().default(null).describe('true draws no card fill or outline; null is the shape default, bare for icon and device; a note always draws its card'),
-  tone: z.enum(NOTE_TONES).nullable().default(null).describe('a fill tint for a box, decision, ellipse or note'),
-  textSize: z.enum(TEXT_SIZES).default('M').describe('the title size: S small, M the default, L large, XL extra large'),
-  titleGradient: z.boolean().default(false).describe('true draws the title in a gradient from purple to blue to red'),
-  fullBleed: z.boolean().default(false).describe('true on a box with media drops its title, lines and padding so the media fills the box, and Present fills the view with it'),
-  autoplay: z.boolean().default(false).describe('true on a box showing a video plays it muted and looping on the board while it is on screen'),
-  feeds: z.array(z.enum(BOARD_PAGE_FEED_TOPICS)).max(BOARD_PAGE_FEED_TOPICS.length).default([]).describe('live data a box showing a page receives: sessions sends each session name, agent and state to the page as window.glimmervoidFeed and a glimmervoid:feed event'),
-  backdrop: z.boolean().default(false).describe('true on a box showing a page, video or image also fills the whole board view behind every element with it; the first such box on the board wins'),
-  angle: z.number().int().min(0, { error: 'a box angle is 0 to 359 degrees' }).max(359, { error: 'a box angle is 0 to 359 degrees' }).default(0).describe('the clockwise rotation in whole degrees around the box center'),
+  order: z.number().int().default(0),
+  width: BoxWidth.nullable().default(null),
+  height: BoxHeight.nullable().default(null),
+  borderless: z.boolean().nullable().default(null),
+  tone: z.enum(NOTE_TONES).nullable().default(null),
+  textSize: z.enum(TEXT_SIZES).default('M'),
+  titleGradient: z.boolean().default(false),
+  fullBleed: z.boolean().default(false),
+  autoplay: z.boolean().default(false),
+  feeds: z.array(z.enum(BOARD_PAGE_FEED_TOPICS)).max(BOARD_PAGE_FEED_TOPICS.length).default([]),
+  backdrop: z.boolean().default(false),
+  angle: z.number().int().min(0, { error: 'a box angle is 0 to 359 degrees' }).max(359, { error: 'a box angle is 0 to 359 degrees' }).default(0),
   device: DeviceName.nullable().default(null),
   fit: DeviceFit,
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
-  media: BoxMedia.nullable().default(null).describe('from whiteboard attach'),
+  media: BoxMedia.nullable().default(null),
   params: DialParams,
   refs: AnchorRefs,
-  change: z.enum(BOX_CHANGES).default('none').describe('marks the box in a diff'),
-  was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
-  step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
-  author: z.string().min(1).max(WHITEBOARD_LIMITS.title).nullable().default(null).describe('who wrote a note; the server sets it'),
+  change: z.enum(BOX_CHANGES).default('none'),
+  was: Title.nullable().default(null),
+  step: Step.nullable().default(null),
+  author: z.string().min(1).max(WHITEBOARD_LIMITS.title).nullable().default(null),
   ask: BoardAsk.nullable().default(null),
   pullRequest: BoxPullRequest.nullable().default(null),
   refHashes: RefHashes,
@@ -299,8 +295,8 @@ export const Frame = z.object({
   kind: z.literal('frame'),
   id: ElementId,
   title: Title,
-  contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }).describe('the box ids it encloses'),
-  collapsed: z.boolean().default(false).describe('a stack: draws as one card showing its first box, hides the rest, and ends their wires at the card; a box sits in at most one collapsed frame'),
+  contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }),
+  collapsed: z.boolean().default(false),
 }).strict();
 
 const WirePoint = z.object({ x: z.number().int(), y: z.number().int() }).strict();
@@ -310,16 +306,16 @@ export type WireEnd = z.infer<typeof WireEnd>;
 export const Wire = z.object({
   kind: z.literal('wire'),
   id: ElementId,
-  from: WireEnd.describe('the box id it starts at, or a free point'),
-  to: WireEnd.describe('the box id it ends at, or a free point'),
+  from: WireEnd,
+  to: WireEnd,
   dashed: z.boolean().default(false),
-  flow: z.boolean().default(false).describe('true draws a glow and particles flowing along the wire from start to end while it is on screen'),
+  flow: z.boolean().default(false),
   tone: z.enum(WIRE_TONES).default('plain'),
-  width: z.enum(WIRE_WIDTHS).default('thin').describe('the line weight'),
-  arrows: z.enum(WIRE_ARROWS).default('end').describe('arrowheads: none, at the end, or at both ends'),
-  route: z.enum(WIRE_ROUTES).default('elbow').describe('elbow routes around boxes; sharp is one straight line; curved one bowed line'),
+  width: z.enum(WIRE_WIDTHS).default('thin'),
+  arrows: z.enum(WIRE_ARROWS).default('end'),
+  route: z.enum(WIRE_ROUTES).default('elbow'),
   label: z.string().max(WHITEBOARD_LIMITS.wireLabel, { error: `a wire label is at most ${WHITEBOARD_LIMITS.wireLabel} characters` }).nullable().default(null),
-  via: z.array(WirePoint).max(WHITEBOARD_LIMITS.wireBends, { error: `a wire has at most ${WHITEBOARD_LIMITS.wireBends} bend points` }).default([]).describe('bend points the line passes through in order; on an elbow wire, its corners'),
+  via: z.array(WirePoint).max(WHITEBOARD_LIMITS.wireBends, { error: `a wire has at most ${WHITEBOARD_LIMITS.wireBends} bend points` }).default([]),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),
 }).strict();
@@ -331,11 +327,10 @@ export const Stroke = z.object({
   id: ElementId,
   points: z.array(z.number().int()).min(4, { error: 'a stroke needs at least two points' })
     .max(WHITEBOARD_LIMITS.strokePoints * 2, { error: `a stroke has at most ${WHITEBOARD_LIMITS.strokePoints} points` })
-    .refine((points) => points.length % 2 === 0, { error: 'stroke points are x, y pairs' })
-    .describe('flat x, y pairs in board units'),
+    .refine((points) => points.length % 2 === 0, { error: 'stroke points are x, y pairs' }),
   width: z.number().int().min(1).max(WHITEBOARD_LIMITS.strokeWidthMax, { error: `a stroke width is 1 to ${WHITEBOARD_LIMITS.strokeWidthMax}` }).default(3),
   tone: z.enum(STROKE_TONES).default('ink'),
-}).strict().describe('freehand ink the operator drew; agents read and remove strokes but never draw or change them');
+}).strict();
 
 export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Stroke], { error: 'an element kind is box, frame, wire or stroke' });
 export const ElementInput = z.discriminatedUnion('kind', [BoxInput, Frame, Wire, Stroke], { error: 'an element kind is box, frame, wire or stroke' });
@@ -421,11 +416,11 @@ export type BoardFileAsset = z.infer<typeof BoardFileAsset>;
 
 export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add'), element: ElementInput }).strict(),
-  z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
+  z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()) }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
-  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(WHITEBOARD_LIMITS.caption).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional(), link: BoardLinkPath.nullable().optional().describe('link the board to a folder in the board code session worktree, kept in step with it as board.jsonl and media/; null unlinks') }).strict(),
-  z.object({ op: z.literal('align'), ids: z.array(ElementId).min(2).max(50).describe('the placed boxes to line up'), as: z.enum(['row', 'column']).describe('row gives every box the top of the highest and the height of the tallest; column gives the left of the leftmost and the width of the widest') }).strict(),
-  z.object({ op: z.literal('order'), ids: z.array(ElementId).min(1).max(WHITEBOARD_LIMITS.opsPerPut).describe('the elements to restack, each among elements of its own kind; an id of only digits always draws first, so it cannot be restacked'), to: z.enum(['front', 'back', 'forward', 'backward']).describe('front and back move them above or below every element of their kind, stacked in the order the ids are given; forward and backward move each one step past its nearest neighbor of that kind') }).strict(),
+  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(WHITEBOARD_LIMITS.caption).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional(), link: BoardLinkPath.nullable().optional() }).strict(),
+  z.object({ op: z.literal('align'), ids: z.array(ElementId).min(2).max(50), as: z.enum(['row', 'column']) }).strict(),
+  z.object({ op: z.literal('order'), ids: z.array(ElementId).min(1).max(WHITEBOARD_LIMITS.opsPerPut), to: z.enum(['front', 'back', 'forward', 'backward']) }).strict(),
 ], { error: 'an op is add, set, remove, board, align or order' });
 
 export const BoardChange = z.object({

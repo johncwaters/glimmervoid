@@ -55,7 +55,7 @@ type ToolCallRoute = { ok: true; verb: AgentApiVerb; presenter: Presenter; paylo
 const SPAWNABLE_AGENT_IDS = BUILTIN_AGENT_IDS.filter((agentId) => agentId !== SHELL_AGENT_ID).join(', ');
 
 const ChildField = z.string().min(1).max(300).describe('The spawned session, by the id or name spawn returned');
-const BoardField = z.string().min(1).max(200).describe('The board, by id or title');
+const BoardField = z.string().min(1).max(200).describe('Board id or title');
 
 function definedEntries(source: ToolArguments, keys: readonly string[]): Record<string, unknown> {
   return Object.fromEntries(keys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
@@ -157,26 +157,26 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names this project's boards in use (all: true names every board); every other action needs a board that exists, so draw on the board the operator opened beside this session when the prompt names one, and otherwise call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, small enough to read inline, so pass region to picture one part of a large board with text you can read; render writes the whole board to a file Glimmervoid keeps, a PNG at 1 to 3 times its size or an SVG, media included, and replies with the file's path, so copy that file to export a board or read it for a sharp picture; put applies element ops (add, set, remove, align to give boxes one top and height as a row or one left and width as a column, and order to draw elements above or below others of their kind; every box takes a place, a point {at}, {near} another box, aside stacked right of the drawing, or plan in the build-order band for a plan step, and a shape, ${BOX_SHAPES.join(', ')}; a box with a step is a plan step, and a wire from one step to another orders them; a slideshow is one box per slide wired from each slide to the next, which the operator steps through with Present); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, a note is a box with shape note wired dashed to the box it is about and removed once settled, and when your point is one part of an operator's screenshot or page, show or attach it and wire a labeled note to that spot instead of describing it, marking only what you saw in the picture, delete removes a board of this session's project, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV, XLSX or PPTX file and returns the media a box takes to show it, doc reads the text of the Markdown or Fountain document or CSV, TSV or XLSX sheet a box shows, as the operator last saved it, export writes a board with its media to a .glimmerboard file Glimmervoid keeps and replies with its path, to hand the board to an operator on another machine, and import opens such a file as a new board. run spawns a session for each planned step whose earlier steps have landed, marks it building, and marks it landed when that session's work merges, which starts the steps waiting on it; a step whose session ends before its work lands goes back to planned, and each landing, start and reopening reaches this session as a message from that step's session. ask puts a question for the operator on the code map of this session's repo, as a question card right of the map wired to the box about names (a box id, or a repo path whose module box it finds), with up to ${WHITEBOARD_LIMITS.askOptions} options to pick; it returns at once, and the operator's answer arrives later as your next message.`,
+  description: `Draw diagrams, maps and plans on a shared dashboard whiteboard instead of in chat. new creates a board; list names project boards (all: true for every board); other actions need an existing board. get reads a board with changes since your last read (boards over ${WHITEBOARD_LIMITS.readPage} elements return an outline plus the focus region); query pages elements by region, ids or text; view returns an inline PNG (pass region on large boards); render writes a PNG (scale 1-3) or SVG file and returns its path. put applies ops (add, set, remove, board, align, order); box place is {at}, {near}, aside, or plan (for a box with step); shapes: ${BOX_SHAPES.join(', ')}; wire steps to order them or wire slide boxes for Present; notes use shape note wired dashed to their subject. get and put return plan steps and layout warnings. connect/disconnect follow changes; delete removes a project board; attach stores media and returns media for a box; doc reads a saved Markdown, Fountain, CSV, TSV or XLSX box; export/import write or open a .glimmerboard file; run spawns sessions for ready planned steps; ask puts a question card on the repo code map wired to about with up to ${WHITEBOARD_LIMITS.askOptions} options.`,
   loadsUpfront: true,
   fields: {
     board: BoardField.optional(),
-    title: z.string().min(1).max(200).optional().describe('new: the board title'),
-    ops: z.array(Op).min(1).optional().describe('put: the element ops to apply'),
-    box: z.string().min(1).max(40).optional().describe('doc: the id of the box whose document to read'),
-    all: z.boolean().optional().describe('list: every board in every project, archived ones too, instead of this project\'s boards in use'),
-    peek: z.boolean().optional().describe('get: read without marking changes as seen; view never marks them'),
-    review: z.boolean().optional().describe('get: include the plan review against the code session'),
-    region: BoardRegion.optional().describe('get: the focus region to read in full, kept as this session\'s focus until the operator view changes; query: the region to page through; view: the part of the board to picture, at up to twice its size'),
-    ids: z.array(z.string()).min(1).max(WHITEBOARD_LIMITS.readPage).optional().describe('query: the element ids to read'),
-    text: z.string().min(1).max(WHITEBOARD_LIMITS.queryText).optional().describe('query: words to find in element titles, lines and notes'),
-    cursor: z.string().max(40).optional().describe('get, query: the nextCursor a previous read returned, to read the next page of the same read'),
-    path: z.string().min(1).max(4096).optional().describe('attach: the image file; import: the .glimmerboard file; absolute or relative to this session\'s directory'),
-    format: z.enum(['png', 'svg']).optional().describe('render: the kind of file to write, png unless given'),
-    scale: z.number().int().min(1).max(3).optional().describe('render: how many pixels a PNG gets per board unit, 1, 2 or 3, and 2 unless given; a large board gets fewer'),
-    about: z.string().min(1).max(WHITEBOARD_LIMITS.ref).optional().describe('ask: the box the question is about, by id or by a repo path'),
-    question: z.string().min(1).max(WHITEBOARD_LIMITS.askQuestion).optional().describe('ask: the question for the operator'),
-    options: z.array(z.string().min(1).max(WHITEBOARD_LIMITS.askOption)).max(WHITEBOARD_LIMITS.askOptions).optional().describe('ask: answers the operator can pick, recommended first; they can also type their own'),
+    title: z.string().min(1).max(200).optional().describe('new: board title'),
+    ops: z.array(Op).min(1).optional().describe('put: ops to apply'),
+    box: z.string().min(1).max(40).optional().describe('doc: box id'),
+    all: z.boolean().optional().describe('list: include all projects and archived boards'),
+    peek: z.boolean().optional().describe('get: read without marking changes seen'),
+    review: z.boolean().optional().describe('get: include plan review'),
+    region: BoardRegion.optional().describe('get/query/view: focus or capture region'),
+    ids: z.array(z.string()).min(1).max(WHITEBOARD_LIMITS.readPage).optional().describe('query: element ids'),
+    text: z.string().min(1).max(WHITEBOARD_LIMITS.queryText).optional().describe('query: search text'),
+    cursor: z.string().max(40).optional().describe('get/query: nextCursor for next page'),
+    path: z.string().min(1).max(4096).optional().describe('attach/import: file path'),
+    format: z.enum(['png', 'svg']).optional().describe('render: png or svg'),
+    scale: z.number().int().min(1).max(3).optional().describe('render: PNG scale 1-3 (default 2)'),
+    about: z.string().min(1).max(WHITEBOARD_LIMITS.ref).optional().describe('ask: box id or repo path'),
+    question: z.string().min(1).max(WHITEBOARD_LIMITS.askQuestion).optional().describe('ask: question text'),
+    options: z.array(z.string().min(1).max(WHITEBOARD_LIMITS.askOption)).max(WHITEBOARD_LIMITS.askOptions).optional().describe('ask: choices, recommended first'),
   },
   actions: {
     list: whiteboardRoute('list', ['all'], { hints: READS }),
