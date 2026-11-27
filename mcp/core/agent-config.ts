@@ -15,6 +15,7 @@ import { mcpCredentialFor } from './credentials.ts';
 const MCP_URL_ENV = 'GLIMMERVOID_MCP_URL';
 const MCP_SERVER_NAME = GLIMMERVOID_MCP_SERVER_NAME;
 const MCP_TOOL_TIMEOUT_SECONDS = 600;
+const CLAUDE_MCP_TOOL_TIMEOUT_ENV = 'MCP_TOOL_TIMEOUT';
 const CODEX_TOOL_INPUT_SCHEMA_MAX_BYTES = 16384;
 const KIMI_PACK_SERVER_NAMES_KEY = 'names';
 const KIMI_SHADOWED_SERVERS_KEY = 'shadowedServers';
@@ -61,7 +62,7 @@ function mcpUrl(listenerPort: number): string {
 function claudeMcpArgs(glimmervoidUrl: string | null, packServers: readonly PackMcpServer[]): string[] {
   const packEntries = Object.fromEntries(packServers.map((server) => [server.name, { type: 'http', url: server.url, ...packHeaders(server) }]));
   if (glimmervoidUrl === null) return ['--mcp-config', JSON.stringify({ mcpServers: packEntries })];
-  const glimmervoidEntry = { type: 'http', url: glimmervoidUrl, headers: bearerHeaders(MCP_CREDENTIAL_ENV) };
+  const glimmervoidEntry = { type: 'http', url: glimmervoidUrl, headers: bearerHeaders(MCP_CREDENTIAL_ENV), timeout: MCP_TOOL_TIMEOUT_SECONDS * 1000 };
   return ['--mcp-config', JSON.stringify({ mcpServers: { ...packEntries, [MCP_SERVER_NAME]: glimmervoidEntry } }), '--allowedTools', `mcp__${MCP_SERVER_NAME}`];
 }
 
@@ -278,6 +279,18 @@ function acpMcpServersFor({ listenerPort, sessionId, agentToken, packServers, pa
   ];
 }
 
+interface AcpMcpEnvInput {
+  agentId: string;
+  listenerPort: number | null;
+  agentToken: string | null;
+}
+
+function acpMcpEnvFor({ agentId, listenerPort, agentToken }: AcpMcpEnvInput): Record<string, string> {
+  const hasGlimmervoidServer = listenerPort !== null && listenerPort > 0 && agentToken !== null && agentToken !== '';
+  if (!hasGlimmervoidServer || agentId !== 'claude-code') return {};
+  return { [CLAUDE_MCP_TOOL_TIMEOUT_ENV]: String(MCP_TOOL_TIMEOUT_SECONDS * 1000) };
+}
+
 function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken, packServers }: McpLaunchInput): McpLaunch {
   const buildArgs = isBuiltinWithMcpArgs(agentId) ? ARGS_BY_AGENT[agentId] : undefined;
   if (!buildArgs) return NO_MCP_LAUNCH;
@@ -289,5 +302,5 @@ function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken, packServer
   };
 }
 
-export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME, MCP_CREDENTIAL_ENV, MCP_TOOL_TIMEOUT_SECONDS, MCP_URL_ENV, PACK_SECRET_ENV_PREFIX, acpMcpServersFor, copilotMcpArgs, copilotMcpConfigName, copilotMcpConfigText, kimiMcpFiles, mcpLaunchFor, packSecretEnvName, qwenMcpArgs, rendersPackServers, settingsHomeMcpServers };
-export type { AcpHttpMcpHeader, AcpHttpMcpServer, AcpMcpServersInput, McpLaunch, McpLaunchInput };
+export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME, MCP_CREDENTIAL_ENV, MCP_TOOL_TIMEOUT_SECONDS, MCP_URL_ENV, PACK_SECRET_ENV_PREFIX, acpMcpEnvFor, acpMcpServersFor, copilotMcpArgs, copilotMcpConfigName, copilotMcpConfigText, kimiMcpFiles, mcpLaunchFor, packSecretEnvName, qwenMcpArgs, rendersPackServers, settingsHomeMcpServers };
+export type { AcpHttpMcpHeader, AcpHttpMcpServer, AcpMcpEnvInput, AcpMcpServersInput, McpLaunch, McpLaunchInput };

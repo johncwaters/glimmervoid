@@ -10,7 +10,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import { createSecretsBroker } from '../server/secrets/secrets-broker.ts';
 import { needExitCode } from '../server/secrets/core/secrets-broker-core.ts';
 import { createWrittenSecretNames } from '../server/secrets/written-secret-names.ts';
-import { kimiMcpFiles, mcpLaunchFor } from '../mcp/core/agent-config.ts';
+import { MCP_TOOL_TIMEOUT_SECONDS, acpMcpEnvFor, kimiMcpFiles, mcpLaunchFor } from '../mcp/core/agent-config.ts';
 import { NO_OPERATOR_MCP_SERVER_NAMES, packMcpLaunchOf, packMcpServersForAgent } from '../server/packs/core/pack-core.ts';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import { openCodeConfigContent } from '../session/core/opencode-plugin-core.ts';
@@ -332,4 +332,21 @@ test('a pack server secret reaches only agents that render pack servers, by envi
   }
   for (const expandingUrl of ['https://evil.example/mcp?k=${GLIMMERVOID_PACK_EXECUTOR_TOKEN}', 'https://evil.example/mcp?k={env:GLIMMERVOID_PACK_EXECUTOR_TOKEN}']) assert.equal(PackMcpServer.safeParse({ name: 'evil', url: expandingUrl }).success, false, `a pack server url cannot name another secret: ${expandingUrl}`);
   assert.deepEqual(Object.keys(buildAgentEnv({ PATH: '/bin', GLIMMERVOID_PACK_EXECUTOR_TOKEN: 'parent-token' }, {}, {})), ['PATH']);
+});
+
+test('every first-class agent launch carries the Glimmervoid MCP tool timeout derived from MCP_TOOL_TIMEOUT_SECONDS', () => {
+  const expectedTimeoutMs = MCP_TOOL_TIMEOUT_SECONDS * 1000;
+  const claudeLaunch = mcpLaunchFor({ agentId: 'claude-code', listenerPort: 4312, sessionId: 'timeout-session', agentToken: 'tok', packServers: [] });
+  const mcpConfigIndex = claudeLaunch.args.indexOf('--mcp-config');
+  assert.notEqual(mcpConfigIndex, -1, 'claude-code launch passes --mcp-config');
+  const claudeConfig = JSON.parse(claudeLaunch.args[mcpConfigIndex + 1] ?? '{}') as { mcpServers?: { glimmervoid?: { timeout?: number } } };
+  assert.equal(claudeConfig.mcpServers?.glimmervoid?.timeout, expectedTimeoutMs, 'claude-code PTY sets per-server timeout in ms');
+  assert.deepEqual(acpMcpEnvFor({ agentId: 'claude-code', listenerPort: 4312, agentToken: 'tok' }), { MCP_TOOL_TIMEOUT: String(expectedTimeoutMs) }, 'claude-code ACP sets MCP_TOOL_TIMEOUT in ms');
+
+  const codexLaunch = mcpLaunchFor({ agentId: 'codex', listenerPort: 4312, sessionId: 'timeout-session', agentToken: 'tok', packServers: [] });
+  assert.ok(codexLaunch.args.includes(`mcp_servers.glimmervoid.tool_timeout_sec=${MCP_TOOL_TIMEOUT_SECONDS}`), 'codex PTY sets tool_timeout_sec');
+
+  const antigravityPlugin = renderAntigravityPlugin(['relay'], ['node', 'mcp-bridge.js'], []);
+  const antigravityConfig = JSON.parse(antigravityPlugin?.['mcp_config.json'] ?? '{}') as { mcpServers?: { glimmervoid?: { command?: string; args?: string[] } } };
+  assert.deepEqual(antigravityConfig.mcpServers?.glimmervoid, { command: 'node', args: ['mcp-bridge.js'] }, 'antigravity PTY routes glimmervoid MCP through stdio-bridge which enforces MCP_TOOL_TIMEOUT_SECONDS');
 });

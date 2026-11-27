@@ -53,7 +53,7 @@ import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { attentionNotesOf, attentionOwnerOf, createAttentionLanes, reduceAttention } from "./core/session-attention-core.ts";
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
-import { acpMcpServersFor, mcpLaunchFor } from "../mcp/core/agent-config.ts";
+import { acpMcpEnvFor, acpMcpServersFor, mcpLaunchFor } from "../mcp/core/agent-config.ts";
 import type { PackMcpLaunch, PackMcpLaunchHold, PackMcpServer } from "../shared/contracts/pack.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
@@ -2166,7 +2166,8 @@ class Session extends EventEmitter {
     );
     const agentApiEnv = this._launch.agentApiEnv();
     const gitEnv = this._launch.gitEnv();
-    const injectedEnv = { ...agentApiEnv, ...gitEnv, ...launchPlan.env, ...launchSecretEnv };
+    const acpMcpEnv = acpMcpEnvFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), agentToken: this._agentToken });
+    const injectedEnv = { ...agentApiEnv, ...gitEnv, ...acpMcpEnv, ...launchPlan.env, ...launchSecretEnv };
     const baseLaunchEnv = this._launch.launchSpawnEnv();
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(baseLaunchEnv || {}), ...injectedEnv }

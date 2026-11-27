@@ -36,7 +36,7 @@ import { checkCommand } from 'cc-safety-net/api';
 import { agentDoneCheckIdOf } from '../../shared/contracts/verification.ts';
 
 const UNUSABLE_DIRECTORY_RULE_ID = 'cwd.requested-unusable';
-const CHECK_REPLY_WAIT_LIMIT_MS = 240_000;
+const CHECK_REPLY_WAIT_LIMIT_MS = 45_000;
 const CHECKOUT_DEADLINE_MS = 240_000;
 const CLONE_BY_HAND_HINT = 'clone it by hand, then run glimmervoid checkout <absolute path>';
 
