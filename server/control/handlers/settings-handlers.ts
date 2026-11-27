@@ -13,6 +13,7 @@ import { routeAgentNotes } from '../../../session/core/session-routes.ts';
 import { REFOCUS_NOTE } from '../../../session/core/refocus-core.ts';
 import { ATTACHED_BOARD_NOTE, BOARD_CONTEXT_NOTE } from '../../core/whiteboard-store-core.ts';
 import { DEFAULT_AGENT_ID, describeAgentResolvability, getAdapter, listAgentIds, resetCommandCache } from '../../../session/adapters/index.ts';
+import { buildAcpAgentTable, describeAcpAgentResolvability } from '../../../session/drivers/acp-agents.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
 import type { InstalledHookFlags } from '../../../session/core/user-hooks-core.ts';
 import { agentHookGroupOf, HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../../../session/core/user-hooks-core.ts';
@@ -326,6 +327,21 @@ function createSettingsHandlers(context: ControlContext, deps: ControlHandlerDep
   function handleListAgents(msg: ClientMessageOf<'list-agents'>, ws: ControlSocket): void {
     if (msg.rescan) resetCommandCache();
     const hiddenAgentIds = new Set(config.hiddenAgents ?? []);
+    if (msg.driver === 'acp') {
+      const table = buildAcpAgentTable(config.acpAgents ?? []);
+      const agents = table.ok
+        ? table.entries.map((entry) => {
+          const { label, resolvable } = describeAcpAgentResolvability(entry);
+          return { id: entry.id, label, resolvable, hidden: hiddenAgentIds.has(entry.id) };
+        })
+        : [];
+      ws.send(JSON.stringify({
+        type: 'agents-listed',
+        requestId: msg.requestId || null,
+        agents,
+      }));
+      return;
+    }
     const agents = listAgentIds().map((id) => {
       const { label, resolvable } = describeAgentResolvability(id);
       return { id, label, resolvable, hidden: hiddenAgentIds.has(id) };

@@ -17,6 +17,7 @@ test('ACP agent table resolves built-in and config rows to launch commands and f
     [
       { id: 'claude-code', command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp@0.112.0'] },
       { id: 'codex', command: 'npx', args: ['-y', '@agentclientprotocol/codex-acp@2.12.0'] },
+      { id: 'antigravity', command: 'agy', args: ['acp'] },
     ],
   );
 
@@ -29,7 +30,7 @@ test('ACP agent table resolves built-in and config rows to launch commands and f
 
   const table: AcpAgentTableResult = buildAcpAgentTable(parsedConfig.acpAgents);
   assert.equal(table.ok, true);
-  assert.deepEqual(table.entries.map((entry) => entry.id), ['claude-code', 'codex', 'my-acp']);
+  assert.deepEqual(table.entries.map((entry) => entry.id), ['claude-code', 'codex', 'antigravity', 'my-acp']);
 
   const claudeLaunch: AcpAgentLaunchResult = resolveAcpAgentLaunch('claude-code', parsedConfig.acpAgents);
   assert.equal(claudeLaunch.ok, true);
@@ -56,13 +57,14 @@ test('ACP agent table resolves built-in and config rows to launch commands and f
   assert.equal(claudeProbe.resolvable, true);
   assert.match(claudeProbe.doctorValue, /\/usr\/bin\/npx \(via npx; @agentclientprotocol\/claude-agent-acp@0\.112\.0 not downloaded\)/);
 
-  const missingCustomProbe = describeAcpAgentResolvability(table.entries[2], probeOptions);
+  const missingCustomProbe = describeAcpAgentResolvability(table.entries[3], probeOptions);
   assert.equal(missingCustomProbe.resolvable, false);
   assert.equal(missingCustomProbe.doctorValue, 'not found on PATH');
 
   for (const invalidRows of [
     [{ id: 'claude-code', label: 'Shadow', command: 'claude-acp', args: [] }],
     [{ id: 'codex', label: 'Shadow', command: 'codex-acp', args: [] }],
+    [{ id: 'antigravity', label: 'Shadow', command: 'agy', args: ['acp'] }],
     [
       { id: 'dup-acp', label: 'One', command: 'one-acp', args: [] },
       { id: 'dup-acp', label: 'Two', command: 'two-acp', args: [] },

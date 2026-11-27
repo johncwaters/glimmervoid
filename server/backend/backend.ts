@@ -730,11 +730,17 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     carryWorktreeAcrossRecreate,
     ensureProjectIds,
     resolveAgentId: (agent: string | null | undefined) => {
+      const requested = typeof agent === 'string' ? agent.trim() : '';
+      if (requested !== '' && (configStore.config.acpAgents ?? []).some((row) => row.id === requested)) return requested;
       const adapter = resolveAdapter(agent);
       if (!adapter) throw new Error('Default agent adapter is unavailable');
       return adapter.id;
     },
-    agentFingerprintOf: customAgentFingerprint,
+    agentFingerprintOf: (agentId: string) => {
+      const acpRow = (configStore.config.acpAgents ?? []).find((row) => row.id === agentId);
+      if (acpRow) return JSON.stringify(acpRow);
+      return customAgentFingerprint(agentId);
+    },
     logger: console,
   });
   const { cleanupSeatDirs: cleanupOrphanedWargamesSeatDirs } = pruneOrphanedWargamesProjects({

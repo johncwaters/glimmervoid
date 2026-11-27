@@ -515,7 +515,8 @@ class Session extends EventEmitter {
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
     if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");
     this._adapter = resolvedAdapter;
-    this.agentId = this._adapter.id;
+    const requestedAgentId = typeof agent === "string" ? agent.trim() : "";
+    this.agentId = driver.kind === "acp" && requestedAgentId.length > 0 ? requestedAgentId : this._adapter.id;
     this._taskTitle = createSessionTaskTitle({
       customTitle: customTitle || null,
       persistedTitle: taskTitleState,

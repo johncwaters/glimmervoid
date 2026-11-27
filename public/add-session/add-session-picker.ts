@@ -812,7 +812,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const whileLatestAgents = <Value>(apply: (value: Value) => void) => (value: Value) => {
       if (agentsLoadNumber === agentsLoadCount) apply(value);
     };
-    return requestControl('list-agents', {})
+    return requestControl('list-agents', onStudioStarted !== null ? { driver: 'acp' } : {})
       .then(whileLatestAgents((message: ServerMessage) => {
         applySpawnAvailability(decideAgentAvailability(message));
         const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);

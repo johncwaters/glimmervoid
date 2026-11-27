@@ -11,6 +11,7 @@ import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, Ta
 import { BETWEEN_TURN_STATES, KILLABLE_STATES, STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import { DEFAULT_AGENT_ID, canRunUnderAccount, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
+import { decideSessionDriver } from '../../../session/core/session-driver-core.ts';
 import { resolveNewSessionAccount } from '../../../session/core/agent-account-core.ts';
 import { RESUME_ID_RE, resolveResumeTarget } from '../../../session/core/auto-resume.ts';
 import { claudeProjectsDir, listRepoConversations } from '../../../session/core/conversation-history.ts';
@@ -520,7 +521,16 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (!name || (!projectPath && !msg.repos)) return { error: 'Name and path are required' };
     if (!SESSION_NAME_PATTERN.test(name)) return { error: SESSION_NAME_RULE_TEXT };
     const requestedAgent = typeof msg.agent === 'string' ? msg.agent.trim() : '';
-    if (requestedAgent && !isKnownAgentId(requestedAgent)) return { error: `Unknown agent "${requestedAgent}"` };
+    if (msg.studio) {
+      const driverDecision = decideSessionDriver({
+        isStudio: true,
+        agentId: requestedAgent || DEFAULT_AGENT_ID,
+        acpAgents: config.acpAgents,
+        mode: 'spawn',
+      });
+      if (!driverDecision.ok) return { error: driverDecision.error };
+    }
+    if (!msg.studio && requestedAgent && !isKnownAgentId(requestedAgent)) return { error: `Unknown agent "${requestedAgent}"` };
     const resumeRefusal = addSessionResumeRefusal(msg, requestedAgent || DEFAULT_AGENT_ID);
     if (resumeRefusal) return resumeRefusal;
     const setupRefusal = addSessionSetupRefusal(msg.setup, requestedAgent || DEFAULT_AGENT_ID);

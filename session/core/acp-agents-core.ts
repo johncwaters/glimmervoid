@@ -39,6 +39,13 @@ const BUILT_IN_ACP_AGENTS: readonly AcpAgentEntry[] = Object.freeze([
     args: Object.freeze(['-y', `@agentclientprotocol/codex-acp@${CODEX_ACP_PACKAGE_VERSION}`]),
     isBuiltIn: true,
   }),
+  Object.freeze({
+    id: BUILTIN_ACP_AGENT_IDS[2],
+    label: 'Antigravity',
+    command: 'agy',
+    args: Object.freeze(['acp']),
+    isBuiltIn: true,
+  }),
 ]);
 
 function buildAcpAgentTable(extraRows: unknown = []): AcpAgentTableResult {

@@ -446,16 +446,8 @@ async function verifyBranch(page: Page, pillBefore: Box): Promise<void> {
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the branch agent edits');
 }
 
-async function typeIntoAgent(page: Page, sessionId: string, command: string): Promise<void> {
-  await page.evaluate(async ({ targetId, frame }) => {
-    const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
-    const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
-    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/terminals/${encodeURIComponent(targetId)}?token=${encodeURIComponent(token)}`);
-    await new Promise<void>((resolve) => socket.addEventListener('open', () => resolve()));
-    socket.send(JSON.stringify({ type: 'input', data: frame }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    socket.close();
-  }, { targetId: sessionId, frame: `${String.fromCharCode(0x1b)}]7777;${command}${String.fromCharCode(0x07)}` });
+async function stopAgentTurn(page: Page, sessionId: string): Promise<void> {
+  await controlReplyOf(page, 'chat-stop', { id: sessionId });
 }
 
 async function waitForLogAtNewest(page: Page, reason: string): Promise<void> {
@@ -539,7 +531,7 @@ async function verifyStudioChatOpensAtNewest(page: Page): Promise<void> {
 async function verifyStudioRailShowsNoSubagents(page: Page, studioMainId: string): Promise<void> {
   const root = page.locator('.board-session-view');
   const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
-  await typeIntoAgent(page, studioMainId, 'stop');
+  await stopAgentTurn(page, studioMainId);
   await root.locator('.bs-card[data-main][data-phase="working"]').waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await pillInput.fill('');
   await pillInput.press('Escape');
@@ -587,7 +579,7 @@ async function verifyQueuedMessagesDeliveredOnceInOrder(page: Page, studioMainId
   assert.equal(await root.locator('.bs-log-queue').getAttribute('data-left-queue-early'), null, 'a message sent mid-turn stays queued until the turn ends');
   assert.equal(await queuedRowOf('edit-shop').count(), 1, 'a message sent mid-turn shows once as queued');
   assert.equal(await sentRowsOf('edit-shop').count(), editSentBefore, 'a queued message shows no sent copy');
-  await typeIntoAgent(page, studioMainId, 'stop');
+  await stopAgentTurn(page, studioMainId);
   await queuedRowOf('long-shop').waitFor({ state: 'detached', timeout: DIRECTOR_TIMEOUT_MS });
   await page.waitForFunction(({ editCount, longCount }) => {
     const sentTexts = [...document.querySelectorAll('.board-session-view .bs-row-you[data-part-id]:not(.bs-row-queued)')].map((row) => row.textContent ?? '');

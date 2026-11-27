@@ -5,9 +5,11 @@ import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { runGit } from '../git/git-exec.ts';
 import { githubRepoSlugFromRemote } from './core/team-review-core.ts';
+import { SESSION_DRIVER_EVENTS } from '../../session/drivers/driver.ts';
+import type { SessionDriverEventPayloads } from '../../session/drivers/driver.ts';
 import {
-  candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
-  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs, shouldReleasePrLink,
+  acpToolPrLink, candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
+  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshAcpToolPrs, shouldRefreshHookPrs, shouldReleasePrLink,
 } from '../core/session-pr-link-core.ts';
 import type { CommitsAheadOfBase, PrLinkSession, ShaJoinCandidate } from '../core/session-pr-link-core.ts';
 import { clock } from '../../shared/clock.ts';
@@ -103,18 +105,40 @@ function createSessionPrLinkWiring({ store, now = clock.nowMs, git, log = consol
       if (link) keys.add(comparablePrKey(link));
       for (const key of keys) store.requestRefresh(key);
     }
+    const acpToolInputsByCallId = new Map<string, unknown>();
+    function onDriverUpdate({ update }: SessionDriverEventPayloads['driver-update']): void {
+      if (update.sessionUpdate === 'tool_call') {
+        if (update.rawInput !== undefined) acpToolInputsByCallId.set(update.toolCallId, update.rawInput);
+        return;
+      }
+      if (update.sessionUpdate !== 'tool_call_update') return;
+      if (update.rawInput !== undefined) acpToolInputsByCallId.set(update.toolCallId, update.rawInput);
+      if (update.status !== 'completed' && update.status !== 'failed') return;
+      const toolInput = acpToolInputsByCallId.get(update.toolCallId);
+      acpToolInputsByCallId.delete(update.toolCallId);
+      if (update.status !== 'completed') return;
+      const link = acpToolPrLink(toolInput, update.rawOutput, now());
+      if (link) linkUnlessSettled(session, link);
+      if (!shouldRefreshAcpToolPrs(toolInput)) return;
+      const keys = new Set(session.linkedPrs.map(comparablePrKey));
+      if (link) keys.add(comparablePrKey(link));
+      for (const key of keys) store.requestRefresh(key);
+    }
     function onPrLinksChange({ links }: SessionPrLinks): void {
       updateSessionLinks(session, links);
     }
     function detach(): void {
       joinableSessions.delete(session);
+      acpToolInputsByCallId.clear();
       updateSessionLinks(session, []);
       linkedKeysBySession.delete(session);
       session.off('hook-event', onHookEvent);
+      session.off(SESSION_DRIVER_EVENTS.update, onDriverUpdate);
       session.off('pr-links-change', onPrLinksChange);
       session.off('teardown', detach);
     }
     session.on('hook-event', onHookEvent);
+    session.on(SESSION_DRIVER_EVENTS.update, onDriverUpdate);
     session.on('pr-links-change', onPrLinksChange);
     session.on('teardown', detach);
     updateSessionLinks(session, session.linkedPrs);

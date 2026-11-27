@@ -11,6 +11,7 @@ import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
 import type { PrepareSandbox, SessionOptions } from '../../session/sessions.ts';
+import { decideSessionDriver, isStudioProject } from '../../session/core/session-driver-core.ts';
 import { DEFAULT_AGENT_ID, getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { resolveSessionAccountHome } from '../../session/core/agent-account-core.ts';
 import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
@@ -136,13 +137,29 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       const liveProject = liveConfig.projects.find((candidate) => candidate.id === project.id) ?? project;
       return resolveSessionAccountHome(liveConfig.agentAccounts ?? [], liveProject.accountId, overrides.agent ?? liveProject.agent ?? DEFAULT_AGENT_ID);
     };
-    const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;
+    const resolvedAgentId = overrides.agent ?? project.agent ?? DEFAULT_AGENT_ID;
+    const isMachineShell = resolvedAgentId === SHELL_AGENT_ID;
+    const isStudio = isStudioProject({
+      ephemeral: overrides.ephemeral,
+      isStudioMain: project.isStudioMain,
+      parent: overrides.parent ?? project.parent,
+    });
+    const driverDecision = decideSessionDriver({
+      isStudio,
+      agentId: resolvedAgentId,
+      acpAgents: config.acpAgents,
+      persistedDriver: project.driverKind,
+      hasResumeSessionId: Boolean(project.resumeSessionId),
+      mode: 'load',
+    });
+    if (!driverDecision.ok) throw new Error(driverDecision.error);
     const packMcpServersOf = isMachineShell || overrides.ephemeral ? null : dependencies.packMcpServers ?? null;
     const sessionTempFolder = ensureSessionTempFolder(project.id);
     const isolation = dependencies.isolationForProject?.(project, sessionTempFolder) ?? null;
     const prepareSandbox = isolation?.prepareSandbox ?? null;
-    const isPermissionHoldPromptOnly = getAdapter(overrides.agent ?? project.agent)?.capabilities.permissionHoldOnPromptOnly === true;
+    const isPermissionHoldPromptOnly = getAdapter(resolvedAgentId)?.capabilities.permissionHoldOnPromptOnly === true;
     const session = new Session({
+      driver: driverDecision.driver,
       id: project.id,
       name: project.name,
       customTitle: project.customTitle,

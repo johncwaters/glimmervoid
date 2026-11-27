@@ -213,6 +213,10 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
         closeDataSocketFromServer(socket, 1008, 'Session not found');
         return;
       }
+      if (!session.hasTerminal) {
+        closeDataSocketFromServer(socket, 1008, 'Session has no terminal');
+        return;
+      }
       socket.on('error', (error) => reportDataSocketError(session, error));
       if (attach.history === 'screen') {
         wireDataSocket(socket, session, sessionId, session.getScreenSnapshot(), { isAttachedPaused: attach.isOutputPaused, isDeepAttach: false });

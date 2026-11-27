@@ -34,6 +34,7 @@ import { COLD_START_PAGE_READY_MS, DEFAULT_DEADLINES, errorText, runCase } from 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const DEFAULT_ARTIFACTS_DIR = path.join(REPO_ROOT, 'harness', 'browser', 'artifacts');
 const FAKE_AGENT_PATH = path.join(import.meta.dirname, 'fake-agent.ts');
+const FAKE_ACP_AGENT_PATH = path.join(import.meta.dirname, 'fake-acp-agent.ts');
 const FAKE_GH_PATH = path.join(import.meta.dirname, 'fake-gh.ts');
 const REFUSED_LIFECYCLE_EVENTS = new Set(['build', 'start', 'prepare', 'postinstall']);
 const LEFTOVER_SCAN_ATTEMPTS = 25;
@@ -223,6 +224,10 @@ function writeAgentShim(shimDirectory: string): string {
   const ghBody = `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_GH_PATH)} ${JSON.stringify(fakePrStatePathIn(shimDirectory))} "$@"\n`;
   fs.writeFileSync(ghShimPath, ghBody, 'utf8');
   fs.chmodSync(ghShimPath, 0o755);
+  const npxShimPath = path.join(shimDirectory, 'npx');
+  const npxBody = `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_ACP_AGENT_PATH)} "$@"\n`;
+  fs.writeFileSync(npxShimPath, npxBody, 'utf8');
+  fs.chmodSync(npxShimPath, 0o755);
   return shimPath;
 }
 
@@ -237,7 +242,7 @@ function scanProcForFakeAgents(procRoot: string): FakeAgentScan {
     if (!/^\d+$/.test(entry)) continue;
     try {
       const commandLine = fs.readFileSync(path.join(procRoot, entry, 'cmdline'), 'utf8');
-      if (!commandLine.includes(FAKE_AGENT_PATH)) continue;
+      if (!commandLine.includes(FAKE_AGENT_PATH) && !commandLine.includes(FAKE_ACP_AGENT_PATH)) continue;
       leftoverPids.push(Number(entry));
     } catch {}
   }
@@ -252,7 +257,7 @@ function scanProcessListingForFakeAgents(): FakeAgentScan {
     });
     const leftoverPids: number[] = [];
     for (const line of listing.split('\n')) {
-      if (!line.includes(FAKE_AGENT_PATH)) continue;
+      if (!line.includes(FAKE_AGENT_PATH) && !line.includes(FAKE_ACP_AGENT_PATH)) continue;
       const pid = /^\s*(\d+)\s/.exec(line)?.[1];
       if (pid === undefined) continue;
       leftoverPids.push(Number(pid));

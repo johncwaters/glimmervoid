@@ -72,11 +72,56 @@ function hookPrLink(event: string, payload: Record<string, unknown>, nowMs: numb
 function shouldRefreshHookPrs(event: string, payload: Record<string, unknown>): boolean {
   if (event.toLowerCase() !== PR_LINK_HOOK_EVENT) return false;
   if (typeof payload.tool_name !== 'string' || !PR_REFRESH_SHELL_TOOLS.has(payload.tool_name)) return false;
-  const toolInput = payload.tool_input;
-  if (!isRecord(toolInput)) return false;
-  const command = typeof toolInput.command === 'string' ? toolInput.command : typeof toolInput.CommandLine === 'string' ? toolInput.CommandLine : null;
+  return shouldRefreshAcpToolPrs(payload.tool_input);
+}
+
+function shellCommandOf(toolInput: unknown): string | null {
+  if (!isRecord(toolInput)) return null;
+  if (typeof toolInput.command === 'string') return toolInput.command;
+  if (typeof toolInput.CommandLine === 'string') return toolInput.CommandLine;
+  return null;
+}
+
+function shouldRefreshAcpToolPrs(toolInput: unknown): boolean {
+  const command = shellCommandOf(toolInput);
   if (command === null) return false;
   return /(?:^|[\s;&|()])(?:git\s+push|gh\s+pr)(?=\s|[;&|)]|$)/.test(command);
+}
+
+function isPrMutatingShellCommand(toolInput: unknown): boolean {
+  const command = shellCommandOf(toolInput);
+  if (command === null) return false;
+  return /(?:^|[\s;&|()])gh\s+pr\s+(?:create|edit)(?=\s|[;&|)]|$)/.test(command);
+}
+
+function rawOutputTextOf(rawOutput: unknown): string {
+  if (typeof rawOutput === 'string') return rawOutput;
+  if (!isRecord(rawOutput)) return '';
+  if (typeof rawOutput.stdout === 'string') return rawOutput.stdout;
+  if (typeof rawOutput.output === 'string') return rawOutput.output;
+  return '';
+}
+
+function acpToolPrLink(toolInput: unknown, rawOutput: unknown, nowMs: number): LinkedPr | null {
+  if (isRecord(rawOutput) && isRecord(rawOutput.gitOperation)) {
+    const operation = prOperationOf(rawOutput.gitOperation);
+    if (operation && LINKING_PR_ACTIONS.has(operation.action)) {
+      const identity = identityFromUrl(operation.details.url) ?? identityFromRepoAndNumber(operation.details);
+      if (identity) {
+        const parsed = LinkedPr.safeParse({ ...identity, source: 'hook', linkedAt: nowMs });
+        if (parsed.success) return parsed.data;
+      }
+    }
+  }
+  if (!isPrMutatingShellCommand(toolInput)) return null;
+  const outputText = rawOutputTextOf(rawOutput);
+  for (const match of outputText.matchAll(/https:\/\/github\.com\/[^\s"'<>]+/g)) {
+    const identity = identityFromUrl(match[0]);
+    if (!identity) continue;
+    const parsed = LinkedPr.safeParse({ ...identity, source: 'hook', linkedAt: nowMs });
+    if (parsed.success) return parsed.data;
+  }
+  return null;
 }
 
 const SETTLED_PR_STATES: ReadonlySet<GithubPr['state']> = new Set(['MERGED', 'CLOSED']);
@@ -151,7 +196,7 @@ function shaPrLink(candidate: ShaJoinCandidate, nowMs: number): LinkedPr | null 
 }
 
 export {
-  candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
-  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs, shouldReleasePrLink,
+  acpToolPrLink, candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
+  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshAcpToolPrs, shouldRefreshHookPrs, shouldReleasePrLink,
 };
 export type { CommitsAheadOfBase, PrLinkSession, ShaJoinCandidate };

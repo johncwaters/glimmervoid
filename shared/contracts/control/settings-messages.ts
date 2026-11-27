@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SessionDriverKind } from '../session.ts';
 import { AgentHookGroup, AgentNote } from '../hooks.ts';
 import { AgentAccountId, AgentAccountStatuses, LaneAccountLane } from '../agent-accounts.ts';
 import { requestId, loose, looseCollection, looseMutatingReply, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, TelegramDeliveryStatus } from './control-fields.ts';
@@ -31,7 +32,7 @@ export const settingsClientVariants = [
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional(), includeActivity: z.boolean().optional() }),
   loose('add-repo-roots', { requestId, roots: z.array(z.string().min(1).max(4096)).min(1) }),
-  loose('list-agents', { requestId, rescan: z.boolean().optional() }),
+  loose('list-agents', { requestId, rescan: z.boolean().optional(), driver: SessionDriverKind.optional() }),
   loose('start-repository-clones', { requestId, sources: z.array(z.string().max(2048)).min(1).max(MAX_CLONE_SOURCES_PER_REQUEST) }),
   loose('cancel-repository-clone', { requestId, source: z.string().max(2048) }),
   loose('list-github-repos', { requestId }),

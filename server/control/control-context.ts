@@ -4,6 +4,8 @@ import type { ClientMessage, OperatorActionOf, OperatorSurface } from '../../sha
 import { MUTATION_COLLECTIONS, type CollectionName } from '../../shared/contracts/control/message-classes.ts';
 import { nextSuggestedName } from '../../shared/session-naming.ts';
 import type { Session } from '../../session/sessions.ts';
+import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
+import { decideSessionDriver, isStudioProject } from '../../session/core/session-driver-core.ts';
 import { planWorkspace } from '../../session/core/workspace-core.ts';
 import type { ControlSocket } from '../backend/backend-websockets.ts';
 import type { ProjectEntry } from '../config-store.ts';
@@ -129,7 +131,17 @@ function createControlContext(deps: ControlHandlerDeps, resolveAnsweringSocket?:
       workspaceRepos = planned.plan.members.map((member) => member.repoPath);
     }
     if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: missingFolderError(projectPath) };
+    const isStudio = isStudioProject({ isStudioMain: runSettings?.isStudioMain, parent: runSettings?.parent });
+    const resolvedAgentId = typeof agent === 'string' && agent.trim() !== '' ? agent.trim() : DEFAULT_AGENT_ID;
+    const driverDecision = decideSessionDriver({
+      isStudio,
+      agentId: resolvedAgentId,
+      acpAgents: config.acpAgents,
+      mode: 'spawn',
+    });
+    if (!driverDecision.ok) return { ok: false, error: driverDecision.error };
     const project: ProjectEntry = { ...runSettings, id, name: uniqueName, path: resolvedPath };
+    if (driverDecision.persistedDriver) project.driverKind = driverDecision.persistedDriver;
     if (workspaceRepos) project.repos = workspaceRepos;
     if (baseBranch) project.baseBranch = baseBranch;
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { AttentionOwner, DONE_MEANS_MAX_LINES, ParentLink, TaskTitle } from './session.ts';
+import { AttentionOwner, DONE_MEANS_MAX_LINES, ParentLink, SessionDriverKind, TaskTitle } from './session.ts';
 import { legacyParentLinkOf } from '../parent-link.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
@@ -30,7 +30,7 @@ export const ConfigUpdate = z.object({
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 export const SHELL_AGENT_ID = 'shell';
 export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'gemini', 'grok', 'kimi', 'qwen', 'copilot', 'opencode', 'pi', 'antigravity', 'goose', 'cursor', SHELL_AGENT_ID] as const);
-export const BUILTIN_ACP_AGENT_IDS = Object.freeze(['claude-code', 'codex'] as const);
+export const BUILTIN_ACP_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'antigravity'] as const);
 const BUILTIN_ACP_AGENT_ID_SET = new Set<string>(BUILTIN_ACP_AGENT_IDS);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
 
@@ -180,6 +180,7 @@ export const ProjectConfig = z.preprocess(legacyParentLinkOf, z.object({
   parent: ParentLink.optional().catch(undefined),
   isStudioMain: z.boolean().optional().catch(undefined),
   studioRole: z.literal('orchestrator').optional().catch(undefined),
+  driverKind: SessionDriverKind.optional().catch(undefined),
   isDoneMeansOff: z.boolean().optional(),
   agentDoneLines: z.array(z.unknown()).transform(readablePersistedDoneLines).optional().catch(undefined),
 }).passthrough());
@@ -229,15 +230,27 @@ export const Config = z.object({
   if (!Array.isArray(config.projects)) return;
   const declaredAgentIds = new Set<string>(BUILTIN_AGENT_IDS);
   for (const declaration of config.customAgents ?? []) declaredAgentIds.add(declaration.id);
+  for (const declaration of config.acpAgents ?? []) declaredAgentIds.add(declaration.id);
+  const declaredAcpAgentIds = new Set<string>(BUILTIN_ACP_AGENT_IDS);
+  for (const declaration of config.acpAgents ?? []) declaredAcpAgentIds.add(declaration.id);
   for (const [index, project] of config.projects.entries()) {
     const agent = project?.agent;
-    if (typeof agent !== 'string' || !AGENT_ID_RE.test(agent)) continue;
-    if (declaredAgentIds.has(agent)) continue;
-    ctx.addIssue({
-      code: 'custom',
-      path: ['projects', index, 'agent'],
-      message: `projects[${index}].agent "${agent}" names no known agent; declare it under customAgents or use one of ${[...declaredAgentIds].join(', ')}`,
-    });
+    if (typeof agent === 'string' && AGENT_ID_RE.test(agent) && !declaredAgentIds.has(agent)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['projects', index, 'agent'],
+        message: `projects[${index}].agent "${agent}" names no known agent; declare it under customAgents or use one of ${[...declaredAgentIds].join(', ')}`,
+      });
+      continue;
+    }
+    const effectiveAgent = typeof agent === 'string' && agent.length > 0 ? agent : BUILTIN_ACP_AGENT_IDS[0];
+    if (project?.driverKind === 'acp' && !declaredAcpAgentIds.has(effectiveAgent)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['projects', index, 'driverKind'],
+        message: `projects[${index}] uses driverKind "acp" with agent "${effectiveAgent}", which has no ACP row; use one of ${[...declaredAcpAgentIds].join(', ')}`,
+      });
+    }
   }
   for (const [index, account] of (config.agentAccounts ?? []).entries()) {
     if (declaredAgentIds.has(account.agent)) continue;

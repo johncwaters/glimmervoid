@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { decideConfigPath, glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
 import { heldSecrets, readEnvSecrets, secretsHeldIn, withEnvSecrets } from '../core/config-secrets-core.ts';
 import type { StoredSecrets } from '../core/config-secrets-core.ts';
-import { AGENT_ID_SHAPE_MESSAGE, Config } from '../../shared/contracts/index.ts';
+import { AGENT_ID_SHAPE_MESSAGE, BUILTIN_ACP_AGENT_IDS, Config } from '../../shared/contracts/index.ts';
 import { writeJsonAtomicSync, writeTextAtomicSync } from '../json-file.ts';
 import { errorLabel, errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { isRecord } from '../../shared/coerce.ts';
@@ -115,12 +115,28 @@ function invalidValueFallbackOf(key: string, fallback: unknown): unknown {
   return fallback;
 }
 
+function dropPromotedBuiltinAcpAgents(draft: Record<string, unknown>): string | null {
+  if (!Array.isArray(draft.acpAgents)) return null;
+  const builtinIds = new Set<string>(BUILTIN_ACP_AGENT_IDS);
+  const droppedIds: string[] = [];
+  const keptRows = draft.acpAgents.filter((row) => {
+    if (!isRecord(row) || typeof row.id !== 'string' || !builtinIds.has(row.id)) return true;
+    droppedIds.push(row.id);
+    return false;
+  });
+  if (droppedIds.length === 0) return null;
+  draft.acpAgents = keptRows;
+  return `Removed acpAgents entries now built in: ${droppedIds.join(', ')}.`;
+}
+
 function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = []): GlimmervoidConfig {
   if (!isRecord(candidate)) throw new Error('config must be a plain object');
   const draft = normalizeLegacyConfigNumbers(candidate);
   renamedKeyMessages.push(...moveRenamedKeys(draft));
   const retiredMessage = dropRetiredSettings(draft);
   if (retiredMessage !== null) renamedKeyMessages.push(retiredMessage);
+  const promotedAcpMessage = dropPromotedBuiltinAcpAgents(draft);
+  if (promotedAcpMessage !== null) renamedKeyMessages.push(promotedAcpMessage);
   replaceInvalidWorktreeLeaves(draft);
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;

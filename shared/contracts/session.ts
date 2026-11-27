@@ -19,6 +19,8 @@ import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { REVIEW_TEXT_MAX_CHARS, ReviewCommentId } from './review-state.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
+export const SessionDriverKind = z.enum(['pty', 'acp']);
+
 export const ParentLink = z.object({
   sessionId: z.string().min(1),
   box: z.object({ id: z.string().min(1).max(40), title: z.string().max(80), repoName: z.string().max(STUDIO_REPO_NAME_MAX).default('') }).nullable().default(null),
