@@ -1,10 +1,10 @@
 # Glimmervoid
 
-A local agent orchestrator: a Node.js process that spawns and supervises coding agent sessions in PTYs, streams them to a browser dashboard and notifies the operator.
+A local agent orchestrator: a Node.js process that spawns and supervises coding agent sessions (PTY in Focus, ACP over stdio in Studio), streams them to a browser dashboard and notifies the operator.
 
 ## trust levels
 - operator: the dashboard and control WebSocket on loopback carrying the page token, and the glimmervoid CLI the operator runs
-- agent-session (outside): what an agent process sends back, its hook POSTs, agent API calls and PTY output
+- agent-session (outside): what an agent process sends back, its hook POSTs, agent API calls, PTY output and ACP messages
 - remote (outside): responses and messages from Telegram, GitHub, PostHog and other network services
 - repository: the contents of a session worktree, trusted as the operator's own code
 - host: the glimmervoid process, its config store, its session records and journal
