@@ -1,4 +1,16 @@
 import { ClientMessage, ServerMessage } from '../shared/contracts/control-messages.ts';
+import {
+  CLIENT_MESSAGE_CLASS,
+  COLLECTION_NAMES,
+  COLLECTION_OF,
+  MUTATION_COLLECTIONS,
+  SERVER_MESSAGE_CLASS,
+} from '../shared/contracts/control/message-classes.ts';
+import type {
+  ClientMessageClass,
+  CollectionName,
+  ServerMessageClass,
+} from '../shared/contracts/control/message-classes.ts';
 import { readTracked, trackedFiles } from '../tests/helpers/tracked-files.ts';
 
 export interface TrackedSourceFile {
@@ -27,16 +39,25 @@ export interface SubscribeExport {
 }
 
 export interface ClientMessageVariant {
-  type: string;
+  type: ClientMessage['type'];
   hasRequestId: boolean;
+  messageClass: ClientMessageClass;
+  collections?: readonly CollectionName[];
+}
+
+export interface ServerMessageVariant {
+  type: ServerMessage['type'];
+  messageClass: ServerMessageClass;
+  collection?: CollectionName;
 }
 
 export interface StateInventory {
   socketCalls: SocketCallCount[];
   storageCalls: StorageCallCount[];
   subscribeModules: SubscribeExport[];
+  collections: readonly CollectionName[];
   clientTypes: ClientMessageVariant[];
-  serverTypes: string[];
+  serverTypes: ServerMessageVariant[];
 }
 
 const PUBLIC_SOURCE_PATTERN = /^public\/.*\.tsx?$/;
@@ -118,19 +139,43 @@ function collectSubscribeModules(sourceFiles: readonly TrackedSourceFile[]): Sub
   });
 }
 
+function mutationCollectionsFor(type: ClientMessage['type']): readonly CollectionName[] | undefined {
+  if (!Object.hasOwn(MUTATION_COLLECTIONS, type)) return undefined;
+  return MUTATION_COLLECTIONS[type as keyof typeof MUTATION_COLLECTIONS];
+}
+
+function collectionFor(type: ServerMessage['type']): CollectionName | undefined {
+  if (!Object.hasOwn(COLLECTION_OF, type)) return undefined;
+  return COLLECTION_OF[type as keyof typeof COLLECTION_OF];
+}
+
 function collectClientTypes(): ClientMessageVariant[] {
   return ClientMessage.options
-    .map((option) => ({
-      type: String(option.shape.type.value),
-      hasRequestId: Object.hasOwn(option.shape, 'requestId'),
-    }))
+    .map((option) => {
+      const type = option.shape.type.value;
+      const collections = mutationCollectionsFor(type);
+      return {
+        type,
+        hasRequestId: Object.hasOwn(option.shape, 'requestId'),
+        messageClass: CLIENT_MESSAGE_CLASS[type],
+        ...(collections === undefined ? {} : { collections }),
+      };
+    })
     .sort((left, right) => compareText(left.type, right.type));
 }
 
-function collectServerTypes(): string[] {
+function collectServerTypes(): ServerMessageVariant[] {
   return ServerMessage.options
-    .map((option) => String(option.shape.type.value))
-    .sort(compareText);
+    .map((option) => {
+      const type = option.shape.type.value;
+      const collection = collectionFor(type);
+      return {
+        type,
+        messageClass: SERVER_MESSAGE_CLASS[type],
+        ...(collection === undefined ? {} : { collection }),
+      };
+    })
+    .sort((left, right) => compareText(left.type, right.type));
 }
 
 export function collectStateInventoryFromFiles(sourceFiles: readonly TrackedSourceFile[]): StateInventory {
@@ -138,6 +183,7 @@ export function collectStateInventoryFromFiles(sourceFiles: readonly TrackedSour
     socketCalls: collectSocketCalls(sourceFiles),
     storageCalls: collectStorageCalls(sourceFiles),
     subscribeModules: collectSubscribeModules(sourceFiles),
+    collections: [...COLLECTION_NAMES].sort(compareText),
     clientTypes: collectClientTypes(),
     serverTypes: collectServerTypes(),
   };
