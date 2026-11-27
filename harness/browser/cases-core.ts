@@ -11,6 +11,7 @@ export type Step =
   | { kind: 'assert-solid-store-signal'; viewer?: ViewerId }
   | { kind: 'assert-state-core'; viewer?: ViewerId }
   | { kind: 'assert-packs'; viewer?: ViewerId }
+  | { kind: 'assert-hooks'; viewer?: ViewerId }
   | { kind: 'assert-ui-primitives-parity'; viewer?: ViewerId }
   | { kind: 'assert-confirm-dialog'; viewer?: ViewerId }
   | { kind: 'assert-added-session-shown'; viewer?: ViewerId }
@@ -783,6 +784,11 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'packs',
     viewports: ['desktop-1280', 'phone-393'],
     steps: [{ kind: 'open' }, { kind: 'assert-packs' }],
+  },
+  {
+    name: 'hooks',
+    viewports: ['desktop-1280', 'phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'assert-hooks' }],
   },
   {
     name: 'ui-primitives-parity',

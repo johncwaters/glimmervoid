@@ -19,6 +19,7 @@ import { verifySolidIsland } from './solid-island.ts';
 import { verifySolidStoreSignal } from './solid-store-signal.ts';
 import { verifyStateCore } from './state-core.ts';
 import { verifyPacks } from './packs.ts';
+import { verifyHooks } from './hooks.ts';
 import { verifyUiPrimitivesParity } from './ui-primitives-parity.ts';
 import { verifyConfirmDialog } from './confirm-dialog.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
@@ -1418,6 +1419,11 @@ export async function runCase({
       const check = await verifyPacks(viewer.page);
       if (!check.ok) return failedOutcome('packs', check.detail);
       return passedOutcome('packs', check.detail);
+    }
+    if (step.kind === 'assert-hooks') {
+      const check = await verifyHooks(viewer.page);
+      if (!check.ok) return failedOutcome('hooks', check.detail);
+      return passedOutcome('hooks', check.detail);
     }
     if (step.kind === 'assert-ui-primitives-parity') {
       const check = await verifyUiPrimitivesParity(viewer.page);
