@@ -62,6 +62,7 @@ export async function modifierState(page: Page, slotId: string) {
 }
 
 export async function verifyKeyStripContexts(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
+  await typeCommand('work');
   await waitForContext(page, 'working');
   assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'shift-tab', 'left', 'up', 'down', 'right', 'enter'], 'a working agent leads with Esc, Ctrl and Shift+Tab');
   await assertRowFitsWithoutScroll(page);

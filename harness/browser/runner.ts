@@ -68,6 +68,7 @@ const DESKTOP_CARD_SLOT = '#focus-pane-terminal';
 const DESKTOP_LEAVE_FOCUS_SELECTOR = '#tab-settings';
 const DESKTOP_ENTER_FOCUS_SELECTOR = '#tab-focus';
 const PHONE_BACK_SELECTOR = 'button[data-action="back-to-board"]';
+const PHONE_TERMINAL_RUNNING_SELECTOR = '.phone-screen[data-screen="terminal"] .phone-terminal-bar[data-state="RUNNING"]';
 const PHONE_TERMINAL_MENU_SELECTOR = '.phone-screen[data-screen="terminal"] button[data-action="session-menu"]';
 const PHONE_TERMINAL_REMOVE_SELECTOR = '.phone-screen[data-screen="terminal"] button.overflow-remove';
 const ARMED_ROW_REMOVE_SELECTOR = '.phone-board-list button[data-action="confirm-remove-session"]:visible';
@@ -878,6 +879,8 @@ async function runRemoveSession(viewer: Viewer, sessionId: string): Promise<Step
 }
 
 async function runRemoveFromPhoneTerminal(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  await runType(viewer, 'work');
+  await viewer.page.locator(PHONE_TERMINAL_RUNNING_SELECTOR).first().waitFor({ state: 'visible', timeout: deadlines.stepMs });
   await viewer.page.evaluate(holdConfirmedSessionRemovals);
   await viewer.page.locator(PHONE_TERMINAL_MENU_SELECTOR).first().click();
   await viewer.page.locator(PHONE_TERMINAL_REMOVE_SELECTOR).first().click();
