@@ -9,7 +9,6 @@ export const COLLECTION_NAMES = [
   'github-prs',
   'health',
   'hooks',
-  'host-ready',
   'my-prs',
   'pack-data',
   'packs',
