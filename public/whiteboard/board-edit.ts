@@ -173,6 +173,7 @@ const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: '
 const MIN_TITLE_EDITOR_WIDTH_PX = 160;
 
 interface InlineEditor {
+  elementId: string | null;
   node: HTMLElement;
   rectOf: () => Rect | null;
   minWidthPx: number;
@@ -218,7 +219,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let toolKeeping: 'until placed' | 'kept' = 'until placed';
   let spaceHeldTool: 'hand' | null = null;
   let nudgeRun: NudgeRun | null = null;
-  let pendingTitleEditId: string | null = null;
   let owedFit: { bounds: Rect; maxZoom: number } | null = null;
   let glideFrameId: number | null = null;
   let presentedBoxId: string | null = null;
@@ -768,14 +768,35 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   async function placeNote(point: ViewPoint, size: BoxSize | null): Promise<void> {
     finishToolUse();
-    if (!options.currentBoard()) return;
+    const board = options.currentBoard();
+    if (!board) return;
+    const originBoardId = board.id;
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
     const element = { ...placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, 'Note', PLACED_NOTE), ...(size ?? {}) };
-    pendingTitleEditId = element.id;
+    const fallbackRect: Rect = { x: point.x, y: point.y, width: size?.width ?? MIN_TITLE_EDITOR_WIDTH_PX, height: 32 };
+    let addPhase: 'pending' | 'accepted' | 'refused' = 'pending';
+    let queuedTitle: string | null = null;
+    editTitle(element, fallbackRect, (title) => {
+      if (options.currentBoard()?.id !== originBoardId) return;
+      if (addPhase === 'pending') {
+        queuedTitle = title;
+        return;
+      }
+      if (addPhase !== 'accepted') return;
+      void options.sendOps([{ op: 'set', id: element.id, fields: { title } }]);
+    });
     const isSent = await options.sendOps([{ op: 'add', element }]);
-    if (!isSent) pendingTitleEditId = null;
-    if (isSent) setSelection(new Set([element.id]));
-    openPendingTitleEdit();
+    addPhase = isSent ? 'accepted' : 'refused';
+    if (!isSent) {
+      if (inlineEditor?.elementId === element.id) {
+        closeInlineEditor();
+        viewport.focus();
+      }
+      return;
+    }
+    if (options.currentBoard()?.id !== originBoardId) return;
+    setSelection(new Set([element.id]));
+    if (queuedTitle !== null) void options.sendOps([{ op: 'set', id: element.id, fields: { title: queuedTitle } }]);
   }
 
   async function placeMediaBox(title: string, media: BoxMedia, clientPoint: ViewPoint | null): Promise<boolean> {
@@ -877,13 +898,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (isSent) setSelection(new Set([element.id]));
     if (isSent && pasted.isCut) options.onClipboardNotice('cut');
     return isSent;
-  }
-
-  function openPendingTitleEdit(): void {
-    if (!pendingTitleEditId || !renderer.boundsOf(pendingTitleEditId) || !options.currentBoard()?.elements.get(pendingTitleEditId)) return;
-    const elementId = pendingTitleEditId;
-    pendingTitleEditId = null;
-    editTitle(elementId);
   }
 
   function snapTargetsFor(drag: Extract<Gesture, { kind: 'drag' }>): SnapTargets {
@@ -1235,24 +1249,25 @@ export function createBoardEditor(options: BoardEditorOptions) {
     openEditor?.node.remove();
   }
 
-  function openInlineEditor(node: HTMLElement, rectOf: () => Rect | null, minWidthPx: number): AbortSignal {
+  function openInlineEditor(node: HTMLElement, rectOf: () => Rect | null, minWidthPx: number, elementId: string | null = null): AbortSignal {
     closeInlineEditor();
     const abort = new AbortController();
-    inlineEditor = { node, rectOf, minWidthPx, abort };
+    inlineEditor = { elementId, node, rectOf, minWidthPx, abort };
     canvas.append(node);
     placeInlineEditor();
     return abort.signal;
   }
 
-  function editTitle(elementId: string): void {
-    const titled = options.currentBoard()?.elements.get(elementId);
-    if (titled?.kind !== 'box' || titled.shape !== 'note' || !renderer.boxTextRectsOf(elementId)) return;
+  function editTitle(titled: Box, fallbackRect: Rect | null, onCommit: (title: string) => void): void {
+    if (titled.shape !== 'note') return;
+    const elementId = titled.id;
+    const initialTitle = titled.title;
     const input = markAsNotCredential(el('input', 'wb-title-input'));
     input.type = 'text';
-    input.value = titled.title;
+    input.value = initialTitle;
     input.maxLength = WHITEBOARD_LIMITS.title;
     input.setAttribute('aria-label', 'Box title');
-    const signal = openInlineEditor(input, () => renderer.boxTextRectsOf(elementId)?.title ?? null, MIN_TITLE_EDITOR_WIDTH_PX);
+    const signal = openInlineEditor(input, () => renderer.boxTextRectsOf(elementId)?.title ?? fallbackRect, MIN_TITLE_EDITOR_WIDTH_PX, elementId);
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -1265,8 +1280,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const title = input.value.trim();
       closeInlineEditor();
       viewport.focus();
-      if (!title || title === titled.title) return;
-      void options.sendOps([{ op: 'set', id: elementId, fields: { title } }]);
+      if (!title || title === initialTitle) return;
+      onCommit(title);
     }, { signal });
     input.addEventListener('blur', closeInlineEditor, { signal });
     input.focus();
@@ -1277,7 +1292,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     endSettledNudgeRun(paintedVersion);
     forgetSnapTargets();
     placeInlineEditor();
-    openPendingTitleEdit();
   }
 
   function removeSelected(): void {

@@ -796,8 +796,88 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('s');
-  const placedNote = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Ask the team');
+  const noteCanvasBox = await panel.locator('.wb-canvas').boundingBox();
+  assert.ok(noteCanvasBox);
+  await page.evaluate(() => {
+    const originalSend = WebSocket.prototype.send;
+    let heldFrame: { socket: WebSocket; payload: Parameters<WebSocket['send']>[0] } | null = null;
+    Object.assign(window, {
+      __releaseHeldNoteOp: () => {
+        WebSocket.prototype.send = originalSend;
+        if (heldFrame) originalSend.call(heldFrame.socket, heldFrame.payload);
+        heldFrame = null;
+      },
+    });
+    WebSocket.prototype.send = function patchedSend(payload) {
+      if (typeof payload === 'string' && payload.includes('"type":"whiteboard-op"') && heldFrame === null) {
+        heldFrame = { socket: this, payload };
+        return;
+      }
+      originalSend.call(this, payload);
+    };
+  });
+  let placedNote: BoardElement;
+  try {
+    await page.mouse.click(noteCanvasBox.x + 40, noteCanvasBox.y + 300);
+    const immediateOpen = await page.evaluate(() => {
+      const input = document.querySelector<HTMLInputElement>('.wb-title-input');
+      return { hasInput: input !== null, isFocused: input !== null && document.activeElement === input };
+    });
+    assert.ok(immediateOpen.hasInput && immediateOpen.isFocused, `note title editor opens and focuses in the same frame before the server replies (got ${JSON.stringify(immediateOpen)})`);
+    await page.keyboard.type('Ask the team');
+    assert.equal(await panel.locator('.wb-title-input').inputValue(), 'Ask the team', 'keys typed while the note save is in flight go into the title editor');
+    assert.equal(await drawingTool(panel, 'Eraser').getAttribute('aria-pressed'), 'false', 'typing e while saving does not trigger the eraser shortcut');
+  } finally {
+    await page.evaluate(() => {
+      const release = Reflect.get(window, '__releaseHeldNoteOp') as (() => void) | undefined;
+      release?.();
+      Reflect.deleteProperty(window, '__releaseHeldNoteOp');
+    });
+  }
+  await elementWhere(open, 'the newly placed note saves on the server', (element) => element.kind === 'box' && element.shape === 'note');
+  assert.equal(await panel.locator('.wb-title-input').inputValue(), 'Ask the team', 'typed note text survives the server save');
+  await page.keyboard.press('Enter');
+  placedNote = await elementWhere(open, 'a box titled Ask the team', titled('Ask the team'));
   assert.ok(placedNote.kind === 'box' && placedNote.shape === 'note' && placedNote.tone === 'yellow', 'the note tool places a yellow note');
+  const noteCountBeforeRefusal = [...(await boardOf(open)).elements.values()].filter((element) => element.kind === 'box' && element.shape === 'note').length;
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('s');
+  await page.evaluate(() => {
+    const originalSend = WebSocket.prototype.send;
+    let isRewritten = false;
+    Object.assign(window, {
+      __restoreRefusedNoteSend: () => {
+        WebSocket.prototype.send = originalSend;
+      },
+    });
+    WebSocket.prototype.send = function patchedRefusalSend(payload) {
+      if (!isRewritten && typeof payload === 'string' && payload.includes('"type":"whiteboard-op"')) {
+        isRewritten = true;
+        WebSocket.prototype.send = originalSend;
+        const parsed = JSON.parse(payload) as Record<string, unknown>;
+        parsed.boardId = '00000000-0000-4000-8000-000000000000';
+        originalSend.call(this, JSON.stringify(parsed));
+        return;
+      }
+      originalSend.call(this, payload);
+    };
+  });
+  try {
+    await page.mouse.click(noteCanvasBox.x + 40, noteCanvasBox.y + 380);
+    await pollFor('a refused note save closes the title editor and reports why', BOARD_TIMEOUT_MS, async () => {
+      const statusText = (await panel.locator('.wb-status').textContent())?.trim() ?? '';
+      const editorCount = await panel.locator('.wb-title-input').count();
+      return statusText.length > 0 && editorCount === 0 ? statusText : null;
+    });
+  } finally {
+    await page.evaluate(() => {
+      const restore = Reflect.get(window, '__restoreRefusedNoteSend') as (() => void) | undefined;
+      restore?.();
+      Reflect.deleteProperty(window, '__restoreRefusedNoteSend');
+    });
+  }
+  const noteCountAfterRefusal = [...(await boardOf(open)).elements.values()].filter((element) => element.kind === 'box' && element.shape === 'note').length;
+  assert.equal(noteCountAfterRefusal, noteCountBeforeRefusal, 'a refused note save leaves no note on the board');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   await page.keyboard.press('p');
