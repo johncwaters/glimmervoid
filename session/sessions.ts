@@ -32,6 +32,7 @@ import { SESSION_DRIVER_EVENTS } from "./drivers/driver.ts";
 import type { DriverEvent, DriverPermissionRequest, DriverQuestion, SessionDriver, SessionDriverChoice } from "./drivers/driver.ts";
 import { ACP_TURN_AT_START, acpStatusEventFor, stepAcpStatus } from "./core/acp-status-core.ts";
 import type { AcpStatusInput, AcpTurn } from "./core/acp-status-core.ts";
+import { mergeAcpMcpServers, pickAcpSessionEnv } from "./core/acp-driver-core.ts";
 import { probeGraphicalSession, resolveSessionScopeHost, stopSessionScope } from "./systemd-user.ts";
 import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts";
 import { randomBytes } from "node:crypto";
@@ -51,7 +52,7 @@ import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { attentionNotesOf, attentionOwnerOf, createAttentionLanes, reduceAttention } from "./core/session-attention-core.ts";
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
-import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
+import { acpMcpServersFor, mcpLaunchFor } from "../mcp/core/agent-config.ts";
 import type { PackMcpLaunch, PackMcpLaunchHold, PackMcpServer } from "../shared/contracts/pack.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
@@ -109,6 +110,7 @@ import type { KillProc, SessionProcessReaper, SignalProc } from "./session-proce
 import type { HookPayload } from "../shared/contracts/index.ts";
 import { REBASELINE_EVENT, type RebaselineSignal, SUBAGENT_SIGNAL_EVENT, type SubagentSignal } from "../shared/contracts/trace.ts";
 import { cleanHomeArgs, launchPlanFor } from "../shared/agent-models-core.ts";
+import type { LaunchPlan } from "../shared/agent-models-core.ts";
 import { claudePluginArgs } from "./core/pack-session-core.ts";
 import type { PackAgentLaunch } from "./core/pack-session-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
@@ -573,7 +575,10 @@ class Session extends EventEmitter {
       clientName: "glimmervoid",
       clientVersion: this._acpLaunch?.clientVersion ?? "",
       mcpServers: this._acpLaunch?.mcpServers ?? [],
-      killTree: (pid) => this._reaper.kill(pid),
+      killTree: (pid, scopeUnit) => {
+        this._reaper.kill(pid);
+        if (scopeUnit !== null) this._reaper.killReap = this._reaper.reapTreeOnce(pid, scopeUnit);
+      },
     });
     this._driver.subscribe((event) => this._onDriverEvent(event));
     this._chatOutbox = createChatOutbox({
@@ -1922,8 +1927,6 @@ class Session extends EventEmitter {
       this._launch.clearApprovedLaunches();
       return;
     }
-    if (this._pty === null) return this._startAcpAgent(isStartSuperseded, resumePrompt);
-    const terminal = this._pty;
 
     const launchPlan = launchPlanFor(this._adapter.id, this._agentSetup, this._platform);
     const launchSecretEnv = await this._launch.resolveLaunchSecretEnv(launchPlan, this.effectiveCwd());
@@ -1949,6 +1952,11 @@ class Session extends EventEmitter {
       return;
     }
     this._launch.clearApprovedLaunches();
+
+    if (this._pty === null) {
+      return this._startAcpAgent({ isStartSuperseded, resumePrompt, launchPlan, launchSecretEnv: launchSecretEnv.env, packMcpLaunch });
+    }
+    const terminal = this._pty;
 
     if (this.worktreeDir) {
       this.worktreeLifecycle.startWatching();
@@ -2084,25 +2092,64 @@ class Session extends EventEmitter {
     this._armPromptSupervisionLine();
   }
 
-  async _startAcpAgent(isStartSuperseded: () => boolean, resumePrompt: string | null = null): Promise<void> {
-    this._launch.clearApprovedLaunches();
+  async _startAcpAgent({ isStartSuperseded, resumePrompt = null, launchPlan, launchSecretEnv, packMcpLaunch }: {
+    isStartSuperseded: () => boolean;
+    resumePrompt?: string | null;
+    launchPlan: LaunchPlan;
+    launchSecretEnv: Record<string, string>;
+    packMcpLaunch: PackMcpLaunch;
+  }): Promise<void> {
     this._cancelDriverAsks();
     this._approvals.releaseAll();
     if (this._acpLaunch === null) return;
-    if (this.worktreeDir) this.worktreeLifecycle.startWatching();
+    if (this.worktreeDir) {
+      this.worktreeLifecycle.startWatching();
+      if (this.mergeStatus === "pending-review") this.worktreeLifecycle.scheduleCheck();
+    }
     this._startupSignals.clear();
     this._promptPhase = "awaiting-first-prompt";
     this._clearDetectionTracking();
     this._acpTurn = { ...ACP_TURN_AT_START, turnNumber: this._acpTurn.turnNumber + 1 };
     this._resumeCapture = "active";
     this._emitRebaseline();
-    const launchEnv = { ...(this._launch.launchSpawnEnv() ?? {}), ...this._launch.gitEnv() };
-    const env = this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: launchEnv });
-    const sandboxedCommand = await this._launch.sandboxedCommand(this._acpLaunch.command, env, Object.keys(launchEnv), isStartSuperseded);
+    const accountRefusal = await this._launch.prepareAccountAndPacks(this._isCleanHome, packMcpLaunch, isStartSuperseded);
+    if (isStartSuperseded()) return;
+    if (accountRefusal !== null) {
+      this._abandonSpawn(new Error(accountRefusal));
+      return;
+    }
+    const mcpServers = mergeAcpMcpServers(
+      this._acpLaunch.mcpServers,
+      acpMcpServersFor({
+        listenerPort: this._hooks.listenerPort(),
+        sessionId: this.id,
+        agentToken: this._agentToken,
+        packServers: this._launch.packMcpServers,
+        packEnv: this._launch.packMcpEnv,
+      }),
+    );
+    const agentApiEnv = this._launch.agentApiEnv();
+    const gitEnv = this._launch.gitEnv();
+    const injectedEnv = { ...agentApiEnv, ...gitEnv, ...launchPlan.env, ...launchSecretEnv };
+    const baseLaunchEnv = this._launch.launchSpawnEnv();
+    const spawnExtraEnv = Object.keys(injectedEnv).length > 0
+      ? { ...(baseLaunchEnv || {}), ...injectedEnv }
+      : baseLaunchEnv;
+    const env = this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: spawnExtraEnv });
+    if (await this._launch.shouldDetachDesktopBus()) env.DBUS_SESSION_BUS_ADDRESS = DETACHED_DESKTOP_BUS_ADDRESS;
+    if (isStartSuperseded()) return;
+    const scopeHost = await resolveSessionScopeHost();
+    if (isStartSuperseded()) return;
+    const sandboxedCommand = await this._launch.sandboxedCommand(this._acpLaunch.command, env, Object.keys(spawnExtraEnv ?? {}), isStartSuperseded);
     if (sandboxedCommand === null) return;
+    const scopeUnit = scopeHost === null ? null : sessionScopeUnitName(this.id, randomBytes(4).toString("hex"));
+    const launch = scopeUnit === null
+      ? { file: sandboxedCommand.file, args: sandboxedCommand.args, env: sandboxedCommand.env }
+      : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file: sandboxedCommand.file, args: sandboxedCommand.args, env: sandboxedCommand.env });
+    const sessionEnv = pickAcpSessionEnv(sandboxedCommand.env, [...Object.keys(agentApiEnv), ...Object.keys(gitEnv)]);
     const resumeAgentSessionId = validResumeSessionId(this._resumeSessionId);
     try {
-      this._driver.start({ file: sandboxedCommand.file, args: sandboxedCommand.args, cwd: this.effectiveCwd(), env: sandboxedCommand.env, scopeUnit: null, resumeAgentSessionId });
+      this._driver.start({ file: launch.file, args: launch.args, cwd: this.effectiveCwd(), env: launch.env, scopeUnit, resumeAgentSessionId, mcpServers, sessionEnv });
     } catch (error) {
       this._abandonSpawn(error);
       return;
@@ -2112,7 +2159,10 @@ class Session extends EventEmitter {
       this.kill();
       return;
     }
-    console.log(`[session ${this.id}] spawn over ACP: ${sandboxedCommand.file} ${sandboxedCommand.args.join(" ")} (cwd=${this.effectiveCwd()})`);
+    this._watchSandboxLogin();
+    console.log(
+      `[session ${this.id}] spawn over ACP: ${sandboxedCommand.file} ${sandboxedCommand.args.join(" ")} (cwd=${this.effectiveCwd()}${scopeUnit === null ? "" : `, scope=${scopeUnit}`})`,
+    );
     const launchPrompt = resumeAgentSessionId !== null ? resumePrompt : this._initialPrompt;
     if (launchPrompt) this._chatOutbox.queue(launchPrompt, [], "operator");
   }
@@ -2126,7 +2176,7 @@ class Session extends EventEmitter {
   _liveAgentHandle(): { pid: number; scopeUnit: string | null } | null {
     if (this._pty !== null) return this._pty.currentHandle();
     const pid = this._driver.pid;
-    return pid !== null && this._driver.isLive ? { pid, scopeUnit: null } : null;
+    return pid !== null && this._driver.isLive ? { pid, scopeUnit: this._driver.scopeUnit } : null;
   }
 
   _inputReadyCondition(): InputReadyCondition | undefined {
@@ -2409,7 +2459,7 @@ class Session extends EventEmitter {
 
   async _handlePtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
     const exitedPid = this._driver.pid;
-    const exitedPty = this._pty?.currentHandle() ?? (exitedPid === null ? null : { pid: exitedPid, scopeUnit: null });
+    const exitedPty = this._pty?.currentHandle() ?? (exitedPid === null ? null : { pid: exitedPid, scopeUnit: this._driver.scopeUnit });
     this._resetDetectionSources({ quiet: false, clearTracking: true });
     this._dispatchAttention({ type: "teardown" });
 

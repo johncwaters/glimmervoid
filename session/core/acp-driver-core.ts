@@ -1,5 +1,7 @@
 import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest, SessionUpdate, ToolKind } from "@agentclientprotocol/sdk";
+import { AGENT_URL_ENV, GIT_CREDENTIAL_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import type { DeliverOptions, DeliveryOutcome } from "./input-delivery-core.ts";
+import { withoutGlimmervoidSecrets } from "./spawn-env.ts";
 
 type AcpPhase = "idle" | "opening" | "ready" | "closed";
 
@@ -120,5 +122,38 @@ function permissionFieldsOf(request: RequestPermissionRequest): AcpPermissionFie
   };
 }
 
-export { classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf };
+const ACP_ALLOWED_SESSION_ENV_KEYS: ReadonlySet<string> = new Set([AGENT_URL_ENV, SIGN_URL_ENV, GIT_CREDENTIAL_URL_ENV]);
+const NPM_CONFIG_ENV_PREFIX = "npm_config_";
+
+function acpSpawnEnvFor(
+  env: Record<string, string | undefined>,
+  sessionEnv?: Readonly<Record<string, string>>,
+): Record<string, string | undefined> {
+  const scrubbed = withoutGlimmervoidSecrets(env);
+  for (const key of Object.keys(scrubbed)) {
+    if (key.toLowerCase().startsWith(NPM_CONFIG_ENV_PREFIX)) delete scrubbed[key];
+  }
+  if (!sessionEnv) return scrubbed;
+  for (const [key, value] of Object.entries(sessionEnv)) {
+    if (ACP_ALLOWED_SESSION_ENV_KEYS.has(key) && value !== "") scrubbed[key] = value;
+  }
+  return scrubbed;
+}
+
+function pickAcpSessionEnv(env: Record<string, string | undefined>, mintedKeys: Iterable<string>): Record<string, string> {
+  const picked: Record<string, string> = {};
+  for (const key of mintedKeys) {
+    const value = env[key];
+    if (ACP_ALLOWED_SESSION_ENV_KEYS.has(key) && typeof value === "string" && value !== "") picked[key] = value;
+  }
+  return picked;
+}
+
+function mergeAcpMcpServers(staticServers: readonly McpServer[], dynamicServers: readonly McpServer[]): McpServer[] {
+  if (dynamicServers.length === 0) return [...staticServers];
+  const dynamicNames = new Set(dynamicServers.map((server) => server.name));
+  return [...staticServers.filter((server) => !dynamicNames.has(server.name)), ...dynamicServers];
+}
+
+export { acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, mergeAcpMcpServers, permissionFieldsOf, pickAcpSessionEnv, planSessionOpen, questionFieldsOf };
 export type { AcpPhase };

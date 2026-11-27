@@ -693,3 +693,255 @@ input.on("line", (line) => {
     fs.rmSync(repositoryDir, { recursive: true, force: true });
   }
 });
+
+test("an ACP Session passes Glimmervoid and pack MCP servers into session/new without logging tokens", { timeout: 30_000 }, async () => {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-mcp-start-"));
+  const receivedLogPath = path.join(scratchDir, "received.jsonl");
+  const packSecret = "pack-secret-9f2a";
+  const consoleCapture = captureConsole();
+  const session = new Session({
+    id: "acp-mcp-start",
+    name: "acp-mcp-start",
+    path: ROOT,
+    agent: "claude-code",
+    getHookPort: () => 43210,
+    packMcpServers: async () => ({
+      held: Promise.resolve({
+        servers: [
+          { name: "pack-docs", url: "https://docs.example.test/mcp" },
+          { name: "pack-auth", url: "https://api.example.test/mcp", secret: "PACK_API_TOKEN" },
+        ],
+        env: { GLIMMERVOID_PACK_PACK_API_TOKEN: packSecret },
+      }),
+    }),
+    driver: {
+      kind: "acp",
+      command: {
+        file: process.execPath,
+        args: [REPLAY_AGENT, fixtures.recordingPath("claude/setup.jsonl"), "1", ACCOUNT_EMAIL, ACCOUNT_PLAN, receivedLogPath],
+      },
+      mcpServers: [{ type: "http", name: "custom-static", url: "https://static.example.test/mcp", headers: [] }],
+      clientVersion: "test",
+    },
+  });
+  try {
+    const opened = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.agentSession, () => resolve()));
+    await session.start();
+    await opened;
+
+    const received = fs.readFileSync(receivedLogPath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: { mcpServers?: unknown[] } });
+    const sessionNew = received.find((message) => message.method === "session/new");
+    assert.ok(sessionNew, "expected session/new to be sent to the replay agent");
+    const mcpServers = sessionNew.params?.mcpServers as { type: string; name: string; url: string; headers: { name: string; value: string }[] }[];
+    assert.equal(mcpServers.length, 4);
+    assert.deepEqual(mcpServers[0], { type: "http", name: "custom-static", url: "https://static.example.test/mcp", headers: [] });
+    assert.deepEqual(mcpServers[1], { type: "http", name: "pack-docs", url: "https://docs.example.test/mcp", headers: [] });
+    assert.deepEqual(mcpServers[2], {
+      type: "http",
+      name: "pack-auth",
+      url: "https://api.example.test/mcp",
+      headers: [{ name: "Authorization", value: `Bearer ${packSecret}` }],
+    });
+    assert.equal(mcpServers[3].type, "http");
+    assert.equal(mcpServers[3].name, "glimmervoid");
+    assert.equal(mcpServers[3].url, "http://127.0.0.1:43210/mcp");
+    assert.equal(mcpServers[3].headers.length, 1);
+    assert.equal(mcpServers[3].headers[0].name, "Authorization");
+    const bearerValue = mcpServers[3].headers[0].value;
+    assert.ok(bearerValue.startsWith("Bearer acp-mcp-start."));
+    const tokenPart = bearerValue.slice("Bearer ".length);
+
+    const exited = new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    session.kill();
+    await exited;
+
+    const logged = consoleCapture.text();
+    assert.equal(logged.includes(packSecret), false, "pack MCP secret must never appear in console logs");
+    assert.equal(logged.includes(tokenPart), false, "Glimmervoid MCP token must never appear in console logs");
+  } finally {
+    consoleCapture.restore();
+    session.destroy();
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
+});
+
+test("an ACP Session passes allowlisted session URLs, launch secrets, and account env while keeping Glimmervoid secrets scrubbed", { timeout: 30_000 }, async () => {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-env-start-"));
+  const reportFile = path.join(scratchDir, "env-report.json");
+  const accountDir = path.join(scratchDir, "added-account");
+  fs.mkdirSync(accountDir, { recursive: true });
+  const openRouterKey = "or-secret-3c8e";
+  const packSecret = "pack-secret-8d1b";
+  const probeScript = `
+import fs from "node:fs";
+import readline from "node:readline";
+const reportPath = process.argv[1];
+const input = readline.createInterface({ input: process.stdin });
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+input.on("line", (line) => {
+  if (!line.trim()) return;
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    return;
+  }
+  if (message.method === "session/new") {
+    fs.writeFileSync(reportPath, JSON.stringify({
+      agentUrl: process.env.GLIMMERVOID_AGENT_URL ?? null,
+      signUrl: process.env.GLIMMERVOID_SIGN_URL ?? null,
+      gitCredentialUrl: process.env.GLIMMERVOID_GIT_CREDENTIAL_URL ?? null,
+      mcpToken: process.env.GLIMMERVOID_MCP_TOKEN ?? null,
+      packSecretEnv: process.env.GLIMMERVOID_PACK_PACK_API_TOKEN ?? null,
+      anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL ?? null,
+      anthropicAuthToken: process.env.ANTHROPIC_AUTH_TOKEN ?? null,
+      claudeConfigDir: process.env.CLAUDE_CONFIG_DIR ?? null,
+      dbusAddress: process.env.DBUS_SESSION_BUS_ADDRESS ?? null,
+    }), "utf8");
+    send({ jsonrpc: "2.0", id: message.id, result: { sessionId: "env-probe-1" } });
+  }
+});
+`;
+  const previousDisplay = process.env.DISPLAY;
+  const previousWayland = process.env.WAYLAND_DISPLAY;
+  delete process.env.DISPLAY;
+  delete process.env.WAYLAND_DISPLAY;
+  const consoleCapture = captureConsole();
+  const session = new Session({
+    id: "acp-env-start",
+    name: "acp-env-start",
+    path: ROOT,
+    agent: "claude-code",
+    agentSetup: { agent: "claude-code", provider: "openrouter", model: "anthropic/claude-sonnet-4", options: [], instructions: "" },
+    getHookPort: () => 43211,
+    commitSigningProgram: "/bin/true",
+    resolveGitCredentialHelper: async () => "/bin/true",
+    resolveAccountHome: () => ({ kind: "account", account: { id: "acct-1", agent: "claude-code", label: "Work", folder: accountDir } }),
+    resolveLaunchSecrets: async () => ({ held: Promise.resolve({ valuesByName: { OPENROUTER_API_KEY: openRouterKey } }) }),
+    packMcpServers: async () => ({
+      servers: [{ name: "pack-auth", url: "https://api.example.test/mcp", secret: "PACK_API_TOKEN" }],
+      env: { GLIMMERVOID_PACK_PACK_API_TOKEN: packSecret },
+    }),
+    driver: {
+      kind: "acp",
+      command: { file: process.execPath, args: ["--input-type=module", "-e", probeScript, "--", reportFile] },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  session._probeGraphicalSession = async () => "inactive";
+  try {
+    const opened = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.agentSession, () => resolve()));
+    await session.start();
+    await opened;
+
+    const report = JSON.parse(fs.readFileSync(reportFile, "utf8")) as {
+      agentUrl: string | null;
+      signUrl: string | null;
+      gitCredentialUrl: string | null;
+      mcpToken: string | null;
+      packSecretEnv: string | null;
+      anthropicBaseUrl: string | null;
+      anthropicAuthToken: string | null;
+      claudeConfigDir: string | null;
+      dbusAddress: string | null;
+    };
+    assert.ok(report.agentUrl?.startsWith("http://127.0.0.1:43211/agent/acp-env-start?t="));
+    assert.ok(report.signUrl?.startsWith("http://127.0.0.1:43211/sign/acp-env-start?t="));
+    assert.ok(report.gitCredentialUrl?.startsWith("http://127.0.0.1:43211/git-credential/acp-env-start?t="));
+    assert.equal(report.mcpToken, null);
+    assert.equal(report.packSecretEnv, null);
+    assert.equal(report.anthropicBaseUrl, "https://openrouter.ai/api");
+    assert.equal(report.anthropicAuthToken, openRouterKey);
+    assert.equal(report.claudeConfigDir, accountDir);
+    if (process.platform === "linux") assert.equal(report.dbusAddress, "disabled:");
+
+    const handle = session._liveAgentHandle();
+    assert.ok(handle !== null && handle.pid > 0);
+    assert.equal(handle.scopeUnit, session._driver.scopeUnit);
+
+    const exited = new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    session.kill();
+    await exited;
+
+    const logged = consoleCapture.text();
+    assert.equal(logged.includes(openRouterKey), false, "launch secret must never appear in console logs");
+    assert.equal(logged.includes(packSecret), false, "pack secret must never appear in console logs");
+  } finally {
+    consoleCapture.restore();
+    if (previousDisplay !== undefined) process.env.DISPLAY = previousDisplay;
+    if (previousWayland !== undefined) process.env.WAYLAND_DISPLAY = previousWayland;
+    session.destroy();
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
+});
+
+test("killing a scoped ACP Session stops its systemd scope so a detached grandchild holding stdio open is reaped and exit settles", { timeout: 30_000 }, async (testContext) => {
+  if (process.platform !== "linux") return testContext.skip("systemd user scopes only run on Linux");
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "glimmervoid-acp-scope-reap-"));
+  const grandchildPidFile = path.join(scratchDir, "grandchild.pid");
+  const agentScript = `
+import fs from "node:fs";
+import readline from "node:readline";
+import { spawn } from "node:child_process";
+const pidFile = process.argv[1];
+const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+  detached: true,
+  stdio: ["ignore", "inherit", "inherit"],
+});
+fs.writeFileSync(pidFile, String(grandchild.pid), "utf8");
+grandchild.unref();
+const input = readline.createInterface({ input: process.stdin });
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+input.on("line", (line) => {
+  if (!line.trim()) return;
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    return;
+  }
+  if (message.method === "session/new") {
+    send({ jsonrpc: "2.0", id: message.id, result: { sessionId: "scope-reap-1" } });
+  }
+});
+`;
+  const session = new Session({
+    id: "acp-scope-reap",
+    name: "acp-scope-reap",
+    path: ROOT,
+    agent: "claude-code",
+    driver: {
+      kind: "acp",
+      command: { file: process.execPath, args: ["--input-type=module", "-e", agentScript, "--", grandchildPidFile] },
+      mcpServers: [],
+      clientVersion: "test",
+    },
+  });
+  let grandchildPid: number | null = null;
+  try {
+    const opened = new Promise<void>((resolve) => session.once(SESSION_DRIVER_EVENTS.agentSession, () => resolve()));
+    await session.start();
+    await opened;
+    grandchildPid = Number(fs.readFileSync(grandchildPidFile, "utf8").trim());
+    if (session._driver.scopeUnit === null) {
+      session.kill();
+      return testContext.skip("systemd user scopes are unavailable on this host");
+    }
+    const exited = new Promise<void>((resolve) => session.once("exit", () => resolve()));
+    assert.equal(session.killSession(), true);
+    await exited;
+    await session._awaitPendingReaps();
+    let grandchildAlive = true;
+    try {
+      process.kill(grandchildPid, 0);
+    } catch {
+      grandchildAlive = false;
+    }
+    assert.equal(grandchildAlive, false, "detached grandchild must be reaped when the ACP scope stops");
+  } finally {
+    if (grandchildPid !== null) {
+      try { process.kill(grandchildPid, "SIGKILL"); } catch {}
+    }
+    session.destroy();
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
+});

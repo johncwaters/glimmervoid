@@ -32,6 +32,26 @@ interface McpLaunch {
   env: Record<string, string>;
 }
 
+interface AcpHttpMcpHeader {
+  name: string;
+  value: string;
+}
+
+interface AcpHttpMcpServer {
+  type: 'http';
+  name: string;
+  url: string;
+  headers: AcpHttpMcpHeader[];
+}
+
+interface AcpMcpServersInput {
+  listenerPort: number | null;
+  sessionId: string;
+  agentToken: string | null;
+  packServers: readonly PackMcpServer[];
+  packEnv: Readonly<Record<string, string>>;
+}
+
 const NO_MCP_LAUNCH: McpLaunch = Object.freeze({ args: [], env: {} });
 
 function mcpUrl(listenerPort: number): string {
@@ -236,6 +256,28 @@ function isBuiltinWithMcpArgs(agentId: string): agentId is keyof typeof ARGS_BY_
   return Object.hasOwn(ARGS_BY_AGENT, agentId);
 }
 
+function acpPackServerOf(server: PackMcpServer, packEnv: Readonly<Record<string, string>>): AcpHttpMcpServer | null {
+  if (server.secret === undefined) return { type: 'http', name: server.name, url: server.url, headers: [] };
+  const secretValue = packEnv[packSecretEnvName(server.secret)];
+  if (!secretValue) return null;
+  return { type: 'http', name: server.name, url: server.url, headers: [{ name: 'Authorization', value: `Bearer ${secretValue}` }] };
+}
+
+function acpMcpServersFor({ listenerPort, sessionId, agentToken, packServers, packEnv }: AcpMcpServersInput): AcpHttpMcpServer[] {
+  const servers = packServers.map((server) => acpPackServerOf(server, packEnv)).filter((server): server is AcpHttpMcpServer => server !== null);
+  const hasGlimmervoidServer = listenerPort !== null && listenerPort > 0 && agentToken !== null && agentToken !== '';
+  if (!hasGlimmervoidServer) return servers;
+  return [
+    ...servers,
+    {
+      type: 'http',
+      name: MCP_SERVER_NAME,
+      url: mcpUrl(listenerPort),
+      headers: [{ name: 'Authorization', value: `Bearer ${mcpCredentialFor(sessionId, agentToken)}` }],
+    },
+  ];
+}
+
 function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken, packServers }: McpLaunchInput): McpLaunch {
   const buildArgs = isBuiltinWithMcpArgs(agentId) ? ARGS_BY_AGENT[agentId] : undefined;
   if (!buildArgs) return NO_MCP_LAUNCH;
@@ -247,5 +289,5 @@ function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken, packServer
   };
 }
 
-export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME, MCP_CREDENTIAL_ENV, MCP_TOOL_TIMEOUT_SECONDS, MCP_URL_ENV, PACK_SECRET_ENV_PREFIX, copilotMcpArgs, copilotMcpConfigName, copilotMcpConfigText, kimiMcpFiles, mcpLaunchFor, packSecretEnvName, qwenMcpArgs, rendersPackServers, settingsHomeMcpServers };
-export type { McpLaunch, McpLaunchInput };
+export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME, MCP_CREDENTIAL_ENV, MCP_TOOL_TIMEOUT_SECONDS, MCP_URL_ENV, PACK_SECRET_ENV_PREFIX, acpMcpServersFor, copilotMcpArgs, copilotMcpConfigName, copilotMcpConfigText, kimiMcpFiles, mcpLaunchFor, packSecretEnvName, qwenMcpArgs, rendersPackServers, settingsHomeMcpServers };
+export type { AcpHttpMcpHeader, AcpHttpMcpServer, AcpMcpServersInput, McpLaunch, McpLaunchInput };

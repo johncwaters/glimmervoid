@@ -200,6 +200,7 @@ function createPtyDriver(options: PtyDriverOptions): PtyDriver {
   return {
     hasTerminal: true,
     get pid() { return ptyProcess ? ptyProcess.pid : null; },
+    get scopeUnit() { return scopeUnit; },
     get isLive() { return isLive(); },
     get process() { return ptyProcess; },
     get isMarkedLive() { return lifecycle === "live"; },

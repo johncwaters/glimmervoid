@@ -8,17 +8,16 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "../../server/child-process-safe.ts";
 import { glimmervoidHomeDir } from "../../server/core/config-path-core.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
+import { acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
 import type { AcpPhase } from "../core/acp-driver-core.ts";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
-import { withoutGlimmervoidSecrets } from "../core/spawn-env.ts";
 import type { DriverEvent, DriverFailureStage, DriverLaunch, DriverListener, SessionDriver } from "./driver.ts";
 
 interface AcpDriverOptions {
   clientName: string;
   clientVersion: string;
   mcpServers: McpServer[];
-  killTree: (pid: number) => void;
+  killTree: (pid: number, scopeUnit: string | null) => void;
 }
 
 interface ActivePrompt {
@@ -35,7 +34,6 @@ function signalNumberOf(signalName: NodeJS.Signals | null): number | undefined {
 function dropAccountPrivateExtensionNotification(): void {}
 
 const ACP_SPAWN_DIR_MODE = 0o700;
-const NPM_CONFIG_ENV_PREFIX = "npm_config_";
 
 function ensureAcpSpawnCwd(): string {
   const spawnCwd = path.join(glimmervoidHomeDir(os.homedir(), process.env), "acp");
@@ -43,17 +41,10 @@ function ensureAcpSpawnCwd(): string {
   return spawnCwd;
 }
 
-function acpSpawnEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
-  const scrubbed = withoutGlimmervoidSecrets(env);
-  for (const key of Object.keys(scrubbed)) {
-    if (key.toLowerCase().startsWith(NPM_CONFIG_ENV_PREFIX)) delete scrubbed[key];
-  }
-  return scrubbed;
-}
-
 function createAcpDriver(options: AcpDriverOptions): SessionDriver {
   const listeners = new Set<DriverListener>();
   let child: ChildProcess | null = null;
+  let scopeUnit: string | null = null;
   let connection: ClientConnection | null = null;
   let phase: AcpPhase = "idle";
   let agentSessionId: string | null = null;
@@ -116,7 +107,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
 
   async function openSession(generation: number, activeConnection: ClientConnection, launch: DriverLaunch): Promise<void> {
     const initialized = await activeConnection.agent.request(methods.agent.initialize, initializeRequestFor(PROTOCOL_VERSION, options.clientName, options.clientVersion));
-    const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, options.mcpServers, launch.resumeAgentSessionId);
+    const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId);
     if (plan.method === "refuse") throw new Error(plan.message);
     if (plan.method === "session/load") await activeConnection.agent.request(methods.agent.session.load, plan.request);
     const openedSessionId = plan.method === "session/load"
@@ -161,7 +152,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
   function start(launch: DriverLaunch): void {
     const spawnCwd = ensureAcpSpawnCwd();
     if (child !== null && child.pid !== undefined && (phase === "opening" || phase === "ready")) {
-      options.killTree(child.pid);
+      options.killTree(child.pid, scopeUnit);
     }
     const generation = ++runGeneration;
     agentSessionId = null;
@@ -169,11 +160,12 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     dropActivePrompt();
     const agentProcess = spawn(launch.file, launch.args, {
       cwd: spawnCwd,
-      env: acpSpawnEnv(launch.env),
+      env: acpSpawnEnvFor(launch.env, launch.sessionEnv),
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
     child = agentProcess;
+    scopeUnit = launch.scopeUnit;
     phase = "opening";
     agentProcess.stderr?.resume();
     agentProcess.on("error", (error) => {
@@ -183,6 +175,10 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     });
     const activeConnection = connect(generation, agentProcess);
     connection = activeConnection;
+    agentProcess.on("exit", () => {
+      if (generation !== runGeneration || scopeUnit === null || agentProcess.pid === undefined) return;
+      options.killTree(agentProcess.pid, scopeUnit);
+    });
     agentProcess.on("close", (exitCode, signalName) => {
       if (generation !== runGeneration) return;
       phase = "closed";
@@ -219,13 +215,14 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     phase = "closed";
     isPromptOpen = false;
     dropActivePrompt();
-    options.killTree(child.pid);
+    options.killTree(child.pid, scopeUnit);
     return true;
   }
 
   return {
     hasTerminal: false,
     get pid() { return child?.pid ?? null; },
+    get scopeUnit() { return scopeUnit; },
     get isLive() { return phase === "opening" || phase === "ready"; },
     start,
     send,

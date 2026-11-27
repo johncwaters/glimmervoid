@@ -8,6 +8,8 @@ interface DriverLaunch {
   env: Record<string, string | undefined>;
   scopeUnit: string | null;
   resumeAgentSessionId: string | null;
+  mcpServers?: McpServer[];
+  sessionEnv?: Readonly<Record<string, string>>;
 }
 
 type DriverFailureStage = "open" | "prompt";
@@ -54,6 +56,7 @@ type DriverListener = (event: DriverEvent) => void;
 interface SessionDriver {
   readonly hasTerminal: boolean;
   readonly pid: number | null;
+  readonly scopeUnit: string | null;
   readonly isLive: boolean;
   start(launch: DriverLaunch): void;
   send(text: string, options: DeliverOptions): DeliveryOutcome;
