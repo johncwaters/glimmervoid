@@ -15,7 +15,7 @@ Install one (for Claude Code, `npm install -g @anthropic-ai/claude-code`), then 
 Studio runs agents over ACP only (Claude Code, Codex and Antigravity CLI are built in, plus any entry under `acpAgents` in `~/.glimmervoid/config.json`). Focus keeps PTY for every other CLI.
 
 - **Agent has no ACP row:** Studio refuses to start an agent without an ACP row. Pick an ACP agent in the Studio picker, add an `acpAgents` row for that agent in `~/.glimmervoid/config.json`, or run it in Focus instead.
-- **Migrated Studio session is stopped:** A pre-ACP Studio session whose agent has no ACP row stays stopped with a notice in its log and its original agent untouched. For a stopped branch, close it from its card menu and start a new one with an ACP agent from the Studio picker; for a stopped Orchestrator (or to keep either session), add an `acpAgents` row for its agent or change its `agent` in `~/.glimmervoid/config.json`.
+- **Migrated or stopped Studio session:** A Studio session whose agent has no ACP row stays stopped with its original agent untouched and shows the reason on its card and in its log. For a stopped Orchestrator, click **Pick agent** on the Orchestrator card (or choose **Pick agent** from its menu) to pick an ACP agent Studio can run and start it. For a stopped branch, close it from its card menu and start a new one with an ACP agent from the Studio picker.
 - **Expired login in Studio:** Studio has no embedded terminal for interactive sign-in. Sign in to the agent CLI in your own terminal outside Glimmervoid (for example `claude`, `codex login`, or `agy`), then send your message again or restart the session.
 
 ## No browser notifications

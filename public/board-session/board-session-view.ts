@@ -5,11 +5,16 @@ import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
+import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
+import { decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { loadResumeDialog } from '../session-card/deferred-loads.ts';
+import { buildDialogShell } from '../session-card/modal.ts';
+import { button } from '../ui/button.ts';
+import { radio } from '../ui/checkbox.ts';
 import { isModalOpen } from '../ui/modal-state.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ViewModule } from '../view-registry-core.ts';
@@ -61,6 +66,7 @@ import studioCollection, { applyStudioReply, onStudioServerMessage } from '../st
 import { runCodemapFolderSet } from '../state/actions/codemap-folder-set.ts';
 import { runStudioMainEnsure } from '../state/actions/studio-main-ensure.ts';
 import removeSessionAction from '../state/actions/remove-session.ts';
+import switchSessionAgentAction, { listAcpAgents } from '../state/actions/switch-session-agent.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -75,6 +81,7 @@ const ORCHESTRATOR_TEXT = 'Orchestrator';
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const RESTART_ORCHESTRATOR_TEXT = 'Restart Orchestrator';
 const ACCOUNT_TEXT = 'Model and account';
+const PICK_AGENT_TEXT = 'Pick agent';
 const NO_REPO_TEXT = 'No repo';
 const AGENT_FAILED_TEXT = 'The agent stopped unexpectedly.';
 const AGENT_STALLED_TEXT = 'The agent stopped answering.';
@@ -486,7 +493,18 @@ function latestDigestOf(sessionId: string, watch: SessionWatch): string | null {
   return null;
 }
 
+function stoppedReasonOf(sessionId: string): string | null {
+  const sessionRecord = sessionsCollection.state.byId[sessionId];
+  const ui = sessionUIs.get(sessionId);
+  const state = sessionRecord?.state ?? ui?.currentState;
+  if (state !== STATES.DORMANT) return null;
+  const reason = sessionRecord?.failureReason?.trim() ?? '';
+  return reason.length > 0 ? reason : null;
+}
+
 function agentFailureOf(sessionId: string, isAsking: boolean): string | null {
+  const stoppedReason = stoppedReasonOf(sessionId);
+  if (stoppedReason !== null) return stoppedReason;
   const sessionRecord = sessionsCollection.state.byId[sessionId];
   const ui = sessionUIs.get(sessionId);
   const state = sessionRecord?.state ?? ui?.currentState;
@@ -522,6 +540,7 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
     digest: sessionId === shownId ? null : latestDigestOf(sessionId, watch),
     misfit: latestMisfitOf(sessionId, watch),
     failure: agentFailureOf(sessionId, isAsking),
+    canPickAgent: sessionId === shownId && stoppedReasonOf(sessionId) !== null,
     approvals: watch.waits.element,
     isAsking,
     isOpened: openedBranchIds.has(sessionId),
@@ -888,12 +907,95 @@ function toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void 
   openMenu(repoButton);
 }
 
+function openOrchestratorAgentDialog(sessionId: string): void {
+  const { overlay, dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Pick Orchestrator agent' });
+  const hint = el('p', 'dialog-message', 'Pick an ACP agent Studio can run to start the Orchestrator.');
+  const listEl = el('fieldset', 'dialog-workspace-list');
+  listEl.setAttribute('aria-label', 'Agents');
+  const status = createActionStatus('dialog-hint');
+  const startButton = button({ variant: 'primary', label: 'Start' });
+  startButton.disabled = true;
+  btnCancel.addEventListener('click', close);
+  actions.append(startButton);
+  dialog.append(hint, listEl, status.element, actions);
+
+  let runnableAgents: { id: string; label: string }[] = [];
+  let chosenAgentId: string | null = null;
+  let isStarting = false;
+
+  const paintChoices = () => {
+    if (chosenAgentId === null || !runnableAgents.some((agent) => agent.id === chosenAgentId)) {
+      chosenAgentId = runnableAgents[0]?.id ?? null;
+    }
+    listEl.replaceChildren(...runnableAgents.map((agent) => radio({
+      name: 'studio-orchestrator-agent',
+      value: agent.id,
+      label: agent.label,
+      checked: agent.id === chosenAgentId,
+      onSelect: () => {
+        chosenAgentId = agent.id;
+        startButton.disabled = isStarting || chosenAgentId === null;
+      },
+    }).element));
+    startButton.disabled = isStarting || chosenAgentId === null;
+  };
+
+  startButton.addEventListener('click', () => {
+    if (isStarting || chosenAgentId === null) return;
+    isStarting = true;
+    startButton.disabled = true;
+    status.show('busy', 'Starting the Orchestrator.');
+    void switchSessionAgentAction({ id: sessionId, agent: chosenAgentId }).then((outcome) => {
+      if (!overlay.isConnected) return;
+      isStarting = false;
+      if (outcome.ok) {
+        close();
+        return;
+      }
+      status.show('error', outcome.error.message);
+      startButton.disabled = chosenAgentId === null;
+    });
+  });
+
+  status.show('busy', 'Loading ACP agents.');
+  void listAcpAgents()
+    .then((reply) => {
+      if (!overlay.isConnected) return;
+      if (reply.type !== 'agents-listed') {
+        status.show('error', 'The agent list did not load.');
+        return;
+      }
+      if ('error' in reply && typeof reply.error === 'string' && reply.error.length > 0) {
+        status.show('error', reply.error);
+        return;
+      }
+      const availability = decideAgentAvailability(reply);
+      const picker = decideAgentPicker(reply.agents);
+      runnableAgents = picker.options;
+      if (!availability.canSpawn || runnableAgents.length === 0) {
+        status.show('error', availability.guidance || 'No ACP agent is available.');
+        paintChoices();
+        return;
+      }
+      chosenAgentId = picker.selectedId;
+      status.clear();
+      paintChoices();
+    })
+    .catch((reason: unknown) => {
+      if (!overlay.isConnected) return;
+      status.show('error', `Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}).`);
+    });
+  requestAnimationFrame(() => btnCancel.focus());
+}
+
 function openMenu(opener: HTMLButtonElement): void {
   if (!parts) return;
   const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', () => openStudioRepo());
   const orchestratorId = studioCollection.state.shownSessionId;
+  const isOrchestratorStopped = orchestratorId !== null && stoppedReasonOf(orchestratorId) !== null;
   const orchestratorItems = orchestratorId === null ? [] : [
     el('div', 'bs-menu-rule'),
+    ...(isOrchestratorStopped ? [menuActionItem(PICK_AGENT_TEXT, 'board-session-pick-agent', () => openOrchestratorAgentDialog(orchestratorId))] : []),
     menuActionItem(RESTART_ORCHESTRATOR_TEXT, 'board-session-agent-restart', () => restartAgent(orchestratorId)),
     menuActionItem(ACCOUNT_TEXT, 'board-session-agent-account', () => openSwitchAccountDialog(orchestratorId)),
   ];
@@ -909,7 +1011,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   const presenceLayer = createPresenceLayer(boundsOfHostBox, pickRepoAgent);
-  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, close: closeBranchAgent, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
+  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, pickAgent: openOrchestratorAgentDialog, close: closeBranchAgent, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
   const topLeft = el('div', 'bs-top-left');
   const noRepoChip = createPressable('bs-chip');
   noRepoChip.setAttribute('aria-haspopup', 'menu');
@@ -1001,6 +1103,18 @@ function mountBoardSessionView(panel: HTMLElement): void {
     (state) => state.areas.map((area) => `${area.repoKey}:${area.isFolded}:${area.branchAgentId ?? ''}`).join('|'),
     () => {
       if (isActive) paintPresence();
+    },
+  );
+  watchCollection(
+    sessionsCollection,
+    (state) => [...watchBySessionId.keys()].map((id) => {
+      const record = state.byId[id];
+      return `${id}:${record?.state ?? ''}:${record?.agent ?? ''}:${record?.failureReason ?? ''}`;
+    }).join('|'),
+    () => {
+      if (!isActive) return;
+      paintPresence();
+      dock?.refresh();
     },
   );
   onBoardSessionStatusChanged((sessionId) => {

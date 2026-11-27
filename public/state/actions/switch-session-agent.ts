@@ -1,10 +1,15 @@
 import { DEFAULT_REPLY_TIMEOUT_MS } from '../../action-status.ts';
+import { sendControlRequest } from '../../control-ws.ts';
 import { defineAction } from '../define-action.ts';
 import sessionsCollection from '../collections/sessions.ts';
 
 interface SwitchSessionAgentInput {
   id: string;
   agent: string;
+}
+
+export function listAcpAgents() {
+  return sendControlRequest('list-agents', { driver: 'acp' }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
 }
 
 const switchSessionAgentAction = defineAction<SwitchSessionAgentInput>({

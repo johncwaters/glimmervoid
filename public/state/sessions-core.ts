@@ -166,6 +166,7 @@ function applySessionStatusToDraft(draft: SessionsCollectionState, msg: ServerMe
     existing.state = msg.transition.to;
     existing.stateSince = msg.stateSince ?? msg.timestamp;
     if (msg.failureReason !== undefined) existing.failureReason = msg.failureReason;
+    if (msg.failureReason === undefined && msg.transition.to === STATES.INITIALIZING) existing.failureReason = null;
   }
   if (msg.saneYolo !== undefined) existing.saneYolo = msg.saneYolo;
   if (msg.activeAgents !== undefined) existing.activeAgents = Math.max(0, msg.activeAgents);

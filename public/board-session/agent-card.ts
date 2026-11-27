@@ -5,7 +5,7 @@ import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { el } from '../dom-helpers.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { createLineIcon, createSvgShape } from '../svg-dom.ts';
-import { menuButton } from '../ui/button.ts';
+import { button, menuButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import { cardPlacementAreaOf, cardSpotOf } from './agent-card-place-core.ts';
@@ -19,6 +19,7 @@ const MENU_TEXT = 'Agent menu';
 const RESTART_TEXT = 'Restart';
 const ACCOUNT_TEXT = 'Model and account';
 const CLOSE_TEXT = 'Close';
+const PICK_AGENT_TEXT = 'Pick agent';
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const FLAG_ICON_PATH = 'M4 14V2.5h8l-2 3 2 3H4';
 const BUSY_PHASES: ReadonlySet<ChatPhase> = new Set(['starting', 'working', 'monitoring']);
@@ -36,6 +37,7 @@ export interface AgentCardModel {
   digest: string | null;
   misfit: string | null;
   failure: string | null;
+  canPickAgent: boolean;
   approvals: HTMLElement;
   isAsking: boolean;
   isOpened: boolean;
@@ -45,6 +47,7 @@ interface AgentCardActions {
   address(model: AgentCardModel): void;
   restart(sessionId: string): void;
   switchAccount(sessionId: string): void;
+  pickAgent(sessionId: string): void;
   close(sessionId: string): Promise<string | null>;
   toggleOpened(sessionId: string): void;
   toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void;
@@ -166,8 +169,10 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   const failure = el('p', 'bs-card-digest bs-card-failure');
   failure.setAttribute('role', 'status');
   failure.hidden = true;
+  const pickAgentButton = button({ variant: 'primary', size: 'small', label: PICK_AGENT_TEXT, action: 'board-session-pick-agent', hidden: true });
+  pickAgentButton.addEventListener('click', () => actions.pickAgent(sessionId));
   const approvals = el('div', 'bs-card-approvals-slot');
-  card.append(head, activity.element, misfit, failure, digest, refusal, approvals, menu);
+  card.append(head, activity.element, misfit, failure, pickAgentButton, digest, refusal, approvals, menu);
   card.addEventListener('chat-card', (event) => {
     const cardId = stringDetailOf(event, 'cardId');
     const action = stringDetailOf(event, 'action');
@@ -235,6 +240,7 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       misfit.hidden = model.misfit === null;
       failure.textContent = model.failure ?? '';
       failure.hidden = model.failure === null;
+      pickAgentButton.hidden = !model.canPickAgent;
       card.toggleAttribute('data-flagged', model.misfit !== null);
       shrunkFace.toggleAttribute('data-flagged', model.misfit !== null);
       card.toggleAttribute('data-failed', model.failure !== null);
