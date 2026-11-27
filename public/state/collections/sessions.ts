@@ -1,14 +1,16 @@
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
-import { defineCollection } from '../define-collection.ts';
+import { sendControlRequest } from '../../control-ws.ts';
+import { applyCollectionServerMessage, defineCollection } from '../define-collection.ts';
 import {
   INITIAL_SESSIONS_STATE,
   applySessionsServerMessage,
 } from '../sessions-core.ts';
-import type { SessionsCollectionState } from '../sessions-core.ts';
+import type { SessionsApplyContext, SessionsCollectionState } from '../sessions-core.ts';
 
 type SessionsServerMessageListener = (message: ServerMessage) => void;
 
 const serverMessageListeners = new Set<SessionsServerMessageListener>();
+let activeApplyContext: SessionsApplyContext = {};
 
 function notifyServerMessageListeners(message: ServerMessage): void {
   for (const listener of [...serverMessageListeners]) {
@@ -20,7 +22,9 @@ const sessionsCollection = defineCollection<SessionsCollectionState>({
   name: 'sessions',
   key: 'id',
   initial: INITIAL_SESSIONS_STATE,
-  apply: applySessionsServerMessage,
+  apply(draft, message, helpers) {
+    applySessionsServerMessage(draft, message, helpers, activeApplyContext);
+  },
   onApplied: notifyServerMessageListeners,
 });
 
@@ -33,6 +37,24 @@ export function onSessionsServerMessage(listener: SessionsServerMessageListener)
 
 export function hasSessionInCollection(sessionId: string): boolean {
   return Object.hasOwn(sessionsCollection.state.byId, sessionId);
+}
+
+export type TracePagePayload = { id: string; after: number } | { id: string; endingAt: number | 'tail' };
+
+export function requestSessionTracePage(
+  payload: TracePagePayload,
+  timeoutMs: number,
+): Promise<ServerMessage> {
+  return sendControlRequest('session-trace', payload, { timeoutMs });
+}
+
+export function applyChatStopReply(reply: ServerMessage, sessionId: string): void {
+  activeApplyContext = { confirmedChatStopSessionId: sessionId };
+  try {
+    applyCollectionServerMessage('sessions', reply);
+  } finally {
+    activeApplyContext = {};
+  }
 }
 
 export default sessionsCollection;

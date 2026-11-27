@@ -16,7 +16,7 @@ export function isCodeMapBoardTitle(title: string): boolean {
 }
 export const BRANCH_PROMPT_MAX_CHARS = 20000;
 export const DIRECTOR_DIGEST_SESSIONS_MAX = 50;
-const PROGRESS_QUESTION_MAX_CHARS = 2000;
+export const PROGRESS_QUESTION_MAX_CHARS = 2000;
 
 const RepoPath = z.string().min(1).max(1000);
 const BOARD_ID_MAX_CHARS = 200;

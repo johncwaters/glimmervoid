@@ -50,11 +50,6 @@
       "sendControlRequest": 4,
       "onControlMessage": 0
     },
-    "public/board-session/dock.ts": {
-      "sendControlMsg": 1,
-      "sendControlRequest": 3,
-      "onControlMessage": 0
-    },
     "public/board-session/studio-guide.ts": {
       "sendControlMsg": 0,
       "sendControlRequest": 2,
@@ -386,10 +381,8 @@
     "agent-lane-account",
     "answer-approval",
     "board-ask-answer",
-    "branch-spawn",
     "cancel-repository-clone",
     "cancel-wake",
-    "chat-stop",
     "community-action",
     "decide-approval",
     "dismiss",
@@ -444,7 +437,6 @@
     "start-repository-clones",
     "start-session",
     "studio-guide",
-    "studio-progress-ask",
     "switch-session-account",
     "switch-session-model",
     "team-review-action",

@@ -11,18 +11,21 @@ import { chatDraftOf, saveChatDraft, scheduleChatDraftSave } from '../chat/chat-
 import { studioQueuedStatusOf } from '../chat/chat-view.ts';
 import { createChatOutboxProjection, isOptimisticOutboxEntryId, reconcileChatOutboxProjection, takeStandInsForPrompts } from '../state/chat-outbox-core.ts';
 import { watchChatOutbox } from '../state/collections/chat-outbox.ts';
+import { requestSessionTracePage } from '../state/collections/sessions.ts';
+import branchSpawnAction from '../state/actions/branch-spawn.ts';
 import chatCancelAction from '../state/actions/chat-cancel.ts';
 import chatSendAction from '../state/actions/chat-send.ts';
+import chatStopAction from '../state/actions/chat-stop.ts';
+import studioProgressAskAction from '../state/actions/studio-progress-ask.ts';
 import { stickToBottom } from '../chat/stick-to-bottom.ts';
 import type { RailField } from '../chat/status-rail-core.ts';
-import { BRANCH_PROMPT_MAX_CHARS } from '#shared/contracts/control/board-session-messages.ts';
+import { BRANCH_PROMPT_MAX_CHARS, PROGRESS_QUESTION_MAX_CHARS } from '#shared/contracts/control/board-session-messages.ts';
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
 import type { ChatPart } from '../chat/chat-part.ts';
 import type { SessionProgressAnswer } from '#shared/contracts/director-digests.ts';
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { operatorPartOfPrompt } from '#shared/board-branch-core.ts';
-import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
@@ -38,9 +41,7 @@ import { addressLabelOf, boxMentionAt, matchingBoxChoices, placeTitleOf, textWit
 import type { BoxChoice, BoxMention, DockAddress } from './branch-core.ts';
 
 const TRACE_PAGE_TIMEOUT_MS = 10000;
-const PROGRESS_ASK_TIMEOUT_MS = 130000;
 const GLIMMERVOID_NAME = 'Glimmervoid';
-const BRANCH_SPAWN_TIMEOUT_MS = 30000;
 const NEAR_TOP_PX = 48;
 const CLEAR_ICON_PATH = 'M4 4l8 8M12 4l-8 8';
 const NOT_SENT_TEXT = 'The message was not sent.';
@@ -278,12 +279,13 @@ function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, digestOf: DockSess
 }
 
 function requestBranchSpawn(parentId: string, aboutBoxId: string, prompt: string): Promise<{ branchId: string | null; failureText: string }> {
-  return sendControlRequest('branch-spawn', { id: parentId, aboutBoxId, prompt }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
-    .then((reply) => {
-      if (reply.type !== 'branch-spawn-result') return { branchId: null, failureText: NOT_SENT_TEXT };
-      if (!reply.ok || reply.branchId === null) return { branchId: null, failureText: reply.error ?? NOT_SENT_TEXT };
-      return { branchId: reply.branchId, failureText: '' };
-    });
+  return branchSpawnAction({ id: parentId, aboutBoxId, prompt }).then((outcome) => {
+    if (!outcome.ok) return { branchId: null, failureText: outcome.error.message || NOT_SENT_TEXT };
+    if (outcome.reply.type !== 'branch-spawn-result' || outcome.reply.branchId === null) {
+      return { branchId: null, failureText: NOT_SENT_TEXT };
+    }
+    return { branchId: outcome.reply.branchId, failureText: '' };
+  });
 }
 
 export function createDock(session: DockSession): Dock {
@@ -522,7 +524,7 @@ export function createDock(session: DockSession): Dock {
     const feed = createChatFeed({
       sessionId,
       workingDirectory,
-      requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
+      requestPage: (payload) => requestSessionTracePage(payload, TRACE_PAGE_TIMEOUT_MS),
       onPartsChanged: (changedParts, droppedPartIds, isLive) => {
         if (!speaker.branch) takeRecordedPrompts(changedParts, droppedPartIds, isLive);
         upsertParts(sessionId, changedParts);
@@ -781,10 +783,14 @@ export function createDock(session: DockSession): Dock {
         return failureText;
       });
     };
-    const mainSend = mainSendQueue.then(() => sendControlRequest('studio-progress-ask', { id: session.sessionId, text }, { timeoutMs: PROGRESS_ASK_TIMEOUT_MS })
-      .then((reply) => reply.type === 'studio-progress-ask-result' && reply.isAnswered)
-      .catch(() => false)
-      .then((isAnswered) => isAnswered ? deliveredAs('progress', Promise.resolve(null)) : deliveredAs('talk', dispatchToMain())))
+    const askProgress = () => (
+      text.trim().length > PROGRESS_QUESTION_MAX_CHARS
+        ? Promise.resolve(false)
+        : studioProgressAskAction({ id: session.sessionId, text })
+          .then((outcome) => outcome.ok && outcome.reply.type === 'studio-progress-ask-result' && outcome.reply.isAnswered)
+    );
+    const mainSend = mainSendQueue.then(askProgress)
+      .then((isAnswered) => isAnswered ? deliveredAs('progress', Promise.resolve(null)) : deliveredAs('talk', dispatchToMain()))
       .finally(() => settlePendingSend(pending));
     mainSendQueue = mainSend.catch(() => null);
     return mainSend;
@@ -844,7 +850,7 @@ export function createDock(session: DockSession): Dock {
 
   pill.addEventListener('chat-stop', () => {
     const sessionId = addressedSessionId();
-    if (sessionId !== null) sendControlMsg({ type: 'chat-stop', id: sessionId });
+    if (sessionId !== null) void chatStopAction({ id: sessionId });
   });
 
   paintComposer();

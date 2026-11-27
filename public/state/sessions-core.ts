@@ -178,11 +178,22 @@ function applySessionStatusToDraft(draft: SessionsCollectionState, msg: ServerMe
   if (msg.accountId !== undefined) existing.accountId = msg.accountId;
 }
 
+export interface SessionsApplyContext {
+  confirmedChatStopSessionId?: string;
+}
+
 export function applySessionsServerMessage(
   draft: SessionsCollectionState,
   message: ServerMessage,
   helpers: CollectionHelpers<SessionsCollectionState>,
+  context: SessionsApplyContext = {},
 ): void {
+  if (message.type === 'session-action-result') {
+    if (message.ok && context.confirmedChatStopSessionId) {
+      applyOptimisticChatStop(draft, context.confirmedChatStopSessionId);
+    }
+    return;
+  }
   if (message.type === 'snapshot') {
     const nextById: Record<string, SessionRecord> = {};
     const nextOrder: string[] = [];
@@ -263,4 +274,13 @@ export function applyOptimisticSessionRestart(
   record.failureReason = null;
   record.unseenOutcome = null;
   record.pendingPromptKind = null;
+}
+
+export function applyOptimisticChatStop(
+  draft: SessionsCollectionState,
+  sessionId: string,
+): void {
+  const record = draft.byId[sessionId];
+  if (!record) return;
+  record.state = STATES.IDLE;
 }

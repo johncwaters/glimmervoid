@@ -27,6 +27,8 @@ export interface StudioCollectionState {
   verdictByKey: Record<string, DirectorVerdict>;
   progressAnswers: SessionProgressAnswer[];
   digestRevisionBySessionId: Record<string, number>;
+  spawningBoxIds: string[];
+  pendingProgressQuestions: { sessionId: string; question: string }[];
 }
 
 export interface StudioApplyContext {
@@ -52,6 +54,8 @@ export const INITIAL_STUDIO_STATE: StudioCollectionState = {
   verdictByKey: {},
   progressAnswers: [],
   digestRevisionBySessionId: {},
+  spawningBoxIds: [],
+  pendingProgressQuestions: [],
 };
 
 function rebuildChangedBoxIndex(
@@ -105,6 +109,8 @@ function clearSessionScopedFields(draft: StudioCollectionState): void {
   draft.boxesAnsweredSessionId = null;
   draft.verdictByKey = {};
   draft.progressAnswers = [];
+  draft.spawningBoxIds = [];
+  draft.pendingProgressQuestions = [];
 }
 
 function switchShownSession(draft: StudioCollectionState, nextSessionId: string | null): void {
@@ -317,4 +323,20 @@ export function applyOptimisticRepoBranchAgent(
   if (!area) return;
   area.branchAgentId = agentId;
   draft.areaByRepoKey[area.repoKey] = area;
+}
+
+export function applyOptimisticBranchSpawn(
+  draft: StudioCollectionState,
+  aboutBoxId: string,
+): void {
+  if (draft.spawningBoxIds.includes(aboutBoxId)) return;
+  draft.spawningBoxIds.push(aboutBoxId);
+}
+
+export function applyOptimisticProgressAsk(
+  draft: StudioCollectionState,
+  sessionId: string,
+  question: string,
+): void {
+  draft.pendingProgressQuestions.push({ sessionId, question });
 }

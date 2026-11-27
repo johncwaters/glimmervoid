@@ -63,8 +63,10 @@ const MODULE_URLS = {
   settingsBridge: '/settings/settings-panel-bridge.ts',
   addRepoRoots: '/state/actions/add-repo-roots.ts',
   addSession: '/state/actions/add-session.ts',
+  branchSpawn: '/state/actions/branch-spawn.ts',
   chatCancel: '/state/actions/chat-cancel.ts',
   chatSend: '/state/actions/chat-send.ts',
+  chatStop: '/state/actions/chat-stop.ts',
   codemapFolderSet: '/state/actions/codemap-folder-set.ts',
   deleteHook: '/state/actions/delete-hook.ts',
   packApprove: '/state/actions/pack-approve.ts',
@@ -76,6 +78,7 @@ const MODULE_URLS = {
   restart: '/state/actions/restart.ts',
   saveHook: '/state/actions/save-hook.ts',
   studioMainEnsure: '/state/actions/studio-main-ensure.ts',
+  studioProgressAsk: '/state/actions/studio-progress-ask.ts',
   switchSessionAgent: '/state/actions/switch-session-agent.ts',
   updateApply: '/state/actions/update-apply.ts',
   updateCheck: '/state/actions/update-check.ts',
@@ -409,6 +412,44 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
     },
   },
   {
+    name: 'branch-spawn',
+    checks: ['C1', 'C2', 'C5'],
+    async prepare(ctx, check) {
+      const { page, sessionId, projectDirectory, faults } = ctx;
+      await preloadModules(page, [MODULE_URLS.studioCollection, MODULE_URLS.branchSpawn]);
+      await seedStudioAreaFixture(page, sessionId, projectDirectory);
+      const targetBoxId = 'area-box-1';
+      if (check === 'C1' || check === 'C5') {
+        faults.stubRequestReply('branch-spawn', (_frame, nextSeq) => ({
+          reply: { type: 'branch-spawn-result', id: sessionId, ok: true, branchId: `continuity-branch-${nextSeq}`, appliedSeq: nextSeq },
+          push: { type: 'director-digest-kept', id: sessionId },
+        }));
+      }
+      await page.evaluate(({ studioUrl, actionUrl, targetSessionId, boxId }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const studio = cache[studioUrl].default as { state: { spawningBoxIds: string[] } };
+        const readSpawning = (): string => (studio.state.spawningBoxIds.includes(boxId) ? 'spawning' : 'idle');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readSpawning,
+          isOptimisticShown: () => readSpawning() === 'spawning',
+          fire: () => {
+            const runAction = cache[actionUrl].default as (input: { id: string; aboutBoxId: string; prompt: string }) => Promise<unknown>;
+            Reflect.set(window, '__continuityActionPromise', runAction({
+              id: targetSessionId,
+              aboutBoxId: boxId,
+              prompt: 'Continuity branch spawn check',
+            }));
+          },
+        });
+      }, { studioUrl: MODULE_URLS.studioCollection, actionUrl: MODULE_URLS.branchSpawn, targetSessionId: sessionId, boxId: targetBoxId });
+      return {
+        cleanup: async () => {
+          await seedStudioAreaFixture(page, sessionId, projectDirectory);
+        },
+      };
+    },
+  },
+  {
     name: 'chat-cancel',
     checks: ['C1', 'C2', 'C5'],
     async prepare(ctx, check) {
@@ -533,6 +574,66 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
               session: 'continuity',
               timestamp: Date.now(),
               chatOutbox: [],
+            });
+          }, { ingestUrl: MODULE_URLS.ingest, seqUrl: MODULE_URLS.seq, targetSessionId: sessionId });
+        },
+      };
+    },
+  },
+  {
+    name: 'chat-stop',
+    checks: ['C1', 'C2', 'C5'],
+    async prepare(ctx, check) {
+      const { page, sessionId, faults } = ctx;
+      await preloadModules(page, [MODULE_URLS.ingest, MODULE_URLS.seq, MODULE_URLS.sessionsCollection, MODULE_URLS.chatStop]);
+      if (check === 'C1' || check === 'C5') {
+        faults.stubRequestReply('chat-stop', (_frame, nextSeq) => ({
+          reply: { type: 'session-action-result', id: sessionId, ok: true, appliedSeq: nextSeq },
+          push: {
+            type: 'session-status',
+            id: sessionId,
+            session: 'continuity',
+            timestamp: Date.now(),
+            transition: { from: 'RUNNING', to: 'IDLE', event: 'stop' },
+          },
+        }));
+      }
+      await page.evaluate(({ ingestUrl, seqUrl, sessionsUrl, actionUrl, targetSessionId }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const ingestControlMessage = cache[ingestUrl].ingestControlMessage as (msg: Record<string, unknown>) => string;
+        const currentSeq = cache[seqUrl].currentSeq as () => number;
+        ingestControlMessage({
+          type: 'session-status',
+          seq: currentSeq() + 1,
+          id: targetSessionId,
+          session: 'continuity',
+          timestamp: Date.now(),
+          transition: { from: 'IDLE', to: 'RUNNING', event: 'turn' },
+        });
+        const sessions = cache[sessionsUrl].default as { state: { byId: Record<string, { state: string }> } };
+        const readState = (): string => sessions.state.byId[targetSessionId]?.state ?? '';
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readState,
+          isOptimisticShown: () => readState() === 'IDLE',
+          fire: () => {
+            const runAction = cache[actionUrl].default as (input: { id: string }) => Promise<unknown>;
+            Reflect.set(window, '__continuityActionPromise', runAction({ id: targetSessionId }));
+          },
+        });
+      }, { ingestUrl: MODULE_URLS.ingest, seqUrl: MODULE_URLS.seq, sessionsUrl: MODULE_URLS.sessionsCollection, actionUrl: MODULE_URLS.chatStop, targetSessionId: sessionId });
+      return {
+        cleanup: async () => {
+          await page.evaluate(({ ingestUrl, seqUrl, targetSessionId }) => {
+            const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+            const ingestControlMessage = cache[ingestUrl].ingestControlMessage as (msg: Record<string, unknown>) => string;
+            const currentSeq = cache[seqUrl].currentSeq as () => number;
+            ingestControlMessage({
+              type: 'session-status',
+              seq: currentSeq() + 1,
+              id: targetSessionId,
+              session: 'continuity',
+              timestamp: Date.now(),
+              transition: { from: 'RUNNING', to: 'IDLE', event: 'cleanup' },
             });
           }, { ingestUrl: MODULE_URLS.ingest, seqUrl: MODULE_URLS.seq, targetSessionId: sessionId });
         },
@@ -961,6 +1062,44 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
       }, { studioUrl: MODULE_URLS.studioCollection, actionUrl: MODULE_URLS.studioMainEnsure, id: targetMainId });
       return {
         cleanup: async () => {},
+      };
+    },
+  },
+  {
+    name: 'studio-progress-ask',
+    checks: ['C1', 'C2', 'C5'],
+    async prepare(ctx, check) {
+      const { page, sessionId, projectDirectory, faults } = ctx;
+      await preloadModules(page, [MODULE_URLS.studioCollection, MODULE_URLS.studioProgressAsk]);
+      await seedStudioAreaFixture(page, sessionId, projectDirectory);
+      const probeQuestion = `continuity progress ${Date.now()}`;
+      if (check === 'C1' || check === 'C5') {
+        faults.stubRequestReply('studio-progress-ask', (_frame, nextSeq) => ({
+          reply: { type: 'studio-progress-ask-result', id: sessionId, ok: true, isAnswered: false, appliedSeq: nextSeq },
+          push: { type: 'director-digest-kept', id: sessionId },
+        }));
+      }
+      await page.evaluate(({ studioUrl, actionUrl, targetSessionId, question }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const studio = cache[studioUrl].default as { state: { pendingProgressQuestions: Array<{ sessionId: string; question: string }> } };
+        const readAsking = (): string => (
+          studio.state.pendingProgressQuestions.some((entry) => entry.sessionId === targetSessionId && entry.question === question)
+            ? 'asking'
+            : 'idle'
+        );
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readAsking,
+          isOptimisticShown: () => readAsking() === 'asking',
+          fire: () => {
+            const runAction = cache[actionUrl].default as (input: { id: string; text: string }) => Promise<unknown>;
+            Reflect.set(window, '__continuityActionPromise', runAction({ id: targetSessionId, text: question }));
+          },
+        });
+      }, { studioUrl: MODULE_URLS.studioCollection, actionUrl: MODULE_URLS.studioProgressAsk, targetSessionId: sessionId, question: probeQuestion });
+      return {
+        cleanup: async () => {
+          await seedStudioAreaFixture(page, sessionId, projectDirectory);
+        },
       };
     },
   },
