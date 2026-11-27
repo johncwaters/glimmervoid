@@ -6,6 +6,7 @@ export interface GridReading {
   ptySize: { cols: number; rows: number } | null;
   dataGrid: string | null;
   link: string | null;
+  isSnapshotLoading: boolean;
   dataWsState: number | null;
   bufferLength: number;
   viewportY: number;
@@ -56,7 +57,7 @@ interface ProbedSessionUi {
   term?: ProbedTerminal | null;
   ptySize?: { cols: number; rows: number } | null;
   dataWs?: { readyState: number; close(): void; harnessIsWatched?: boolean } | null;
-  card?: { dataset: { grid?: string; link?: string } } | null;
+  card?: { dataset: { grid?: string; link?: string; snapshotLoading?: string } } | null;
 }
 
 export async function readGrid({ sessionId, registryUrl }: ReadGridRequest): Promise<GridReading | null> {
@@ -83,6 +84,7 @@ export async function readGrid({ sessionId, registryUrl }: ReadGridRequest): Pro
     ptySize: sessionUi.ptySize ?? null,
     dataGrid: card.dataset.grid ?? null,
     link: card.dataset.link ?? null,
+    isSnapshotLoading: card.dataset.snapshotLoading === 'true',
     dataWsState: sessionUi.dataWs ? sessionUi.dataWs.readyState : null,
     bufferLength: buffer.length,
     viewportY: buffer.viewportY,

@@ -21,6 +21,7 @@ import { verifyStateCore } from './state-core.ts';
 import { verifyContinuity } from './continuity.ts';
 import type { ControlFaultController } from './continuity.ts';
 import { SERVER_MESSAGE_CLASS } from '../../shared/contracts/control/message-classes.ts';
+import { SCREEN_KEEPER_ATTACH_SCROLLBACK } from '../../session/core/screen-keeper-core.ts';
 import { verifyPacks } from './packs.ts';
 import { verifyHooks } from './hooks.ts';
 import { verifyUiPrimitivesParity } from './ui-primitives-parity.ts';
@@ -804,8 +805,14 @@ async function runLoadDeepHistory(viewer: Viewer, sessionId: string, deadlines: 
   const attached = await pollUntil(async () => {
     const reading = await readGridOf(viewer, sessionId);
     if (!reading) return { ok: false, detail: 'the session card carries no terminal yet', reading: null };
-    if (reading.bufferLength <= reading.rows) return { ok: false, reading, detail: 'the attach has not drawn any scrollback yet' };
-    return { ok: true, reading, detail: `${reading.bufferLength - reading.rows} lines of scrollback drawn` };
+    if (reading.link !== 'live') return { ok: false, reading, detail: `data-link is ${String(reading.link)}, wanted live` };
+    if (reading.isSnapshotLoading) return { ok: false, reading, detail: 'the attach snapshot is still draining' };
+    const scrollbackLines = reading.bufferLength - reading.rows;
+    if (scrollbackLines <= 0) return { ok: false, reading, detail: 'the attach has not drawn any scrollback yet' };
+    if (scrollbackLines > SCREEN_KEEPER_ATTACH_SCROLLBACK) {
+      return { ok: false, reading, detail: `buffer still holds ${scrollbackLines} pre-attach scrollback lines above the ${SCREEN_KEEPER_ATTACH_SCROLLBACK}-line attach cap` };
+    }
+    return { ok: true, reading, detail: `${scrollbackLines} lines of scrollback drawn` };
   }, { label: `scrollback before deep history for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
   if (!attached.ok) return outcomeFor('deep-history-loaded', attached);
   const top = await viewer.page.evaluate(scrollTerminalToTop, { sessionId, registryUrl: CARD_REGISTRY_URL });
@@ -814,6 +821,7 @@ async function runLoadDeepHistory(viewer: Viewer, sessionId: string, deadlines: 
     const reading = await readGridOf(viewer, sessionId);
     if (!reading) return { ok: false, detail: 'the session card carries no terminal yet', reading: null };
     if (reading.link !== 'live') return { ok: false, reading, detail: `data-link is ${String(reading.link)}, wanted live` };
+    if (reading.isSnapshotLoading) return { ok: false, reading, detail: 'the deep history snapshot is still draining' };
     if (reading.bufferLength <= top.bufferLength) {
       return { ok: false, reading, detail: `buffer holds ${reading.bufferLength} lines, no deeper than the ${top.bufferLength} at the top` };
     }
