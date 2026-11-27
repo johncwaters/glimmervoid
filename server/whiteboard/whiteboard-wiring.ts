@@ -261,6 +261,7 @@ interface WhiteboardLayouts {
   findBoardId(ref: string, callerProject: string | null): Promise<{ ok: true; boardId: string } | { ok: false; reply: WhiteboardReply }>;
   readingOf(boardId: string): Promise<BoardReadingOf | null>;
   summaryOf(boardId: string): Promise<LayoutSummary | null>;
+  boxRectsOf(boardId: string, boxIds: readonly string[]): Promise<Record<string, Rect>>;
   pictureImagesOf(boardId: string, options: PictureOptions): Promise<PictureImage[] | null>;
   pictureOf(boardId: string, dataUriByAssetId: Record<string, string>, options: PictureOptions): Promise<BoardPictureRead | null>;
 }
@@ -1939,6 +1940,7 @@ function createWhiteboardWiring({
       const board = await loadedBoardOf(boardId);
       return board ? tiles.summaryOf(board) : null;
     },
+    boxRectsOf,
     pictureImagesOf: async (boardId, options) => {
       const board = await loadedBoardOf(boardId);
       return board ? tiles.pictureImagesOf(board, options) : null;

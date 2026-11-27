@@ -352,7 +352,7 @@ test('a call missing a field or carrying another action\'s field is refused nami
     assert.deepEqual(called.content, [{ type: 'text', text: expectedError }]);
   }
   const putWithTitle = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'flow', title: 'Flow' } }, credential));
-  assert.deepEqual(putWithTitle.content, [{ type: 'text', text: 'whiteboard put takes board and ops, so drop title' }]);
+  assert.deepEqual(putWithTitle.content, [{ type: 'text', text: 'whiteboard put takes board, ops and shouldIncludePlan, so drop title' }]);
 });
 
 for (const agent of ['claude-code', 'codex']) {
@@ -411,7 +411,7 @@ test('show puts a file named relative to the session on a board as a card, count
   }
 });
 
-test('a whiteboard put that renames its board still returns its plan steps, get returns them too, view returns a PNG of the board, and each put counts the puts since the session last viewed it', async () => {
+test('a whiteboard put and get omit plan steps by default while keeping layout warnings, include plan steps when shouldIncludePlan is true, view returns a PNG of the board, and each put counts the puts since the session last viewed it', async () => {
   const { credential } = bootedBackend();
   const created = await newBoardAfterLeavingOthers(credential, 'mcp plan');
   assert.notEqual(created.isError, true, JSON.stringify(created));
@@ -424,12 +424,23 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
   ];
   const put = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'mcp plan', ops } }, credential));
   assert.notEqual(put.isError, true, JSON.stringify(put));
-  const putBody = put.structuredContent as { plan: { boxId: string; label: string; afterLabels: string[] }[]; layoutWarnings: string[] };
-  assert.deepEqual(putBody.plan.map((step) => [step.boxId, step.label, step.afterLabels]), [['schema', '1', []], ['route', '2', ['1']]]);
+  const putBody = put.structuredContent as { plan?: unknown; layoutWarnings: string[]; warnings?: string[] };
+  assert.equal('plan' in putBody, false);
   assert.ok(Array.isArray(putBody.layoutWarnings));
+  assert.ok(Array.isArray(putBody.warnings));
+
+  const putWithPlan = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'mcp plan renamed', ops: [{ op: 'set', id: 'route', fields: { title: 'Serve the route now' } }], shouldIncludePlan: true } }, credential));
+  assert.notEqual(putWithPlan.isError, true, JSON.stringify(putWithPlan));
+  const putWithPlanBody = putWithPlan.structuredContent as { plan: { boxId: string; label: string; afterLabels: string[] }[]; layoutWarnings: string[] };
+  assert.deepEqual(putWithPlanBody.plan.map((step) => [step.boxId, step.label, step.afterLabels]), [['schema', '1', []], ['route', '2', ['1']]]);
+  assert.ok(Array.isArray(putWithPlanBody.layoutWarnings));
 
   const read = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'get', board: 'mcp plan renamed' } }, credential));
-  assert.equal((read.structuredContent as { plan: unknown[] }).plan.length, 2);
+  assert.equal('plan' in (read.structuredContent as Record<string, unknown>), false);
+  assert.ok(Array.isArray((read.structuredContent as { layoutWarnings: string[] }).layoutWarnings));
+
+  const readWithPlan = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'get', board: 'mcp plan renamed', shouldIncludePlan: true } }, credential));
+  assert.equal((readWithPlan.structuredContent as { plan: unknown[] }).plan.length, 2);
 
   const viewed = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'mcp plan renamed' } }, credential));
   assert.notEqual(viewed.isError, true, JSON.stringify(viewed));
@@ -445,6 +456,41 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
     unviewedCountsAfterView.push(warnings.find((warning) => warning.includes('since it last viewed this board'))?.split(' by ')[0]);
   }
   assert.deepEqual(unviewedCountsAfterView, ['1 put', '2 puts']);
+});
+
+test('a region built from a whiteboard get reply pictures that box even when a plan band shifts pinned boxes', async () => {
+  const { credential } = bootedBackend();
+  await newBoardAfterLeavingOthers(credential, 'shifted coords board');
+  const ops = [
+    { op: 'add', element: { kind: 'box', id: 'step-a', title: 'Step A', place: 'plan', step: {} } },
+    { op: 'add', element: { kind: 'box', id: 'step-b', title: 'Step B', place: 'plan', step: {} } },
+    { op: 'add', element: { kind: 'box', id: 'pinned-box', title: 'Pinned box', place: { at: { x: 10_760, y: -1820 } } } },
+  ];
+  const put = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'shifted coords board', ops } }, credential));
+  assert.notEqual(put.isError, true, JSON.stringify(put));
+
+  const read = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'get', board: 'shifted coords board' } }, credential));
+  assert.notEqual(read.isError, true, JSON.stringify(read));
+  const elements = (read.structuredContent as { board: { elements: Record<string, { drawn?: { x: number; y: number; width: number; height: number } }> } }).board.elements;
+  const pinnedDrawn = elements['pinned-box']?.drawn;
+  const planDrawn = elements['step-a']?.drawn;
+  assert.ok(pinnedDrawn && pinnedDrawn.y > -1820 && pinnedDrawn.width > 0 && pinnedDrawn.height > 0, JSON.stringify(pinnedDrawn));
+  assert.ok(planDrawn && planDrawn.width > 0 && planDrawn.height > 0, JSON.stringify(planDrawn));
+
+  const pixelSizeOf = (png: Buffer) => [png.readUInt32BE(16), png.readUInt32BE(20)];
+  for (const drawn of [pinnedDrawn, planDrawn]) {
+    const viewed = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'shifted coords board', region: drawn } }, credential));
+    assert.notEqual(viewed.isError, true, JSON.stringify(viewed));
+    const [picture] = viewed.content as { data: string; mimeType: string }[];
+    assert.equal(picture?.mimeType, 'image/png');
+    assert.deepEqual(pixelSizeOf(Buffer.from(picture?.data ?? '', 'base64')), [Math.round(drawn.width * 2), Math.round(drawn.height * 2)]);
+  }
+
+  const regionRead = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'get', board: 'shifted coords board', region: pinnedDrawn } }, credential));
+  assert.notEqual(regionRead.isError, true, JSON.stringify(regionRead));
+  const regionBody = regionRead.structuredContent as { elements: { id: string; drawn?: { x: number; y: number; width: number; height: number } }[]; plan?: unknown };
+  assert.equal('plan' in regionBody, false);
+  assert.deepEqual(regionBody.elements.find((element) => element.id === 'pinned-box')?.drawn, pinnedDrawn);
 });
 
 test('whiteboard view pictures only a named region at twice its size, and render writes the whole board to a PNG or SVG file at the named path', async () => {

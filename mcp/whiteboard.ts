@@ -1,8 +1,8 @@
-import { BoardRegion } from '../shared/contracts/whiteboard.ts';
+import { BoardRegion, sparseBoardReply } from '../shared/contracts/whiteboard.ts';
 import { PICTURE_FORMATS, RENDER_SCALES, boardPictureFile, forgetBoardRenders, renderKindOf, writeBoardRender } from '../server/whiteboard/board-picture.ts';
 import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import type { Session } from '../session/sessions.ts';
-import { VIEW_PICTURE_LIMITS, filePictureLimitsOf } from './core/board-reading.ts';
+import { VIEW_PICTURE_LIMITS, boxIdsInBoardReply, filePictureLimitsOf, withDrawnBoxRects } from './core/board-reading.ts';
 import type { ToolImageResult } from './core/tool-result.ts';
 import type { WhiteboardAssetStore } from '../server/whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts } from '../server/whiteboard/whiteboard-wiring.ts';
@@ -36,14 +36,29 @@ function bodyWithUnviewedPutWarning(session: Session, boardId: string | null, pa
   return { ...body, warnings: [...earlierWarnings, `${putCount} by this session since it last viewed this board; view it to see what you drew before calling the work done`] };
 }
 
+async function replyWithDrawnRects(layouts: WhiteboardLayouts, boardId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const sparse = sparseBoardReply(body);
+  const boxIds = boxIdsInBoardReply(sparse);
+  if (boxIds.length === 0) return sparse;
+  const rectsByBoxId = await layouts.boxRectsOf(boardId, boxIds).catch(() => null);
+  return rectsByBoxId ? withDrawnBoxRects(sparse, rectsByBoxId) : sparse;
+}
+
 async function boardReplyWithReading(session: Session, agentApi: AgentApiPort, layouts: WhiteboardLayouts | null, payload: Record<string, unknown>): Promise<AgentReply> {
-  const boardId = await boardIdFor(layouts, payload.board, session.path);
-  const reply = await agentApi.handle(session, 'whiteboard', { ...payload, board: boardId ?? payload.board });
+  const { shouldIncludePlan, ...agentPayload } = payload;
+  const boardId = await boardIdFor(layouts, agentPayload.board, session.path);
+  const reply = await agentApi.handle(session, 'whiteboard', { ...agentPayload, board: boardId ?? agentPayload.board });
   if (reply.body.ok !== true) return reply;
-  const body = bodyWithUnviewedPutWarning(session, boardId, payload, reply.body);
-  const reading = boardId ? await layouts?.readingOf(boardId).catch(() => null) : null;
-  if (!reading) return { status: reply.status, body: { ...body, readingError: UNREAD_BOARD_TEXT } };
-  return { status: reply.status, body: { ...body, readingVersion: reading.version, plan: reading.plan, layoutWarnings: reading.layoutWarnings } };
+  const bodyWithWarnings = bodyWithUnviewedPutWarning(session, boardId, agentPayload, reply.body);
+  const body = agentPayload.sub === 'get' && boardId && layouts ? await replyWithDrawnRects(layouts, boardId, bodyWithWarnings) : bodyWithWarnings;
+  if (shouldIncludePlan === true) {
+    const reading = boardId ? await layouts?.readingOf(boardId).catch(() => null) : null;
+    if (!reading) return { status: reply.status, body: { ...body, readingError: UNREAD_BOARD_TEXT } };
+    return { status: reply.status, body: { ...body, readingVersion: reading.version, plan: reading.plan, layoutWarnings: reading.layoutWarnings } };
+  }
+  const summary = boardId ? await layouts?.summaryOf(boardId).catch(() => null) : null;
+  if (!summary) return { status: reply.status, body: { ...body, readingError: UNREAD_BOARD_TEXT } };
+  return { status: reply.status, body: { ...body, readingVersion: summary.version, layoutWarnings: summary.warnings } };
 }
 
 async function boardPictureResult(session: Session, agentApi: AgentApiPort, assets: WhiteboardAssetStore | null, layouts: WhiteboardLayouts | null, payload: Record<string, unknown>): Promise<AgentReply | ToolImageResult> {

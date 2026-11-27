@@ -84,5 +84,39 @@ function boardPicture(board: Board, layout: BoardLayout, assetHref?: AssetHref, 
   return { ok: true, svgDocument: boardSvgDocument(layout, assetHref, frame), svgDensity: SVG_POINTS_PER_INCH * scale, maxPixels: maxWidthPx * maxHeightPx, frame, reading: boardReading(board, layout.warnings) };
 }
 
-export { VIEW_PICTURE_LIMITS, boardPicture, boardReading, filePictureLimitsOf, pictureFrameOf, pictureImagesOf };
+function isBoxRecord(value: unknown): value is Record<string, unknown> & { kind: 'box'; id: string } {
+  return typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'box' && 'id' in value && typeof value.id === 'string';
+}
+
+function elementRecordMapOf(body: Record<string, unknown>): Record<string, unknown> | null {
+  if (!('board' in body) || typeof body.board !== 'object' || body.board === null) return null;
+  if (!('elements' in body.board) || typeof body.board.elements !== 'object' || body.board.elements === null || Array.isArray(body.board.elements)) return null;
+  return body.board.elements as Record<string, unknown>;
+}
+
+function boxIdsInBoardReply(body: Record<string, unknown>): string[] {
+  if (Array.isArray(body.elements)) return body.elements.filter(isBoxRecord).map((element) => element.id);
+  const elementsById = elementRecordMapOf(body);
+  if (!elementsById) return [];
+  return Object.values(elementsById).filter(isBoxRecord).map((element) => element.id);
+}
+
+function elementWithDrawnRect(element: unknown, rectsByBoxId: Readonly<Record<string, Rect>>): unknown {
+  if (!isBoxRecord(element)) return element;
+  const drawn = Object.hasOwn(rectsByBoxId, element.id) ? rectsByBoxId[element.id] : undefined;
+  return drawn ? { ...element, drawn } : element;
+}
+
+function withDrawnBoxRects(body: Record<string, unknown>, rectsByBoxId: Readonly<Record<string, Rect>>): Record<string, unknown> {
+  if (Object.keys(rectsByBoxId).length === 0) return body;
+  if (Array.isArray(body.elements)) {
+    return { ...body, elements: body.elements.map((element) => elementWithDrawnRect(element, rectsByBoxId)) };
+  }
+  const elementsById = elementRecordMapOf(body);
+  if (!elementsById) return body;
+  const elements = Object.fromEntries(Object.entries(elementsById).map(([id, element]) => [id, elementWithDrawnRect(element, rectsByBoxId)]));
+  return { ...body, board: { ...(body.board as Record<string, unknown>), elements } };
+}
+
+export { VIEW_PICTURE_LIMITS, boardPicture, boardReading, boxIdsInBoardReply, filePictureLimitsOf, pictureFrameOf, pictureImagesOf, withDrawnBoxRects };
 export type { BoardPicture, BoardReading, PictureLimits, PictureOptions };
