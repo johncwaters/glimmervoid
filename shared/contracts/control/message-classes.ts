@@ -456,6 +456,7 @@ export const SERVER_MESSAGE_CLASS = {
   'team-review-status': 'collection',
   'telegram-test-result': 'reply',
   'telemetry-deletion-result': 'reply',
+  'update-action-result': 'reply',
   'update-progress': 'collection',
   'update-status': 'collection',
   'usage-budget-alert': 'event',

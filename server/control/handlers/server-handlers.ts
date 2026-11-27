@@ -8,7 +8,8 @@ import type { ControlContext } from '../control-context.ts';
 import { sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
-function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
+function createServerHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
+  const { replyApplied } = context;
   const {
     broadcastControlFlushed,
     requestShutdown,
@@ -50,22 +51,32 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     void broadcastControlFlushed({ type: 'shutting-down' }).then(() => requestShutdown?.());
   }
 
-  async function handleUpdateCheck(_msg: ClientMessageOf<'update-check'>, ws: ControlSocket): Promise<void> {
+  async function handleUpdateCheck(msg: ClientMessageOf<'update-check'>, ws: ControlSocket): Promise<void> {
     if (!checkNow) {
-      sendError(ws, '[update-check-unavailable] Update checking is unavailable.', { scope: 'update' });
+      const error = '[update-check-unavailable] Update checking is unavailable.';
+      replyApplied(ws, msg, 'update-action-result', { ok: false, error });
+      if (!msg.requestId) sendError(ws, error, { scope: 'update' });
       return;
     }
     await checkNow();
+    replyApplied(ws, msg, 'update-action-result', { ok: true, error: null });
   }
 
-  async function handleUpdateApply(_msg: ClientMessageOf<'update-apply'>, ws: ControlSocket): Promise<void> {
+  async function handleUpdateApply(msg: ClientMessageOf<'update-apply'>, ws: ControlSocket): Promise<void> {
     if (!applyUpdate) {
-      sendError(ws, '[update-apply-unavailable] Update application is unavailable.', { scope: 'update' });
+      const error = '[update-apply-unavailable] Update application is unavailable.';
+      replyApplied(ws, msg, 'update-action-result', { ok: false, error });
+      if (!msg.requestId) sendError(ws, error, { scope: 'update' });
       return;
     }
     const outcome = await applyUpdate();
-    if (outcome.ok) return;
-    sendError(ws, `[${outcome.reason || 'update-refused'}] ${outcome.message}`, { scope: 'update' });
+    if (outcome.ok) {
+      replyApplied(ws, msg, 'update-action-result', { ok: true, error: null });
+      return;
+    }
+    const error = `[${outcome.reason || 'update-refused'}] ${outcome.message}`;
+    replyApplied(ws, msg, 'update-action-result', { ok: false, error });
+    if (!msg.requestId) sendError(ws, error, { scope: 'update' });
   }
 
   function handleRestart(_msg: ClientMessageOf<'restart-server'>): void {
@@ -119,6 +130,8 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
 
   const invalidReplies = {
     'ping': (_msg, requestId, message) => ({ type: 'pong', requestId, error: message }),
+    'update-check': (_msg, requestId, message) => ({ type: 'update-action-result', requestId, ok: false, error: message }),
+    'update-apply': (_msg, requestId, message) => ({ type: 'update-action-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, genericErrorTypes: ['request-health-snapshot'], connectFrames, afterConnect };

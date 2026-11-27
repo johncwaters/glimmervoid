@@ -358,7 +358,6 @@
     "server/control/handlers/race-handlers.ts": 4,
     "server/control/handlers/radar-handlers.ts": 5,
     "server/control/handlers/review-handlers.ts": 3,
-    "server/control/handlers/server-handlers.ts": 2,
     "server/control/handlers/settings-handlers.ts": 24,
     "server/control/handlers/wargames-handlers.ts": 2,
     "server/control/handlers/whiteboard-handlers.ts": 7,
@@ -367,9 +366,7 @@
   "legacyMutatingWithoutRequestId": [
     "resolve-session-merge",
     "resync-branch",
-    "run-session-review",
-    "update-apply",
-    "update-check"
+    "run-session-review"
   ],
   "legacyMutatingRepliesWithoutAppliedSeq": [
     "board-ask-answer-result",

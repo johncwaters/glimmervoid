@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { UpdateJournal } from '../update-journal.ts';
-import { requestId, sessionId, loose, looseCollection, opaqueObject, updateStatusShape, ClientErrorReport, ClientLogReport, DASHBOARD_TELEMETRY_EVENTS } from './control-fields.ts';
+import { requestId, sessionId, loose, looseCollection, looseMutatingReply, optionalError, opaqueObject, updateStatusShape, ClientErrorReport, ClientLogReport, DASHBOARD_TELEMETRY_EVENTS } from './control-fields.ts';
 
 export const systemClientVariants = [
   loose('ping', { requestId }),
@@ -10,8 +10,8 @@ export const systemClientVariants = [
   loose('terminal-colors', { background: z.string().regex(/^#[0-9a-fA-F]{6}$/), foreground: z.string().regex(/^#[0-9a-fA-F]{6}$/) }),
   loose('request-health-snapshot'),
   loose('request-telemetry-deletion', { requestId }),
-  loose('update-check'),
-  loose('update-apply'),
+  loose('update-check', { requestId }),
+  loose('update-apply', { requestId }),
   loose('client-error', ClientErrorReport.shape),
   loose('client-log', ClientLogReport.shape),
   loose('dashboard-telemetry', { event: z.enum(DASHBOARD_TELEMETRY_EVENTS), properties: z.record(z.string(), z.unknown()) }),
@@ -20,6 +20,7 @@ export const systemClientVariants = [
 export const systemServerVariants = [
   looseCollection('update-status', updateStatusShape),
   looseCollection('update-progress', { journal: UpdateJournal }),
+  looseMutatingReply('update-action-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pong', { requestId }),
   looseCollection('health-snapshot', { stats: opaqueObject }),
   loose('telemetry-deletion-result', { requestId, ok: z.boolean() }),
