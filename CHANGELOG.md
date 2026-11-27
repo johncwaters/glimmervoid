@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Linux and macOS downloads are now `.tar.gz` instead of `.tar.xz`.** Release binaries publish several minutes sooner after each tag because the archives no longer spend minutes in xz compression. Each archive is about half again as large (the Linux x86_64 one goes from about 117 MB to about 177 MB). The install script, in-app updates and the Homebrew formula pick up the new names on their own. Windows stays `.zip`.
 
+### Fixed
+
+- **Child-session turn-end notices are no longer tripped by nested Antigravity runs, idle compaction restores, or withheld wake lines, and wake-cap banners stay visible across card dismiss.** Hooks posted by a nested `agy` process that inherited `GLIMMERVOID_HOOK_URL` are now ignored once the main conversation is active instead of ending the parent turn; `compaction_restore_*` transitions no longer post a duplicate "finished a turn" note; a wake line left unsubmitted in the terminal composer after an idle-compaction flicker is submitted with Enter instead of pasted a second time; and dismissing a session card no longer clears an active `child-wake-cap` or `self-wake-cap` banner before you type in the session.
+
 ## [0.66.0] - 2026-11-26
 
 ### Added

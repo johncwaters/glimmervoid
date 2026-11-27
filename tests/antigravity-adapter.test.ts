@@ -107,6 +107,7 @@ test('an agy session records each new operator prompt once for auto-naming and s
   await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Add regression coverage for logout' });
   await postHook('PostInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Board "Lanternfish" changed since your last read.' });
   await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Board "Lanternfish" changed since your last read.' });
+  await postHook('Stop', { conversationId: 'conv-1', fullyIdle: true });
   await postHook('SessionStart', { conversationId: 'conv-2', lastUserInput: 'Fix the failing login flow' });
   await postHook('PreInvocation', { conversationId: 'conv-2', invocationNum: 0, lastUserInput: 'Fix the failing login flow' });
 
@@ -326,4 +327,47 @@ test('a trailing AgentState working poll after parent Stop does not cancel the C
 
   const signalWithRunningSubagent = antigravity.hooks.mapSignal('AgentState', enrichPayload('AgentState', { agent_state: 'working', subagents: [{ status: 'running' }] }));
   assert.equal(signalWithRunningSubagent, 'working');
+});
+
+test('hooks from a nested agy conversation mid-turn never complete the main session or overwrite its resume id', (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new Session({ id: 'agy-nested', name: 'agy-nested', path: process.cwd(), agent: 'antigravity', statusConflictMs: 750, statusDedupMs: 10 });
+  context.after(() => session.destroy());
+  session.state = STATES.IDLE;
+  const enrichPayload = antigravity.hooks.createPayloadEnricher?.();
+  assert.ok(enrichPayload);
+  const observedConversationIds: string[] = [];
+  const router = new HookRouter();
+  router.register(session.id, {
+    token: 'test-token',
+    hooks: antigravity.hooks,
+    onSignal: (signal) => session.ingestHookSignal(signal),
+    onEvent: (_event, payload) => {
+      if (typeof payload.conversationId === 'string') observedConversationIds.push(payload.conversationId);
+    },
+  });
+  const sendHook = (event: string, payload: Record<string, unknown>) =>
+    router.handle({ glimmervoidId: session.id, event, token: 'test-token', payload: enrichPayload(event, payload) });
+
+  sendHook('SessionStart', { conversationId: 'parent-conv' });
+  sendHook('PreInvocation', { conversationId: 'parent-conv', invocationNum: 0 });
+  sendHook('AgentState', { conversation_id: 'parent-conv', agent_state: 'working' });
+  context.mock.timers.tick(100);
+  assert.equal(session.state, STATES.RUNNING);
+
+  const nestedStart = sendHook('SessionStart', { conversationId: 'nested-conv' });
+  const nestedPre = sendHook('PreInvocation', { conversationId: 'nested-conv', invocationNum: 0 });
+  const nestedStop = sendHook('Stop', { conversationId: 'nested-conv', fullyIdle: true });
+  context.mock.timers.tick(1000);
+
+  assert.equal(nestedStart.reason, 'foreign-conversation');
+  assert.equal(nestedPre.reason, 'foreign-conversation');
+  assert.equal(nestedStop.reason, 'foreign-conversation');
+  assert.equal(session.state, STATES.RUNNING);
+  assert.equal(session.resumeSessionId, 'parent-conv');
+  assert.equal(observedConversationIds.includes('nested-conv'), false);
+
+  sendHook('Stop', { conversationId: 'parent-conv', fullyIdle: true });
+  context.mock.timers.tick(1000);
+  assert.equal(session.state, STATES.COMPLETE);
 });

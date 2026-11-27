@@ -4,7 +4,7 @@ import type { AgentReadReply, ConversationApproval } from '../../shared/contract
 import type { WakeOrigin } from '../../shared/contracts/wakes.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
@@ -26,6 +26,7 @@ interface WakeLineDelivery {
 interface StateChange {
   from: SessionState;
   to: SessionState;
+  event?: string;
 }
 
 interface HookEvent {
@@ -77,6 +78,34 @@ function createChildChannels(runtime: AgentApiRuntime) {
   const turnStartListenerBySession = new WeakMap<Session, () => void>();
   const turnStartBoundTimerBySession = new WeakMap<Session, TimerHandle>();
   const wakeWaitersBySession = new WeakMap<Session, Map<string, () => void>>();
+  const withheldWakeBySession = new WeakMap<Session, { line: string; origin: WakeOrigin; pastedAt: number; clear: () => void }>();
+
+  function clearWithheldWake(session: Session): void {
+    const entry = withheldWakeBySession.get(session);
+    if (!entry) return;
+    withheldWakeBySession.delete(session);
+    entry.clear();
+  }
+
+  function rememberWithheldWake(session: Session, line: string, origin: WakeOrigin, pastedAt: number): void {
+    clearWithheldWake(session);
+    const onCleared = () => clearWithheldWake(session);
+    session.on('operator-input', onCleared);
+    session.on('user-prompt', onCleared);
+    session.on('exit', onCleared);
+    session.on('teardown', onCleared);
+    withheldWakeBySession.set(session, {
+      line,
+      origin,
+      pastedAt,
+      clear: () => {
+        session.off('operator-input', onCleared);
+        session.off('user-prompt', onCleared);
+        session.off('exit', onCleared);
+        session.off('teardown', onCleared);
+      },
+    });
+  }
 
   function clearWakeLine(session: Session): void {
     wakeLineSubmittedAtBySession.delete(session);
@@ -144,12 +173,29 @@ function createChildChannels(runtime: AgentApiRuntime) {
 
   function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void, { when = 'idle', origin = 'agent' }: WakeLineDelivery = {}): boolean {
     if (isWakeLineInFlight(recipient)) return false;
+    const withheld = withheldWakeBySession.get(recipient);
+    if (withheld) {
+      if (recipient._destroyed || !recipient.hasLivePty || (when === 'idle' && !recipient.isBetweenTurns())) return false;
+      clearWithheldWake(recipient);
+      if (shouldReuseWithheldWakeLine({ pastedAt: withheld.pastedAt, lastOperatorInputAt: wakeBudgetOf(recipient).lastOperatorInputAt })) {
+        recipient.write('\r');
+        holdWakeLineUntilTurnStart(recipient);
+        if (withheld.origin === 'agent') wakeBudgetOf(recipient).wakesSinceOperatorInput += 1;
+        if (withheld.line !== line) return false;
+        queueMicrotask(() => onSettled(true));
+        return true;
+      }
+    }
+    const pastedAt = now();
     const delivered = recipient.deliver(line, {
       when,
       submit: true,
       onSettled: (settlement) => {
         const isSubmitted = settlement === 'submitted';
         if (!isSubmitted) {
+          if (settlement === 'withheld' && shouldReuseWithheldWakeLine({ pastedAt, lastOperatorInputAt: wakeBudgetOf(recipient).lastOperatorInputAt })) {
+            rememberWithheldWake(recipient, line, origin, pastedAt);
+          }
           releaseWakeLine(recipient);
           onSettled(false);
           return;
@@ -242,9 +288,9 @@ function createChildChannels(runtime: AgentApiRuntime) {
       wakeRecipient(childId, 'toParent');
       wakeRecipient(childId, 'toChild');
     };
-    const relayStateChange = ({ from, to }: StateChange) => {
+    const relayStateChange = ({ from, to, event }: StateChange) => {
       const isHeldQuestionWaiting = to === STATES.WAITING && link.child._conversationApproval?.kind === 'question';
-      if (!isHeldQuestionWaiting && shouldPostStopNote(from, to)) {
+      if (!isHeldQuestionWaiting && shouldPostStopNote(from, to, event)) {
         const text = describeStopNote({ childName: link.child.name, state: to, lastMessage: link.lastChildMessage });
         post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: shouldStopNoteWake(to, link.hasParentRead) });
         link.lastChildMessage = null;

@@ -15,7 +15,7 @@ const TOOL_HOOK_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 const ANTIGRAVITY_QUESTION_TOOL_NAME = "ask_question";
 const ANTIGRAVITY_SUBAGENT_TOOL_NAME = "invoke_subagent";
 const ANTIGRAVITY_GATED_TOOL_NAMES: readonly string[] = ["run_command", "write_file", "edit_file", "create_file", "delete_file", "apply_patch"];
-const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "agent_transcript_path", "agent_type", "background_tasks", "isTurnOpen", "pendingToolName", "prompt", "source", "tool_name", "tool_input"];
+const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "agent_transcript_path", "agent_type", "background_tasks", "isForeignConversation", "isTurnOpen", "pendingToolName", "prompt", "source", "tool_name", "tool_input"];
 const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 
 type AntigravityPluginFileName = "plugin.json" | "hooks.json" | "mcp_config.json";
@@ -185,12 +185,24 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
   const subagentConversationIds = new Set<string>();
   const subagentMetadataById = new Map<string, PendingSubagentMetadata>();
   const pendingSubagentQueue: PendingSubagentMetadata[] = [];
+  const foreignConversationIds = new Set<string>();
+  let mainConversationId: string | null = null;
   let isTurnOpen = false;
   let pendingToolName: string | null = null;
   let lastOperatorPrompt: string | null = null;
   let lastInjectedStepInput: string | null = null;
 
+  function agentStateConversationIdOf(payload: HookPayloadRecord): string | null {
+    const raw = typeof payload.conversation_id === "string" ? payload.conversation_id : payload.session_id;
+    return typeof raw === "string" && raw.length > 0 ? raw : null;
+  }
+
   function tagAgentState(payload: HookPayloadRecord): HookPayloadRecord {
+    const stateConversationId = agentStateConversationIdOf(payload);
+    if (stateConversationId !== null) {
+      mainConversationId = stateConversationId;
+      foreignConversationIds.delete(stateConversationId);
+    }
     const { subagents, ...withoutSubagents } = payload;
     const isSubagentRunning = payload.hasRunningSubagent === true || hasRunningSubagent(subagents);
     const isAllIdle = payload.agent_state === "idle" && !isSubagentRunning && !hasRunningTask(payload.task_count);
@@ -279,6 +291,15 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
       subagentMetadataById.set(conversationId, metadata);
     }
     if (subagentConversationIds.has(conversationId)) return tagSubagentEvent(normalizedEvent, conversationId, questionPayload);
+    if (foreignConversationIds.has(conversationId)) return { ...questionPayload, isForeignConversation: true };
+    if (mainConversationId === null) mainConversationId = conversationId;
+    if (conversationId !== mainConversationId) {
+      if (isTurnOpen || normalizedEvent !== "sessionstart") {
+        foreignConversationIds.add(conversationId);
+        return { ...questionPayload, isForeignConversation: true };
+      }
+      mainConversationId = conversationId;
+    }
     trackParentTurn(normalizedEvent, payload);
     const parentPayload = withOperatorPrompt(normalizedEvent, questionPayload);
     if (normalizedEvent === "stop" && payload.fullyIdle === true) return { ...parentPayload, background_tasks: [] };

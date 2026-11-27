@@ -592,6 +592,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         token,
         payload,
       });
+      if (output.reason === 'foreign-conversation') {
+        if (!res.headersSent && !res.writableEnded && !res.destroyed) res.status(200).end();
+        return;
+      }
       if (output.status === 200 && isStatuslineEvent(req.params.event)) {
         getUsage().ingestStatusline(payload, req.params.glimmervoidId);
       }

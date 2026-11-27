@@ -1,5 +1,6 @@
 import { BADGE_LABELS, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
+import { isCompactionRestoreEvent } from '../../shared/compaction-restore-events.ts';
 import type { ConversationApproval } from '../../shared/contracts/session.ts';
 import { shellQuote } from '../../shared/text.ts';
 import { relayNewsLine, SIBLING_MESSAGE_LINE } from '../../shared/glimmervoid-lines.ts';
@@ -124,7 +125,8 @@ function shouldStopNoteWake(state: SessionState, hasParentRead: boolean): boolea
   return state !== STATES.DONE || !hasParentRead;
 }
 
-function shouldPostStopNote(from: SessionState, to: SessionState): boolean {
+function shouldPostStopNote(from: SessionState, to: SessionState, event?: string): boolean {
+  if (isCompactionRestoreEvent(event)) return false;
   if (ENDED_STATES.includes(to)) return !ENDED_STATES.includes(from);
   if (!TURN_END_STATES.includes(to)) return false;
   return !TURN_END_STATES.includes(from) && !STARTUP_STATES.includes(from);
@@ -189,6 +191,10 @@ function isWakeLineAwaitingTurnStart(isRecipientBetweenTurns: boolean, msSinceSu
   return isRecipientBetweenTurns && msSinceSubmit < WAKE_TURN_START_TIMEOUT_MS;
 }
 
+function shouldReuseWithheldWakeLine({ pastedAt, lastOperatorInputAt }: { pastedAt: number; lastOperatorInputAt: number }): boolean {
+  return lastOperatorInputAt < pastedAt;
+}
+
 function decideWake(facts: WakeFacts): WakeDecision {
   if (!facts.hasUnread || facts.isWakePending || facts.isOperatorFlagged) return { kind: 'none' };
   if (!facts.isRecipientBetweenTurns) return { kind: 'none' };
@@ -199,6 +205,6 @@ function decideWake(facts: WakeFacts): WakeDecision {
 
 export {
   WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread,
-  isWakeLineAwaitingTurnStart, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
+  isWakeLineAwaitingTurnStart, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide };

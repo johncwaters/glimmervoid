@@ -1993,3 +1993,91 @@ test('checkout gives a session its own worktree of a project kept as a bare repo
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a child compaction_restore_complete transition after turn end does not post a duplicate finished-a-turn notice', async () => {
+  const fixture = wiringFixture();
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'do work' });
+    const child = fixture.created[0];
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'task_complete' });
+    const firstRead = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', { child: child.id })).body);
+    assert.equal(firstRead.channels[0]?.entries.length, 1);
+
+    child.emit('state-change', { from: STATES.COMPLETE, to: STATES.RUNNING, event: 'new_output' });
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'compaction_restore_complete' });
+    const secondRead = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', { child: child.id })).body);
+    assert.deepEqual(secondRead.channels[0]?.entries, []);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a wake line withheld during an idle flicker submits the already-pasted line instead of pasting a duplicate', async () => {
+  const fixture = wiringFixture();
+  const written: string[] = [];
+  fixture.parent.write = (text) => { written.push(text); };
+  const realDeliver = fixture.parent.deliver.bind(fixture.parent);
+  let resolveFirstSettlement!: (settlement: string) => void;
+  const firstSettled = new Promise<string>((resolve) => { resolveFirstSettlement = resolve; });
+  fixture.parent.deliver = (text, options) => realDeliver(text, {
+    ...options,
+    onSettled: (settlement, detail) => {
+      options.onSettled?.(settlement, detail);
+      resolveFirstSettlement(settlement);
+    },
+  });
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'do work' });
+    const child = fixture.created[0];
+    await fixture.parent.start();
+    fixture.parent.transition('first_output');
+    assert.equal(fixture.parent.state, STATES.IDLE);
+
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'task_complete' });
+    assert.equal(written.filter((text) => text.includes('has news')).length, 1);
+    assert.equal(written.filter((text) => text === '\r').length, 0);
+
+    fixture.parent.transition('new_output');
+    assert.equal(fixture.parent.state, STATES.RUNNING);
+    assert.equal(await firstSettled, 'withheld');
+    assert.equal(written.filter((text) => text === '\r').length, 0);
+
+    fixture.parent.transition('compaction_restore_complete');
+    assert.equal(fixture.parent.state, STATES.COMPLETE);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    assert.equal(written.filter((text) => text.includes('has news')).length, 1);
+    assert.equal(written.filter((text) => text === '\r').length, 1);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('dismissing a wake-capped parent keeps the child-wake-cap attention note until operator input clears it', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  settleDeliveriesOnClock(fixture.parent, clock, () => {});
+  fixture.parent.write = () => {};
+  try {
+    fixture.parent.transition('user_start');
+    fixture.parent.transition('spawn_success', { spawnCwdExists: true });
+    fixture.parent.transition('first_output');
+    await fixture.spawn(fixture.parent, { prompt: 'do work' });
+    const child = fixture.created[0];
+    for (let turn = 0; turn < 10; turn += 1) {
+      advanceBy(WAKE_TURN_START_TIMEOUT_MS);
+      child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'task_complete' });
+      advanceBy(1000);
+    }
+    advanceBy(WAKE_TURN_START_TIMEOUT_MS);
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'task_complete' });
+    assert.equal(fixture.parent.attentionNotes.some((note) => note.origin === 'child-wake-cap'), true);
+
+    fixture.parent.dismiss();
+    assert.equal(fixture.parent.attentionNotes.some((note) => note.origin === 'child-wake-cap'), true);
+
+    fixture.parent.ingestHookSignal({ signal: 'resume', source: 'hook', ts: clock.now(), event: 'UserPromptSubmit' });
+    assert.equal(fixture.parent.attentionNotes.some((note) => note.origin === 'child-wake-cap'), false);
+  } finally {
+    fixture.destroyAll();
+  }
+});

@@ -70,6 +70,7 @@ function isSubagentEvent(payload?: HookPayload): boolean {
 }
 
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {
+  if (payload?.isForeignConversation === true) return null;
   const normalizedEvent = normalizedEventOf(event);
   if (isSubagentEvent(payload)) return SIGNAL_BY_SUBAGENT_EVENT[normalizedEvent] ?? null;
   if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && (payload?.hasRunningSubagent === true || hasRunningSubagent(payload?.subagents) || hasRunningTask(payload?.task_count))) return "working";
@@ -95,6 +96,7 @@ function mapHookConfidence(): string | null {
 }
 
 function sessionIdOf(payload: HookPayload): unknown {
+  if (payload?.isForeignConversation === true) return undefined;
   return isSubagentEvent(payload) ? undefined : payload?.conversationId || undefined;
 }
 

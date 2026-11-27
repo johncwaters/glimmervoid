@@ -55,6 +55,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - A main `Stop` is held for live work; an orphan `SubagentStop` proves a lost Start, so an empty Stop waits one quiet window (2026-08-25 recordings).
 - A held ready releases on live evidence, never the count, sequence-ordered, its quiet window starting at the first evaluation that OBSERVES the drain (false COMPLETEs, 2026-08-14).
 - Declared entries age from first sighting of each id: `shell` has no completion hook, while `monitor` and service `shell` commands (`npm run dev`, `pnpm start`, `http.server`, etc.) must never gate a finished turn; snapshot refreshes once pinned cards WORKING.
+- Antigravity hooks from a nested `agy` conversation that inherited `GLIMMERVOID_HOOK_URL` while the main conversation is active are tagged `isForeignConversation` in `session/core/antigravity-plugin-core.ts` and dropped before `onEvent` and `onSignal` in `detection/hook-source.ts`, so a nested probe's `Stop` cannot complete the outer session.
 
 ### Operator Hooks
 

@@ -113,6 +113,9 @@ class HookRouter {
     const mappedPayload = typeof hooks.mapPayload === 'function'
       ? hooks.mapPayload(event, payload)
       : payload;
+    if (mappedPayload.isForeignConversation === true) {
+      return { status: 200, signal: null, reason: 'foreign-conversation' };
+    }
     const signal = hooks.mapSignal(event, mappedPayload);
     if (typeof entry.onEvent === 'function') {
       try {
