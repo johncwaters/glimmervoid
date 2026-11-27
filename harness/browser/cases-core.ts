@@ -9,6 +9,7 @@ export type Step =
   | { kind: 'assert-solid-hello'; viewer?: ViewerId }
   | { kind: 'assert-solid-island'; viewer?: ViewerId }
   | { kind: 'assert-solid-store-signal'; viewer?: ViewerId }
+  | { kind: 'assert-ui-primitives-parity'; viewer?: ViewerId }
   | { kind: 'assert-added-session-shown'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-pane'; viewer?: ViewerId }
@@ -768,6 +769,11 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'solid-store-signal',
     viewports: ['desktop-1280'],
     steps: [{ kind: 'open' }, { kind: 'assert-solid-store-signal' }],
+  },
+  {
+    name: 'ui-primitives-parity',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'assert-ui-primitives-parity' }],
   },
   {
     name: 'self-check-must-fail',

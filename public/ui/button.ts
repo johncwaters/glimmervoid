@@ -1,14 +1,18 @@
 import { el } from '../dom-helpers.ts';
 import { createLineIcon, MENU_ICON_PATH } from '../svg-dom.ts';
+import {
+  buttonDescriptor,
+  linkButtonDescriptor,
+  outlineIconStateAttributes,
+} from './button-core.ts';
+import type {
+  ButtonSize,
+  ButtonVariant,
+  IconVariant,
+  OutlineState,
+} from './button-core.ts';
 import { createPressable } from './pressable.ts';
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon' | 'primary-icon' | 'floating-icon';
-type ButtonSize = 'default' | 'small' | 'large';
-
-type OutlineState = 'idle' | 'pressed' | 'off' | 'attention';
-type ToggledOutlineState = Extract<OutlineState, 'pressed' | 'off'>;
-
-type IconVariant = 'icon' | 'primary-icon' | 'outline-icon' | 'floating-icon';
 type LabelledButtonOptions = { variant: Exclude<ButtonVariant, IconVariant>; label: string; icon?: SVGElement };
 type IconButtonOptions = { variant: Exclude<IconVariant, 'outline-icon'>; label: string; icon: SVGElement };
 type OutlineIconOptions = { variant: 'outline-icon'; label: string; icon: SVGElement };
@@ -36,12 +40,13 @@ export type OutlineIconButton<State extends Exclude<OutlineState, 'idle'>> = {
 type LinkButtonOptions = { variant: Exclude<ButtonVariant, IconVariant>; label: string; href: string; size?: ButtonSize };
 
 export function linkButton(options: LinkButtonOptions): HTMLAnchorElement {
-  const element = el('a', 'ui-button', options.label);
-  element.dataset.variant = options.variant;
-  element.dataset.size = options.size ?? 'default';
-  element.href = options.href;
-  element.target = '_blank';
-  element.rel = 'noopener';
+  const descriptor = linkButtonDescriptor(options);
+  const element = el('a', descriptor.className, descriptor.label);
+  element.dataset.variant = descriptor.variant;
+  element.dataset.size = descriptor.size;
+  element.href = descriptor.href;
+  element.target = descriptor.target;
+  element.rel = descriptor.rel;
   return element;
 }
 
@@ -56,36 +61,29 @@ export function menuButton(options: { label: string; action: string; onClick?: (
 export function outlineIconButton<const State extends Exclude<OutlineState, 'idle'>>(options: OutlineIconButtonOptions<State>): OutlineIconButton<State> {
   const element = buildButton({ ...options, variant: 'outline-icon' });
   const declaredStates: readonly OutlineState[] = options.states;
-  const isToggle = declaredStates.some((state) => isToggledState(state));
   const setState = (state: 'idle' | State) => {
-    if (!declaredStates.includes(state)) return;
-    element.dataset.outlineState = state;
-    if (isToggle) element.setAttribute('aria-pressed', String(isToggledState(state)));
+    const attributes = outlineIconStateAttributes(declaredStates, state);
+    if (!attributes) return;
+    element.dataset.outlineState = attributes.outlineState;
+    if (attributes.ariaPressed !== undefined) element.setAttribute('aria-pressed', attributes.ariaPressed);
   };
   setState('idle');
   return { element, setState };
 }
 
-function isToggledState(state: OutlineState): state is ToggledOutlineState {
-  return state === 'pressed' || state === 'off';
-}
-
-function isIconVariant(variant: BuildButtonOptions['variant']): variant is IconVariant {
-  return variant === 'icon' || variant === 'primary-icon' || variant === 'outline-icon' || variant === 'floating-icon';
-}
-
 function buildButton(options: BuildButtonOptions): HTMLButtonElement {
-  const element = createPressable('ui-button');
-  element.dataset.variant = options.variant;
-  element.dataset.size = options.size ?? 'default';
-  if (options.textCase !== undefined && options.textCase !== 'upper') element.dataset.textCase = options.textCase;
-  if (options.action) element.dataset.action = options.action;
+  const descriptor = buttonDescriptor(options);
+  const element = createPressable(descriptor.className);
+  element.dataset.variant = descriptor.variant;
+  element.dataset.size = descriptor.size;
+  if (descriptor.textCase !== undefined) element.dataset.textCase = descriptor.textCase;
+  if (descriptor.action) element.dataset.action = descriptor.action;
   if (options.icon) element.append(options.icon);
-  if (isIconVariant(options.variant)) element.setAttribute('aria-label', options.label);
-  if (!isIconVariant(options.variant)) element.append(options.label);
-  if (options.shortcutKey) appendShortcutKey(element, options.shortcutKey);
-  element.disabled = options.disabled ?? false;
-  element.hidden = options.hidden ?? false;
+  if (descriptor.ariaLabel !== undefined) element.setAttribute('aria-label', descriptor.ariaLabel);
+  if (descriptor.visibleLabel !== undefined) element.append(descriptor.visibleLabel);
+  if (descriptor.shortcutKey) appendShortcutKey(element, descriptor.shortcutKey);
+  element.disabled = descriptor.disabled;
+  element.hidden = descriptor.hidden;
   if (options.onClick) element.addEventListener('click', options.onClick);
   return element;
 }

@@ -8,8 +8,25 @@ const ROOT = path.join(import.meta.dirname, '../..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const UI_DIR = path.join(PUBLIC_DIR, 'ui');
 const PRESSABLE_OWNER = path.join(UI_DIR, 'pressable.ts');
+const PRESSABLE_TSX_OWNER = path.join(UI_DIR, 'Pressable.tsx');
 const SKIP_DIRS = new Set(['node_modules', 'dist']);
-const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b|\bcomponent\s*=\s*(?:['"`]button['"`]|\{\s*['"`]button['"`]\s*\})/i;
+const BUTTON_CREATION_CALL = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|\bcomponent\s*=\s*(?:['"`]button['"`]|\{\s*['"`]button['"`]\s*\})/i;
+const BUTTON_CREATION_HTML_TAG = /<button\b/i;
+const BUTTON_CREATION_TSX_TAG = /<(?!Button\b)[bB][uU][tT][tT][oO][nN]\b/;
+const QUOTED_OR_TEMPLATE_LITERAL = /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g;
+
+function hasHtmlButtonInLiterals(source: string): boolean {
+  for (const match of source.matchAll(QUOTED_OR_TEMPLATE_LITERAL)) {
+    if (BUTTON_CREATION_HTML_TAG.test(match[0])) return true;
+  }
+  return false;
+}
+
+function createsButtonIn(file: string, source: string): boolean {
+  if (BUTTON_CREATION_CALL.test(source)) return true;
+  if (!file.endsWith('.tsx')) return BUTTON_CREATION_HTML_TAG.test(source);
+  return BUTTON_CREATION_TSX_TAG.test(source) || hasHtmlButtonInLiterals(source);
+}
 const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size|outline-state)\b/;
 const PRIMITIVE_LAYOUT_PROPERTY = /^(?:display|visibility|order|position|inset|top|right|bottom|left|z-index|(?:min-|max-)?width|margin(?:-[a-z-]+)?|flex(?:-[a-z]+)?|grid-(?:area|column|row)(?:-[a-z]+)?|(?:align|justify|place)-self)$/;
 const OUTLINE_STATE_WRITE = /outline-?state|(?:\.element|\bbtn(?:Mute|Help))\.(?:(?:setAttribute|removeAttribute|toggleAttribute)\(\s*['"`]aria-pressed|ariaPressed\b)/i;
@@ -97,15 +114,21 @@ const relativeToRoot = (file: string) => path.relative(ROOT, file).split(path.se
 const withoutCssComments = (stylesheet: string) => stylesheet.replace(/\/\*[\s\S]*?\*\//g, '');
 const selectorsOf = (stylesheet: string) => [...withoutCssComments(stylesheet).matchAll(/([^{};]+)\{/g)].map((match) => match[1].trim());
 
-test('only public/ui/pressable.ts creates buttons in the dashboard', () => {
+test('only public/ui/pressable.ts and public/ui/Pressable.tsx create buttons in the dashboard', () => {
   const sources = collectFiles(PUBLIC_DIR, /\.(tsx?|html)$/);
-  assert.match(fs.readFileSync(PRESSABLE_OWNER, 'utf8'), BUTTON_CREATION, 'public/ui/pressable.ts no longer matches the button pattern, so the gate would pass vacuously');
+  assert.ok(createsButtonIn(PRESSABLE_OWNER, fs.readFileSync(PRESSABLE_OWNER, 'utf8')), 'public/ui/pressable.ts no longer matches the button pattern, so the gate would pass vacuously');
+  assert.ok(createsButtonIn(PRESSABLE_TSX_OWNER, fs.readFileSync(PRESSABLE_TSX_OWNER, 'utf8')), 'public/ui/Pressable.tsx no longer matches the button pattern, so the gate would pass vacuously');
+  assert.equal(createsButtonIn('public/ui/Other.tsx', 'export function Other() { return <button>Save</button>; }'), true);
+  assert.equal(createsButtonIn('public/ui/Other.tsx', 'export function Other() { return <Button variant="primary" label="Save" />; }'), false);
+  assert.equal(createsButtonIn('public/bypass.ts', "container.innerHTML = '<Button>Save</Button>';"), true);
+  assert.equal(createsButtonIn('public/bypass.tsx', "container.innerHTML = '<Button>Save</Button>';"), true);
+  assert.equal(createsButtonIn('public/bypass-template.tsx', "const t = template('<Button>Save</Button>');"), true);
 
   const offenders = sources
-    .filter((file) => file !== PRESSABLE_OWNER)
-    .filter((file) => BUTTON_CREATION.test(fs.readFileSync(file, 'utf8')))
+    .filter((file) => file !== PRESSABLE_OWNER && file !== PRESSABLE_TSX_OWNER)
+    .filter((file) => createsButtonIn(file, fs.readFileSync(file, 'utf8')))
     .map(relativeToRoot);
-  assert.deepEqual(offenders, [], `Build buttons with button() from public/ui/button.ts, or createPressable() from public/ui/pressable.ts for tabs, rows, menu items and keys:\n  ${offenders.join('\n  ')}`);
+  assert.deepEqual(offenders, [], `Build buttons with button() / <Button>, or createPressable() / <Pressable> for tabs, rows, menu items and keys:\n  ${offenders.join('\n  ')}`);
 });
 
 test('only public/ui/ styles the button component', () => {

@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
-
-type FieldLayout = 'stacked' | 'inline' | 'grid';
+import { fieldDescriptor, fieldMessageState, isLabelableTagName } from './field-core.ts';
+import type { FieldLayout } from './field-core.ts';
 
 type FieldOptions = {
   label: string;
@@ -16,53 +16,51 @@ type Field = {
   setHint(text: string): void;
 };
 
-type Labelable = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLMeterElement | HTMLOutputElement | HTMLProgressElement;
-
 let fieldSequence = 0;
 
-function isLabelable(element: HTMLElement): element is Labelable {
-  return element instanceof HTMLInputElement
-    || element instanceof HTMLSelectElement
-    || element instanceof HTMLTextAreaElement
-    || element instanceof HTMLMeterElement
-    || element instanceof HTMLOutputElement
-    || element instanceof HTMLProgressElement;
-}
-
-function ensureId(element: HTMLElement, fallback: string): string {
-  if (!element.id) element.id = fallback;
-  return element.id;
-}
-
 function setText(element: HTMLElement, text: string) {
-  element.textContent = text;
-  element.hidden = text === '';
+  const message = fieldMessageState(text);
+  element.textContent = message.text;
+  element.hidden = message.hidden;
 }
 
 export function field({ label, control, labelTarget, hint = '', layout = 'stacked' }: FieldOptions): Field {
   fieldSequence += 1;
   const idPrefix = `ui-field-${fieldSequence}`;
   const target = labelTarget ?? control;
-  const element = el('div', 'ui-field');
-  element.dataset.layout = layout;
+  const descriptor = fieldDescriptor({
+    idPrefix,
+    label,
+    isTargetLabelable: isLabelableTagName(target.tagName),
+    targetId: target.id,
+    targetHasRole: target.hasAttribute('role'),
+    existingDescribedBy: target.getAttribute('aria-describedby'),
+    hint,
+    error: '',
+    layout,
+  });
 
-  const labelElement = isLabelable(target) ? el('label', 'ui-field-label', label) : el('span', 'ui-field-label', label);
-  labelElement.id = `${idPrefix}-label`;
-  if (labelElement instanceof HTMLLabelElement) labelElement.htmlFor = ensureId(target, `${idPrefix}-control`);
-  const described = isLabelable(target) || target.hasAttribute('role') || label === '' ? target : element;
-  if (described === element) element.setAttribute('role', 'group');
-  if (!(labelElement instanceof HTMLLabelElement) && label !== '') described.setAttribute('aria-labelledby', labelElement.id);
+  const element = el('div', descriptor.className);
+  element.dataset.layout = descriptor.layout;
+
+  const labelElement = el(descriptor.labelTag, 'ui-field-label', label);
+  labelElement.id = descriptor.labelId;
+  if (descriptor.assignedTargetId) target.id = descriptor.assignedTargetId;
+  if (labelElement instanceof HTMLLabelElement && descriptor.labelFor) labelElement.htmlFor = descriptor.labelFor;
+
+  const described = descriptor.describedIsWrapper ? element : target;
+  if (descriptor.wrapperRole) element.setAttribute('role', descriptor.wrapperRole);
+  if (descriptor.ariaLabelledBy) described.setAttribute('aria-labelledby', descriptor.ariaLabelledBy);
 
   const hintElement = el('span', 'ui-field-hint');
-  hintElement.id = `${idPrefix}-hint`;
-  setText(hintElement, hint);
+  hintElement.id = descriptor.hintId;
+  setText(hintElement, descriptor.hintText);
   const errorElement = el('span', 'ui-field-error');
-  errorElement.id = `${idPrefix}-error`;
+  errorElement.id = descriptor.errorId;
   errorElement.setAttribute('role', 'alert');
-  setText(errorElement, '');
+  setText(errorElement, descriptor.errorText);
 
-  const describedBy = [described.getAttribute('aria-describedby'), hintElement.id, errorElement.id].filter((id) => id !== null && id !== '');
-  described.setAttribute('aria-describedby', describedBy.join(' '));
+  described.setAttribute('aria-describedby', descriptor.ariaDescribedBy);
 
   element.append(labelElement, control, hintElement, errorElement);
 

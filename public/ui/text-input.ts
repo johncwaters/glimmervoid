@@ -1,16 +1,8 @@
 import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { textAreaDescriptor, textInputDescriptor } from './text-input-core.ts';
+import type { TextFieldCoreOptions, TextInputSize, TextInputType } from './text-input-core.ts';
 
-type TextInputType = 'text' | 'search' | 'number' | 'url' | 'password';
-type TextInputSize = 'default' | 'small';
-
-type FieldOptions = {
-  id?: string;
-  value?: string;
-  placeholder?: string;
-  label?: string;
-  labelledBy?: string;
-  spellcheck?: boolean;
-  disabled?: boolean;
+type FieldOptions = TextFieldCoreOptions & {
   onInput?: (value: string) => void;
   onChange?: (value: string) => void;
 };
@@ -25,34 +17,46 @@ type TextAreaOptions = FieldOptions & {
 };
 
 export function textInput(options: TextInputOptions = {}): HTMLInputElement {
-  const element = el('input', 'ui-input');
-  const type = options.type ?? 'text';
-  element.type = type;
-  element.dataset.size = options.size ?? 'default';
-  if (type === 'password') element.autocomplete = 'off';
-  else markAsNotCredential(element);
-  element.spellcheck = options.spellcheck ?? false;
-  applyFieldOptions(element, options);
+  const descriptor = textInputDescriptor(options);
+  const element = el('input', descriptor.className);
+  element.type = descriptor.type;
+  element.dataset.size = descriptor.size;
+  if (!descriptor.isCredentialOptOut) element.autocomplete = descriptor.autocomplete;
+  if (descriptor.isCredentialOptOut) markAsNotCredential(element);
+  element.spellcheck = descriptor.spellcheck;
+  applyFieldOptions(element, descriptor, options);
   return element;
 }
 
 export function textArea(options: TextAreaOptions = {}): HTMLTextAreaElement {
-  const element = el('textarea', 'ui-input');
-  element.dataset.size = 'default';
-  element.rows = options.rows ?? 3;
-  element.autocomplete = 'off';
-  if (options.spellcheck !== undefined) element.spellcheck = options.spellcheck;
-  applyFieldOptions(element, options);
+  const descriptor = textAreaDescriptor(options);
+  const element = el('textarea', descriptor.className);
+  element.dataset.size = descriptor.size;
+  element.rows = descriptor.rows;
+  element.autocomplete = descriptor.autocomplete;
+  if (descriptor.spellcheck !== undefined) element.spellcheck = descriptor.spellcheck;
+  applyFieldOptions(element, descriptor, options);
   return element;
 }
 
-function applyFieldOptions(element: HTMLInputElement | HTMLTextAreaElement, options: FieldOptions) {
-  if (options.id) element.id = options.id;
-  if (options.value !== undefined) element.value = options.value;
-  if (options.placeholder) element.placeholder = options.placeholder;
-  if (options.label) element.setAttribute('aria-label', options.label);
-  if (options.labelledBy) element.setAttribute('aria-labelledby', options.labelledBy);
-  element.disabled = options.disabled ?? false;
+function applyFieldOptions(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  descriptor: {
+    readonly id?: string;
+    readonly value?: string;
+    readonly placeholder?: string;
+    readonly ariaLabel?: string;
+    readonly ariaLabelledBy?: string;
+    readonly disabled: boolean;
+  },
+  options: FieldOptions,
+) {
+  if (descriptor.id) element.id = descriptor.id;
+  if (descriptor.value !== undefined) element.value = descriptor.value;
+  if (descriptor.placeholder) element.placeholder = descriptor.placeholder;
+  if (descriptor.ariaLabel) element.setAttribute('aria-label', descriptor.ariaLabel);
+  if (descriptor.ariaLabelledBy) element.setAttribute('aria-labelledby', descriptor.ariaLabelledBy);
+  element.disabled = descriptor.disabled;
   const { onInput, onChange } = options;
   if (onInput) element.addEventListener('input', () => onInput(element.value));
   if (onChange) element.addEventListener('change', () => onChange(element.value));
