@@ -1,7 +1,7 @@
 import { FAQ_ENTRIES } from './faq.ts';
 import { AUTHOR, PRODUCT_SUMMARY, PRODUCT_VERSION, REPOSITORY_URL } from './product-facts.ts';
 
-export const HOME_TITLE = "Glimmervoid: Open-source ADE for agents. See it before it's built.";
+export const HOME_TITLE = 'Glimmervoid: Your coding agents draw plans and screens on a shared board you mark up.';
 
 export function homeStructuredData(site: URL | undefined): Record<string, unknown> {
   const homeUrl = new URL('/', site).href;

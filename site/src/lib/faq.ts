@@ -7,11 +7,11 @@ export interface FaqEntry {
 
 export const FAQ_ENTRIES: readonly FaqEntry[] = [
   {
-    question: 'What is an agentic development environment (ADE)?',
+    question: 'What is Glimmervoid?',
     answerParagraphs: [
-      'A workspace built around AI coding agents instead of a code editor.',
-      'Agents run in parallel, each in its own git worktree. You review their diffs and merge.',
-      'Glimmervoid is an open-source ADE for terminal coding agents.',
+      'Your coding agents draw plans and screens on a shared board you mark up.',
+      'Studio runs Claude Code, Codex and Antigravity CLI over ACP with no terminal, Focus keeps the terminal when you want it, and Packs add tabs.',
+      'Every agent works in its own git worktree, so you answer, review their diffs and merge from one place.',
     ],
   },
   {
@@ -47,10 +47,10 @@ export const FAQ_ENTRIES: readonly FaqEntry[] = [
     ],
   },
   {
-    question: 'How is an ADE different from an IDE or a terminal multiplexer?',
+    question: 'How is Glimmervoid different from an IDE or a terminal multiplexer?',
     answerParagraphs: [
-      'An IDE is built around you editing files. An ADE is built around agents editing while you answer, review and merge.',
-      'A multiplexer gives you a grid to watch. Glimmervoid reads each agent\'s status from its hooks and queues the ones that need you.',
+      'An IDE centers on you editing files by hand. Glimmervoid runs agents in parallel worktrees while you mark up their boards, review diffs and merge.',
+      'A multiplexer gives you a grid of terminals to watch. Glimmervoid reads each agent\'s status from its hooks and brings forward the session that needs you.',
     ],
   },
 ];

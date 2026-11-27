@@ -72,6 +72,6 @@ export const AUTHOR = { '@type': 'Person', name: 'John C. Waters', url: 'https:/
 
 export const CODING_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.id !== 'shell');
 
-export const PRODUCT_SUMMARY = 'Open-source agentic development environment (ADE) for terminal coding agents. Your agent shows its prototypes, architecture and plans on a whiteboard beside its terminal, each session runs in its own worktree, and you see which one needs you.';
+export const PRODUCT_SUMMARY = 'Your coding agents draw plans and screens on a shared board you mark up.';
 
-export const HOME_DESCRIPTION = "Open-source ADE for agents. See it before it's built: your coding agent sketches the screen, draws the architecture and shows you on a whiteboard. Run it on your computer, or on Glimmervoid Cloud from any phone.";
+export const HOME_DESCRIPTION = 'Your coding agents draw plans and screens on a shared board you mark up.';

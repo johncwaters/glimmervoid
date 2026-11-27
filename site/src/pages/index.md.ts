@@ -3,13 +3,13 @@ import { AGENT_COMMAND_HELP } from '../../../server/core/agent-api-core.ts';
 import { agentMarkdownPage, markdownResponse } from '../lib/agent-markdown.ts';
 import { FAQ_ENTRIES } from '../lib/faq.ts';
 import { INSTALL_COMMAND, WINDOWS_INSTALL_COMMAND } from '../lib/install-command.ts';
-import { AGENT_CARDS, DEFAULT_PORT, SANE_YOLO_AGENT_LABELS, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { AGENT_CARDS, DEFAULT_PORT, PRODUCT_SUMMARY, SANE_YOLO_AGENT_LABELS, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
 
 export const GET: APIRoute = ({ site }) => {
   const urlOf = (pathWithinSite: string) => new URL(sitePath(pathWithinSite), site).href;
   const body = [
-    `Glimmervoid is an open-source agentic development environment (ADE): a local orchestrator for coding agents. A small Node.js process on your own machine starts each agent as a real process in a real terminal, with your own login, subscription, skills, hooks and settings, gives each session its own git worktree, and serves a browser dashboard that shows which session needs you. It never sits between an agent and its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
+    `${PRODUCT_SUMMARY} A small Node.js process on your own machine runs Claude Code, Codex and Antigravity CLI over ACP in Studio with no terminal, keeps the terminal in Focus, gives each session its own git worktree, and serves a browser dashboard where Packs add tabs and only the session that needs you comes to the front. Each agent uses your own login, subscription, skills, hooks and settings, and talks straight to its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
     '## Install',
     [
       `- macOS and Linux: \`${INSTALL_COMMAND}\``,
@@ -24,7 +24,7 @@ export const GET: APIRoute = ({ site }) => {
     ].join('\n'),
     '## Features',
     [
-      '- Boards: every session gets a whiteboard beside its terminal. The agent puts what it would otherwise describe there: UI prototypes framed on a device with dials you turn, architecture diagrams, plans as steps marked planned, building or landed, screenshots, clips and docs. You drag, draw with the pen, leave sticky notes or red-pen a doc, and the agent sees each change on its next prompt.',
+      '- Boards: Studio puts the shared board at the center with no terminal in the way, while Focus keeps the terminal beside it. The agent puts what it would otherwise describe there: UI prototypes framed on a device with dials you turn, architecture diagrams, plans as steps marked planned, building or landed, screenshots, clips and docs. You drag, draw with the pen, leave sticky notes or red-pen a doc, and the agent sees each change on its next prompt.',
       '- Status: read from each agent\'s own lifecycle hooks, with the terminal title as a fallback, never from reading the screen. Every session that needs you gets a numbered place in line in the attention banner; tap the banner, or press Cmd+J on macOS and Alt+J elsewhere, to open the next one\'s terminal.',
       '- Reviews, Team: your teammates\' pull requests get a review drafted by an agent, and nothing posts to GitHub until you keep the comments you agree with and click Approve or Comment. Re-reviews after new commits raise only high findings. Opt-in.',
       '- Reviews, Mine: every pull request you opened shows its merge readiness (checks, review, threads, conflicts, base). Per pull request you can turn on Merge when ready, which merges it once everything is green, and Keep mergeable, which has an agent repair conflicts and failing checks.',

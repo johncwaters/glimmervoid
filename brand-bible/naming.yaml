@@ -17,11 +17,11 @@ forbiddenForms:
   - Glimmer Void
   - glimmer-void
   - GV
-tagline: See it before it's built.
+tagline: Your coding agents draw plans and screens on a shared board you mark up.
 descriptions:
-  short: See it before it's built, with any terminal coding agent.
+  short: Your coding agents draw plans and screens on a shared board you mark up.
   medium: A calm operator console for watching and steering many live agent sessions, each in its own git worktree.
-  long: Glimmervoid shows you what your coding agents mean before they build it. It gives each session a whiteboard beside its terminal for prototypes, architecture and plans the operator marks up, spawns any terminal coding agent in its own git worktree, streams each live terminal to a browser dashboard, and asks for the operator's attention only when a session needs input, finishes or fails.
+  long: Your coding agents draw plans and screens on a shared board you mark up. Studio runs Claude Code, Codex and Antigravity CLI over ACP with no terminal, Focus keeps the terminal, Packs add tabs, each session works in its own git worktree, and the dashboard asks for the operator's attention only when a session needs input, finishes or fails.
 glossary:
   - term: session
     definition: One supervised agent process that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard.

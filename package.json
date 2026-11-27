@@ -1,7 +1,7 @@
 {
   "name": "glimmervoid",
   "version": "0.66.0",
-  "description": "See it before it's built. Every terminal coding agent shows its prototypes, architecture and plans on a whiteboard you mark up, and works in its own git worktree. Only the one that needs you asks for your attention.",
+  "description": "Your coding agents draw plans and screens on a shared board you mark up.",
   "main": "dist/server/index.js",
   "type": "module",
   "imports": {

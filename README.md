@@ -5,13 +5,13 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24.15-brightgreen.svg)](https://nodejs.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)](https://github.com/johncwaters/glimmervoid)
 
-**See it before it's built. Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.**
+**Your coding agents draw plans and screens on a shared board you mark up.**
 
 [glimmervoid.dev](https://glimmervoid.dev)
 
 Glimmervoid takes a feature from start to finish. Every agent works in its own git worktree, status comes from the agent's own hooks, and the one session that needs you comes to the front. Review and merge from the same page.
 
-It is an orchestrator, not a harness. Your coding agents run unmodified, as real processes in real terminals, with your own login, subscription, skills, hooks and settings, talking straight to their model. Run it free on your own computer, or on [Glimmervoid Cloud](https://glimmervoid.dev/#cloud), where your sessions keep working after you close the laptop and you open them from any browser or phone. Glimmervoid is developed inside Glimmervoid.
+It is an orchestrator, not a harness. Your coding agents run unmodified with your own login, subscription, skills, hooks and settings, talking straight to their model: Studio runs Claude Code, Codex and Antigravity CLI over ACP with no terminal, Focus keeps the terminal, and Packs add tabs. Run it free on your own computer, or on [Glimmervoid Cloud](https://glimmervoid.dev/#cloud), where your sessions keep working after you close the laptop and you open them from any browser or phone. Glimmervoid is developed inside Glimmervoid.
 
 ![Glimmervoid dashboard replaying recorded Claude Code sessions: one fixes a flaky upload test with its diff in the terminal, three more work on their own projects in the session rail](assets/pictures/glimmervoid-demo.gif)
 
