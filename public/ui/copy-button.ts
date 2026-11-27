@@ -1,13 +1,15 @@
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { button } from './button.ts';
+import { copyButtonDescriptor, copyStatusText } from './copy-button-core.ts';
+import type { CopyButtonSize, CopyButtonVariant } from './copy-button-core.ts';
 
 type CopyButtonOptions = {
   text: () => string;
   label?: string;
   accessibleLabel?: string;
   action?: string;
-  variant?: 'secondary' | 'quiet';
-  size?: 'default' | 'small';
+  variant?: CopyButtonVariant;
+  size?: CopyButtonSize;
   clearAfterMs?: number;
 };
 
@@ -17,24 +19,21 @@ type CopyButton = {
   clearStatus: () => void;
 };
 
-const COPIED_TEXT = 'Copied';
-const COPY_FAILED_TEXT = 'Copy failed';
-const DEFAULT_CLEAR_AFTER_MS = 1600;
-
 export function copyButton(options: CopyButtonOptions): CopyButton {
-  const element = el('span', 'ui-copy');
+  const descriptor = copyButtonDescriptor(options);
+  const element = el('span', descriptor.className);
   const copy = button({
-    variant: options.variant ?? 'secondary',
-    size: options.size ?? 'default',
-    label: options.label ?? 'Copy',
-    action: options.action,
+    variant: descriptor.variant,
+    size: descriptor.size,
+    label: descriptor.label,
+    action: descriptor.action,
   });
-  if (options.accessibleLabel) copy.setAttribute('aria-label', options.accessibleLabel);
-  const status = el('span', 'ui-copy-status');
-  status.setAttribute('role', 'status');
+  if (descriptor.accessibleLabel) copy.setAttribute('aria-label', descriptor.accessibleLabel);
+  const status = el('span', descriptor.statusClassName);
+  status.setAttribute('role', descriptor.statusRole);
   element.append(copy, status);
 
-  const clearAfterMs = options.clearAfterMs ?? DEFAULT_CLEAR_AFTER_MS;
+  const clearAfterMs = descriptor.clearAfterMs;
   let clearTimer: ReturnType<typeof setTimeout> | null = null;
   let latestCopy = 0;
 
@@ -63,12 +62,12 @@ export function copyButton(options: CopyButtonOptions): CopyButton {
     const copyId = latestCopy;
     const write = writeClipboardText(options.text());
     if (!write) {
-      showStatus(COPY_FAILED_TEXT);
+      showStatus(copyStatusText('failed'));
       return;
     }
     write.then(
-      () => { if (copyId === latestCopy) showStatus(COPIED_TEXT); },
-      () => { if (copyId === latestCopy) showStatus(COPY_FAILED_TEXT); },
+      () => { if (copyId === latestCopy) showStatus(copyStatusText('copied')); },
+      () => { if (copyId === latestCopy) showStatus(copyStatusText('failed')); },
     );
   });
 

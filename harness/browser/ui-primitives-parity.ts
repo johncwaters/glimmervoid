@@ -35,6 +35,14 @@ const MODULE_URLS = {
   keycapSolid: '/ui/Keycap.tsx',
   meter: '/ui/meter.ts',
   meterSolid: '/ui/Meter.tsx',
+  emptyState: '/ui/empty-state.ts',
+  emptyStateSolid: '/ui/EmptyState.tsx',
+  sectionHeading: '/ui/section-heading.ts',
+  sectionHeadingSolid: '/ui/SectionHeading.tsx',
+  copyButton: '/ui/copy-button.ts',
+  copyButtonSolid: '/ui/CopyButton.tsx',
+  notice: '/ui/notice.ts',
+  noticeSolid: '/ui/Notice.tsx',
 } as const;
 
 interface LoadedParityModules {
@@ -79,6 +87,14 @@ interface LoadedParityModules {
   KeyChord: SolidComponentFn;
   meter: (options: Record<string, unknown>) => { element: HTMLSpanElement; setValue: (value: number, valueText?: string) => void; setTone: (tone: string) => void };
   Meter: SolidComponentFn;
+  emptyState: (options: Record<string, unknown>) => HTMLElement;
+  EmptyState: SolidComponentFn;
+  sectionHeading: (options: Record<string, unknown>) => { element: HTMLDivElement; setCount: (count: number | string | null) => void };
+  SectionHeading: SolidComponentFn;
+  copyButton: (options: Record<string, unknown>) => { element: HTMLSpanElement; button: HTMLButtonElement; clearStatus: () => void };
+  CopyButton: SolidComponentFn;
+  createNotice: (options: Record<string, unknown>) => { element: HTMLDivElement; show: (content: Record<string, unknown>) => void; hide: () => void };
+  Notice: SolidComponentFn;
 }
 
 export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResult> {
@@ -110,6 +126,14 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       keycapSolidMod,
       meterMod,
       meterSolidMod,
+      emptyStateMod,
+      emptyStateSolidMod,
+      sectionHeadingMod,
+      sectionHeadingSolidMod,
+      copyButtonMod,
+      copyButtonSolidMod,
+      noticeMod,
+      noticeSolidMod,
     ] = await Promise.all([
       import(urls.island),
       import(urls.svgDom),
@@ -137,6 +161,14 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       import(urls.keycapSolid),
       import(urls.meter),
       import(urls.meterSolid),
+      import(urls.emptyState),
+      import(urls.emptyStateSolid),
+      import(urls.sectionHeading),
+      import(urls.sectionHeadingSolid),
+      import(urls.copyButton),
+      import(urls.copyButtonSolid),
+      import(urls.notice),
+      import(urls.noticeSolid),
     ]);
 
     const modules: LoadedParityModules = {
@@ -181,6 +213,14 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       KeyChord: keycapSolidMod.KeyChord,
       meter: meterMod.meter,
       Meter: meterSolidMod.Meter,
+      emptyState: emptyStateMod.emptyState,
+      EmptyState: emptyStateSolidMod.EmptyState,
+      sectionHeading: sectionHeadingMod.sectionHeading,
+      SectionHeading: sectionHeadingSolidMod.SectionHeading,
+      copyButton: copyButtonMod.copyButton,
+      CopyButton: copyButtonSolidMod.CopyButton,
+      createNotice: noticeMod.createNotice,
+      Notice: noticeSolidMod.Notice,
     };
 
     const normalizeIdToken = (raw: string): string => raw
@@ -539,6 +579,121 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
           valueText: '100% full',
           tone: 'waiting',
           thickness: 'thick',
+        }),
+      },
+      {
+        name: 'empty-state/text-only',
+        buildImperative: () => modules.emptyState({ text: 'No sessions yet.' }),
+        renderSolid: () => modules.EmptyState({ text: 'No sessions yet.' }),
+      },
+      {
+        name: 'empty-state/boxed-with-action',
+        buildImperative: () => modules.emptyState({
+          title: 'Nothing running',
+          text: 'Start a session to begin.',
+          variant: 'boxed',
+          actions: [modules.button({ variant: 'primary', label: 'New session' })],
+        }),
+        renderSolid: () => modules.EmptyState({
+          title: 'Nothing running',
+          text: 'Start a session to begin.',
+          variant: 'boxed',
+          actions: [modules.button({ variant: 'primary', label: 'New session' })],
+        }),
+      },
+      {
+        name: 'section-heading/h2-with-count-hint-actions',
+        buildImperative: () => modules.sectionHeading({
+          title: 'Sessions',
+          level: 2,
+          count: 3,
+          tone: 'strong',
+          hint: 'Active',
+          actions: [modules.button({ variant: 'quiet', size: 'small', label: 'Refresh' })],
+        }).element,
+        renderSolid: () => modules.SectionHeading({
+          title: 'Sessions',
+          level: 2,
+          count: 3,
+          tone: 'strong',
+          hint: 'Active',
+          actions: [modules.button({ variant: 'quiet', size: 'small', label: 'Refresh' })],
+        }),
+      },
+      {
+        name: 'section-heading/none-empty-count',
+        buildImperative: () => modules.sectionHeading({
+          title: 'Other',
+          level: 'none',
+        }).element,
+        renderSolid: () => modules.SectionHeading({
+          title: 'Other',
+          level: 'none',
+        }),
+      },
+      {
+        name: 'copy-button/default',
+        buildImperative: () => modules.copyButton({
+          text: () => 'npm test',
+          label: 'Copy command',
+          accessibleLabel: 'Copy test command',
+          action: 'copy-cmd',
+          variant: 'quiet',
+          size: 'small',
+        }).element,
+        renderSolid: () => modules.CopyButton({
+          text: () => 'npm test',
+          label: 'Copy command',
+          accessibleLabel: 'Copy test command',
+          action: 'copy-cmd',
+          variant: 'quiet',
+          size: 'small',
+        }),
+      },
+      {
+        name: 'notice/hidden-icon-dismiss',
+        buildImperative: () => modules.createNotice({
+          id: 'update-notice',
+          dismissLabel: 'Dismiss',
+          isDismissIcon: true,
+          onDismiss: () => {},
+        }).element,
+        renderSolid: () => modules.Notice({
+          id: 'update-notice',
+          dismissLabel: 'Dismiss',
+          isDismissIcon: true,
+          onDismiss: () => {},
+        }),
+      },
+      {
+        name: 'notice/shown-with-command-and-meta',
+        buildImperative: () => {
+          const noticeHandle = modules.createNotice({
+            id: 'update-notice',
+            dismissLabel: 'Dismiss',
+            isDismissIcon: false,
+            onDismiss: () => {},
+          });
+          noticeHandle.show({
+            text: 'Update available',
+            tone: 'warning',
+            actions: [modules.button({ variant: 'secondary', size: 'small', label: 'Reload' })],
+            command: 'npm i -g glimmervoid',
+            meta: 'v0.67.0',
+          });
+          return noticeHandle.element;
+        },
+        renderSolid: () => modules.Notice({
+          id: 'update-notice',
+          dismissLabel: 'Dismiss',
+          isDismissIcon: false,
+          onDismiss: () => {},
+          shown: true,
+          text: 'Update available',
+          tone: 'warning',
+          actions: [modules.button({ variant: 'secondary', size: 'small', label: 'Reload' })],
+          command: 'npm i -g glimmervoid',
+          meta: 'v0.67.0',
         }),
       },
     ];

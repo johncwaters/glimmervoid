@@ -4,6 +4,7 @@ import { el, queryTag } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from './button.ts';
 import { copyButton } from './copy-button.ts';
+import { noticeDescriptor, noticeMetaState, noticeShownPayload } from './notice-core.ts';
 
 export type { NoticeTone };
 
@@ -37,20 +38,21 @@ export function noticeStack(): HTMLDivElement {
 }
 
 export function createNotice({ id, dismissLabel, isDismissIcon, onDismiss, leading }: NoticeOptions): Notice {
-  const element = el('div', 'notice');
-  element.id = id;
-  element.setAttribute('role', 'status');
-  element.hidden = true;
-  const textElement = el('span', 'notice-text');
-  const actionsElement = el('span', 'notice-actions');
-  const commandElement = el('code', 'notice-command');
+  const initial = noticeDescriptor({ id, dismissLabel, isDismissIcon, shown: false, hasActions: false });
+  const element = el('div', initial.className);
+  element.id = initial.id;
+  element.setAttribute('role', initial.role);
+  element.hidden = initial.hidden;
+  const textElement = el('span', initial.textClassName);
+  const actionsElement = el('span', initial.actionsClassName);
+  const commandElement = el('code', initial.commandClassName);
   let shownCommand = '';
-  const commandCopy = copyButton({ size: 'small', action: 'copy-notice-command', text: () => shownCommand });
-  const metaElement = el('span', 'notice-meta');
-  const dismissButton = isDismissIcon
-    ? button({ variant: 'icon', size: 'small', label: dismissLabel, icon: createLineIcon(CLOSE_ICON_PATH), action: 'dismiss-notice' })
-    : button({ variant: 'secondary', size: 'small', label: dismissLabel, action: 'dismiss-notice' });
-  dismissButton.classList.add('notice-dismiss');
+  const commandCopy = copyButton({ size: 'small', action: initial.copyAction, text: () => shownCommand });
+  const metaElement = el('span', initial.metaClassName);
+  const dismissButton = initial.dismissVariant === 'icon'
+    ? button({ variant: 'icon', size: 'small', label: initial.dismissLabel, icon: createLineIcon(CLOSE_ICON_PATH), action: initial.dismissAction })
+    : button({ variant: 'secondary', size: 'small', label: initial.dismissLabel, action: initial.dismissAction });
+  dismissButton.classList.add(initial.dismissClassName);
   if (leading) element.append(leading);
   element.append(textElement, actionsElement, commandElement, commandCopy.element, metaElement, dismissButton);
 
@@ -60,25 +62,35 @@ export function createNotice({ id, dismissLabel, isDismissIcon, onDismiss, leadi
   });
 
   const setMeta = (metaText: string) => {
-    if (metaElement.textContent !== metaText) metaElement.textContent = metaText;
-    metaElement.hidden = metaText === '';
+    const state = noticeMetaState(metaText);
+    if (metaElement.textContent !== state.text) metaElement.textContent = state.text;
+    metaElement.hidden = state.hidden;
   };
 
   const show = ({ text, tone, actions = [], command = '', meta = '', reported }: NoticeContent) => {
+    const next = noticeDescriptor({
+      id,
+      dismissLabel,
+      isDismissIcon,
+      shown: true,
+      tone,
+      hasActions: actions.length > 0,
+      command,
+      meta,
+    });
     textElement.replaceChildren(...(typeof text === 'string' ? [text] : text));
     actionsElement.replaceChildren(...actions);
-    actionsElement.hidden = actions.length === 0;
-    shownCommand = command;
-    commandElement.textContent = command;
-    const hasCommand = command !== '';
-    commandElement.hidden = !hasCommand;
-    commandCopy.element.hidden = !hasCommand;
+    actionsElement.hidden = next.actionsHidden;
+    shownCommand = next.command;
+    commandElement.textContent = next.command;
+    commandElement.hidden = next.commandHidden;
+    commandCopy.element.hidden = next.commandHidden;
     commandCopy.clearStatus();
-    setMeta(meta);
-    if (tone) element.dataset.tone = tone;
-    if (!tone) delete element.dataset.tone;
-    element.hidden = false;
-    reportNoticeShown({ notice: id, message: textElement.textContent ?? '', ...(tone ? { tone } : {}), ...reported });
+    setMeta(next.meta);
+    if (next.tone) element.dataset.tone = next.tone;
+    if (!next.tone) delete element.dataset.tone;
+    element.hidden = next.hidden;
+    reportNoticeShown(noticeShownPayload({ id, message: textElement.textContent ?? '', tone: next.tone, reported }));
   };
 
   const hide = () => {

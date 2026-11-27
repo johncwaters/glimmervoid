@@ -1,8 +1,6 @@
 import { el } from '../dom-helpers.ts';
-
-type SectionHeadingLevel = 2 | 3 | 4 | 'none';
-type SectionHeadingTone = 'muted' | 'strong' | 'waiting';
-type SectionHeadingCount = number | string | null;
+import { sectionHeadingCountState, sectionHeadingDescriptor } from './section-heading-core.ts';
+import type { SectionHeadingCount, SectionHeadingLevel, SectionHeadingTone } from './section-heading-core.ts';
 
 type SectionHeadingOptions = {
   title: string;
@@ -18,24 +16,23 @@ type SectionHeading = {
   setCount(count: SectionHeadingCount): void;
 };
 
-const HEADING_TAGS = { 2: 'h2', 3: 'h3', 4: 'h4', none: 'div' } as const;
-
 export function sectionHeading({ title, level, count = null, tone = 'muted', hint = null, actions = [] }: SectionHeadingOptions): SectionHeading {
-  const element = el('div', 'ui-section-heading');
-  element.dataset.tone = tone;
-  const titleElement = el(HEADING_TAGS[level], 'ui-section-heading-title ui-label', title);
-  const countElement = el('span', 'ui-section-heading-count');
+  const descriptor = sectionHeadingDescriptor({ level, count, tone });
+  const element = el('div', descriptor.className);
+  element.dataset.tone = descriptor.tone;
+  const titleElement = el(descriptor.titleTag, descriptor.titleClassName, title);
+  const countElement = el('span', descriptor.countClassName);
   element.append(titleElement, countElement);
-  if (hint) element.append(el('span', 'ui-section-heading-hint', hint));
+  if (hint) element.append(el('span', descriptor.hintClassName, hint));
   if (actions.length > 0) {
-    const actionsElement = el('div', 'ui-section-heading-actions');
+    const actionsElement = el('div', descriptor.actionsClassName);
     actionsElement.append(...actions);
     element.append(actionsElement);
   }
   const setCount = (nextCount: SectionHeadingCount) => {
-    const text = nextCount === null ? '' : String(nextCount);
-    if (countElement.textContent !== text) countElement.textContent = text;
-    countElement.hidden = text === '';
+    const state = sectionHeadingCountState(nextCount);
+    if (countElement.textContent !== state.text) countElement.textContent = state.text;
+    countElement.hidden = state.hidden;
   };
   setCount(count);
   return { element, setCount };

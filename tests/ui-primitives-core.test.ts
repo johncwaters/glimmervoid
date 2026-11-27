@@ -9,11 +9,15 @@ import {
   outlineIconStateAttributes,
 } from '../public/ui/button-core.ts';
 import { choiceDescriptor } from '../public/ui/checkbox-core.ts';
+import { DEFAULT_COPY_CLEAR_AFTER_MS, copyButtonDescriptor, copyStatusText } from '../public/ui/copy-button-core.ts';
 import { detailsBlockDescriptor, disclosureDescriptor } from '../public/ui/disclosure-core.ts';
+import { emptyStateDescriptor } from '../public/ui/empty-state-core.ts';
 import { fieldDescriptor, fieldMessageState, isLabelableTagName } from '../public/ui/field-core.ts';
 import { keyChordParts, keycapDescriptor } from '../public/ui/keycap-core.ts';
 import { clampMeterFraction, meterDescriptor, meterValueState } from '../public/ui/meter-core.ts';
+import { noticeDescriptor, noticeMetaState, noticeShownPayload } from '../public/ui/notice-core.ts';
 import { iconPressableLabel, pressableAttributes } from '../public/ui/pressable-core.ts';
+import { sectionHeadingCountState, sectionHeadingDescriptor } from '../public/ui/section-heading-core.ts';
 import { nextSegmentedValue, segmentedDescriptor, segmentedOptionStates } from '../public/ui/segmented-core.ts';
 import { findSelectChoice, resolveSelectSelection, selectDescriptor } from '../public/ui/select-core.ts';
 import { switchDescriptor } from '../public/ui/switch-core.ts';
@@ -322,5 +326,96 @@ describe('meter-core', () => {
     assert.equal(labelled.ariaValueNow, '76');
     assert.equal(labelled.ariaValueText, '76% used');
     assert.equal(meterValueState(0.5, 'Context', '').ariaValueText, undefined);
+  });
+});
+
+describe('empty-state-core', () => {
+  test('uses a paragraph root only when both title and actions are absent', () => {
+    const textOnly = emptyStateDescriptor({ hasTitle: false, hasActions: false });
+    assert.equal(textOnly.rootTag, 'p');
+    assert.equal(textOnly.isTextOnly, true);
+    assert.equal(textOnly.variant, 'inline');
+
+    const withTitle = emptyStateDescriptor({ hasTitle: true, hasActions: false, variant: 'boxed' });
+    assert.equal(withTitle.rootTag, 'div');
+    assert.equal(withTitle.isTextOnly, false);
+    assert.equal(withTitle.variant, 'boxed');
+
+    const withActions = emptyStateDescriptor({ hasTitle: false, hasActions: true, variant: 'centered' });
+    assert.equal(withActions.rootTag, 'div');
+    assert.equal(withActions.isTextOnly, false);
+  });
+});
+
+describe('section-heading-core', () => {
+  test('maps heading level to tag and hides count only when null or empty string', () => {
+    const h2 = sectionHeadingDescriptor({ level: 2, count: 4, tone: 'strong' });
+    assert.equal(h2.titleTag, 'h2');
+    assert.equal(h2.tone, 'strong');
+    assert.deepEqual(h2.count, { text: '4', hidden: false });
+
+    const none = sectionHeadingDescriptor({ level: 'none' });
+    assert.equal(none.titleTag, 'div');
+    assert.equal(none.tone, 'muted');
+    assert.deepEqual(none.count, { text: '', hidden: true });
+    assert.deepEqual(sectionHeadingCountState(0), { text: '0', hidden: false });
+    assert.deepEqual(sectionHeadingCountState(''), { text: '', hidden: true });
+  });
+});
+
+describe('copy-button-core', () => {
+  test('defaults variant, size, label, clear delay, and status messages', () => {
+    const defaults = copyButtonDescriptor();
+    assert.equal(defaults.variant, 'secondary');
+    assert.equal(defaults.size, 'default');
+    assert.equal(defaults.label, 'Copy');
+    assert.equal(defaults.clearAfterMs, DEFAULT_COPY_CLEAR_AFTER_MS);
+    assert.equal(copyStatusText('copied'), 'Copied');
+    assert.equal(copyStatusText('failed'), 'Copy failed');
+  });
+});
+
+describe('notice-core', () => {
+  test('derives hidden flags for unshown vs shown notices and builds the shown report payload', () => {
+    const hiddenNotice = noticeDescriptor({
+      id: 'update-notice',
+      dismissLabel: 'Dismiss',
+      isDismissIcon: true,
+      shown: false,
+      hasActions: false,
+    });
+    assert.equal(hiddenNotice.hidden, true);
+    assert.equal(hiddenNotice.actionsHidden, false);
+    assert.equal(hiddenNotice.commandHidden, false);
+    assert.equal(hiddenNotice.metaHidden, false);
+    assert.equal(hiddenNotice.dismissVariant, 'icon');
+
+    const shownNotice = noticeDescriptor({
+      id: 'update-notice',
+      dismissLabel: 'Dismiss',
+      isDismissIcon: false,
+      shown: true,
+      tone: 'warning',
+      hasActions: true,
+      command: 'npm i -g glimmervoid',
+      meta: 'v0.67.0',
+    });
+    assert.equal(shownNotice.hidden, false);
+    assert.equal(shownNotice.actionsHidden, false);
+    assert.equal(shownNotice.commandHidden, false);
+    assert.equal(shownNotice.metaHidden, false);
+    assert.equal(shownNotice.dismissVariant, 'secondary');
+    assert.deepEqual(noticeMetaState(''), { text: '', hidden: true });
+    assert.deepEqual(noticeShownPayload({
+      id: 'update-notice',
+      message: 'Update ready',
+      tone: 'warning',
+      reported: { source: 'release' },
+    }), {
+      notice: 'update-notice',
+      message: 'Update ready',
+      tone: 'warning',
+      source: 'release',
+    });
   });
 });
