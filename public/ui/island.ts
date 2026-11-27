@@ -2,10 +2,11 @@ import { render } from '@solidjs/web';
 import type { JSX } from '@solidjs/web';
 
 type WatchRoot = Document | ShadowRoot;
+type IslandLifecycle = 'pending' | 'connected' | 'disposed';
 
 interface MountedIslandEntry {
   host: HTMLElement;
-  wasConnected: boolean;
+  lifecycle: IslandLifecycle;
   rootNode: WatchRoot;
   unregister: () => void;
   dispose: () => void;
@@ -41,11 +42,12 @@ function wasHostAddedInRecords(host: HTMLElement, records: readonly MutationReco
 
 function sweepDisconnectedIslands(watch: RootIslandWatch, records: readonly MutationRecord[]): void {
   for (const entry of [...watch.entries]) {
-    if (!entry.wasConnected && wasHostAddedInRecords(entry.host, records)) {
-      entry.wasConnected = true;
+    if (entry.lifecycle === 'disposed') continue;
+    if (entry.lifecycle === 'pending' && wasHostAddedInRecords(entry.host, records)) {
+      entry.lifecycle = 'connected';
     }
     if (entry.host.isConnected) {
-      entry.wasConnected = true;
+      entry.lifecycle = 'connected';
       const nextRoot = watchRootOf(entry.host);
       if (nextRoot !== entry.rootNode) {
         entry.unregister();
@@ -54,7 +56,7 @@ function sweepDisconnectedIslands(watch: RootIslandWatch, records: readonly Muta
       }
       continue;
     }
-    if (entry.wasConnected) entry.dispose();
+    if (entry.lifecycle === 'connected') entry.dispose();
   }
 }
 
@@ -85,11 +87,10 @@ function registerIslandWatch(rootNode: WatchRoot, entry: MountedIslandEntry): ()
 }
 
 export function mountIsland(host: HTMLElement, renderRoot: () => JSX.Element): () => void {
-  const wasConnectedBeforeRender = host.isConnected;
-  let isDisposed = false;
+  const initialLifecycle: IslandLifecycle = host.isConnected ? 'connected' : 'pending';
   const disposeSolid = render(renderRoot, host);
 
-  if (wasConnectedBeforeRender && !host.isConnected) {
+  if (initialLifecycle === 'connected' && !host.isConnected) {
     disposeSolid();
     return () => {};
   }
@@ -97,15 +98,15 @@ export function mountIsland(host: HTMLElement, renderRoot: () => JSX.Element): (
   const rootNode = watchRootOf(host);
   const entry: MountedIslandEntry = {
     host,
-    wasConnected: wasConnectedBeforeRender || host.isConnected,
+    lifecycle: host.isConnected ? 'connected' : initialLifecycle,
     rootNode,
     unregister: () => {},
     dispose: () => {},
   };
 
   const dispose = (): void => {
-    if (isDisposed) return;
-    isDisposed = true;
+    if (entry.lifecycle === 'disposed') return;
+    entry.lifecycle = 'disposed';
     entry.unregister();
     disposeSolid();
   };
