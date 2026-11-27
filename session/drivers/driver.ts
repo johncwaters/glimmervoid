@@ -9,6 +9,7 @@ interface DriverLaunch {
   env: Record<string, string | undefined>;
   scopeUnit: string | null;
   resumeAgentSessionId: string | null;
+  allowFreshFallbackOnLoadFailure?: boolean;
   mcpServers?: McpServer[];
   sessionEnv?: Readonly<Record<string, string>>;
   modelSelection?: ModelSelection | null;

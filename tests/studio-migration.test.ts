@@ -246,3 +246,84 @@ test('pre-P3.1 Studio sessions migrate onto ACP in one write, non-ACP Studio pro
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('a migrated Studio session whose ACP agent rejects session/load falls back to a fresh session and emits one Studio notice', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-acp-fallback-'));
+  const studioHome = path.join(home, 'studio-home');
+  const tracesDir = path.join(home, 'traces');
+  const configPath = path.join(home, 'config.json');
+  const fakeAgentPath = path.join(home, 'reject-load-agent.mjs');
+  fs.mkdirSync(studioHome, { recursive: true });
+  fs.writeFileSync(fakeAgentPath, [
+    'import readline from "node:readline";',
+    'const rl = readline.createInterface({ input: process.stdin });',
+    'const send = (msg) => process.stdout.write(`${JSON.stringify(msg)}\\n`);',
+    'rl.on("line", (line) => {',
+    '  const msg = JSON.parse(line);',
+    '  if (msg.method === "initialize") {',
+    '    send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });',
+    '    return;',
+    '  }',
+    '  if (msg.method === "session/load") {',
+    '    send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "session not found" } });',
+    '    return;',
+    '  }',
+    '  if (msg.method === "session/new") {',
+    '    send({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "550e8400-e29b-41d4-a716-446655449999" } });',
+    '  }',
+    '});',
+  ].join('\n'));
+  const config: GlimmervoidConfig = {
+    ...DEFAULT_CONFIG,
+    acpAgents: [{ id: 'reject-load', label: 'Reject Load', command: process.execPath, args: [fakeAgentPath] }],
+    projects: [{
+      id: 'studio-fallback',
+      name: 'Orchestrator',
+      path: studioHome,
+      agent: 'reject-load',
+      isStudioMain: true,
+      studioRole: 'orchestrator',
+      resumeSessionId: '550e8400-e29b-41d4-a716-446655440001',
+    }],
+  };
+  const configStore = { save: (mutate: (savedConfig: GlimmervoidConfig) => unknown) => { mutate(config); return config; } };
+  try {
+    migrateStudioToAcp({ config, configStore, tracesDir, logger: { log: () => {}, warn: () => {} } });
+    const migrated = config.projects[0];
+    assert.ok(migrated);
+    assert.equal(migrated.driverKind, 'acp');
+    assert.equal(migrated.acpMigrationFreshFallback, true);
+    const makeSession = createSessionFactory({
+      configStore: { configPath },
+      getConfig: () => config,
+      hookRouter: null,
+      getHookPort: () => null,
+      getGitWorkspace: () => null,
+      resolveHookTools: () => [],
+      getUserHooks: () => [],
+    });
+    const session = makeSession(migrated, config);
+    const notices: { kind?: string; text?: string }[] = [];
+    session.on('conversation-records', ({ records }: { records: { kind?: string; text?: string }[] }) => {
+      notices.push(...records);
+    });
+    const opened = new Promise<{ agentSessionId: string; isResumed: boolean }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timed out waiting for driver-agent-session')), 15000);
+      session.once('driver-agent-session', (payload: { agentSessionId: string; isResumed: boolean }) => {
+        clearTimeout(timer);
+        resolve(payload);
+      });
+    });
+    await session.start();
+    const agentSession = await opened;
+    assert.equal(agentSession.isResumed, false);
+    assert.equal(agentSession.agentSessionId, '550e8400-e29b-41d4-a716-446655449999');
+    assert.equal(session.state, STATES.IDLE);
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]?.kind, 'notice');
+    assert.match(notices[0]?.text ?? '', /earlier conversation could not be carried over/i);
+    session.destroy();
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

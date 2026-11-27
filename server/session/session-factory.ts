@@ -189,6 +189,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       seedDependencies: (seedArgs) => seedWorktreeDependencies({ ...seedArgs, hookConfigRelPaths: projectHookConfigRelPaths() }),
       hookTools: originalHookTools,
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
+      allowFreshFallbackOnLoadFailure: project.acpMigrationFreshFallback === true,
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
       getTerminalColors: dependencies.getTerminalColors ?? null,

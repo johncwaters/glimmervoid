@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { client, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
-import type { ClientConnection, CreateElicitationResponse, McpServer, RequestPermissionResponse } from "@agentclientprotocol/sdk";
+import type { ClientConnection, CreateElicitationResponse, McpServer, RequestPermissionResponse, SessionModeState } from "@agentclientprotocol/sdk";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "../../server/child-process-safe.ts";
 import { glimmervoidHomeDir } from "../../server/core/config-path-core.ts";
@@ -213,17 +213,37 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     if ((launch.packContextLines?.length ?? 0) > 0 && !hasSystemPromptSupport) {
       console.warn(`[acp-driver] ${agentId} does not advertise sessionCapabilities.systemPrompt; skipping pack context`);
     }
-    const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId, sessionMeta, systemPrompt);
+    let plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId, sessionMeta, systemPrompt);
+    const canFallbackFresh = launch.allowFreshFallbackOnLoadFailure === true && launch.resumeAgentSessionId !== null && initialized.protocolVersion === PROTOCOL_VERSION;
+    if (plan.method === "refuse" && canFallbackFresh) {
+      plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, null, sessionMeta, systemPrompt);
+    }
     if (plan.method === "refuse") throw new Error(plan.message);
     if (generation !== runGeneration || phase !== "opening") return;
     const isCodexHookTrusted = codexHookCommand !== null
       ? await trustCodexSaneYoloHook(activeConnection, launch.cwd, codexHookCommand)
       : false;
     if (generation !== runGeneration || phase !== "opening") return;
-    const opened = plan.method === "session/load"
-      ? await activeConnection.agent.request(methods.agent.session.load, plan.request)
-      : await activeConnection.agent.request(methods.agent.session.new, plan.request);
-    const openedSessionId = plan.method === "session/load" ? plan.request.sessionId : (opened as { sessionId?: unknown }).sessionId;
+    let didResume = plan.method === "session/load";
+    let opened: { sessionId?: unknown; configOptions?: unknown; modes?: SessionModeState | null } | undefined;
+    let openedSessionId: unknown;
+    if (plan.method === "session/load") {
+      try {
+        opened = await activeConnection.agent.request(methods.agent.session.load, plan.request);
+        openedSessionId = plan.request.sessionId;
+      } catch (loadError: unknown) {
+        if (!canFallbackFresh) throw loadError;
+        const freshPlan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, null, sessionMeta, systemPrompt);
+        if (freshPlan.method !== "session/new") throw loadError;
+        opened = await activeConnection.agent.request(methods.agent.session.new, freshPlan.request);
+        openedSessionId = (opened as { sessionId?: unknown }).sessionId;
+        didResume = false;
+      }
+    }
+    if (plan.method === "session/new") {
+      opened = await activeConnection.agent.request(methods.agent.session.new, plan.request);
+      openedSessionId = (opened as { sessionId?: unknown }).sessionId;
+    }
     if (typeof openedSessionId !== "string" || openedSessionId.length === 0) {
       throw new Error("the ACP agent returned an invalid session id");
     }
@@ -246,7 +266,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     const hasHookConfig = agentId === "codex" ? codexHookCommand !== null : hasClaudeSaneYoloMeta;
     const isConfirmed = agentId === "codex" ? isCodexHookTrusted : modeOutcome === "confirmed";
     options.onSaneYoloCoverageChange?.(isAcpSaneYoloCovered(agentId, saneYoloConfig !== null, hasHookConfig, isConfirmed));
-    emit({ kind: "agent-session", agentSessionId: openedSessionId, isResumed: plan.method === "session/load" });
+    emit({ kind: "agent-session", agentSessionId: openedSessionId, isResumed: didResume });
   }
 
   function connect(generation: number, agentProcess: ChildProcess): ClientConnection {

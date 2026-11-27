@@ -225,6 +225,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on(SESSION_DRIVER_EVENTS.agentSession, ({ agentSessionId }: SessionDriverEventPayloads['driver-agent-session']) => {
       persistProjectField('driverKind', 'acp');
+      if (dependencies.config.projects.find((candidate) => candidate.id === session.id)?.acpMigrationFreshFallback !== undefined) {
+        persistProjectField('acpMigrationFreshFallback', undefined);
+      }
       const validId = validResumeSessionId(agentSessionId);
       if (validId !== null) persistProjectField('resumeSessionId', validId);
     });

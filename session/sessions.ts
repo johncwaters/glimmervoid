@@ -221,6 +221,7 @@ interface SessionOptions {
   agentSetup?: AgentSetup | null;
   ephemeral?: boolean;
   resumeSessionId?: string | null;
+  allowFreshFallbackOnLoadFailure?: boolean;
   settingsPermissions?: Record<string, unknown> | null;
   getPackAgentLaunch?: (() => PackAgentLaunch | null) | null;
   spawnEnv?: Record<string, string> | null;
@@ -362,6 +363,8 @@ class Session extends EventEmitter {
   _agentSetup: AgentSetup | null;
   _isCleanHome: boolean;
   _resumeSessionId: string | null;
+  _acpLoadFallback: "none" | "armed" | "pending";
+  _pendingAcpLaunchPrompt: { text: string; isResumePrompt: boolean } | null = null;
   _restartStartsNewConversation = false;
   readonly workspaceRepos: string[] | null;
   _transcriptPath: string | null;
@@ -451,6 +454,7 @@ class Session extends EventEmitter {
     ephemeral,
 
     resumeSessionId = null,
+    allowFreshFallbackOnLoadFailure,
     taskTitleState = undefined,
     prLinks = undefined,
 
@@ -714,6 +718,7 @@ class Session extends EventEmitter {
     this._agentSetup = agentSetup;
     this._isCleanHome = isCleanHome === true;
     this._resumeSessionId = resumeSessionId || null;
+    this._acpLoadFallback = allowFreshFallbackOnLoadFailure === true ? "armed" : "none";
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
     this._transcriptPath = null;
     this._lastClaudeSessionReport = null;
@@ -1633,6 +1638,7 @@ class Session extends EventEmitter {
   _prepareRestart(options: { fresh?: boolean; conversationId?: string | null } = {}): void {
     const switchesConversation = Boolean(options.conversationId) && options.conversationId !== this._resumeSessionId;
     this._restartStartsNewConversation = options.fresh === true || switchesConversation;
+    if (this._restartStartsNewConversation) this._acpLoadFallback = "none";
     if (options.fresh !== true) {
       this._bindRestartConversation(options.conversationId);
       return;
@@ -2209,6 +2215,9 @@ class Session extends EventEmitter {
       : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file: sandboxedCommand.file, args: sandboxedCommand.args, env: sandboxedCommand.env });
     const sessionEnv = pickAcpSessionEnv(sandboxedCommand.env, [...Object.keys(agentApiEnv), ...Object.keys(gitEnv)]);
     const resumeAgentSessionId = validResumeSessionId(this._resumeSessionId);
+    const allowFreshFallbackOnLoadFailure = this._acpLoadFallback !== "none" && resumeAgentSessionId !== null;
+    if (allowFreshFallbackOnLoadFailure) this._acpLoadFallback = "pending";
+    if (!allowFreshFallbackOnLoadFailure && this._acpLoadFallback === "pending") this._acpLoadFallback = "armed";
     try {
       this._driver.start({
         file: launch.file,
@@ -2217,6 +2226,7 @@ class Session extends EventEmitter {
         env: launch.env,
         scopeUnit,
         resumeAgentSessionId,
+        allowFreshFallbackOnLoadFailure,
         mcpServers,
         sessionEnv,
         modelSelection: this._agentSetup,
@@ -2238,7 +2248,7 @@ class Session extends EventEmitter {
       `[session ${this.id}] spawn over ACP: ${sandboxedCommand.file} ${sandboxedCommand.args.join(" ")} (cwd=${this.effectiveCwd()}${scopeUnit === null ? "" : `, scope=${scopeUnit}`})`,
     );
     const launchPrompt = resumeAgentSessionId !== null ? resumePrompt : this._initialPrompt;
-    if (launchPrompt) this._chatOutbox.queue(launchPrompt, [], "operator");
+    this._pendingAcpLaunchPrompt = launchPrompt ? { text: launchPrompt, isResumePrompt: resumeAgentSessionId !== null } : null;
   }
 
   _emitRebaseline(): void {
@@ -2376,6 +2386,8 @@ class Session extends EventEmitter {
 
   _abandonSpawn(cause: unknown): void {
     this._startGeneration += 1;
+    if (this._acpLoadFallback === "pending") this._acpLoadFallback = "armed";
+    this._pendingAcpLaunchPrompt = null;
     this._launch.clearApprovedLaunches();
     this._hooks.deactivateSaneYolo();
     this._hooks.cleanup();
@@ -2441,8 +2453,27 @@ class Session extends EventEmitter {
       case "agent-session": {
         this._startupSignals.add("output");
         this._startupSignals.add("ready");
+        const didFallbackToFresh = this._acpLoadFallback === "pending" && !event.isResumed;
+        this._acpLoadFallback = "none";
+        const pendingLaunchPrompt = this._pendingAcpLaunchPrompt;
+        this._pendingAcpLaunchPrompt = null;
         const validId = validResumeSessionId(event.agentSessionId);
         if (this._resumeCapture !== "suppressed" && validId !== null) this.setResumeConversation(validId);
+        if (didFallbackToFresh && event.agentSessionId.length > 0) {
+          this.emit("conversation-records", {
+            records: [{
+              ts: clock.nowMs(),
+              uuid: null,
+              parentUuid: null,
+              vendorSessionId: event.agentSessionId,
+              kind: "notice",
+              text: "The earlier conversation could not be carried over to ACP, so this session started fresh.",
+            }],
+          });
+        }
+        if (pendingLaunchPrompt !== null && !(didFallbackToFresh && pendingLaunchPrompt.isResumePrompt)) {
+          this._chatOutbox.queue(pendingLaunchPrompt.text, [], "operator");
+        }
         this._stepAcpStatus({ kind: "opened" });
         this.emit(SESSION_DRIVER_EVENTS.agentSession, { agentSessionId: event.agentSessionId, isResumed: event.isResumed });
         return;
@@ -2547,6 +2578,8 @@ class Session extends EventEmitter {
     this._pty?.forget();
     this._lastClaudeSessionReport = null;
     this._promptNotes.dropResumeNote();
+    if (this._acpLoadFallback === "pending") this._acpLoadFallback = "armed";
+    this._pendingAcpLaunchPrompt = null;
 
     if (exitedPty?.pid) {
       this._reaper.exitReap = this._reaper.reapTreeOnce(exitedPty.pid, exitedPty.scopeUnit);
