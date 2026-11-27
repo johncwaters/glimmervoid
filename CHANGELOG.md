@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ACP sessions now enforce Sane YOLO coverage on Claude Code, report `saneYolo` honestly, route ACP questions through the question manager, and keep Codex async questions open past turn-end.** On Claude Code over ACP, Glimmervoid now passes the Sane YOLO `PreToolUse` hook and env in `session/new` and `session/load` `_meta`, opens in `default` mode, auto-allows safe asks when skip-permissions is on, and reports `saneYolo` active only when coverage holds. ACP form questions now go to the question manager before holding for the operator, and Codex async questions survive turn-end instead of being cancelled before you can answer.
 - **Child-session turn-end notices are no longer tripped by nested Antigravity runs, idle compaction restores, or withheld wake lines.** Hooks posted by a nested `agy` process that inherited `GLIMMERVOID_HOOK_URL` are now ignored once the main conversation is active instead of ending the parent turn; `compaction_restore_*` transitions no longer post a duplicate "finished a turn" note; and a wake line left unsubmitted in the terminal composer after an idle-compaction flicker is submitted with Enter instead of pasted a second time.
 
+### Removed
+
+- **Leftover operator board authoring edits.** You can no longer resize or rotate boxes, rewire wire ends, drag or delete wire bend points, edit non-note box titles or lines, or align and distribute boxes from the dashboard board UI. Notes, ink strokes, eraser, selection, moving, pan, zoom, Present, and reading remain, and agents still author all of these through the whiteboard MCP tool.
+
 ## [0.66.0] - 2026-11-26
 
 ### Added

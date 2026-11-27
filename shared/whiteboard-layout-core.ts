@@ -6,7 +6,7 @@ import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { planSteps, stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, pairWarningOf, previewWires, rectsOverlap, rotatedAbout, routingWires, unionOf, warningListOf, warningOf, wireExtentOf } from './whiteboard-route-core.ts';
+import { cappedWarningLists, pairWarningOf, previewWires, rectsOverlap, routingWires, unionOf, warningListOf, warningOf, wireExtentOf } from './whiteboard-route-core.ts';
 import { drained } from './generator-steps.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, RouteResult, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
@@ -915,71 +915,10 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
   };
 }
 
-const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const;
-
-type ResizeHandle = (typeof RESIZE_HANDLES)[number];
-
-interface ResizeStretch {
-  handle: ResizeHandle;
-  offset: { x: number; y: number };
-  keepsRatio: boolean;
-  changesHeight: boolean;
-}
-
-const HANDLE_SIDES: Record<ResizeHandle, { x: -1 | 0 | 1; y: -1 | 0 | 1 }> = {
-  nw: { x: -1, y: -1 }, n: { x: 0, y: -1 }, ne: { x: 1, y: -1 }, e: { x: 1, y: 0 },
-  se: { x: 1, y: 1 }, s: { x: 0, y: 1 }, sw: { x: -1, y: 1 }, w: { x: -1, y: 0 },
-};
-
-function handleSidesOf(handle: ResizeHandle): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  return HANDLE_SIDES[handle];
-}
-
-function anchoredStart(start: number, startSize: number, size: number, side: -1 | 0 | 1): number {
-  if (side === -1) return start + startSize - size;
-  if (side === 1) return start;
-  return start + (startSize - size) / 2;
-}
-
-function resizedRectOf(start: Rect, stretch: ResizeStretch): Rect {
-  const side = HANDLE_SIDES[stretch.handle];
-  const freeWidth = Math.max(1, start.width + side.x * stretch.offset.x);
-  const freeHeight = stretch.changesHeight ? Math.max(1, start.height + side.y * stretch.offset.y) : start.height;
-  const isCorner = side.x !== 0 && side.y !== 0;
-  const cornerScale = Math.max(freeWidth / start.width, freeHeight / start.height);
-  const ratioWidth = isCorner ? start.width * cornerScale : side.x === 0 ? freeHeight * (start.width / start.height) : freeWidth;
-  const ratioHeight = isCorner ? start.height * cornerScale : side.y === 0 ? freeWidth * (start.height / start.width) : freeHeight;
-  const width = stretch.keepsRatio ? ratioWidth : freeWidth;
-  const height = stretch.keepsRatio ? ratioHeight : freeHeight;
-  return { x: anchoredStart(start.x, start.width, width, side.x), y: anchoredStart(start.y, start.height, height, side.y), width, height };
-}
-
-function scaledRectWithin(child: Rect, childAngle: number, from: Rect, to: Rect): Rect {
-  const scaleX = to.width / from.width;
-  const scaleY = to.height / from.height;
-  const radians = (childAngle * Math.PI) / 180;
-  const width = child.width * Math.hypot(scaleX * Math.cos(radians), scaleY * Math.sin(radians));
-  const height = child.height * Math.hypot(scaleX * Math.sin(radians), scaleY * Math.cos(radians));
-  const centerX = to.x + (child.x + child.width / 2 - from.x) * scaleX;
-  const centerY = to.y + (child.y + child.height / 2 - from.y) * scaleY;
-  return { x: centerX - width / 2, y: centerY - height / 2, width, height };
-}
-
-function anchorPointOf(rect: Rect, side: { x: -1 | 0 | 1; y: -1 | 0 | 1 }): Point {
-  return { x: rect.x + (rect.width * (1 - side.x)) / 2, y: rect.y + (rect.height * (1 - side.y)) / 2 };
-}
-
-function turnedRectKeepingAnchor(start: Rect, resized: Rect, angle: number, side: { x: -1 | 0 | 1; y: -1 | 0 | 1 }): Rect {
-  const centerOf = (rect: Rect): Point => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-  const startAnchor = rotatedAbout(anchorPointOf(start, side), centerOf(start), angle);
-  const resizedAnchor = rotatedAbout(anchorPointOf(resized, side), centerOf(resized), angle);
-  return { ...resized, x: resized.x + startAnchor.x - resizedAnchor.x, y: resized.y + startAnchor.y - resizedAnchor.y };
-}
-
 export {
-  FRAME_TITLE_HEIGHT, MARGIN, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
-  handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
+  FRAME_TITLE_HEIGHT, MARGIN, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
+  titleLineHeightOf,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, isInStepBand,
   customLegendLabelByKey, defaultWireStyleLabel, isFullBleedBox, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, placingBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
-export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };
+export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect };

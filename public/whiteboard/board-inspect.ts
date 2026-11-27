@@ -1,8 +1,8 @@
-import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Wire } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG, DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
-import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, dialValuesOfBox, SIDES, STEP_STATUSES, WHITEBOARD_LIMITS, WIRE_TONES } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, MediaLink, dialValuesOfBox, SIDES, STEP_STATUSES, WHITEBOARD_LIMITS, WIRE_TONES } from '#shared/contracts/whiteboard.ts';
 import { isBackdropMedia } from '#shared/contracts/whiteboard-tiles.ts';
-import { isBorderlessBox, SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
+import { isBorderlessBox } from '#shared/whiteboard-shapes.ts';
 import { customLegendLabelByKey, defaultWireStyleLabel, wireStyleKey } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
@@ -12,7 +12,6 @@ import { button } from '../ui/button.ts';
 import { select } from '../ui/select.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { isLinkableMediaKind } from '#shared/contracts/whiteboard-link-core.ts';
-import { LINE_STYLE_LABELS, lineWithStyle } from './board-line-edit.ts';
 
 type LegendEntry = Board['legend'][number];
 type Choice = { value: string; text: string };
@@ -56,7 +55,6 @@ const CHANGE_LABELS: Readonly<Record<Box['change'], string>> = { none: 'Unchange
 const STEP_CHOICE_LABELS: Readonly<Record<StepChoice, string>> = { none: 'Not a step', planned: 'Planned', building: 'Building', landed: 'Landed' };
 const SIDE_LABELS: Readonly<Record<Side | 'auto', string>> = { auto: 'Auto', left: 'Left', right: 'Right', top: 'Top', bottom: 'Bottom' };
 const DEVICE_FIT_LABELS: Readonly<Record<(typeof DEVICE_FITS)[number], string>> = { fill: 'Fill the screen', fit: 'Show all' };
-const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES, LINE_STYLE_LABELS);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES, CHANGE_LABELS);
 const STEP_CHOICES = choicesOf(['none', ...STEP_STATUSES], STEP_CHOICE_LABELS);
 const SIDE_CHOICES = choicesOf(['auto', ...SIDES], SIDE_LABELS);
@@ -92,22 +90,6 @@ function textField(field: string, value: string, maxLength: number, commit: (val
   input.dataset.field = field;
   if (accessibleName) input.setAttribute('aria-label', accessibleName);
   input.addEventListener('change', () => commit(input.value));
-  return input;
-}
-
-function angleField(angle: number, commit: (angle: number) => void): HTMLInputElement {
-  const input = markAsNotCredential(el('input', 'wb-inspect-input'));
-  input.type = 'number';
-  input.min = '0';
-  input.max = '359';
-  input.step = '1';
-  input.value = String(angle);
-  input.dataset.field = 'angle';
-  input.addEventListener('change', () => {
-    const typed = Math.round(Number(input.value));
-    if (!Number.isFinite(typed)) return;
-    commit(((typed % 360) + 360) % 360);
-  });
   return input;
 }
 
@@ -234,31 +216,6 @@ function linkedFileSection(media: BoxMedia, linkState: LinkStateOfBox | null, la
   return section;
 }
 
-function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: LatestItems<BoxLine>, commitLines: (lines: BoxLine[]) => void): HTMLElement {
-  const editing = listEditing(latestLines, commitLines);
-  const rows = lines.map((line, index) => {
-    const row = el('div', 'wb-inspect-row wb-inspect-line');
-    const lineNumber = index + 1;
-    row.append(selectField(`line-${index}-style`, LINE_STYLE_CHOICES, line.style, (style) => {
-      const nextStyle = LINE_STYLES.find((known) => known === style);
-      if (nextStyle) editing.edit(index, (latestLine) => lineWithStyle(latestLine, nextStyle));
-    }, `Line ${lineNumber} style`));
-    if (line.style === 'kv') {
-      row.append(textField(`line-${index}-key`, line.key ?? '', WHITEBOARD_LIMITS.lineKey, (key) => {
-        if (key.trim()) editing.edit(index, (latestLine) => ({ ...latestLine, key: key.trim() }));
-      }, `Line ${lineNumber} key`));
-    }
-    row.append(
-      textField(`line-${index}-text`, line.text, WHITEBOARD_LIMITS.line, (text) => editing.edit(index, (latestLine) => ({ ...latestLine, text })), `Line ${lineNumber} text`),
-      removeButton(`line-${index}-remove`, `Remove line ${lineNumber}`, () => editing.remove(index)),
-    );
-    return row;
-  });
-  const addLine = actionButton('line-add', 'Add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null })), `Add a line to ${owner}`);
-  addLine.disabled = lines.length >= WHITEBOARD_LIMITS.linesPerBox;
-  return listSection('Lines', rows, addLine);
-}
-
 function linkableMediaOf(box: Box | null): BoxMedia | null {
   const media = box?.media ?? null;
   return media && isLinkableMediaKind(media.kind) ? media : null;
@@ -275,12 +232,10 @@ interface PanelParts {
 }
 
 function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkState: LinkStateOfBox | null, parts: PanelParts, set: FieldCommit): HTMLElement[] {
-  const traits = SHAPE_TRAITS[box.shape];
   const latestBox = () => {
     const element = latest();
     return element?.kind === 'box' ? element : null;
   };
-  const latestLines = () => latestBox()?.lines ?? null;
   const laidOutPlace = () => {
     const laidOut = layout?.elements.find((element) => element.id === box.id);
     if (!layout || laidOut?.kind !== 'box') return null;
@@ -310,14 +265,12 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
   const moreFields = [
     fieldRow('Step', selectField('step', STEP_CHOICES, box.step?.status ?? 'none', commitStep)),
     ...(box.step ? [el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.')] : []),
-    fieldRow('Angle', angleField(box.angle, (angle) => set({ angle }))),
     ...(box.shape === 'note' ? [] : [checkboxField('borderless', 'Borderless', isBorderlessBox(box), (borderless) => set({ borderless }))]),
     checkboxField('titleGradient', 'Gradient title', box.titleGradient, (titleGradient) => set({ titleGradient })),
     ...(box.media && box.shape !== 'device' ? [checkboxField('fullBleed', 'Full bleed', box.fullBleed, (fullBleed) => set({ fullBleed }))] : []),
     ...(box.media?.kind === 'video' ? [checkboxField('autoplay', 'Autoplay', box.autoplay, (autoplay) => set({ autoplay }))] : []),
     ...(box.media?.kind === 'page' ? [checkboxField('feeds', 'Session feed', box.feeds.includes('sessions'), (isFed) => set({ feeds: isFed ? ['sessions'] : [] }))] : []),
     ...(isBackdropMedia(box.media) ? [checkboxField('backdrop', 'Board backdrop', box.backdrop, (backdrop) => set({ backdrop }))] : []),
-    ...(traits.holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
     fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
       if (was.trim()) set({ was: was.trim() });
@@ -329,7 +282,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     parts.reviewSection,
   ];
   return [
-    titleField(box, set),
+    box.shape === 'note' ? titleField(box, set) : heading(box.title),
     ...(box.shape === 'device' ? [fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device ?? PLACED_DEVICE, (device) => set({ device })))] : []),
     moreDisclosure(moreFields),
   ];

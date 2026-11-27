@@ -1,33 +1,23 @@
-import { BOARD_CONTEXT_MOUSE_BUTTON, BOARD_MIDDLE_MOUSE_BUTTON, BOARD_MOUSE_PAN_BUTTONS, boxIdOfEnd, filledBox, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, Frame, Op, Wire, WireEnd } from '#shared/contracts/whiteboard.ts';
-import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BODY_LINE_HEIGHT } from '#shared/whiteboard-svg-core.ts';
+import { BOARD_CONTEXT_MOUSE_BUTTON, BOARD_MIDDLE_MOUSE_BUTTON, BOARD_MOUSE_PAN_BUTTONS, filledBox, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, Box, BoxMedia, Frame, Op, Wire } from '#shared/contracts/whiteboard.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
-import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
-import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
-import { createDragPreview, handleSidesOf, isFullBleedBox, isInStepBand, laidOutBox, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, ResizeStretch } from '#shared/whiteboard-layout-core.ts';
-import { elbowCornersAfterShift, pointsOfPath, rotatedAbout, rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
-import type { WireHandle } from '#shared/whiteboard-route-core.ts';
+import { createDragPreview, isFullBleedBox, isInStepBand, pinnedOffsetYAfterLeaving } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whiteboard-layout-core.ts';
 import type { SlideChain } from '#shared/contracts/control/whiteboard-messages.ts';
-import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
+import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
 import type { BoardWheel } from './board-media-layer.ts';
-import { elementTableOf } from '#shared/contracts/whiteboard-element-table.ts';
 import { isCodemapOwnedId } from '#shared/contracts/whiteboard-ops-core.ts';
 import { clock } from '#shared/clock.ts';
 import { boardIndexOf, linkedIdsOf } from '#shared/whiteboard-board-index.ts';
 import { carriedWiresOf, centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf, shiftedWireOpOf } from './board-clipboard-core.ts';
 import type { BoardClipboard } from './board-clipboard-core.ts';
-import { movedSnapOf, rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
+import { movedSnapOf, rectAround, snapTargetsOf } from './board-snap-core.ts';
 import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
-import { alignedRectsOf, distributedRectsOf } from './board-context-menu.ts';
 import { firstPresentedBoxId, presentedBoxIdAfter } from './media-walk-core.ts';
-import type { AlignEdge, ArrangedRect, DistributeAxis } from './board-context-menu.ts';
 import { prefersReducedMotion } from '../attention-banner.ts';
 
 const DRAG_THRESHOLD_PX = 4;
 const BOX_LIFT_HOLD_MS = 300;
-const ROTATE_SNAP_DEGREES = 15;
 const SNAP_THRESHOLD_PX = 8;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
@@ -120,7 +110,7 @@ interface NudgeRun {
   awaitedVersion: number | null;
 }
 
-type BoxFields = { place: { at: ViewPoint } } | { width: number };
+type BoxFields = { place: { at: ViewPoint } };
 
 type PanButton = 'primary' | 'auxiliary' | 'context';
 type StackOrder = Extract<Op, { op: 'order' }>['to'];
@@ -132,14 +122,11 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 
 
 type Gesture =
-  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null; resize: { handle: ResizeHandle; keepsRatio: boolean; turnAngle: number; boxAngleById: ReadonlyMap<string, number> } | null }
-  | { kind: 'rewire'; pointerId: number; fixedBoxId: string | null; start: ViewPoint; pressedAt: ViewPoint; latest: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null; wireId: string; end: WireEndName }
+  | { kind: 'drag'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; pressedButton: PanButton; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | { kind: 'ink'; pointerId: number; points: ViewPoint[]; draftLine: SVGPolylineElement }
-  | { kind: 'rotate'; pointerId: number; boxId: string; center: ViewPoint; startAngle: number; angle: number }
-  | { kind: 'bend'; pointerId: number; wireId: string; handle: WireHandle; pressedAt: ViewPoint; latest: ViewPoint; draftLine: SVGPathElement }
   | { kind: 'erase'; pointerId: number; latest: ViewPoint; erasedIds: Set<string>; trail: SVGPolylineElement; trailPoints: ViewPoint[] }
   | null;
 
@@ -173,39 +160,16 @@ function shiftedRectOf(rect: Rect, offset: ViewPoint): Rect {
   return { ...rect, x: rect.x + offset.x, y: rect.y + offset.y };
 }
 
-interface ResizedBox {
-  boxId: string;
-  start: Rect;
-  rect: Rect;
-  changesHeight: boolean;
-}
-
-function clampedSize(size: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, size));
-}
-
-function clampedBoxRect(rect: Rect, side: { x: -1 | 0 | 1; y: -1 | 0 | 1 }): Rect {
-  const width = clampedSize(rect.width, WHITEBOARD_LIMITS.boxWidthMin, WHITEBOARD_LIMITS.boxWidthMax);
-  const height = clampedSize(rect.height, 1, WHITEBOARD_LIMITS.boxHeightMax);
-  const keptStart = (start: number, size: number, clamped: number, sideSign: -1 | 0 | 1) => (sideSign === -1 ? start + size - clamped : sideSign === 0 ? start + (size - clamped) / 2 : start);
-  return { x: keptStart(rect.x, rect.width, width, side.x), y: keptStart(rect.y, rect.height, height, side.y), width, height };
-}
-
 function pressedImageOf(hit: BoardHit | null): PressedImage | null {
   if (hit?.part !== 'media' || !hit.media) return null;
   return { boxId: hit.id, href: hit.media.href, alt: hit.media.alt };
 }
 
-const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const INK_POINT_SPACING_PX = 2;
 const ERASER_SAMPLE_SPACING_PX = 4;
 const ERASER_TRAIL_POINTS = 24;
-const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', resize: 'nwse-resize', media: 'zoom-in', end: 'move', bend: 'move', rotate: 'grab' };
-const MOVABLE_BOX_PARTS: ReadonlySet<BoardHit['part']> = new Set(['body', 'line', 'emptyBody']);
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', media: 'zoom-in' };
 const MIN_TITLE_EDITOR_WIDTH_PX = 160;
-const MIN_LINE_EDITOR_WIDTH_PX = 240;
-
-type LineEditing = Extract<LineEditState, { mode: 'editing' }>;
 
 interface InlineEditor {
   node: HTMLElement;
@@ -214,25 +178,9 @@ interface InlineEditor {
   abort: AbortController;
 }
 
-interface UnconfirmedLines {
-  boardId: string;
-  boxId: string;
-  linesOnTheWay: readonly (readonly BoxLine[])[];
-  lines: readonly BoxLine[];
-}
-
-const RESIZE_CURSORS_BY_EIGHTH_TURN = ['ns-resize', 'nesw-resize', 'ew-resize', 'nwse-resize'] as const;
-const EIGHTH_TURNS_BY_RESIZE_HANDLE: Readonly<Record<ResizeHandle, number>> = { n: 0, s: 0, ne: 1, sw: 1, e: 2, w: 2, nw: 3, se: 3 };
-
-function resizeCursorOf(handle: ResizeHandle, turnAngle: number): string {
-  const eighthTurns = EIGHTH_TURNS_BY_RESIZE_HANDLE[handle] + Math.round(turnAngle / 45);
-  return RESIZE_CURSORS_BY_EIGHTH_TURN[((eighthTurns % 4) + 4) % 4] ?? 'nwse-resize';
-}
-
-function hoverCursorOf(hit: BoardHit | null, turnAngle: number): string {
+function hoverCursorOf(hit: BoardHit | null): string {
   if (!hit) return '';
-  if (hit.handle) return resizeCursorOf(hit.handle, turnAngle);
-  if (hit.kind === 'box' && MOVABLE_BOX_PARTS.has(hit.part)) return 'move';
+  if (hit.kind === 'box' && hit.part === 'body') return 'move';
   return CURSOR_BY_HIT_PART[hit.part];
 }
 
@@ -264,9 +212,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let camera: Camera = { x: 0, y: 0, scale: 1 };
   let gesture: Gesture = null;
   let inlineEditor: InlineEditor | null = null;
-  let lineEdit: LineEditState = CLOSED_LINE_EDIT;
-  let unconfirmedLines: UnconfirmedLines | null = null;
-  let linesUnderLineEdit: readonly BoxLine[] | null = null;
   let previewFrameId: number | null = null;
   let activeTool: BoardTool = 'select';
   let toolKeeping: 'until placed' | 'kept' = 'until placed';
@@ -454,16 +399,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     applyCamera();
   }
 
-  function selectionTurnAngle(): number {
-    const board = options.currentBoard();
-    const selectedBoxes = [...selectedIds].flatMap((elementId) => {
-      const element = board?.elements.get(elementId);
-      return element?.kind === 'box' ? [element] : [];
-    });
-    const [onlyBox] = selectedBoxes;
-    return onlyBox && selectedBoxes.length === 1 ? onlyBox.angle : 0;
-  }
-
   function setSelection(nextSelectedIds: Set<string>): void {
     selectedIds = new Set([...nextSelectedIds].filter((elementId) => !isCodemapOwnedId(elementId)));
     nudgeRun = null;
@@ -488,59 +423,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     };
   }
 
-  function resizeStretchOf(drag: Extract<Gesture, { kind: 'drag' }>, latest: ViewPoint): ResizeStretch | null {
-    if (!drag.resize) return null;
-    const offset = rotatedAbout({ x: latest.x - drag.origin.x, y: latest.y - drag.origin.y }, { x: 0, y: 0 }, -drag.resize.turnAngle);
-    const side = handleSidesOf(drag.resize.handle);
-    const isPastVerticalThreshold = Math.abs(offset.y) >= VERTICAL_RESIZE_THRESHOLD_PX * viewUnitsPerPixel();
-    const changesHeight = drag.resize.keepsRatio || (side.y !== 0 && (side.x === 0 || isPastVerticalThreshold));
-    return { handle: drag.resize.handle, offset, keepsRatio: drag.resize.keepsRatio, changesHeight };
-  }
-
-  function resizedBoxesOf(drag: Extract<Gesture, { kind: 'drag' }>): ResizedBox[] {
-    const { resize } = drag;
-    const stretch = resizeStretchOf(drag, drag.latest);
-    if (!resize || !stretch) return [];
-    const target = resizedRectOf(drag.start, stretch);
-    const side = handleSidesOf(stretch.handle);
-    const [onlyBox] = drag.movingBoxes;
-    if (onlyBox && drag.movingBoxes.length === 1) {
-      const clamped = clampedBoxRect(target, side);
-      const fitted = resize.turnAngle === 0 ? clamped : { ...clamped, height: fittedHeightOf(onlyBox.boxId, clamped, stretch.changesHeight) ?? clamped.height };
-      const rect = turnedRectKeepingAnchor(onlyBox.start, fitted, resize.turnAngle, side);
-      return [{ boxId: onlyBox.boxId, start: onlyBox.start, rect, changesHeight: stretch.changesHeight }];
-    }
-    return drag.movingBoxes.map((movingBox) => {
-      const stretched = scaledRectWithin(movingBox.start, resize.boxAngleById.get(movingBox.boxId) ?? 0, drag.start, target);
-      return { boxId: movingBox.boxId, start: movingBox.start, rect: clampedBoxRect(stretched, side), changesHeight: stretch.changesHeight };
-    });
-  }
-
-  function fittedHeightOf(boxId: string, rect: Rect, changesHeight: boolean): number | null {
-    const box = options.currentBoard()?.elements.get(boxId);
-    if (box?.kind !== 'box') return null;
-    const resizedBox = { ...box, width: Math.round(rect.width), height: changesHeight ? Math.round(rect.height) : box.height };
-    return laidOutBox(new Map(), resizedBox, { x: 0, y: 0 }).height;
-  }
-
-  function resizedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
-    const board = options.currentBoard();
-    const resizedBoxes = resizedBoxesOf(drag);
-    const shiftedBoxes = resizedBoxes.filter(({ start, rect }) => Math.round(rect.x) !== Math.round(start.x) || Math.round(rect.y) !== Math.round(start.y));
-    const leavingBand = shiftedBoxes.filter(({ boxId }) => {
-      const record = board?.elements.get(boxId);
-      return record?.kind === 'box' && isInStepBand(record);
-    });
-    const bandShrinkY = drag.pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((resized) => resized.start));
-    const shiftedIds = new Set(shiftedBoxes.map((resized) => resized.boxId));
-    return resizedBoxes.map(({ boxId, rect, changesHeight }) => {
-      const place = { at: { x: Math.round(rect.x), y: Math.round(rect.y - drag.pinnedOffsetY + bandShrinkY) } };
-      return { boxId, fields: { width: Math.round(rect.width), ...(changesHeight ? { height: Math.round(rect.height) } : {}), ...(shiftedIds.has(boxId) ? { place } : {}) } };
-    });
-  }
-
   function draggedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
-    if (drag.mode === 'resize') return resizedBoxFields(drag);
     return movedPlaceFields(drag.movingBoxes, (start) => draggedAt(drag, start), drag.pinnedOffsetY);
   }
 
@@ -626,33 +509,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     void options.sendOps([{ op: 'order', ids, to }]);
   }
 
-  function selectedBoxRects(): ArrangedRect[] {
-    const board = options.currentBoard();
-    return [...selectedIds].flatMap((elementId) => {
-      const bounds = board?.elements.get(elementId)?.kind === 'box' ? renderer.boundsOf(elementId) : null;
-      return bounds ? [{ id: elementId, ...bounds }] : [];
-    });
-  }
-
-  function arrangeSelected(arrangedRectsOf: (rects: readonly ArrangedRect[]) => ArrangedRect[]): void {
-    const startRects = selectedBoxRects();
-    const arrangedById = new Map(arrangedRectsOf(startRects).map((arranged) => [arranged.id, arranged] as const));
-    const movingBoxes = startRects.flatMap((start) => {
-      const arranged = arrangedById.get(start.id);
-      const hasMoved = arranged && (Math.round(arranged.x) !== Math.round(start.x) || Math.round(arranged.y) !== Math.round(start.y));
-      return hasMoved ? [{ boxId: start.id, start }] : [];
-    });
-    if (movingBoxes.length === 0) return;
-    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const arrangedAtOf = (boxId: string): ViewPoint => {
-      const arranged = arrangedById.get(boxId);
-      return { x: Math.round(arranged?.x ?? 0), y: Math.round((arranged?.y ?? 0) - pinnedOffsetY) };
-    };
-    const boxIdByStart = new Map<Rect, string>(movingBoxes.map((movingBox) => [movingBox.start, movingBox.boxId]));
-    const fields = movedPlaceFields(movingBoxes, (start) => arrangedAtOf(boxIdByStart.get(start) ?? ''), pinnedOffsetY);
-    void options.sendOps(fields.map(({ boxId, fields: boxFields }): Op => ({ op: 'set', id: boxId, fields: boxFields })));
-  }
-
   function selectAll(): void {
     const board = options.currentBoard();
     if (!board) return;
@@ -674,7 +530,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function paintMovePreview(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): boolean {
     const layout = renderer.layout();
-    if (drag.mode !== 'move' || !drag.hasMoved || !layout) return false;
+    if (!drag.hasMoved || !layout) return false;
     const offset = dragOffsetOf(drag);
     if (!drag.preview || drag.previewLayout !== layout) {
       const anchorBox = drag.movingBoxes.find((movingBox) => movingBox.boxId === drag.boxId) ?? drag.movingBoxes[0];
@@ -690,33 +546,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return true;
   }
 
-  function resizedElementsOf(drag: Extract<Gesture, { kind: 'drag' }>, board: Board, layout: BoardLayout): LaidOutElement[] {
-    const resizedIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
-    const laidOutById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' && resizedIds.has(element.id) ? [[element.id, element]] : [])));
-    const resizedElements = elementTableOf();
-    const resizedRectsById = new Map(resizedBoxesOf(drag).map((resized) => [resized.boxId, resized.rect] as const));
-    for (const { boxId, fields } of draggedBoxFields(drag)) {
-      const box = board.elements.get(boxId);
-      const rect = resizedRectsById.get(boxId);
-      if (box?.kind !== 'box' || !laidOutById.has(boxId) || !rect) continue;
-      resizedElements.put({ ...box, ...fields, step: null, place: { at: { x: Math.round(rect.x), y: Math.round(rect.y) } } });
-    }
-    const resizedById = new Map<string, LaidOutElement>();
-    for (const element of layoutBoard({ ...board, elements: resizedElements }).elements) {
-      const rect = resizedRectsById.get(element.id);
-      if (element.kind === 'box' && rect) resizedById.set(element.id, movedBox(element, Math.round(rect.x) - element.x, Math.round(rect.y) - element.y));
-    }
-    const resizedLayout = { ...layout, elements: layout.elements.map((element) => resizedById.get(element.id) ?? element) };
-    return createDragPreview(board, resizedLayout, new Set(resizedById.keys()), new Set(), { x: 0, y: 0 })(0, 0);
-  }
-
-  function paintResizePreview(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): boolean {
-    const layout = renderer.layout();
-    if (drag.mode !== 'resize' || !drag.hasMoved || !layout) return false;
-    renderer.paintElements(resizedElementsOf(drag, board, layout));
-    return true;
-  }
-
   function paintPreview(): void {
     cancelPreviewFrame();
     const board = options.currentBoard();
@@ -724,15 +553,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
       options.repaint();
       return;
     }
-    if (paintMovePreview(gesture, board) || paintResizePreview(gesture, board)) return;
+    if (paintMovePreview(gesture, board)) return;
     options.repaint();
   }
 
   function repaintPreview(): void {
     const board = options.currentBoard();
     if (gesture?.kind !== 'drag' || !board) return;
-    if (paintMovePreview(gesture, board)) return;
-    paintResizePreview(gesture, board);
+    paintMovePreview(gesture, board);
   }
 
   function requestPreviewFrame(): void {
@@ -759,9 +587,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function startPinch(): void {
-    if (gesture?.kind === 'rewire') endRewire(gesture, false);
-    if (gesture?.kind === 'bend') endBend(gesture, false);
-    if (gesture?.kind === 'rotate') endRotate(gesture, false);
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
     if (gesture?.kind === 'erase') endErase(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
@@ -902,45 +727,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
       startErase(event);
       return;
     }
-    if (hit?.part === 'end' && hit.end) {
-      startRewire(event.pointerId, hit.id, hit.end, toViewPoint(event.clientX, event.clientY));
-      return;
-    }
-    if (hit?.part === 'rotate') {
-      startRotate(event.pointerId, hit.id);
-      return;
-    }
-    if (hit?.part === 'bend' && hit.bend) {
-      startBend(event.pointerId, hit.id, hit.bend, toViewPoint(event.clientX, event.clientY));
-      return;
-    }
     if (hit && isCodemapOwnedId(hit.id)) {
       gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: 'primary', tappedBoxId: hit.id, pressedImage: pressedImageOf(hit) };
       return;
     }
     const hitBoxRect = hit?.kind === 'box' ? renderer.boundsOf(hit.id) : null;
-    const resizeHandle = hit?.part === 'resize' ? hit.handle : null;
-    if (hit && hitBoxRect && resizeHandle) {
-      const origin = toViewPoint(event.clientX, event.clientY);
-      const movingBoxes = movingBoxesFor(hit.id, false);
-      const board = options.currentBoard();
-      const boxAngleById = new Map(movingBoxes.map((movingBox) => {
-        const box = board?.elements.get(movingBox.boxId);
-        return [movingBox.boxId, box?.kind === 'box' ? box.angle : 0] as const;
-      }));
-      const [onlyBox] = movingBoxes;
-      const turnAngle = movingBoxes.length === 1 ? selectionTurnAngle() : 0;
-      const start = turnAngle !== 0 && onlyBox ? onlyBox.start : rectAround(movingBoxes.map((movingBox) => rotatedBoundsOf({ ...movingBox.start, angle: boxAngleById.get(movingBox.boxId) ?? 0 })));
-      const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start, movingBoxes, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: { handle: resizeHandle, keepsRatio: event.shiftKey, turnAngle, boxAngleById } };
-      return;
-    }
     const frameRect = hit?.kind === 'frame' ? renderer.boundsOf(hit.id) : null;
     const boxRect = isPhoneLayout() ? null : hitBoxRect ?? frameRect;
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey, snapTargets: null, resize: null };
+      gesture = { kind: 'drag', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey, snapTargets: null };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -964,7 +761,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (gesture !== pan || pan.hasMoved || !boxRect) return;
     setSelection(new Set([boxId]));
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    gesture = { kind: 'drag', mode: 'move', pointerId: pan.pointerId, boxId, origin: pressedAt, start: boxRect, movingBoxes: movingBoxesFor(boxId, false), pinnedOffsetY, latest: pressedAt, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: null };
+    gesture = { kind: 'drag', pointerId: pan.pointerId, boxId, origin: pressedAt, start: boxRect, movingBoxes: movingBoxesFor(boxId, false), pinnedOffsetY, latest: pressedAt, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null };
     navigator.vibrate?.(10);
   }
 
@@ -1088,112 +885,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     editTitle(elementId);
   }
 
-  function startRewire(pointerId: number, wireId: string, end: WireEndName, pressedAt: ViewPoint): void {
-    const stored = options.currentBoard()?.elements.get(wireId);
-    const laidOut = renderer.layout()?.elements.find((element) => element.id === wireId);
-    if (stored?.kind !== 'wire' || laidOut?.kind !== 'wire') return;
-    const start = end === 'to' ? laidOut.start : laidOut.end;
-    const draftLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    draftLine.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
-    draftLine.setAttribute('d', `M ${start.x} ${start.y} L ${start.x} ${start.y}`);
-    svg.append(draftLine);
-    const fixedBoxId = boxIdOfEnd(end === 'to' ? stored.from : stored.to);
-    gesture = { kind: 'rewire', pointerId, fixedBoxId, start, pressedAt, latest: pressedAt, draftLine, targetBoxId: null, wireId, end };
-  }
-
-  function laidOutWireOf(wireId: string): Extract<LaidOutElement, { kind: 'wire' }> | null {
-    const laidOut = renderer.layout()?.elements.find((element) => element.id === wireId);
-    return laidOut?.kind === 'wire' ? laidOut : null;
-  }
-
-  function startRotate(pointerId: number, boxId: string): void {
-    const laidOut = renderer.layout()?.elements.find((element) => element.id === boxId);
-    if (laidOut?.kind !== 'box') return;
-    const center = { x: laidOut.x + laidOut.width / 2, y: laidOut.y + laidOut.height / 2 };
-    gesture = { kind: 'rotate', pointerId, boxId, center, startAngle: laidOut.angle, angle: laidOut.angle };
-  }
-
-  function moveRotate(rotate: Extract<Gesture, { kind: 'rotate' }>, event: PointerEvent): void {
-    const point = toViewPoint(event.clientX, event.clientY);
-    const pointerDegrees = (Math.atan2(point.y - rotate.center.y, point.x - rotate.center.x) * 180) / Math.PI + 90;
-    const snapped = event.shiftKey ? Math.round(pointerDegrees / ROTATE_SNAP_DEGREES) * ROTATE_SNAP_DEGREES : Math.round(pointerDegrees);
-    rotate.angle = ((snapped % 360) + 360) % 360;
-    const laidOut = renderer.layout()?.elements.find((element) => element.id === rotate.boxId);
-    if (laidOut?.kind === 'box') renderer.paintElements([{ ...laidOut, angle: rotate.angle }]);
-  }
-
-  function endRotate(rotate: Extract<Gesture, { kind: 'rotate' }>, shouldRotate: boolean): void {
-    options.repaint();
-    if (!shouldRotate || rotate.angle === rotate.startAngle) return;
-    void options.sendOps([{ op: 'set', id: rotate.boxId, fields: { angle: rotate.angle } }]);
-  }
-
-  function startBend(pointerId: number, wireId: string, handle: WireHandle, pressedAt: ViewPoint): void {
-    const draftLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    draftLine.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
-    svg.append(draftLine);
-    gesture = { kind: 'bend', pointerId, wireId, handle, pressedAt, latest: pressedAt, draftLine };
-  }
-
-  function bentCornersOf(bend: Extract<Gesture, { kind: 'bend' }>, laidOut: Extract<LaidOutElement, { kind: 'wire' }>): ViewPoint[] {
-    const { handle, latest } = bend;
-    if (handle.kind === 'segment') return elbowCornersAfterShift(pointsOfPath(laidOut.path), handle.index, { x: latest.x - bend.pressedAt.x, y: latest.y - bend.pressedAt.y });
-    if (handle.kind === 'bend') return laidOut.bends.map((corner, index) => (index === handle.index ? latest : corner));
-    return [...laidOut.bends.slice(0, handle.index), latest, ...laidOut.bends.slice(handle.index)];
-  }
-
-  function moveBend(bend: Extract<Gesture, { kind: 'bend' }>, event: PointerEvent): void {
-    bend.latest = toViewPoint(event.clientX, event.clientY);
-    const laidOut = laidOutWireOf(bend.wireId);
-    if (!laidOut) return;
-    const draftPoints = [laidOut.start, ...bentCornersOf(bend, laidOut), laidOut.end];
-    bend.draftLine.setAttribute('d', draftPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' '));
-  }
-
-  function endBend(bend: Extract<Gesture, { kind: 'bend' }>, shouldBend: boolean): void {
-    bend.draftLine.remove();
-    const laidOut = laidOutWireOf(bend.wireId);
-    const draggedPx = Math.hypot(bend.latest.x - bend.pressedAt.x, bend.latest.y - bend.pressedAt.y) * camera.scale;
-    if (!shouldBend || !laidOut || draggedPx < DRAG_THRESHOLD_PX) return;
-    const via = bentCornersOf(bend, laidOut).map(storedPointOf);
-    if (via.length > WHITEBOARD_LIMITS.wireBends) return;
-    void options.sendOps([{ op: 'set', id: bend.wireId, fields: { via } }]);
-  }
-
-  function removeBend(wireId: string, bendIndex: number): void {
-    const stored = options.currentBoard()?.elements.get(wireId);
-    if (stored?.kind !== 'wire') return;
-    void options.sendOps([{ op: 'set', id: wireId, fields: { via: stored.via.filter((_, index) => index !== bendIndex) } }]);
-  }
-
-  function storedPointOf(point: ViewPoint): ViewPoint {
-    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    return { x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) };
-  }
-
-  function markRewireTarget(rewire: Extract<Gesture, { kind: 'rewire' }>, targetBoxId: string | null): void {
-    rewire.targetBoxId = targetBoxId;
-    renderer.setWireTarget(targetBoxId);
-  }
-
-  function moveRewire(rewire: Extract<Gesture, { kind: 'rewire' }>, event: PointerEvent): void {
-    const point = toViewPoint(event.clientX, event.clientY);
-    rewire.latest = point;
-    rewire.draftLine.setAttribute('d', `M ${rewire.start.x} ${rewire.start.y} L ${point.x} ${point.y}`);
-    const targetBoxId = renderer.boxIdsAt(point).find((boxId) => boxId !== rewire.fixedBoxId) ?? null;
-    markRewireTarget(rewire, targetBoxId);
-  }
-
-  function endRewire(rewire: Extract<Gesture, { kind: 'rewire' }>, shouldConnect: boolean): void {
-    const targetBoxId = rewire.targetBoxId;
-    markRewireTarget(rewire, null);
-    rewire.draftLine.remove();
-    const draggedPx = Math.hypot(rewire.latest.x - rewire.pressedAt.x, rewire.latest.y - rewire.pressedAt.y) * camera.scale;
-    if (!shouldConnect || !options.currentBoard() || draggedPx < DRAG_THRESHOLD_PX) return;
-    const releasedEnd: WireEnd = targetBoxId ?? storedPointOf(rewire.latest);
-    void options.sendOps([{ op: 'set', id: rewire.wireId, fields: { [rewire.end]: releasedEnd } }]);
-  }
-
   function snapTargetsFor(drag: Extract<Gesture, { kind: 'drag' }>): SnapTargets {
     const board = options.currentBoard();
     const movingIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
@@ -1208,30 +899,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function snappedLatestOf(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): ViewPoint {
     const point = toViewPoint(event.clientX, event.clientY);
-    const isSnapOff = event.ctrlKey || event.metaKey || drag.movingBoxes.length === 0 || (drag.resize !== null && drag.resize.turnAngle !== 0);
+    const isSnapOff = event.ctrlKey || event.metaKey || drag.movingBoxes.length === 0;
     if (isSnapOff) {
       paintGuides([]);
       return point;
     }
     drag.snapTargets ??= snapTargetsFor(drag);
     const thresholdUnits = SNAP_THRESHOLD_PX * viewUnitsPerPixel();
-    const stretch = resizeStretchOf(drag, point);
-    if (stretch?.keepsRatio) {
-      paintGuides([]);
-      return point;
-    }
-    if (stretch) {
-      const moved = resizedRectOf(drag.start, stretch);
-      const side = handleSidesOf(stretch.handle);
-      const edgeOf = (start: number, size: number, sideSign: -1 | 0 | 1) => (sideSign === 0 ? [] : [sideSign === 1 ? start + size : start]);
-      const xs = edgeOf(moved.x, moved.width, side.x);
-      const firstSnap = snappedCorrectionOf(drag.snapTargets, { xs, ys: stretch.changesHeight ? edgeOf(moved.y, moved.height, side.y) : [] }, moved, thresholdUnits);
-      const snappedStretch = resizeStretchOf(drag, { x: point.x, y: point.y + firstSnap.correction.y });
-      const losesHeightChange = stretch.changesHeight && !snappedStretch?.changesHeight;
-      const resizeSnap = losesHeightChange ? snappedCorrectionOf(drag.snapTargets, { xs, ys: [] }, moved, thresholdUnits) : firstSnap;
-      paintGuides(resizeSnap.guides);
-      return { x: point.x + resizeSnap.correction.x, y: point.y + resizeSnap.correction.y };
-    }
     const offset = { x: point.x - drag.origin.x, y: point.y - drag.origin.y };
     const moved = shiftedRectOf(rectAround(drag.movingBoxes.map((movingBox) => movingBox.start)), offset);
     const snap = movedSnapOf(drag.snapTargets, moved, thresholdUnits);
@@ -1255,7 +929,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const rawPoint = toViewPoint(event.clientX, event.clientY);
     if (!drag.hasMoved && Math.hypot(rawPoint.x - drag.origin.x, rawPoint.y - drag.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
     drag.hasMoved = true;
-    if (drag.resize) drag.resize.keepsRatio = event.shiftKey;
     drag.latest = snappedLatestOf(drag, event);
     renderer.setWireTarget(stackTargetOf(drag));
     requestPreviewFrame();
@@ -1263,7 +936,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function stackTargetOf(drag: Extract<Gesture, { kind: 'drag' }>): string | null {
     const isFrameDrag = drag.movingBoxes[0]?.boxId !== drag.boxId;
-    if (drag.mode !== 'move' || drag.movingBoxes.length !== 1 || isFrameDrag || stackTopped(drag.boxId)) return null;
+    if (drag.movingBoxes.length !== 1 || isFrameDrag || stackTopped(drag.boxId)) return null;
     return renderer.boxIdsAt(drag.latest).find((boxId) => boxId !== drag.boxId) ?? null;
   }
 
@@ -1320,9 +993,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     gesture = null;
     activePointers.delete(cancelled.pointerId);
     if (cancelled.kind === 'marquee') cancelled.outline.remove();
-    if (cancelled.kind === 'rewire') endRewire(cancelled, false);
-    if (cancelled.kind === 'bend') endBend(cancelled, false);
-    if (cancelled.kind === 'rotate') endRotate(cancelled, false);
     if (cancelled.kind === 'ink') cancelled.draftLine.remove();
     if (cancelled.kind === 'erase') endErase(cancelled, false);
     if (cancelled.kind !== 'drag') return true;
@@ -1347,7 +1017,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const hit = hitAt(event.clientX, event.clientY);
     renderer.setHover(hit?.kind === 'box' ? hit.id : null);
     viewport.dataset.hoverKind = hit?.kind ?? '';
-    viewport.style.cursor = (spaceHeldTool ?? activeTool) === 'select' ? hoverCursorOf(hit, selectionTurnAngle()) : '';
+    viewport.style.cursor = (spaceHeldTool ?? activeTool) === 'select' ? hoverCursorOf(hit) : '';
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -1361,18 +1031,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (gesture?.kind === 'drag' && gesture.pointerId === event.pointerId) {
       moveDrag(gesture, event);
-      return;
-    }
-    if (gesture?.kind === 'rewire' && gesture.pointerId === event.pointerId) {
-      moveRewire(gesture, event);
-      return;
-    }
-    if (gesture?.kind === 'bend' && gesture.pointerId === event.pointerId) {
-      moveBend(gesture, event);
-      return;
-    }
-    if (gesture?.kind === 'rotate' && gesture.pointerId === event.pointerId) {
-      moveRotate(gesture, event);
       return;
     }
     if (gesture?.kind === 'marquee' && gesture.pointerId === event.pointerId) {
@@ -1391,7 +1049,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   async function finishDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): Promise<void> {
-    if (!drag.hasMoved && (drag.mode === 'resize' || isPhoneLayout())) return;
+    if (!drag.hasMoved && isPhoneLayout()) return;
     if (!drag.hasMoved) {
       finishClick(drag);
       return;
@@ -1400,7 +1058,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     drag.latest = snappedLatestOf(drag, event);
     paintGuides([]);
     renderer.setWireTarget(null);
-    if (drag.isDuplicating && drag.mode === 'move') {
+    if (drag.isDuplicating) {
       paintPreview();
       await duplicateBoxes(drag.movingBoxes.map((movingBox) => movingBox.boxId), dragOffsetOf(drag));
       return;
@@ -1413,9 +1071,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
-    if (board && !paintMovePreview(drag, board)) paintResizePreview(drag, board);
+    if (board) paintMovePreview(drag, board);
     const boxMoveOps = changes.map(({ boxId, fields }): Op => ({ op: 'set', id: boxId, fields }));
-    const carriedWires = board && drag.mode === 'move' ? carriedWiresOf(board.elements.values(), selectedIds, new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId))) : [];
+    const carriedWires = board ? carriedWiresOf(board.elements.values(), selectedIds, new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId))) : [];
     const moveOps = [...boxMoveOps, ...carriedWires.map((wire) => shiftedWireOpOf(wire, dragOffsetOf(drag)))];
     const departureOps = board ? frameDepartureOps(drag, board) : [];
     const isSent = await options.sendOps([...moveOps, ...departureOps]) || (departureOps.length > 0 && await options.sendOps(moveOps));
@@ -1424,7 +1082,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function frameDepartureOps(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): Op[] {
     const layout = renderer.layout();
-    if (drag.mode !== 'move' || !layout) return [];
+    if (!layout) return [];
     const dropOffset = dragOffsetOf(drag);
     const laidOutById = new Map(layout.elements.map((element) => [element.id, element] as const));
     const movingBoxIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
@@ -1490,18 +1148,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
       void finishDrag(finished, event);
       return;
     }
-    if (finished?.kind === 'rewire') {
-      endRewire(finished, finished.pointerId === event.pointerId);
-      return;
-    }
-    if (finished?.kind === 'bend') {
-      endBend(finished, finished.pointerId === event.pointerId);
-      return;
-    }
-    if (finished?.kind === 'rotate') {
-      endRotate(finished, finished.pointerId === event.pointerId);
-      return;
-    }
     if (finished?.kind === 'marquee') {
       finishMarquee(finished);
       return;
@@ -1541,9 +1187,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onPointerCancel(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
     const wasDragging = gesture?.kind === 'drag';
-    if (gesture?.kind === 'rewire') endRewire(gesture, false);
-    if (gesture?.kind === 'bend') endBend(gesture, false);
-    if (gesture?.kind === 'rotate') endRotate(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
     if (gesture?.kind === 'erase') endErase(gesture, false);
@@ -1587,8 +1230,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function closeInlineEditor(): void {
     const openEditor = inlineEditor;
     inlineEditor = null;
-    lineEdit = CLOSED_LINE_EDIT;
-    linesUnderLineEdit = null;
     openEditor?.abort.abort();
     openEditor?.node.remove();
   }
@@ -1604,7 +1245,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function editTitle(elementId: string): void {
     const titled = options.currentBoard()?.elements.get(elementId);
-    if (titled?.kind !== 'box' || !renderer.boxTextRectsOf(elementId)) return;
+    if (titled?.kind !== 'box' || titled.shape !== 'note' || !renderer.boxTextRectsOf(elementId)) return;
     const input = markAsNotCredential(el('input', 'wb-title-input'));
     input.type = 'text';
     input.value = titled.title;
@@ -1631,179 +1272,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     input.select();
   }
 
-  function editedBox(boxId: string): Box | null {
-    const element = options.currentBoard()?.elements.get(boxId);
-    return element?.kind === 'box' ? element : null;
-  }
-
-  function unconfirmedLinesOf(box: Box): UnconfirmedLines | null {
-    const isThisBox = unconfirmedLines?.boxId === box.id && unconfirmedLines.boardId === options.currentBoard()?.id;
-    return isThisBox ? unconfirmedLines : null;
-  }
-
-  function linesOfBox(box: Box): readonly BoxLine[] {
-    return unconfirmedLinesOf(box)?.lines ?? box.lines;
-  }
-
-  function settleUnconfirmedLines(): void {
-    if (!unconfirmedLines) return;
-    const box = editedBox(unconfirmedLines.boxId);
-    const unconfirmed = box ? unconfirmedLinesOf(box) : null;
-    const isOwnSendStillLanding = box !== null && unconfirmed !== null && !isSameLines(box.lines, unconfirmed.lines) && unconfirmed.linesOnTheWay.some((lines) => isSameLines(box.lines, lines));
-    if (!isOwnSendStillLanding) unconfirmedLines = null;
-  }
-
-  function sendLineOps(lineOps: readonly LineOp[]): void {
-    const [firstOp] = lineOps;
-    const boardId = options.currentBoard()?.id;
-    const box = firstOp ? editedBox(firstOp.boxId) : null;
-    if (!box || !boardId) return;
-    const currentLines = linesOfBox(box);
-    const lines = linesAfter(currentLines, lineOps);
-    if (isSameLines(lines, currentLines)) return;
-    const linesOnTheWay = unconfirmedLinesOf(box)?.linesOnTheWay ?? [box.lines];
-    unconfirmedLines = { boardId, boxId: box.id, linesOnTheWay: [...linesOnTheWay, lines], lines };
-    void options.sendOps([{ op: 'set', id: box.id, fields: { lines } }]).then((isSent) => {
-      if (isSent || unconfirmedLines?.boxId !== box.id || unconfirmedLines.boardId !== boardId) return;
-      unconfirmedLines = null;
-      closeStaleLineEdit();
-    });
-  }
-
-  function lineSlotRect(editing: LineEditing): Rect | null {
-    const textRects = renderer.boxTextRectsOf(editing.boxId);
-    if (!textRects) return null;
-    const drawnIndex = Math.min(editing.isNewLine ? editing.lineIndex - 1 : editing.lineIndex, textRects.lines.length - 1);
-    const drawnRect = textRects.lines[drawnIndex] ?? textRects.title;
-    if (!editing.isNewLine) return drawnRect;
-    return { x: drawnRect.x, y: drawnRect.y + drawnRect.height, width: drawnRect.width, height: BODY_LINE_HEIGHT };
-  }
-
-  function applyLineEdit(event: LineEditEvent): void {
-    const { state, lineOps } = nextLineEdit(lineEdit, event);
-    sendLineOps(lineOps);
-    if (state === lineEdit) return;
-    if (state.mode === 'closed') {
-      closeInlineEditor();
-      return;
-    }
-    editLine(state);
-  }
-
-  function draftLineOf(editing: LineEditing, box: Box): BoxLine {
-    const lines = linesOfBox(box);
-    const editedLine = editing.isNewLine ? null : lines[editing.lineIndex];
-    if (editedLine) return editedLine;
-    const lineAbove = lines[editing.lineIndex - 1];
-    return lineAbove ? lineWithStyle({ ...EMPTY_LINE, muted: lineAbove.muted }, lineAbove.style) : EMPTY_LINE;
-  }
-
-  function editLine(editing: LineEditing): void {
-    const box = editedBox(editing.boxId);
-    if (!box || !lineSlotRect(editing)) {
-      closeInlineEditor();
-      return;
-    }
-    const draftLine = draftLineOf(editing, box);
-    const storedText = draftLine.text;
-    let shownKey = '';
-    const editor = el('div', 'wb-line-editor');
-    const keyInput = markAsNotCredential(el('input', 'wb-line-key'));
-    keyInput.type = 'text';
-    keyInput.maxLength = WHITEBOARD_LIMITS.lineKey;
-    keyInput.setAttribute('aria-label', 'Line key');
-    const textInput = markAsNotCredential(el('input', 'wb-line-text'));
-    textInput.type = 'text';
-    textInput.maxLength = WHITEBOARD_LIMITS.line;
-    textInput.value = storedText;
-    const shownText = textInput.value;
-    textInput.setAttribute('aria-label', 'Box line');
-    const signal = openInlineEditor(editor, () => lineSlotRect(editing), MIN_LINE_EDITOR_WIDTH_PX);
-    lineEdit = editing;
-    linesUnderLineEdit = linesOfBox(box);
-    const typedKey = () => {
-      if (draftLine.style !== 'kv' || keyInput.value === shownKey) return draftLine.key;
-      return keyInput.value.trim() || draftLine.key;
-    };
-    const typedLine = (): BoxLine => ({ ...draftLine, text: textInput.value === shownText ? storedText : textInput.value, key: typedKey() });
-    const paintDraft = () => {
-      editor.dataset.lineStyle = draftLine.style;
-      editor.dataset.muted = String(draftLine.muted);
-      keyInput.hidden = draftLine.style !== 'kv';
-      keyInput.value = draftLine.key ?? '';
-      shownKey = keyInput.value;
-    };
-    const onFieldKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        applyLineEdit({ kind: 'escape' });
-        viewport.focus();
-        return;
-      }
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        const enteredBox = editedBox(editing.boxId);
-        applyLineEdit({ kind: 'enter', draft: typedLine(), lineCount: enteredBox ? linesOfBox(enteredBox).length : 0 });
-        if (lineEdit.mode === 'closed') viewport.focus();
-        return;
-      }
-      if (event.key !== 'Backspace' || event.target !== textInput || textInput.value) return;
-      event.preventDefault();
-      applyLineEdit({ kind: 'backspaceOnEmptyLine' });
-      if (lineEdit.mode === 'closed') viewport.focus();
-    };
-    keyInput.addEventListener('keydown', onFieldKey, { signal });
-    textInput.addEventListener('keydown', onFieldKey, { signal });
-    editor.addEventListener('mousedown', (event) => {
-      if (event.target !== keyInput && event.target !== textInput) event.preventDefault();
-    }, { signal });
-    editor.addEventListener('focusout', (event) => {
-      if (event.relatedTarget instanceof Node && editor.contains(event.relatedTarget)) return;
-      applyLineEdit({ kind: 'blur', draft: typedLine() });
-    }, { signal });
-    editor.append(keyInput, textInput);
-    paintDraft();
-    textInput.focus();
-  }
-
-  function closeStaleLineEdit(): void {
-    if (lineEdit.mode !== 'editing') return;
-    const box = editedBox(lineEdit.boxId);
-    if (box && linesUnderLineEdit && isSameLines(linesOfBox(box), linesUnderLineEdit)) return;
-    applyLineEdit({ kind: 'linesChangedUnderEditor' });
-  }
-
   function afterBoardPaint(paintedVersion: number): void {
     endSettledNudgeRun(paintedVersion);
     forgetSnapTargets();
-    settleUnconfirmedLines();
-    closeStaleLineEdit();
     placeInlineEditor();
     openPendingTitleEdit();
-  }
-
-  function onDoubleClick(event: MouseEvent): void {
-    if (isPhoneLayout()) return;
-    const hit = hitAt(event.clientX, event.clientY);
-    if (!hit) return;
-    if (hit.part === 'bend' && hit.bend?.kind === 'bend') {
-      removeBend(hit.id, hit.bend.index);
-      return;
-    }
-    const box = hit.kind === 'box' ? editedBox(hit.id) : null;
-    if (!box) return;
-    const lineCount = linesOfBox(box).length;
-    const { lineIndex } = hit;
-    if (hit.part === 'line' && lineIndex !== null && lineIndex < lineCount) {
-      applyLineEdit({ kind: 'doubleClickLine', boxId: box.id, lineIndex });
-      return;
-    }
-    const isBelowStoredLines = hit.part === 'emptyBody' || hit.part === 'line';
-    if (isBelowStoredLines && SHAPE_TRAITS[box.shape].holdsLines) {
-      applyLineEdit({ kind: 'doubleClickEmptyBody', boxId: box.id, lineCount });
-      return;
-    }
-    editTitle(box.id);
   }
 
   function removeSelected(): void {
@@ -2002,7 +1475,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('mousedown', preventAuxiliaryMouseDown);
   viewport.addEventListener('auxclick', preventAuxiliaryClick);
   viewport.addEventListener('wheel', onWheel, { passive: false });
-  viewport.addEventListener('dblclick', onDoubleClick);
   viewport.addEventListener('contextmenu', (event) => {
     event.preventDefault();
     if (gesture || event.button === BOARD_CONTEXT_MOUSE_BUTTON || isPhoneLayout()) return;
@@ -2043,8 +1515,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     selectAll,
     duplicateSelection,
     orderSelected,
-    alignSelected: (edge: AlignEdge) => arrangeSelected((rects) => alignedRectsOf(rects, edge)),
-    distributeSelected: (axis: DistributeAxis) => arrangeSelected((rects) => distributedRectsOf(rects, axis)),
     copySelection,
     cutSelection,
     pasteText,

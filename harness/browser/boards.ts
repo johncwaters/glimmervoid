@@ -13,14 +13,11 @@ import { BOARD_SHEET_CAP_BYTES, Board, BoardMediaUploadReply, BoardReview, WHITE
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
-import { pointsOfPath, rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '../../shared/whiteboard-route-core.ts';
-import type { WireHandle } from '../../shared/whiteboard-route-core.ts';
-import { BODY_LINE_HEIGHT, TITLE_BASELINE, TITLE_LINE_HEIGHT } from '../../shared/whiteboard-svg-core.ts';
+import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
-const RESIZE_TIMEOUT_MS = 5000;
 const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
@@ -434,97 +431,6 @@ async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number 
   return elementWhere(open, `a box titled ${title}`, titled(title));
 }
 
-async function laidOutRectOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number; width: number; height: number }> {
-  const laidOut = await laidOutOf(open, boxId);
-  assert.ok(laidOut.kind !== 'wire', `${boxId} is laid out as a rect`);
-  return { x: laidOut.x, y: laidOut.y, width: laidOut.width, height: laidOut.height };
-}
-
-async function verifyResizedBoxes(open: OpenBoard, boxIds: readonly [string, ...string[]]): Promise<void> {
-  const widthsOf = () => Promise.all(boxIds.map(async (boxId) => (await laidOutRectOf(open, boxId)).width));
-  const groupRightOf = async () => Math.max(...await Promise.all(boxIds.map(async (boxId) => {
-    const rect = await laidOutRectOf(open, boxId);
-    return rect.x + rect.width;
-  })));
-  const widthsBefore = await widthsOf();
-  const groupRightBefore = await groupRightOf();
-  const heightBefore = (await laidOutRectOf(open, boxIds[0])).height;
-  const screenRects = await Promise.all(boxIds.map((boxId) => screenRectOf(open, boxId)));
-  const handle = { x: Math.max(...screenRects.map((rect) => rect.x + rect.width)), y: Math.max(...screenRects.map((rect) => rect.y + rect.height)) };
-  assert.equal(await cursorAt(open, handle), 'nwse-resize', 'the bottom right corner of the selection is a resize handle');
-  await open.page.mouse.down();
-  await open.page.mouse.move(handle.x + 120, handle.y + 80, { steps: 6 });
-  await open.page.mouse.up();
-  const { scale } = await cameraOf(open);
-  await pollFor('dragging the corner handle widens every selected box', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width > (widthsBefore[index] ?? width)) ? true : null));
-  assert.ok(Math.abs((await groupRightOf()) - groupRightBefore - 120 / scale) <= 2, 'the selection grows from its bounds, so its right edge follows the pointer');
-  assert.ok((await laidOutRectOf(open, boxIds[0])).height > heightBefore, 'dragging the corner handle down makes the box taller');
-  await open.panel.getByRole('button', { name: 'Undo', exact: true }).click();
-  await pollFor('one undo puts every box back to its width', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width === widthsBefore[index]) ? true : null));
-  await open.panel.locator('.wb-viewport').focus();
-}
-
-async function verifyBandStepResizeStaysPut(open: OpenBoard, stepId: string): Promise<void> {
-  const laidOutBefore = await laidOutRectOf(open, stepId);
-  const screenBefore = await screenRectOf(open, stepId);
-  const leftHandle = { x: screenBefore.x, y: screenBefore.y + screenBefore.height / 2 };
-  await open.page.mouse.move(leftHandle.x, leftHandle.y);
-  await open.page.mouse.down();
-  await open.page.mouse.move(leftHandle.x - 60, leftHandle.y, { steps: 6 });
-  await open.page.mouse.up();
-  const { scale } = await cameraOf(open);
-  const laidOutAfter = await pollFor('a band step resized from its left handle widens', RESIZE_TIMEOUT_MS, async () => {
-    const rect = await laidOutRectOf(open, stepId);
-    return rect.width > laidOutBefore.width + 20 ? rect : null;
-  });
-  assert.ok(Math.abs(laidOutAfter.y - laidOutBefore.y) <= 2 && Math.abs(laidOutAfter.x - (laidOutBefore.x - 60 / scale)) <= 3, `the resized band step stays where it was dropped, from ${JSON.stringify(laidOutBefore)} to ${JSON.stringify(laidOutAfter)}`);
-  await open.panel.getByRole('button', { name: 'Undo', exact: true }).click();
-  await pollFor('undo puts the band step back', RESIZE_TIMEOUT_MS, async () => (Math.abs((await laidOutRectOf(open, stepId)).width - laidOutBefore.width) <= 1 ? true : null));
-}
-
-async function verifyEightHandles(open: OpenBoard, boxId: string): Promise<void> {
-  const { page, panel } = open;
-  await page.keyboard.press('Escape');
-  await selectBoxes(open, [boxId]);
-  const dragHandle = async (handleAt: (rect: ScreenRect) => { x: number; y: number }, by: { x: number; y: number }, holdsShift: boolean) => {
-    const handle = handleAt(await screenRectOf(open, boxId));
-    await page.mouse.move(handle.x, handle.y);
-    if (holdsShift) await page.keyboard.down('Shift');
-    await page.mouse.down();
-    await page.mouse.move(handle.x + by.x, handle.y + by.y, { steps: 6 });
-    await page.mouse.up();
-    if (holdsShift) await page.keyboard.up('Shift');
-  };
-  const { scale } = await cameraOf(open);
-  const before = await laidOutRectOf(open, boxId);
-  const selectedRect = await screenRectOf(open, boxId);
-  assert.equal(await cursorAt(open, { x: selectedRect.x, y: selectedRect.y + selectedRect.height / 2 }), 'ew-resize', 'the left edge handle shows a sideways cursor');
-  assert.equal(await cursorAt(open, { x: selectedRect.x + selectedRect.width, y: selectedRect.y }), 'nesw-resize', 'the top right corner handle shows a diagonal cursor');
-  await dragHandle((rect) => ({ x: rect.x, y: rect.y + rect.height / 2 }), { x: -60, y: 0 }, false);
-  const widenedLeft = await pollFor('the left handle widens the box to the left', RESIZE_TIMEOUT_MS, async () => {
-    const rect = await laidOutRectOf(open, boxId);
-    return Math.abs(rect.x + rect.width - (before.x + before.width)) <= 1 && rect.width > before.width ? rect : null;
-  });
-  assert.ok(Math.abs(widenedLeft.width - before.width - 60 / scale) <= 2, `the left handle widens by the drag, got ${widenedLeft.width - before.width}`);
-  await dragHandle((rect) => ({ x: rect.x + rect.width / 2, y: rect.y }), { x: 0, y: -50 }, false);
-  const raisedTop = await pollFor('the top handle makes the box taller upward', RESIZE_TIMEOUT_MS, async () => {
-    const rect = await laidOutRectOf(open, boxId);
-    return Math.abs(rect.y + rect.height - (widenedLeft.y + widenedLeft.height)) <= 1 && rect.height > widenedLeft.height ? rect : null;
-  });
-  await dragHandle((rect) => ({ x: rect.x + rect.width, y: rect.y + rect.height }), { x: 90, y: 0 }, true);
-  await pollFor('Shift keeps the ratio while dragging a corner', RESIZE_TIMEOUT_MS, async () => {
-    const rect = await laidOutRectOf(open, boxId);
-    return rect.width > raisedTop.width && Math.abs(rect.width / rect.height - raisedTop.width / raisedTop.height) < 0.03 ? true : null;
-  });
-  for (const _undo of [1, 2, 3]) await panel.getByRole('button', { name: 'Undo', exact: true }).click();
-  await pollFor('three undos put the box back', RESIZE_TIMEOUT_MS, async () => {
-    const rect = await laidOutRectOf(open, boxId);
-    return Math.abs(rect.width - before.width) <= 1 && Math.abs(rect.x - before.x) <= 1 ? true : null;
-  });
-  await panel.locator('.wb-viewport').focus();
-  await page.keyboard.press('Escape');
-}
-
 async function boxOrderOf(open: OpenBoard, boxIds: readonly string[]): Promise<string[]> {
   return [...(await boardOf(open)).elements.keys()].filter((elementId) => boxIds.includes(elementId));
 }
@@ -566,12 +472,14 @@ async function verifyContextMenu(open: OpenBoard, anchorBoxId: string): Promise<
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'hidden' });
   if (process.platform !== 'darwin') await verifyKeyboardContextMenu(open, menu);
-  await selectBoxes(open, ['menu-first', 'menu-second']);
-  await chooseFromContextMenu(open, centerOf(await screenRectOf(open, 'menu-second')), 'Align left');
-  const firstLeft = (await laidOutRectOf(open, 'menu-first')).x;
-  await pollFor('Align left lines up the selected boxes on the leftmost edge', BOARD_TIMEOUT_MS, async () => (Math.abs((await laidOutRectOf(open, 'menu-second')).x - firstLeft) <= 1 ? true : null));
-  await panel.getByRole('button', { name: 'Undo', exact: true }).click();
-  await pollFor('undo puts the aligned box back', BOARD_TIMEOUT_MS, async () => ((await laidOutRectOf(open, 'menu-second')).x > firstLeft + 20 ? true : null));
+  await selectBoxes(open, ['menu-first', 'menu-second', 'menu-third']);
+  const secondCenter = centerOf(await screenRectOf(open, 'menu-second'));
+  await page.mouse.click(secondCenter.x, secondCenter.y, { button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Frame' }).waitFor();
+  assert.equal(await menu.getByRole('menuitem', { name: 'Align left' }).count(), 0, 'the selection menu offers no align actions');
+  assert.equal(await menu.getByRole('menuitem', { name: 'Distribute horizontally' }).count(), 0, 'the selection menu offers no distribute actions');
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   const orderBefore = await boxOrderOf(open, boxIds);
@@ -641,11 +549,6 @@ async function dragOnScreen(open: OpenBoard, from: { x: number; y: number }, to:
   await open.page.mouse.up();
 }
 
-async function screenCenterOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
-  const rect = await screenRectOf(open, boxId);
-  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-}
-
 async function wireEndsOnScreen(open: OpenBoard, wireId: string): Promise<{ start: { x: number; y: number }; end: { x: number; y: number }; firstLegMiddle: { x: number; y: number } }> {
   const laidOut = await laidOutOf(open, wireId);
   assert.ok(laidOut.kind === 'wire', `${wireId} is a wire`);
@@ -654,161 +557,52 @@ async function wireEndsOnScreen(open: OpenBoard, wireId: string): Promise<{ star
   return { start: await screenPointOf(open, laidOut.start), end: await screenPointOf(open, laidOut.end), firstLegMiddle: await screenPointOf(open, { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }) };
 }
 
-async function verifyWireEnds(open: OpenBoard, anchorBoxId: string): Promise<void> {
+async function verifyRemovedAuthoringEdits(open: OpenBoard, anchorBoxId: string): Promise<void> {
   const { page, panel, boardId } = open;
   const viewport = panel.locator('.wb-viewport');
   const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
   const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
   assert.ok(anchorPoint, 'the anchor box has a point');
-  const arrowId = 'bind-arrow';
-  const lineId = 'bind-line';
+  const boxId = 'agent-authored-box';
+  const targetId = 'agent-authored-target';
+  const wireId = 'agent-authored-wire';
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
-    { op: 'add', element: { kind: 'box', id: 'bind-source', title: 'Source', place: { at: { x: anchorPoint.x, y: anchorPoint.y + 160 } } } },
-    { op: 'add', element: { kind: 'box', id: 'bind-target', title: 'Target', place: { at: { x: anchorPoint.x, y: anchorPoint.y + 360 } } } },
-    { op: 'add', element: { kind: 'wire', id: arrowId, from: { x: anchorPoint.x + 360, y: anchorPoint.y + 300 }, to: 'bind-target' } },
-    { op: 'add', element: { kind: 'wire', id: lineId, from: { x: anchorPoint.x - 120, y: anchorPoint.y + 60 }, to: { x: anchorPoint.x + 120, y: anchorPoint.y + 100 }, arrows: 'none', route: 'sharp' } },
+    { op: 'add', element: { kind: 'box', id: boxId, title: 'Agent box', width: 260, angle: 15, lines: [{ text: 'first line' }], place: { at: { x: anchorPoint.x, y: anchorPoint.y + 180 } } } },
+    { op: 'add', element: { kind: 'box', id: targetId, title: 'Agent target', place: { at: { x: anchorPoint.x + 360, y: anchorPoint.y + 180 } } } },
+    { op: 'add', element: { kind: 'wire', id: wireId, from: boxId, to: targetId, route: 'sharp', via: [{ x: anchorPoint.x + 280, y: anchorPoint.y + 240 }] } },
   ] });
-  await elementWhere(open, 'the wires an agent drew are on the board', (element) => element.id === lineId);
-  const drawnArrow = await wireEndsOnScreen(open, arrowId);
-  await page.mouse.click(drawnArrow.firstLegMiddle.x, drawnArrow.firstLegMiddle.y);
-  await dragOnScreen(open, drawnArrow.start, await screenCenterOf(open, 'bind-source'));
-  await elementWhere(open, 'dragging the free start handle onto a box binds it', (element) => element.id === arrowId && element.kind === 'wire' && element.from === 'bind-source');
-  const boundStart = (await wireEndsOnScreen(open, arrowId)).start;
-  await dragOnScreen(open, boundStart, { x: boundStart.x + 2, y: boundStart.y + 1 });
-  await dragOnScreen(open, boundStart, await screenCenterOf(open, 'bind-source'));
-  const afterJitter = (await boardOf(open)).elements.get(arrowId);
-  assert.ok(afterJitter?.kind === 'wire' && afterJitter.from === 'bind-source', `a jittery click on a bound end handle, or a drop back on its box, keeps the end bound, got ${JSON.stringify(afterJitter?.kind === 'wire' ? afterJitter.from : null)}`);
-  const reboundArrow = await wireEndsOnScreen(open, arrowId);
-  const targetRect = await screenRectOf(open, 'bind-target');
-  await dragOnScreen(open, reboundArrow.end, { x: targetRect.x + targetRect.width / 2, y: targetRect.y + targetRect.height + 80 });
-  await elementWhere(open, 'dragging the end handle off a box unbinds it to a free point', (element) => element.id === arrowId && element.kind === 'wire' && typeof element.to === 'object');
-  const wireCountBefore = [...(await boardOf(open)).elements.valuesOfKind('wire')].length;
-  const unboundArrow = await wireEndsOnScreen(open, arrowId);
-  await page.mouse.dblclick(unboundArrow.firstLegMiddle.x, unboundArrow.firstLegMiddle.y);
-  await page.waitForTimeout(300);
-  assert.equal(await page.getByRole('textbox', { name: 'Wire label', exact: true }).count(), 0, 'double-clicking a wire opens no label editor');
-  assert.equal([...(await boardOf(open)).elements.valuesOfKind('wire')].length, wireCountBefore, 'double-clicking a wire draws no wire');
-  const line = await wireEndsOnScreen(open, lineId);
-  await page.mouse.click(line.firstLegMiddle.x, line.firstLegMiddle.y);
-  const drawnLine = (await boardOf(open)).elements.get(lineId);
-  const lineStartX = drawnLine?.kind === 'wire' && typeof drawnLine.from === 'object' ? drawnLine.from.x : Number.NaN;
-  await page.keyboard.press('ArrowRight');
-  await elementWhere(open, 'an arrow key nudges a selected free line, both ends with it', (element) => element.id === lineId && element.kind === 'wire' && typeof element.from === 'object' && element.from.x === lineStartX + 1);
-  await verifyWireBends(open, lineId, arrowId);
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [arrowId, lineId, 'bind-source', 'bind-target'].map((id) => ({ op: 'remove', id })) });
-  await boardWithout(open, 'the wire end targets are gone', (element) => element.id === 'bind-source' || element.id === lineId);
+  await elementWhere(open, 'the agent-authored elements are on the board', (element) => element.id === wireId);
+  const laidOutBox = await laidOutOf(open, boxId);
+  assert.ok(laidOutBox.kind === 'box' && laidOutBox.angle === 15 && laidOutBox.width >= 260, 'an agent-authored rotated and sized box renders with its geometry');
+  const laidOutWire = await laidOutOf(open, wireId);
+  assert.ok(laidOutWire.kind === 'wire' && pointsOfPath(laidOutWire.path).length === 3, 'an agent-authored bent wire renders through its via point');
+  await selectBoxes(open, [boxId]);
+  const boxRect = await screenRectOf(open, boxId);
+  assert.notEqual(await cursorAt(open, { x: boxRect.x + boxRect.width, y: boxRect.y + boxRect.height }), 'nwse-resize', 'a selected box shows no corner resize handle');
+  assert.notEqual(await cursorAt(open, { x: boxRect.x, y: boxRect.y + boxRect.height / 2 }), 'ew-resize', 'a selected box shows no edge resize handle');
+  const aboveTop = await screenPointOf(open, { x: laidOutBox.x + laidOutBox.width / 2, y: laidOutBox.y - 28 });
+  assert.notEqual(await cursorAt(open, aboveTop), 'grab', 'a selected box shows no rotation grip');
+  const boxCenter = centerOf(boxRect);
+  await page.mouse.dblclick(boxCenter.x, boxCenter.y);
+  assert.equal(await page.getByRole('textbox', { name: 'Box title', exact: true }).count(), 0, 'double-clicking a box opens no title editor');
+  assert.equal(await page.getByRole('textbox', { name: 'Box line', exact: true }).count(), 0, 'double-clicking a box opens no line editor');
+  const inspect = panel.locator('.wb-inspect');
+  assert.equal(await inspect.getByRole('textbox', { name: 'Title', exact: true }).count(), 0, 'the properties panel offers no title input for a box');
+  await openMoreIn(inspect);
+  assert.equal(await inspect.locator('[data-field="angle"]').count(), 0, 'the properties panel offers no angle input');
+  assert.equal(await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).count(), 0, 'the properties panel offers no line editor');
+  await closeMoreIn(inspect);
+  const wirePoints = await wireEndsOnScreen(open, wireId);
+  await page.mouse.click(wirePoints.firstLegMiddle.x, wirePoints.firstLegMiddle.y);
+  assert.notEqual(await cursorAt(open, wirePoints.start), 'move', 'a selected wire shows no wire-end grip');
+  assert.notEqual(await cursorAt(open, wirePoints.firstLegMiddle), 'move', 'a selected wire shows no bend handle');
+  await dragOnScreen(open, wirePoints.end, { x: wirePoints.end.x, y: wirePoints.end.y + 80 });
+  const wireAfter = (await boardOf(open)).elements.get(wireId);
+  assert.ok(wireAfter?.kind === 'wire' && wireAfter.to === targetId && wireAfter.via.length === 1, 'dragging a selected wire end does not rewire or unbend it');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [wireId, boxId, targetId].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the removed-edits check cleans up', (element) => element.id === boxId);
   await viewport.focus();
-  await page.keyboard.press('v');
-}
-
-async function verifyRotation(open: OpenBoard, anchorBoxId: string): Promise<void> {
-  const { page, panel, boardId } = open;
-  const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
-  const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
-  assert.ok(anchorPoint, 'the anchor box has a point');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'turn-box', title: 'Turn me', place: { at: { x: anchorPoint.x, y: anchorPoint.y + 220 } } } }] });
-  await elementWhere(open, 'the box to rotate is on the board', (element) => element.id === 'turn-box');
-  await selectBoxes(open, ['turn-box']);
-  const laidOut = await laidOutOf(open, 'turn-box');
-  assert.ok(laidOut.kind === 'box');
-  const handle = await screenPointOf(open, { x: laidOut.x + laidOut.width / 2, y: laidOut.y - 28 });
-  const center = await screenPointOf(open, { x: laidOut.x + laidOut.width / 2, y: laidOut.y + laidOut.height / 2 });
-  await page.keyboard.down('Shift');
-  await dragOnScreen(open, handle, { x: center.x + 120, y: center.y + 7 });
-  await page.keyboard.up('Shift');
-  await elementWhere(open, 'dragging the rotate handle with Shift turns the box to a 15 degree step', (element) => element.id === 'turn-box' && element.kind === 'box' && element.angle === 90);
-  await openMoreIn(panel.locator('.wb-inspect'));
-  const angleField = panel.locator('[data-field="angle"]');
-  await angleField.fill('30');
-  await angleField.press('Tab');
-  await elementWhere(open, 'typing in the Angle field sets the rotation', (element) => element.id === 'turn-box' && element.kind === 'box' && element.angle === 30);
-  await closeMoreIn(panel.locator('.wb-inspect'));
-  const turned = await laidOutOf(open, 'turn-box');
-  assert.ok(turned.kind === 'box' && turned.angle === 30, 'the laid out box carries the typed angle');
-  await verifyTurnedResize(open, 'turn-box');
-  await verifyResizeAroundTurnedBox(open, 'turn-box');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'turn-box' }] });
-  await boardWithout(open, 'the rotated box is gone', (element) => element.id === 'turn-box');
-}
-
-async function verifyTurnedResize(open: OpenBoard, boxId: string): Promise<void> {
-  const before = await laidOutOf(open, boxId);
-  assert.ok(before.kind === 'box' && before.angle !== 0, `${boxId} is turned`);
-  const centerOf = (box: { x: number; y: number; width: number; height: number }) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
-  const eastHandle = rotatedAbout({ x: before.x + before.width, y: before.y + before.height / 2 }, centerOf(before), before.angle);
-  const westAnchor = rotatedAbout({ x: before.x, y: before.y + before.height / 2 }, centerOf(before), before.angle);
-  const pull = rotatedAbout({ x: 80, y: 0 }, { x: 0, y: 0 }, before.angle);
-  const from = await screenPointOf(open, eastHandle);
-  const to = await screenPointOf(open, { x: eastHandle.x + pull.x, y: eastHandle.y + pull.y });
-  await dragOnScreen(open, from, to);
-  const resized = await elementWhere(open, 'dragging the east handle of a turned box widens it along its own axis', (element) => element.id === boxId && element.kind === 'box' && typeof element.width === 'number' && element.width > before.width + 60);
-  assert.ok(resized.kind === 'box' && resized.angle === before.angle, 'a resize keeps the turn');
-  const after = await laidOutOf(open, boxId);
-  assert.ok(after.kind === 'box');
-  const westAfter = rotatedAbout({ x: after.x, y: after.y + after.height / 2 }, centerOf(after), after.angle);
-  assert.ok(Math.hypot(westAfter.x - westAnchor.x, westAfter.y - westAnchor.y) <= 2, `the opposite handle stays put, moved from ${JSON.stringify(westAnchor)} to ${JSON.stringify(westAfter)}`);
-}
-
-async function verifyResizeAroundTurnedBox(open: OpenBoard, turnedBoxId: string): Promise<void> {
-  const { page, boardId } = open;
-  const turned = await laidOutOf(open, turnedBoxId);
-  assert.ok(turned.kind === 'box');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'turn-mate', title: 'Mate', place: { at: { x: Math.round(turned.x + turned.width + 120), y: Math.round(turned.y) } } } }] });
-  await elementWhere(open, 'the second box is on the board', (element) => element.id === 'turn-mate');
   await page.keyboard.press('Escape');
-  await open.panel.locator('.wb-viewport').focus();
-  await page.keyboard.press('Shift+1');
-  await page.waitForTimeout(300);
-  await selectBoxes(open, [turnedBoxId, 'turn-mate']);
-  const mate = await laidOutOf(open, 'turn-mate');
-  assert.ok(mate.kind === 'box');
-  const footprints = [rotatedBoundsOf(turned), mate];
-  const right = Math.max(...footprints.map((rect) => rect.x + rect.width));
-  const bottom = Math.max(...footprints.map((rect) => rect.y + rect.height));
-  const corner = await screenPointOf(open, { x: right, y: bottom });
-  await dragOnScreen(open, corner, { x: corner.x + 90, y: corner.y + 60 });
-  await elementWhere(open, 'a selection holding a turned box shows handles around the turned footprints and resizes every box', (element) => element.id === 'turn-mate' && element.kind === 'box' && typeof element.width === 'number' && element.width > mate.width + 10);
-  const scaledTurned = (await boardOf(open)).elements.get(turnedBoxId);
-  assert.ok(scaledTurned?.kind === 'box' && typeof scaledTurned.width === 'number' && scaledTurned.width > turned.width && scaledTurned.angle === turned.angle, 'the turned box scales with the selection and keeps its turn');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'turn-mate' }] });
-  await boardWithout(open, 'the second box is gone', (element) => element.id === 'turn-mate');
-}
-
-async function wireHandleOnScreen(open: OpenBoard, wireId: string, kind: WireHandle['kind']): Promise<{ x: number; y: number }> {
-  const laidOut = await laidOutOf(open, wireId);
-  assert.ok(laidOut.kind === 'wire', `${wireId} is a wire`);
-  const handles = wireHandlesOf(laidOut).filter((handle) => handle.kind === kind);
-  const picked = handles[Math.floor(handles.length / 2)];
-  assert.ok(picked, `${wireId} shows a ${kind} handle`);
-  return screenPointOf(open, picked.at);
-}
-
-async function verifyWireBends(open: OpenBoard, lineId: string, elbowArrowId: string): Promise<void> {
-  const { page } = open;
-  const midpoint = await wireHandleOnScreen(open, lineId, 'midpoint');
-  await dragOnScreen(open, midpoint, { x: midpoint.x, y: midpoint.y + 70 });
-  await elementWhere(open, 'dragging the midpoint handle of a selected line adds a bend point', (element) => element.id === lineId && element.kind === 'wire' && element.via.length === 1);
-  const bentLine = await laidOutOf(open, lineId);
-  assert.ok(bentLine.kind === 'wire' && pointsOfPath(bentLine.path).length === 3, 'the bent line runs through its bend point');
-  const bend = await wireHandleOnScreen(open, lineId, 'bend');
-  await page.mouse.dblclick(bend.x, bend.y);
-  await elementWhere(open, 'double-clicking a bend point removes it', (element) => element.id === lineId && element.kind === 'wire' && element.via.length === 0);
-  const elbowEnds = await wireEndsOnScreen(open, elbowArrowId);
-  await page.mouse.click(elbowEnds.firstLegMiddle.x, elbowEnds.firstLegMiddle.y);
-  const elbowBefore = await laidOutOf(open, elbowArrowId);
-  assert.ok(elbowBefore.kind === 'wire');
-  const segment = await wireHandleOnScreen(open, elbowArrowId, 'segment');
-  await dragOnScreen(open, segment, { x: segment.x + 50, y: segment.y + 50 });
-  await elementWhere(open, 'dragging an elbow segment stores its corners', (element) => element.id === elbowArrowId && element.kind === 'wire' && element.via.length > 0);
-  const shiftedPoints = pointsOfPath(await wireElementPath(open, elbowArrowId));
-  assert.ok(shiftedPoints.every((point, index) => index === 0 || shiftedPoints[index - 1]?.x === point.x || shiftedPoints[index - 1]?.y === point.y), `a shifted elbow wire still runs at right angles, got ${JSON.stringify(shiftedPoints)}`);
-  assert.notEqual(elbowBefore.path, await wireElementPath(open, elbowArrowId), 'the shifted segment redraws the elbow wire');
-}
-
-async function wireElementPath(open: OpenBoard, wireId: string): Promise<string> {
-  const laidOut = await laidOutOf(open, wireId);
-  assert.ok(laidOut.kind === 'wire', `${wireId} is a wire`);
-  return laidOut.path;
 }
 
 async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
@@ -979,61 +773,6 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await boardWithout(open, 'a selected stroke erases with Delete', (element) => element.id === ink.id);
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: placedNote.id }] });
   await boardWithout(open, 'the note check cleans up', (element) => element.id === placedNote.id);
-  await panel.locator('.wb-viewport').focus();
-  await page.keyboard.press('Escape');
-}
-
-function lineTextsOf(element: BoardElement): string[] {
-  return element.kind === 'box' ? element.lines.map((line) => line.text) : [];
-}
-
-async function lineCenterOf(open: OpenBoard, boxId: string, lineIndex: number): Promise<{ x: number; y: number }> {
-  const laidOut = await laidOutOf(open, boxId);
-  assert.ok(laidOut.kind === 'box', `${boxId} is a box`);
-  const firstRowIndexes = laidOut.bodyLines.flatMap((line, rowIndex) => (line.isFirstRow ? [rowIndex] : []));
-  const rowIndex = firstRowIndexes[lineIndex];
-  assert.ok(rowIndex !== undefined, `${boxId} draws line ${lineIndex}`);
-  const baseline = laidOut.y + TITLE_BASELINE + (laidOut.wasLines.length + laidOut.titleLines.length) * TITLE_LINE_HEIGHT + rowIndex * BODY_LINE_HEIGHT;
-  const camera = await cameraOf(open);
-  return { x: camera.left + camera.translateX + (laidOut.x + 40) * camera.scale, y: camera.top + camera.translateY + (baseline - 4) * camera.scale };
-}
-
-async function verifyLineEditing(open: OpenBoard): Promise<void> {
-  const { page, panel, boardId } = open;
-  await panel.locator('.wb-viewport').focus();
-  await page.keyboard.press('s');
-  const card = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Line card');
-  const cardRect = await screenRectOf(open, card.id);
-  await page.mouse.dblclick(cardRect.x + 40, cardRect.y + cardRect.height - 5);
-  const lineInput = page.getByRole('textbox', { name: 'Box line', exact: true });
-  await lineInput.fill('first');
-  await page.keyboard.press('Enter');
-  await lineInput.fill('second');
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
-  await elementWhere(open, 'double-clicking the empty body and pressing Enter adds lines', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first|second');
-  assert.equal(await lineInput.count(), 0, 'Enter on an empty new line closes the line editor');
-  const firstLine = await lineCenterOf(open, card.id, 0);
-  await page.mouse.dblclick(firstLine.x, firstLine.y);
-  assert.equal(await lineInput.inputValue(), 'first', 'double-clicking a line edits that line');
-  await lineInput.fill('discarded');
-  await page.keyboard.press('Escape');
-  assert.equal(await lineInput.count(), 0, 'Escape closes the line editor');
-  await page.mouse.dblclick(firstLine.x, firstLine.y);
-  assert.equal(await page.getByRole('button', { name: 'Line style', exact: true }).count(), 0, 'the line editor offers no style menu');
-  await lineInput.fill('first edited');
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Escape');
-  await elementWhere(open, 'Enter keeps an edited line', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first edited|second');
-  const secondLine = await lineCenterOf(open, card.id, 1);
-  await page.mouse.dblclick(secondLine.x, secondLine.y);
-  await lineInput.fill('');
-  await page.keyboard.press('Backspace');
-  assert.equal(await lineInput.inputValue(), 'first edited', 'Backspace on an empty line edits the line above');
-  await page.keyboard.press('Escape');
-  await elementWhere(open, 'Backspace on an empty line removes it', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first edited');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: card.id }] });
-  await boardWithout(open, 'the line editing check cleans up', (element) => element.id === card.id);
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
 }
@@ -2177,7 +1916,7 @@ async function verifyPhoneHoldDrag(page: Page, panel: Locator, boardTitle: strin
   const liftedRect = await screenRectOf(open, 'lift-box');
   const widthBefore = liftedRect.width;
   await dragOnScreen(open, { x: liftedRect.x + liftedRect.width, y: liftedRect.y + liftedRect.height }, { x: liftedRect.x + liftedRect.width + 60, y: liftedRect.y + liftedRect.height + 30 });
-  await pollFor('the lifted box shows resize handles a finger can drag', BOARD_TIMEOUT_MS, async () => ((await screenRectOf(open, 'lift-box')).width > widthBefore + 20 ? true : null));
+  assert.equal((await screenRectOf(open, 'lift-box')).width, widthBefore, 'a lifted box on phone does not resize from its corner');
   await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'remove', id: 'lift-box' }] });
   await boardWithout(open, 'the lifted box is gone', (element) => element.id === 'lift-box');
 }
@@ -2250,9 +1989,6 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('Escape');
     await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
-    await selectBoxes(open, [parseFeed.id]);
-    await verifyResizedBoxes(open, [parseFeed.id]);
-    await verifyEightHandles(open, parseFeed.id);
     await verifyKeyboardEditing(open, parseFeed.id);
     if (desktopBoard) await verifyDragPlacement(open);
     if (desktopBoard) await verifyClipboard(open);
@@ -2260,11 +1996,9 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifyFrameDrag(open);
     if (desktopBoard) await verifyContextMenu(open, parseFeed.id);
     if (desktopBoard) await verifyEraser(open, parseFeed.id);
-    if (desktopBoard) await verifyWireEnds(open, parseFeed.id);
-    if (desktopBoard) await verifyRotation(open, parseFeed.id);
+    if (desktopBoard) await verifyRemovedAuthoringEdits(open, parseFeed.id);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
-    await verifyLineEditing(open);
     await verifyPageDials(open);
     await verifyWheelScrollsIdlePage(open);
     await verifyDroppedPicture(open);
@@ -2282,12 +2016,13 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.ok(canvasBox);
     assert.ok(boxOutline.x >= canvasBox.x && boxOutline.y >= canvasBox.y, 'the box starts inside the canvas');
     assert.ok(boxOutline.x + boxOutline.width <= canvasBox.x + canvasBox.width && boxOutline.y + boxOutline.height <= canvasBox.y + canvasBox.height, 'the box ends inside the canvas');
-    await page.mouse.dblclick(boxOutline.x + 40, boxOutline.y + boxOutline.height / 2);
-    await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Parse and store');
+    await clickElement(open, parseFeed.id);
+    const noteTitleInput = panel.locator('.wb-inspect').getByRole('textbox', { name: 'Title', exact: true });
+    await noteTitleInput.fill('Parse and store');
     await page.keyboard.press('Enter');
-    const sourceBox = await elementWhere(open, 'the renamed box', titled('Parse and store'));
+    const sourceBox = await elementWhere(open, 'the renamed note', titled('Parse and store'));
     const sourcePoint = sourceBox.kind === 'box' ? pointOfBox(sourceBox) : null;
-    assert.ok(sourcePoint, 'the renamed box has a point');
+    assert.ok(sourcePoint, 'the renamed note has a point');
     await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [
       { op: 'add', element: { kind: 'box', id: 'index-rows', title: 'Index rows', place: { at: { x: sourcePoint.x, y: sourcePoint.y + 200 } } } },
       { op: 'add', element: { kind: 'wire', id: 'index-wire', from: sourceBox.id, to: 'index-rows' } },
@@ -2303,8 +2038,6 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
     assert.ok(priorArt.kind === 'box' && priorArt.shape === 'note', 'the S key places a note');
     await verifyBoxStaysWhereDropped(open, priorArt.id, 'a note placed with the S key');
-    await selectBoxes(open, [sourceBox.id, targetBox.id]);
-    await verifyResizedBoxes(open, [sourceBox.id, targetBox.id]);
     await page.keyboard.press('Escape');
     const sourceRect = await screenRectOf(open, sourceBox.id);
     await page.mouse.move(sourceRect.x + sourceRect.width / 2, sourceRect.y + sourceRect.height / 2);
@@ -2349,7 +2082,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.equal(await page.getByRole('menuitemradio').count(), 0, 'the board menu holds only board actions, never a board list');
     await page.keyboard.press('Escape');
     await clickElement(open, targetBox.id);
-    await inspect.getByRole('textbox', { name: 'Title', exact: true }).waitFor();
+    await inspect.getByRole('heading', { name: 'Index rows', exact: true }).waitFor();
+    assert.equal(await inspect.getByRole('textbox', { name: 'Title', exact: true }).count(), 0, 'the properties panel offers no title input for a non-note box');
     assert.equal(await inspect.getByRole('group', { name: 'Shape', exact: true }).count(), 0, 'the properties panel offers no shape picker');
     assert.equal(await inspect.getByRole('group', { name: 'Style', exact: true }).count(), 0, 'the properties panel offers no style rows');
     assert.equal(await inspect.getByRole('button', { name: 'Box icon', exact: true }).count(), 0, 'the properties panel offers no icon picker');
@@ -2363,26 +2097,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await elementWhere(open, 'undo right after a panel change takes the card back', isTargetWith((box) => box.borderless !== true));
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await elementWhere(open, 'redo drops the card again', isTargetWith((box) => box.borderless === true));
-    const titleField = inspect.getByRole('textbox', { name: 'Title', exact: true });
-    await titleField.fill('Index first');
-    await page.keyboard.press('Enter');
-    await elementWhere(open, 'the panel title edit', titled('Index first'));
-    await titleField.fill('Index second');
-    await page.keyboard.press('Enter');
-    await elementWhere(open, 'the second panel title edit', titled('Index second'));
-    await inspect.getByRole('combobox', { name: 'Step', exact: true }).focus();
-    await page.keyboard.press('ControlOrMeta+z');
-    await page.keyboard.press('ControlOrMeta+z');
-    await elementWhere(open, 'two undos take both title edits back', titled('Index rows'));
-    await page.keyboard.press('ControlOrMeta+Shift+z');
-    await elementWhere(open, 'redo brings the first title back', titled('Index first'));
-    await page.keyboard.press('ControlOrMeta+Shift+z');
-    await elementWhere(open, 'redo brings the second title back', titled('Index second'));
     await inspect.getByRole('combobox', { name: 'Change', exact: true }).selectOption({ label: 'Renamed' });
-    await elementWhere(open, 'a relabeled box keeps its old title', isTargetWith((box) => box.change === 'relabeled' && box.was === 'Index second'));
-    await titleField.fill('Index rows by day');
-    await page.keyboard.press('Enter');
-    await elementWhere(open, 'the relabeled box takes its new title', isTargetWith((box) => box.change === 'relabeled' && box.title === 'Index rows by day'));
+    await elementWhere(open, 'a relabeled box keeps its old title', isTargetWith((box) => box.change === 'relabeled' && box.was === 'Index rows'));
     assert.ok(layoutBoard(await boardOf(open)).legend.some((row) => row.label === 'renamed, old title struck through'), 'the legend explains a relabeled box');
     await inspect.getByRole('button', { name: 'Add a ref to this box', exact: true }).click();
     const refField = inspect.getByRole('textbox', { name: 'Ref 1', exact: true });
@@ -2392,17 +2108,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('combobox', { name: 'Change', exact: true }).focus();
     await page.keyboard.press('ControlOrMeta+z');
     await page.waitForFunction(() => document.querySelector<HTMLInputElement>('.boards-view .wb-inspect [data-field="ref-0"]')?.value === 'README.md');
-    await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
-    await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).waitFor();
-    await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
-    await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).waitFor();
-    const hasLine = (text: string) => isTargetWith((box) => box.lines.some((line) => line.text === text));
-    await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).fill('first edited');
-    await page.keyboard.press('Enter');
-    await elementWhere(open, 'the first line edit', hasLine('first edited'));
-    await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).fill('second edited');
-    await page.keyboard.press('Enter');
-    await elementWhere(open, 'a second line edit keeps the first one', (element) => hasLine('second edited')(element) && hasLine('first edited')(element));
+    assert.equal(await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).count(), 0, 'the properties panel offers no line editor');
     const step = await addPlanStep(open, { x: 60, y: 260 }, 'Index the diffs');
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('Escape');
@@ -2584,7 +2290,6 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const bandStep = await elementWhere(open, 'the step in the build-order band', (element) => element.id === 'band-step');
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   await clickElement(open, bandStep.id);
-  await verifyBandStepResizeStaysPut(open, bandStep.id);
   await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption({ label: 'Not a step' });
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
   await verifyLinkedBoardFolder(open, worktreePath);

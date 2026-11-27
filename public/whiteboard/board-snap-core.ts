@@ -36,11 +36,6 @@ interface SnapResult {
   guides: SnapGuide[];
 }
 
-interface SnapEdges {
-  xs: readonly number[];
-  ys: readonly number[];
-}
-
 export function rectAround(rects: readonly SnapRect[]): SnapRect {
   const left = Math.min(...rects.map((rect) => rect.x));
   const top = Math.min(...rects.map((rect) => rect.y));
@@ -146,16 +141,6 @@ function guideOf(axis: 'x' | 'y', snap: AxisSnap, moved: SnapRect): SnapGuide {
     ? Math.max(moved.y + moved.height, snap.line.rect.y + snap.line.rect.height)
     : Math.max(moved.x + moved.width, snap.line.rect.x + snap.line.rect.width);
   return { axis, at: snap.line.at, from: crossStart, to: crossEnd };
-}
-
-export function snappedCorrectionOf(targets: SnapTargets, edges: SnapEdges, moved: SnapRect, thresholdUnits: number): SnapResult {
-  const xSnap = axisSnapOf(targets.xLines, edges.xs, thresholdUnits);
-  const ySnap = axisSnapOf(targets.yLines, edges.ys, thresholdUnits);
-  if (!xSnap && !ySnap) return NO_SNAP;
-  const correction = { x: xSnap?.delta ?? 0, y: ySnap?.delta ?? 0 };
-  const snappedRect = { ...moved, x: moved.x + correction.x, y: moved.y + correction.y };
-  const guides = [...(xSnap ? [guideOf('x', xSnap, snappedRect)] : []), ...(ySnap ? [guideOf('y', ySnap, snappedRect)] : [])];
-  return { correction, guides };
 }
 
 interface GapSnap {

@@ -294,18 +294,6 @@ function selectionMenuGroups(activeEditor: BoardEditor): ContextMenuGroup[] {
       { label: 'Send to back', shortcut: commandChord('Shift+['), run: () => activeEditor.orderSelected('back') },
     ],
     selectedBoxCount < 2 ? [] : [
-      { label: 'Align left', shortcut: null, run: () => activeEditor.alignSelected('left') },
-      { label: 'Align center', shortcut: null, run: () => activeEditor.alignSelected('center') },
-      { label: 'Align right', shortcut: null, run: () => activeEditor.alignSelected('right') },
-      { label: 'Align top', shortcut: null, run: () => activeEditor.alignSelected('top') },
-      { label: 'Align middle', shortcut: null, run: () => activeEditor.alignSelected('middle') },
-      { label: 'Align bottom', shortcut: null, run: () => activeEditor.alignSelected('bottom') },
-    ],
-    selectedBoxCount < 3 ? [] : [
-      { label: 'Distribute horizontally', shortcut: null, run: () => activeEditor.distributeSelected('horizontal') },
-      { label: 'Distribute vertically', shortcut: null, run: () => activeEditor.distributeSelected('vertical') },
-    ],
-    selectedBoxCount < 2 ? [] : [
       { label: 'Frame', shortcut: null, run: addFrame },
       { label: 'Stack', shortcut: null, run: stackSelectedBoxes },
     ],

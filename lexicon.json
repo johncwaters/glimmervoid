@@ -764,7 +764,7 @@
     },
     {
       "name": "backspace",
-      "definition": "The keyboard key that deletes the character before the cursor; pressed on an empty line in a whiteboard box's line editor it removes that line and moves to the line above"
+      "definition": "The keyboard key that deletes the character before the cursor or removes the selected whiteboard elements"
     },
     {
       "name": "text",
@@ -887,11 +887,11 @@
     },
     {
       "name": "resize handle",
-      "definition": "One of the eight squares, four corners and four edges, around a selected whiteboard box or selection that drags to resize it"
+      "definition": "The former eight corner and edge squares around a selected whiteboard box that dragged to resize it; removed from the operator board UI while agents still size boxes"
     },
     {
       "name": "context menu",
-      "definition": "The whiteboard menu a right-click, the Menu key or Shift+F10 opens on the board, holding clipboard, stacking order, align and distribute actions for the selection, or paste, select all and fit on empty board"
+      "definition": "The whiteboard menu a right-click, the Menu key or Shift+F10 opens on the board, holding clipboard, stacking order, frame and stack actions for the selection, or paste, select all and fit on empty board"
     },
     {
       "name": "shortcut",
@@ -907,7 +907,7 @@
     },
     {
       "name": "end handle",
-      "definition": "The round handle at each end of a selected whiteboard wire: dragging it onto a box binds that end, dragging it off leaves the end at a free point"
+      "definition": "The former round handle at each end of a selected whiteboard wire that dragged to rewire it; removed from the operator board UI while agents still bind wire ends"
     },
     {
       "name": "hold to lift",
@@ -915,11 +915,11 @@
     },
     {
       "name": "bend point",
-      "definition": "A point a whiteboard wire passes through between its ends, stored in order in the wire's via list; on a sharp or curved wire the operator adds one by dragging a leg's midpoint handle and removes one by double-clicking it, and on an elbow wire the bend points are its corners, moved by dragging a segment"
+      "definition": "A point a whiteboard wire passes through between its ends, stored in order in the wire's via list and authored by agents through the whiteboard tool"
     },
     {
       "name": "rotate handle",
-      "definition": "The round handle above a single selected whiteboard box that turns it about its center when dragged, snapping to 15 degree steps with Shift; the box stores the turn as its angle in whole degrees"
+      "definition": "The former round handle above a selected whiteboard box that dragged to rotate it; removed from the operator board UI while agents still set box angle"
     },
     {
       "name": "browser",
@@ -1113,7 +1113,7 @@
     },
     {
       "name": "shift",
-      "definition": "The Shift modifier key, which snaps a rotate to 15 degree steps and reverses Tab focus"
+      "definition": "The Shift modifier key, which adds to a whiteboard selection, nudges in larger steps, and reverses Tab focus"
     },
     {
       "name": "appearance",

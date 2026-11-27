@@ -565,41 +565,6 @@
   font: 700 var(--type-body) var(--wb-font);
 }
 
-.wb-line-editor {
-  position: absolute;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 2px 0 8px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
-
-.wb-line-key,
-.wb-line-text {
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-head);
-  font: 400 var(--type-meta) var(--wb-font);
-}
-
-.wb-line-key {
-  flex: 0 0 30%;
-  font-weight: 700;
-}
-
-.wb-line-text { flex: 1 1 auto; }
-
-.wb-line-editor[data-line-style='code'] .wb-line-text { color: var(--accent); }
-
-.wb-line-editor[data-muted='true'] .wb-line-text { color: var(--text-muted); }
-
 .wb-context-menu {
   position: absolute;
   z-index: 4;
@@ -839,8 +804,6 @@
 .wb-inspect-link-status { font-size: var(--type-meta); }
 
 .wb-inspect-link-status[data-link-state='broken'] { color: var(--state-failed); }
-
-.wb-inspect-line > select { flex: 0 0 auto; width: auto; max-width: 96px; }
 
 .wb-inspect-row > .wb-inspect-field { flex-direction: row; align-items: center; gap: 6px; }
 

@@ -1,14 +1,14 @@
 import type { IconName, NoteTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
-import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE, handleSidesOf, titleLineHeightOf } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
-import { WIRE_CORNER_RADIUS, pointsOfPath, rotatedAbout, rotatedBoundsOf, roundedCornerPoints, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
+import { FRAME_TITLE_HEIGHT, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE, titleLineHeightOf } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
+import { WIRE_CORNER_RADIUS, pointsOfPath, rotatedAbout, rotatedBoundsOf, roundedCornerPoints } from '#shared/whiteboard-route-core.ts';
 import { SHAPE_TRAITS, isTransparentPageBox } from '#shared/whiteboard-shapes.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
-  MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, codeBandRectOf, shapedOutlinePoints,
+  MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE,
+  STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, codeBandRectOf, shapedOutlinePoints,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING, STEP_CHIP_DOT_RADIUS, STEP_CHIP_HEIGHT, stepChipOf,
 } from '#shared/whiteboard-svg-core.ts';
@@ -123,7 +123,6 @@ const ARROWHEAD_OVERSHOOT = 1.28;
 const WIRE_WIDTH = 1.1;
 const BOLD_WIRE_WIDTH = 2.4;
 const OUTLINE_WIDTH = 1.6;
-const WIRE_MIDPOINT_HANDLE_SCALE = 0.7;
 const LETTER_SPACING_EM = 0.08;
 const CHAR_WIDTH_EM = MONO_CHAR_WIDTH / 12;
 const LABEL_HALO_PAD = 3;
@@ -666,7 +665,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] }, flow: null };
 }
 
-type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'agent-changed'; element: LaidOutElement } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'agent-changed'; element: LaidOutElement } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind !== 'box' || element.angle === 0) {
@@ -705,20 +704,6 @@ function outlineUnturned(part: PartBuilder, element: LaidOutElement, color: Rgba
   pushRect(part, element, radiusByKind[element.kind], [0, 0, 0, 0], color, width, ALWAYS);
 }
 
-interface ResizeHandleRect {
-  handle: ResizeHandle;
-  rect: Rect;
-}
-
-function resizeHandleRectsOf(area: Rect): ResizeHandleRect[] {
-  return RESIZE_HANDLES.map((handle) => {
-    const side = handleSidesOf(handle);
-    const centerX = area.x + (area.width * (side.x + 1)) / 2;
-    const centerY = area.y + (area.height * (side.y + 1)) / 2;
-    return { handle, rect: { x: centerX - RESIZE_HANDLE_SIZE / 2, y: centerY - RESIZE_HANDLE_SIZE / 2, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE } };
-  });
-}
-
 const LOOK_BADGE_RADIUS = 9;
 const AGENT_CHANGED_OUTLINE_WIDTH = 4;
 const LOOK_LABEL_GAP = 4;
@@ -748,24 +733,6 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
       outlineDecoration(part, decoration.element, palette.running, AGENT_CHANGED_OUTLINE_WIDTH);
       continue;
     }
-    if (decoration.kind === 'resize-handles') {
-      pushTurned(part, centerOfRect(decoration.area), decoration.angle, (turned) => {
-        for (const { rect } of resizeHandleRectsOf(decoration.area)) pushRect(turned, rect, 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
-      });
-      continue;
-    }
-    if (decoration.kind === 'rotate-handle') {
-      pushCircle(part, decoration.at, PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
-      continue;
-    }
-    if (decoration.kind === 'wire-ends') {
-      for (const handle of wireHandlesOf(decoration.wire)) {
-        const isBend = handle.kind === 'bend';
-        pushCircle(part, handle.at, isBend ? PORT_RADIUS : PORT_RADIUS * WIRE_MIDPOINT_HANDLE_SCALE, isBend ? palette.accent : palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
-      }
-      for (const center of [decoration.wire.start, decoration.wire.end]) pushCircle(part, center, PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
-      continue;
-    }
     const center = { x: decoration.element.x + decoration.element.width, y: decoration.element.y };
     pushCircle(part, center, LOOK_BADGE_RADIUS, palette.waiting, palette.cardBackground, 2, ALWAYS);
     pushText(part, '!', center.x, center.y + 4, { size: palette.metaSize, color: palette.cardBackground, isBold: true, anchor: 'middle', minPixels: 0 });
@@ -786,6 +753,6 @@ function sceneOf(layout: BoardLayout, context: SceneContext, reuse: (element: La
 
 export {
   BOX_LAYER, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
-  decorationPart, resizeHandleRectsOf, sceneOf,
+  decorationPart, sceneOf,
 };
 export type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext, TextRun };
