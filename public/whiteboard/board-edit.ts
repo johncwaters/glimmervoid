@@ -14,6 +14,7 @@ import type { BoardClipboard } from './board-clipboard-core.ts';
 import { movedSnapOf, rectAround, snapTargetsOf } from './board-snap-core.ts';
 import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
 import { firstPresentedBoxId, presentedBoxIdAfter } from './media-walk-core.ts';
+import { wheelViewWidthFactor } from './media-zoom-core.ts';
 import { prefersReducedMotion } from '../attention-banner.ts';
 
 const DRAG_THRESHOLD_PX = 4;
@@ -1200,7 +1201,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onWheel(event: WheelEvent): void {
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
-      zoomAround(toViewPoint(event.clientX, event.clientY), event.deltaY > 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP);
+      zoomAround(toViewPoint(event.clientX, event.clientY), wheelViewWidthFactor(event.deltaY, event.deltaMode, WHEEL_ZOOM_STEP));
       return;
     }
     const hit = hitAt(event.clientX, event.clientY);

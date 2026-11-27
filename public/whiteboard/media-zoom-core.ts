@@ -40,6 +40,18 @@ export function stagePointOf(zoom: MediaZoom, mediaPoint: StagePoint): StagePoin
   return { x: zoom.offsetX + mediaPoint.x * zoom.scale, y: zoom.offsetY + mediaPoint.y * zoom.scale };
 }
 
-export function wheelZoomFactor(deltaY: number, wheelZoomStep: number): number {
-  return deltaY > 0 ? 1 / wheelZoomStep : wheelZoomStep;
+const WHEEL_NOTCH_PX = 100;
+const WHEEL_LINE_PX = 33;
+const WHEEL_PAGE_PX = 800;
+const MAX_WHEEL_DELTA_PX = 400;
+
+export function wheelViewWidthFactor(deltaY: number, deltaMode: number, wheelZoomStep: number): number {
+  if (deltaY === 0) return 1;
+  const pixelsPerUnit = deltaMode === 1 ? WHEEL_LINE_PX : deltaMode === 2 ? WHEEL_PAGE_PX : 1;
+  const clampedDeltaPx = Math.max(-MAX_WHEEL_DELTA_PX, Math.min(MAX_WHEEL_DELTA_PX, deltaY * pixelsPerUnit));
+  return Math.pow(wheelZoomStep, clampedDeltaPx / WHEEL_NOTCH_PX);
+}
+
+export function wheelZoomFactor(deltaY: number, wheelZoomStep: number, deltaMode = 0): number {
+  return 1 / wheelViewWidthFactor(deltaY, deltaMode, wheelZoomStep);
 }

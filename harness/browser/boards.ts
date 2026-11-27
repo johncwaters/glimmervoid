@@ -636,6 +636,48 @@ async function verifyKeyboardEditing(open: OpenBoard, boxId: string): Promise<vo
   await pollFor('Ctrl+- zooms back out', BOARD_TIMEOUT_MS, async () => (Math.abs((await cameraOf(open)).scale - 1) < 0.001 ? true : null));
   const viewportBox = await viewport.boundingBox();
   assert.ok(viewportBox);
+  const zoomAnchor = { x: viewportBox.x + viewportBox.width * 0.65, y: viewportBox.y + viewportBox.height * 0.55 };
+  const cameraBeforePinch = await cameraOf(open);
+  const boardPointBeforePinch = {
+    x: (zoomAnchor.x - viewportBox.x - cameraBeforePinch.translateX) / cameraBeforePinch.scale,
+    y: (zoomAnchor.y - viewportBox.y - cameraBeforePinch.translateY) / cameraBeforePinch.scale,
+  };
+  await viewport.evaluate((node, { clientX, clientY }) => {
+    for (let tick = 0; tick < 20; tick += 1) {
+      node.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -5, deltaMode: 0, clientX, clientY, bubbles: true, cancelable: true }));
+    }
+  }, { clientX: zoomAnchor.x, clientY: zoomAnchor.y });
+  const cameraAfterPinch = await cameraOf(open);
+  const boardPointAfterPinch = {
+    x: (zoomAnchor.x - viewportBox.x - cameraAfterPinch.translateX) / cameraAfterPinch.scale,
+    y: (zoomAnchor.y - viewportBox.y - cameraAfterPinch.translateY) / cameraAfterPinch.scale,
+  };
+  assert.ok(
+    Math.abs(cameraAfterPinch.scale - 1.1) < 0.02,
+    `20 small Ctrl+wheel pinch events totaling -100 px zoom by ~1.1x (got ${cameraAfterPinch.scale.toFixed(4)}x)`,
+  );
+  assert.ok(
+    Math.abs(boardPointAfterPinch.x - boardPointBeforePinch.x) < 1 && Math.abs(boardPointAfterPinch.y - boardPointBeforePinch.y) < 1,
+    'trackpad pinch zoom keeps the board point under the cursor fixed',
+  );
+  await viewport.evaluate((node, { clientX, clientY }) => {
+    node.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: 100, deltaMode: 0, clientX, clientY, bubbles: true, cancelable: true }));
+  }, { clientX: zoomAnchor.x, clientY: zoomAnchor.y });
+  const cameraAfterNotch = await cameraOf(open);
+  assert.ok(
+    Math.abs(cameraAfterNotch.scale - 1) < 0.02,
+    `a single +100 px Ctrl+wheel notch zooms back to ~1.0x (got ${cameraAfterNotch.scale.toFixed(4)}x)`,
+  );
+  await viewport.evaluate((node, { clientX, clientY }) => {
+    node.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -3, deltaMode: 1, clientX, clientY, bubbles: true, cancelable: true }));
+  }, { clientX: zoomAnchor.x, clientY: zoomAnchor.y });
+  const cameraAfterLineNotch = await cameraOf(open);
+  assert.ok(
+    Math.abs(cameraAfterLineNotch.scale - 1.1) < 0.02,
+    `a 3-line DOM_DELTA_LINE Ctrl+wheel notch zooms by ~1.1x (got ${cameraAfterLineNotch.scale.toFixed(4)}x)`,
+  );
+  await page.keyboard.press('ControlOrMeta+0');
+  await pollFor('Ctrl+0 resets zoom after wheel checks', BOARD_TIMEOUT_MS, async () => (Math.abs((await cameraOf(open)).scale - 1) < 0.001 ? true : null));
   const panStart = { x: viewportBox.x + viewportBox.width - 40, y: viewportBox.y + viewportBox.height - 40 };
   const cameraBeforePan = await cameraOf(open);
   await page.keyboard.down('Space');

@@ -31,7 +31,7 @@ export function applyPageGesture(control: MediaZoomControl, gesture: BoardPageGe
       return;
     case 'wheel':
       if (gesture.isZoom) {
-        control.zoomAt({ x: gesture.centerX, y: gesture.centerY }, wheelZoomFactor(gesture.deltaY, WHEEL_ZOOM_STEP));
+        control.zoomAt({ x: gesture.centerX, y: gesture.centerY }, gesture.deltaY > 0 ? 1 / WHEEL_ZOOM_STEP : WHEEL_ZOOM_STEP);
         return;
       }
       control.panBy(-gesture.deltaX, -gesture.deltaY);
@@ -135,7 +135,7 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   function onWheel(event: WheelEvent): void {
     if (event.ctrlKey || event.metaKey) {
       event.preventDefault();
-      show(zoomAbout(zoom, stagePointOfClient(event.clientX, event.clientY), wheelZoomFactor(event.deltaY, WHEEL_ZOOM_STEP), mediaSize()));
+      show(zoomAbout(zoom, stagePointOfClient(event.clientX, event.clientY), wheelZoomFactor(event.deltaY, WHEEL_ZOOM_STEP, event.deltaMode), mediaSize()));
       return;
     }
     if (!isZoomedIn(zoom)) return;
