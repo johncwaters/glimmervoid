@@ -817,6 +817,45 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
+  function switchSessionAgent(msg: ClientMessageOf<'switch-session-agent'>): string | null {
+    const session = findSession(msg);
+    const project = config.projects.find((entry) => entry.id === session?.id);
+    if (!session || !project) return SESSION_GONE_TEXT;
+    if (session.ephemeral || !session.isStudioMain) return 'Only the Studio Orchestrator can switch agents here.';
+    const requestedAgent = msg.agent.trim();
+    const initialDecision = decideSessionDriver({ isStudio: true, agentId: requestedAgent, acpAgents: config.acpAgents });
+    if (!initialDecision.ok) return initialDecision.error;
+    let savedRefusal: string | null = null;
+    const freshConfig = configStore.save((cfg) => {
+      const configured = cfg.projects.find((entry) => entry.id === session.id);
+      if (!configured) return ABORT_CONFIG_SAVE;
+      const savedDecision = decideSessionDriver({ isStudio: true, agentId: requestedAgent, acpAgents: cfg.acpAgents });
+      if (!savedDecision.ok) {
+        savedRefusal = savedDecision.error;
+        return ABORT_CONFIG_SAVE;
+      }
+      configured.agent = requestedAgent;
+      configured.driverKind = 'acp';
+      delete configured.accountId;
+      delete configured.agentSetup;
+      delete configured.resumeSessionId;
+      delete configured.acpMigrationFreshFallback;
+      delete configured.acpMigrationBlockedNoted;
+      return undefined;
+    });
+    if (savedRefusal !== null) return savedRefusal;
+    if (!freshConfig) return 'Could not write config.json';
+    applyConfigReload(freshConfig);
+    const updated = sessions.get(session.id);
+    if (updated && updated.state === STATES.DORMANT) void updated.start();
+    return null;
+  }
+
+  function handleSwitchSessionAgent(msg: ClientMessageOf<'switch-session-agent'>, ws: ControlSocket): void {
+    const refusal = switchSessionAgent(msg);
+    replyApplied(ws, msg, 'switch-session-agent-result', { id: msg.id, ok: refusal === null, ...(refusal === null ? {} : { error: refusal }) });
+  }
+
   function switchSessionModel(msg: ClientMessageOf<'switch-session-model'>): string | null {
     const session = findSession(msg);
     const project = config.projects.find((entry) => entry.id === session?.id);
@@ -1131,6 +1170,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'chat-cancel': handleChatCancel,
     'chat-stop': handleChatStop,
     'switch-session-account': handleSwitchSessionAccount,
+    'switch-session-agent': handleSwitchSessionAgent,
     'switch-session-model': handleSwitchSessionModel,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
@@ -1160,6 +1200,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'pack-session-send': (_msg, requestId, message) => ({ type: 'pack-session-send-result', requestId, ok: false, error: message }),
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'switch-session-account': (msg, requestId, message) => ({ type: 'switch-session-account-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'switch-session-agent': (msg, requestId, message) => ({ type: 'switch-session-agent-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'switch-session-model': (msg, requestId, message) => ({ type: 'switch-session-model-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'secret-source-test': (_msg, requestId, message) => ({ type: 'secret-source-test-result', requestId, ok: false, message, detail: '' }),
   } satisfies InvalidReplyTable;

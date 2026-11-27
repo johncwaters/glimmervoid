@@ -12,8 +12,16 @@ import { createStudioReposStore } from '../server/board-session/studio-repos-sto
 import { createCodemapService } from '../server/codemap/codemap-wiring.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
+import { loadConfigFile } from '../server/config/config-file.ts';
+import { createControlContext } from '../server/control/control-context.ts';
+import { createSessionHandlers } from '../server/control/handlers/session-handlers.ts';
+import { createSettingsHandlers } from '../server/control/handlers/settings-handlers.ts';
 import { folderCardIdOf, moduleBoxIdOf, rootBoxIdOf } from '../server/core/codemap-graph-core.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
+import { createSessionRegistry } from '../server/session/session-registry.ts';
+import { projectSessionCard } from '../session/core/snapshot-projection.ts';
+import { SESSION_DRIVER_EVENTS } from '../session/drivers/driver.ts';
+import type { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
 import { Op } from '../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../shared/contracts/whiteboard-ops-core.ts';
@@ -324,6 +332,200 @@ test('a migrated Studio session whose ACP agent rejects session/load falls back 
     assert.match(notices[0]?.text ?? '', /earlier conversation could not be carried over/i);
     session.destroy();
   } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a stopped Orchestrator with no ACP row offers runnable ACP agents, starts on the operator pick, and re-enters stopped if its ACP row is deleted later', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-orch-recovery-'));
+  const studioHome = path.join(home, 'studio-home');
+  const repoDir = path.join(home, 'repo');
+  const tracesDir = path.join(home, 'traces');
+  const configPath = path.join(home, 'config.json');
+  const replayAgentPath = path.resolve(import.meta.dirname, 'fixtures', 'acp-replay-agent.ts');
+  const claudeRecordingPath = path.resolve(import.meta.dirname, '..', 'harness', 'acp-spike', 'recordings', 'claude', 'setup.jsonl');
+  fs.mkdirSync(studioHome, { recursive: true });
+  fs.mkdirSync(repoDir, { recursive: true });
+  const config: GlimmervoidConfig = {
+    ...DEFAULT_CONFIG,
+    acpAgents: [{
+      id: 'replay-acp',
+      label: 'Replay ACP',
+      command: process.execPath,
+      args: [replayAgentPath, claudeRecordingPath, '1', 'test@example.com', 'test-plan'],
+    }],
+    projects: [
+      {
+        id: 'studio-orch',
+        name: 'Orchestrator',
+        path: studioHome,
+        agent: 'kimi',
+        accountId: 'work',
+        agentSetup: { agent: 'kimi', model: 'k2', options: [], instructions: '' },
+        resumeSessionId: '550e8400-e29b-41d4-a716-446655440010',
+        isStudioMain: true,
+        studioRole: 'orchestrator',
+        wasActive: true,
+      },
+      {
+        id: 'studio-branch',
+        name: 'repo lib',
+        path: repoDir,
+        agent: 'kimi',
+        parent: { sessionId: 'studio-orch', box: { id: 'cm-lib', title: 'lib', repoName: 'repo' } },
+      },
+    ],
+  };
+  const configStore = {
+    configPath,
+    config,
+    save: (mutate: (savedConfig: GlimmervoidConfig) => unknown) => {
+      const outcome = mutate(config);
+      if (outcome !== undefined) return null;
+      return config;
+    },
+  };
+  const sessions = new Map<string, Session>();
+  const broadcasts: Record<string, unknown>[] = [];
+  const makeSession = createSessionFactory({
+    configStore: { configPath },
+    getConfig: () => config,
+    hookRouter: null,
+    getHookPort: () => null,
+    getGitWorkspace: () => null,
+    resolveHookTools: () => [],
+    getUserHooks: () => [],
+  });
+  const registry = createSessionRegistry({
+    httpServer: { listening: false, once: () => {}, off: () => {} } as never,
+    sessions,
+    config: config as never,
+    configStore: configStore as never,
+    makeSession: (project, cfg) => makeSession(project as ProjectEntry, cfg as GlimmervoidConfig),
+    wireSessionEvents: () => {},
+    closeSessionDataClients: () => {},
+    notificationManager: { acknowledge: () => {} },
+    broadcastControl: (message) => { broadcasts.push(message); },
+    applySettingsReload: () => {},
+    spawnGate: { run: async (callback) => callback() },
+    gitWorkspaceSync: { listSessionWorktrees: () => [], removeWorktreeByPath: () => {} },
+    reconcileSessionWorktrees: () => {},
+    carryWorktreeAcrossRecreate: () => {},
+    ensureProjectIds: () => false,
+    resolveAgentId: (agent) => (typeof agent === 'string' && agent.trim() !== '' ? agent.trim() : 'claude-code'),
+    logger: { log: () => {}, warn: () => {} },
+  });
+  try {
+    migrateStudioToAcp({ config, configStore, tracesDir, logger: { log: () => {}, warn: () => {} } });
+    registry.initialize();
+
+    const stoppedOrch = sessions.get('studio-orch');
+    assert.ok(stoppedOrch);
+    assert.equal(stoppedOrch.agentId, 'kimi', 'migration never switches the Orchestrator agent');
+    assert.equal(stoppedOrch.state, STATES.DORMANT);
+    assert.equal(stoppedOrch.hasTerminal, false);
+    assert.match(stoppedOrch.failureReason ?? '', /kimi.*no ACP row/i);
+    assert.equal(projectSessionCard(stoppedOrch, { id: stoppedOrch.id, name: stoppedOrch.name }).failureReason, stoppedOrch.failureReason);
+
+    const orchTrace = fs.readFileSync(path.join(tracesDir, 'studio-orch.jsonl'), 'utf8');
+    assert.match(orchTrace, /Orchestrator card/i);
+    assert.doesNotMatch(orchTrace, /closing this session/i);
+
+    const controlContext = createControlContext({
+      sessions,
+      config,
+      configStore: configStore as never,
+      generateProjectId: () => 'unused',
+      applyConfigReload: (freshConfig: GlimmervoidConfig) => { registry.applyConfigReload(freshConfig as never); },
+    } as never);
+    const settingsHandlers = createSettingsHandlers(controlContext, { config, configStore } as never);
+    const sessionHandlers = createSessionHandlers(controlContext, {
+      config,
+      configStore: configStore as never,
+      broadcastControl: (message: Record<string, unknown>) => { broadcasts.push(message); },
+      applyConfigReload: (freshConfig: GlimmervoidConfig) => { registry.applyConfigReload(freshConfig as never); },
+    } as never);
+    const replies: Record<string, unknown>[] = [];
+    const fakeSocket = { send: (payload: string) => { replies.push(JSON.parse(payload)); } } as never;
+
+    const listAgents = settingsHandlers.handlers['list-agents'];
+    const switchAgent = sessionHandlers.handlers['switch-session-agent'];
+    assert.ok(listAgents && switchAgent);
+
+    await listAgents({ type: 'list-agents', driver: 'acp', requestId: 'list-1' } as never, fakeSocket);
+    const listed = replies.pop() as { type?: string; agents?: { id: string; resolvable: boolean }[] };
+    assert.equal(listed?.type, 'agents-listed');
+    const listedIds = (listed.agents ?? []).map((entry) => entry.id);
+    assert.ok(listedIds.includes('replay-acp'));
+    assert.ok(!listedIds.includes('kimi'));
+
+    await switchAgent({ type: 'switch-session-agent', id: 'studio-orch', agent: 'kimi', requestId: 'sw-bad' } as never, fakeSocket);
+    const refusedBadAgent = replies.pop() as { ok?: boolean; error?: string };
+    assert.equal(refusedBadAgent?.ok, false);
+    assert.match(refusedBadAgent?.error ?? '', /no ACP row/i);
+    assert.equal(sessions.get('studio-orch')?.agentId, 'kimi');
+
+    await switchAgent({ type: 'switch-session-agent', id: 'studio-branch', agent: 'replay-acp', requestId: 'sw-branch' } as never, fakeSocket);
+    const refusedBranch = replies.pop() as { ok?: boolean; error?: string };
+    assert.equal(refusedBranch?.ok, false);
+    assert.match(refusedBranch?.error ?? '', /Orchestrator/i);
+    assert.equal(sessions.get('studio-branch')?.agentId, 'kimi');
+
+    await switchAgent({ type: 'switch-session-agent', id: 'studio-orch', agent: 'replay-acp', requestId: 'sw-ok' } as never, fakeSocket);
+    const switched = replies.pop() as { type?: string; ok?: boolean };
+    assert.equal(switched?.type, 'switch-session-agent-result');
+    assert.equal(switched?.ok, true);
+
+    const startedOrch = sessions.get('studio-orch');
+    assert.ok(startedOrch);
+    assert.notEqual(startedOrch, stoppedOrch);
+    assert.equal(startedOrch.agentId, 'replay-acp');
+    assert.equal(startedOrch.hasTerminal, false);
+    assert.equal(startedOrch.failureReason, null);
+    const modifiedBroadcast = broadcasts.findLast((frame) => frame.type === 'session-modified' && frame.id === 'studio-orch');
+    assert.equal(modifiedBroadcast?.agent, 'replay-acp');
+    assert.equal(modifiedBroadcast?.failureReason, null);
+
+    const savedOrch = config.projects.find((project) => project.id === 'studio-orch');
+    assert.equal(savedOrch?.agent, 'replay-acp');
+    assert.equal(savedOrch?.driverKind, 'acp');
+    assert.equal(savedOrch?.accountId, undefined);
+    assert.equal(savedOrch?.agentSetup, undefined);
+    assert.equal(savedOrch?.resumeSessionId, undefined);
+    assert.equal(savedOrch?.acpMigrationBlockedNoted, undefined);
+
+    await new Promise<void>((resolve, reject) => {
+      if (startedOrch.state === STATES.IDLE || startedOrch.state === STATES.RUNNING) return resolve();
+      const timer = setTimeout(() => reject(new Error(`timed out waiting for Orchestrator ACP start (state=${startedOrch.state})`)), 15000);
+      startedOrch.once(SESSION_DRIVER_EVENTS.agentSession, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    startedOrch.destroy();
+
+    config.acpAgents = [];
+    fs.writeFileSync(configPath, JSON.stringify({ ...config, acpAgents: [] }, null, 2));
+    const reloaded = loadConfigFile(configPath, { exitOnError: false, envSecrets: [] });
+    assert.ok(reloaded.config, 'loadConfigFile succeeds after deleting a custom ACP row');
+    const reloadedConfig = reloaded.config;
+    const reloadedOrch = reloadedConfig.projects.find((project) => project.id === 'studio-orch');
+    assert.ok(reloadedOrch);
+    assert.equal(reloadedOrch.agent, 'replay-acp', 'loadConfigFile keeps a Studio Orchestrator whose custom ACP row was deleted');
+    assert.equal(reloadedOrch.driverKind, undefined);
+
+    migrateStudioToAcp({ config: reloadedConfig, configStore: { save: (mutate) => { mutate(reloadedConfig); return reloadedConfig; } }, tracesDir, logger: { log: () => {}, warn: () => {} } });
+    const restoppedProject = reloadedConfig.projects.find((project) => project.id === 'studio-orch');
+    assert.ok(restoppedProject);
+    assert.equal(restoppedProject.agent, 'replay-acp', 'deleting a custom ACP row later leaves the Orchestrator agent unchanged');
+    assert.equal(restoppedProject.driverKind, undefined);
+    assert.equal(restoppedProject.wasActive, false);
+    const restoppedSession = makeSession(restoppedProject, reloadedConfig);
+    assert.equal(restoppedSession.state, STATES.DORMANT);
+    assert.match(restoppedSession.failureReason ?? '', /replay-acp.*no ACP row/i);
+    restoppedSession.destroy();
+  } finally {
+    for (const session of sessions.values()) session.destroy();
     fs.rmSync(home, { recursive: true, force: true });
   }
 });

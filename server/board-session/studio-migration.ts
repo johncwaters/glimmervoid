@@ -151,9 +151,12 @@ interface StudioAcpMigrationDeps {
   logger: Pick<Console, 'log' | 'warn'>;
 }
 
-function blockedStudioNoticeText(agentId: string, acpAgents: unknown): string {
+function blockedStudioNoticeText(agentId: string, acpAgents: unknown, isOrchestrator: boolean): string {
   const table = buildAcpAgentTable(acpAgents ?? []);
   const usableSuffix = table.ok ? ` (${formatUsableAcpAgents(table.entries)})` : '';
+  if (isOrchestrator) {
+    return `Studio runs agents over ACP, and "${agentId}" has no ACP row, so the Orchestrator was left stopped. Pick an agent Studio can run${usableSuffix} from the Orchestrator card, or add an ACP row for "${agentId}" in settings.`;
+  }
   return `Studio runs agents over ACP, and "${agentId}" has no ACP row, so this session was left stopped. Pick an agent Studio can run${usableSuffix} by closing this session and opening a new one, or add an ACP row for "${agentId}" in settings.`;
 }
 
@@ -167,14 +170,15 @@ function planStudioAcpMigration(
   const blockedNotices: StudioAcpBlockedNotice[] = [];
   const nextProjects = projects.map((project): ProjectEntry => {
     if (!isStudioProject(project)) return project;
-    if (project.driverKind === 'acp') return project;
     const agentId = typeof project.agent === 'string' && project.agent.trim() !== '' ? project.agent.trim() : DEFAULT_AGENT_ID;
     const decision = decideSessionDriver({ isStudio: true, agentId, acpAgents });
     if (decision.ok) {
+      if (project.driverKind === 'acp' && project.acpMigrationBlockedNoted !== true) return project;
       hasChanges = true;
-      migratedCount += 1;
+      const wasAlreadyAcp = project.driverKind === 'acp';
+      if (!wasAlreadyAcp) migratedCount += 1;
       const { acpMigrationBlockedNoted: _clearedBlocked, ...rest } = project;
-      const hasResumeId = validResumeSessionId(project.resumeSessionId) !== null;
+      const hasResumeId = !wasAlreadyAcp && validResumeSessionId(project.resumeSessionId) !== null;
       return {
         ...rest,
         driverKind: 'acp',
@@ -191,7 +195,7 @@ function planStudioAcpMigration(
       blockedNotices.push({
         sessionId: project.id,
         agentId,
-        text: blockedStudioNoticeText(agentId, acpAgents),
+        text: blockedStudioNoticeText(agentId, acpAgents, project.isStudioMain === true),
       });
     }
     return {

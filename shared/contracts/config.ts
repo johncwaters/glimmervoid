@@ -237,7 +237,9 @@ export const Config = z.object({
   for (const declaration of config.acpAgents ?? []) declaredAcpAgentIds.add(declaration.id);
   for (const [index, project] of config.projects.entries()) {
     const agent = project?.agent;
+    const isStudio = project?.isStudioMain === true || (project?.parent?.box !== null && project?.parent?.box !== undefined);
     if (typeof agent === 'string' && AGENT_ID_RE.test(agent) && !declaredAgentIds.has(agent)) {
+      if (isStudio && project?.driverKind !== 'acp') continue;
       ctx.addIssue({
         code: 'custom',
         path: ['projects', index, 'agent'],

@@ -120,6 +120,7 @@ export const SessionCardFields = z.object({
   linkedPrs: z.array(LinkedPr).optional(),
   doneMeans: z.array(z.string()).optional(),
   agentDoneLines: z.array(AgentDoneLine).optional(),
+  failureReason: z.string().nullable().optional(),
   modelSelection: ModelSelection.nullable().optional(),
   workingDirectory: z.string().optional(),
 });

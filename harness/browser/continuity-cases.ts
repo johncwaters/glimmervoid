@@ -56,6 +56,7 @@ const MODULE_URLS = {
   ingest: '/state/ingest.ts',
   seq: '/state/seq.ts',
   settingsCollection: '/state/collections/settings.ts',
+  sessionsCollection: '/state/collections/sessions.ts',
   studioCollection: '/state/collections/studio.ts',
   chatOutboxCollection: '/state/collections/chat-outbox.ts',
   packsCollection: '/state/collections/packs.ts',
@@ -75,6 +76,7 @@ const MODULE_URLS = {
   restart: '/state/actions/restart.ts',
   saveHook: '/state/actions/save-hook.ts',
   studioMainEnsure: '/state/actions/studio-main-ensure.ts',
+  switchSessionAgent: '/state/actions/switch-session-agent.ts',
   updateApply: '/state/actions/update-apply.ts',
   updateCheck: '/state/actions/update-check.ts',
   updateSettings: '/state/actions/update-settings.ts',
@@ -957,6 +959,37 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           },
         });
       }, { studioUrl: MODULE_URLS.studioCollection, actionUrl: MODULE_URLS.studioMainEnsure, id: targetMainId });
+      return {
+        cleanup: async () => {},
+      };
+    },
+  },
+  {
+    name: 'switch-session-agent',
+    checks: ['C1', 'C2', 'C5'],
+    async prepare(ctx, check) {
+      const { page, faults, sessionId } = ctx;
+      await preloadModules(page, [MODULE_URLS.sessionsCollection, MODULE_URLS.switchSessionAgent]);
+      const targetAgent = 'codex';
+      if (check === 'C1' || check === 'C5') {
+        faults.stubRequestReply('switch-session-agent', (_frame, nextSeq) => ({
+          reply: { type: 'switch-session-agent-result', id: sessionId, ok: true, appliedSeq: nextSeq },
+          push: { type: 'session-status', id: sessionId, session: 'Orchestrator', timestamp: Date.now() },
+        }));
+      }
+      await page.evaluate(({ sessionsUrl, actionUrl, id, agent }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const sessions = cache[sessionsUrl].default as { state: { byId: Record<string, { agent: string }> } };
+        const readAgent = (): string => sessions.state.byId[id]?.agent ?? '';
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readAgent,
+          isOptimisticShown: () => readAgent() === agent,
+          fire: () => {
+            const runAction = cache[actionUrl].default as (input: { id: string; agent: string }) => Promise<unknown>;
+            Reflect.set(window, '__continuityActionPromise', runAction({ id, agent }));
+          },
+        });
+      }, { sessionsUrl: MODULE_URLS.sessionsCollection, actionUrl: MODULE_URLS.switchSessionAgent, id: sessionId, agent: targetAgent });
       return {
         cleanup: async () => {},
       };

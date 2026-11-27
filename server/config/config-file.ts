@@ -129,6 +129,23 @@ function dropPromotedBuiltinAcpAgents(draft: Record<string, unknown>): string | 
   return `Removed acpAgents entries now built in: ${droppedIds.join(', ')}.`;
 }
 
+function clearMissingStudioAcpDrivers(draft: Record<string, unknown>): void {
+  if (!Array.isArray(draft.projects)) return;
+  const declaredAcpIds = new Set<string>(BUILTIN_ACP_AGENT_IDS);
+  if (Array.isArray(draft.acpAgents)) {
+    for (const row of draft.acpAgents) {
+      if (isRecord(row) && typeof row.id === 'string') declaredAcpIds.add(row.id);
+    }
+  }
+  for (const project of draft.projects) {
+    if (!isRecord(project) || project.driverKind !== 'acp') continue;
+    const isStudio = project.isStudioMain === true || (isRecord(project.parent) && project.parent.box != null);
+    if (!isStudio) continue;
+    const effectiveAgent = typeof project.agent === 'string' && project.agent.length > 0 ? project.agent : BUILTIN_ACP_AGENT_IDS[0];
+    if (!declaredAcpIds.has(effectiveAgent)) delete project.driverKind;
+  }
+}
+
 function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = []): GlimmervoidConfig {
   if (!isRecord(candidate)) throw new Error('config must be a plain object');
   const draft = normalizeLegacyConfigNumbers(candidate);
@@ -137,6 +154,7 @@ function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = 
   if (retiredMessage !== null) renamedKeyMessages.push(retiredMessage);
   const promotedAcpMessage = dropPromotedBuiltinAcpAgents(draft);
   if (promotedAcpMessage !== null) renamedKeyMessages.push(promotedAcpMessage);
+  clearMissingStudioAcpDrivers(draft);
   replaceInvalidWorktreeLeaves(draft);
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;
