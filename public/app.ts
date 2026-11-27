@@ -9,7 +9,6 @@ import { applyFlyingAnimals } from './flying-animals.ts';
 import { initFormFactor } from './form-factor.ts';
 import { paintSessionPrRows, sessionRowPrSignals } from './github/session-pr-chips.ts';
 import { mountHealthMonitor } from './health-monitor.ts';
-import { setHooksRequestSender } from './hooks-store.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { setLinkedPrsPainter } from './session-card/card-dom.ts';
 import { setAccountSignIn } from './session-card/card-account.ts';
@@ -61,7 +60,6 @@ void import('./your-day-tip.ts').then(
   (yourDayTip) => yourDayTip.startYourDayTips({ openUsage: () => openView('usage') }),
   (error: unknown) => reportToServerLog('your-day-tip', `your day tips failed to load: ${describeFailure(error)}`),
 );
-setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setLinkedPrsPainter(paintSessionPrRows);
 addSessionRowSignalSource(sessionRowPrSignals, 'links');

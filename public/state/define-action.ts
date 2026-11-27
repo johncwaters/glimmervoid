@@ -32,6 +32,7 @@ export interface ActionOptions<Input = Record<string, unknown>> {
   noticeSource?: string;
   timeoutMs?: number | ((input: Input) => number);
   isReplyOk?: (reply: ServerMessage) => boolean;
+  onReply?: (reply: ServerMessage, input: Input) => void;
   request?: ControlRequester;
 }
 
@@ -110,6 +111,7 @@ export function defineAction<Input = Record<string, unknown>>(
       options.optimistic?.(input, applyOptimistic);
       if (releaseOverlays.length > 0) flush();
       const reply = await runTransaction(input);
+      options.onReply?.(reply, input);
       return { ok: true, reply };
     } catch (reason) {
       const error = new Error(requestFailureText(reason, timeoutMs));

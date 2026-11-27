@@ -3,7 +3,7 @@ import { reportHeaderError } from '../../action-status.ts';
 import { applyAgentAccounts } from '../../agent-logins.ts';
 import type { HealthSnapshot } from '../../health-monitor.ts';
 import { applyHealthSnapshot } from '../../health-monitor.ts';
-import { applyHooksReport, applyLateHookResult } from '../../hooks-store.ts';
+import { applyHooksReport, applyLateHookResult } from '../../state/collections/hooks.ts';
 import { applyCloneJobs } from '../../onboarding/clone-jobs.ts';
 import { reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySettingsUpdateError, applySettingsUpdateProgress, applySettingsUpdateStatus } from '../../settings/settings-panel-bridge.ts';

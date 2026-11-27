@@ -132,12 +132,12 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       try {
         const baseSeq = seqMod.currentSeq();
         const collection = collectionMod.defineCollection<{ items: Array<{ id: string; count: number }> }>({
-          name: 'hooks',
+          name: 'wargames',
           key: 'id',
           initial: { items: [{ id: 'h1', count: 1 }] },
           apply(_draft, message, { replace }) {
-            if (message.type !== 'hooks-updated') return;
-            replace({ items: [{ id: 'h1', count: message.count }] });
+            if (message.type !== 'wargames-status') return;
+            replace({ items: [{ id: 'h1', count: message.matches.length }] });
           },
         });
 
@@ -148,13 +148,17 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
           return { ok: false, detail: `unexpected initial collection count: ${String(readCount())}` };
         }
 
+        const makeProbeMatches = (count: number) => Array.from({ length: count }, (_, index) => ({
+          id: `probe-${index}`,
+        })) as never;
+
         const firstPushSeq = baseSeq + 10;
-        const firstHooksPush: ServerMessage = {
-          type: 'hooks-updated',
+        const firstPush: ServerMessage = {
+          type: 'wargames-status',
           seq: firstPushSeq,
-          count: 5,
+          matches: makeProbeMatches(5),
         };
-        const collectionRoute = ingestMod.ingestControlMessage(firstHooksPush);
+        const collectionRoute = ingestMod.ingestControlMessage(firstPush);
 
         await flushMicrotasks();
         if (collectionRoute !== 'collection') {
@@ -220,9 +224,9 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
         }
 
         const earlierConcurrentPush: ServerMessage = {
-          type: 'hooks-updated',
+          type: 'wargames-status',
           seq: appliedSeq - 5,
-          count: 7,
+          matches: makeProbeMatches(7),
         };
         ingestMod.ingestControlMessage(earlierConcurrentPush);
         await flushMicrotasks();
@@ -234,9 +238,9 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
         }
 
         const confirmedPush: ServerMessage = {
-          type: 'hooks-updated',
+          type: 'wargames-status',
           seq: appliedSeq,
-          count: 99,
+          matches: makeProbeMatches(99),
         };
         ingestMod.ingestControlMessage(confirmedPush);
 
@@ -386,7 +390,7 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
           : String(caughtError);
         return { ok: false, detail: `uncaught error: ${message}` };
       } finally {
-        collectionMod.unregisterCollection('hooks');
+        collectionMod.unregisterCollection('wargames');
         actionStatusMod.clearHeaderError(noticeSource);
         window.localStorage.removeItem(persistKey);
         window.localStorage.removeItem(`${sessionPrefix}live-1`);

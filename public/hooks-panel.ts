@@ -1,6 +1,5 @@
 import './hooks-panel.css';
-import { sendControlRequest } from './control-ws.ts';
-import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
+import { createActionStatus } from './action-status.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
 import { textArea, textInput } from './ui/text-input.ts';
@@ -75,7 +74,14 @@ import {
 } from './hooks-view-core.ts';
 import type { AgentHookGroup, AgentNote, InstalledHookRow } from '#shared/contracts/hooks.ts';
 import type { HookDraft, HookEvent, HookProject, HookRecord } from './hooks-view-core.ts';
-import { hooksSnapshot, requestHooksReport, subscribeHooks } from './hooks-store.ts';
+import deleteHookAction from './state/actions/delete-hook.ts';
+import saveHookAction from './state/actions/save-hook.ts';
+import {
+  hooksSnapshot,
+  onHooksChanged,
+  requestHooksReport,
+} from './state/collections/hooks.ts';
+import { isOptimisticHookId } from './state/hooks-core.ts';
 import type { ViewRefreshReason } from './view-registry-core.ts';
 
 let _hooks = hooksSnapshot();
@@ -113,22 +119,23 @@ function buildRowButton(variant: 'secondary' | 'danger', label: string, action: 
   return rowButton;
 }
 
-async function requestHookChange(type: 'save-hook' | 'delete-hook', payload: Record<string, unknown>): Promise<string | null> {
-  try {
-    const reply = await sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-    if ((reply.type === 'save-hook-result' || reply.type === 'delete-hook-result') && reply.ok) return null;
-    const fallbackText = type === 'save-hook' ? 'Could not save the hook.' : 'Could not delete the hook.';
-    return 'error' in reply && typeof reply.error === 'string' && reply.error ? reply.error : fallbackText;
-  } catch (reason) {
-    return requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS);
-  }
+async function saveHookRecord(hook: Record<string, unknown>): Promise<string | null> {
+  const saveOutcome = await saveHookAction({ hook });
+  if (!saveOutcome.ok) return saveOutcome.error.message;
+  return null;
 }
 
-async function runRowRequest(hookId: string, type: 'save-hook' | 'delete-hook', payload: Record<string, unknown>, busyText: string) {
+async function deleteHookRecord(hook: Pick<HookRecord, 'id' | 'name'>): Promise<string | null> {
+  const deleteOutcome = await deleteHookAction({ id: hook.id, name: hook.name });
+  if (!deleteOutcome.ok) return deleteOutcome.error.message;
+  return null;
+}
+
+async function runRowRequest(hookId: string, perform: () => Promise<string | null>, busyText: string) {
   _busyIds.add(hookId);
   _rowFeedbackById.set(hookId, { tone: 'busy', text: busyText });
   render({ force: true });
-  const failureText = await requestHookChange(type, payload);
+  const failureText = await perform();
   _busyIds.delete(hookId);
   if (failureText) _rowFeedbackById.set(hookId, { tone: 'error', text: failureText });
   if (!failureText) _rowFeedbackById.delete(hookId);
@@ -324,7 +331,7 @@ async function submitEditor() {
   _saving = true;
   savingStatus?.show('busy', 'Saving the hook.');
   if (saveButton) saveButton.disabled = true;
-  const failureText = await requestHookChange('save-hook', { hook: fromDraft(_draft) });
+  const failureText = await saveHookRecord(fromDraft(_draft));
   _saving = false;
   if (saveButton) saveButton.disabled = false;
   if (savingStatus !== _editorStatus) return;
@@ -372,22 +379,25 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
     main.append(rowStatus.element);
   }
 
+  const isRowBusy = _busyIds.has(hook.id) || isOptimisticHookId(hook.id);
   const actions = el('div', 'hooks-row-actions');
   const toggleLabel = checkbox({
     label: 'On',
     checked: hook.enabled !== false,
-    disabled: _busyIds.has(hook.id),
+    disabled: isRowBusy,
     accessibleName: `${hook.name} enabled`,
     onChange: (checked) => {
-      void runRowRequest(hook.id, 'save-hook', { hook: toggledHook(hook) }, checked ? 'Turning the hook on.' : 'Turning the hook off.');
+      void runRowRequest(hook.id, () => saveHookRecord(toggledHook(hook)), checked ? 'Turning the hook on.' : 'Turning the hook off.');
     },
   }).element;
   const edit = buildRowButton('secondary', 'Edit', 'edit-hook', `Edit ${hook.name}`, () => openEditor(hook));
+  edit.disabled = isRowBusy;
   const duplicate = buildRowButton('secondary', DUPLICATE_LABEL, 'duplicate-hook', `Duplicate ${hook.name}`, () => {
     const copy = toDraft({ ...hook, name: duplicateName(hook.name) });
     copy.id = null;
     openEditor(null, copy);
   });
+  duplicate.disabled = isRowBusy;
   const remove = buildRowButton('danger', 'Delete', 'delete-hook', `Delete ${hook.name}`, () => {
     openConfirmDialog({
       title: 'Delete hook',
@@ -395,11 +405,11 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
       confirmLabel: 'Delete',
       danger: true,
       onConfirm: () => {
-        void runRowRequest(hook.id, 'delete-hook', { id: hook.id }, 'Deleting the hook.');
+        void runRowRequest(hook.id, () => deleteHookRecord(hook), 'Deleting the hook.');
       },
     });
   });
-  remove.disabled = _busyIds.has(hook.id);
+  remove.disabled = isRowBusy;
   actions.append(toggleLabel, edit, duplicate, remove);
   row.append(main, actions);
   return row;
@@ -532,7 +542,7 @@ function render({ force = false }: { force?: boolean } = {}) {
   if (add instanceof HTMLButtonElement) add.focus();
 }
 
-subscribeHooks(() => render());
+onHooksChanged(() => render());
 
 export function renderHooksPage(container: HTMLElement) {
   _root = el('div', 'hooks-panel');

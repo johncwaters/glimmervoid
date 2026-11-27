@@ -16,7 +16,7 @@
       "onControlMessage": 0
     },
     "public/app.ts": {
-      "sendControlMsg": 3,
+      "sendControlMsg": 2,
       "sendControlRequest": 0,
       "onControlMessage": 0
     },
@@ -123,11 +123,6 @@
     "public/health-monitor.ts": {
       "sendControlMsg": 1,
       "sendControlRequest": 0,
-      "onControlMessage": 0
-    },
-    "public/hooks-panel.ts": {
-      "sendControlMsg": 0,
-      "sendControlRequest": 1,
       "onControlMessage": 0
     },
     "public/host-ready/host-ready-rows.ts": {
@@ -323,7 +318,6 @@
     "public/github/my-prs-store.ts",
     "public/github/review-queue-store.ts",
     "public/github/team-review-store.ts",
-    "public/hooks-store.ts",
     "public/radar/radar-store.ts",
     "public/trace-store.ts",
     "public/usage/usage-store.ts",
@@ -361,7 +355,6 @@
     "community",
     "github-prs",
     "health",
-    "hooks",
     "my-prs",
     "pack-data",
     "pr-flows",
@@ -399,7 +392,6 @@
     "chat-stop",
     "community-action",
     "decide-approval",
-    "delete-hook",
     "dismiss",
     "force-restart",
     "github-polling-refresh",
@@ -439,7 +431,6 @@
     "review-resolve-comment",
     "review-send-comment",
     "run-session-review",
-    "save-hook",
     "secret-decision",
     "secret-revoke",
     "session-doc-open",
