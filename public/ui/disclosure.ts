@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
-
-type DisclosureMarker = 'chevron' | 'plus';
+import { detailsBlockDescriptor, disclosureDescriptor } from './disclosure-core.ts';
+import type { DisclosureMarker } from './disclosure-core.ts';
 
 type DisclosureContent = Node | string | readonly (Node | string)[];
 
@@ -19,13 +19,14 @@ export type Disclosure = {
 };
 
 export function disclosure(options: DisclosureOptions): Disclosure {
-  const element = el('details', 'ui-disclosure');
-  element.dataset.marker = options.marker ?? 'plus';
-  const summary = el('summary', 'ui-disclosure-summary');
-  const marker = el('span', 'ui-disclosure-marker');
+  const descriptor = disclosureDescriptor({ marker: options.marker, open: options.open });
+  const element = el('details', descriptor.className);
+  element.dataset.marker = descriptor.marker;
+  const summary = el('summary', descriptor.summaryClassName);
+  const marker = el('span', descriptor.markerClassName);
   marker.setAttribute('aria-hidden', 'true');
   summary.append(marker, ...contentNodes(options.summary));
-  const body = el('div', 'ui-disclosure-body');
+  const body = el('div', descriptor.bodyClassName);
   element.append(summary, body);
   const { body: bodyContent, onToggle } = options;
   let renderPendingBody = typeof bodyContent === 'function' ? bodyContent : null;
@@ -36,7 +37,7 @@ export function disclosure(options: DisclosureOptions): Disclosure {
     body.append(...contentNodes(render()));
   };
   if (bodyContent !== undefined && typeof bodyContent !== 'function') body.append(...contentNodes(bodyContent));
-  element.open = options.open ?? false;
+  element.open = descriptor.open;
   if (element.open) fillPendingBody();
   element.addEventListener('toggle', () => {
     if (element.open) fillPendingBody();
@@ -46,7 +47,8 @@ export function disclosure(options: DisclosureOptions): Disclosure {
 }
 
 export function detailsBlock(text: string): HTMLDetailsElement {
-  return disclosure({ summary: 'Show details', body: el('pre', 'ui-details-block-text', text) }).element;
+  const descriptor = detailsBlockDescriptor(text);
+  return disclosure({ summary: descriptor.summary, body: el('pre', descriptor.bodyClassName, descriptor.text) }).element;
 }
 
 function contentNodes(content: DisclosureContent): (Node | string)[] {

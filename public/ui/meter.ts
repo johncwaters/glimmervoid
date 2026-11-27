@@ -1,7 +1,8 @@
 import { el } from '../dom-helpers.ts';
+import { meterDescriptor, meterValueState } from './meter-core.ts';
+import type { MeterThickness, MeterTone } from './meter-core.ts';
 
-export type MeterTone = 'accent' | 'muted' | 'waiting' | 'failed';
-type MeterThickness = 'hair' | 'thin' | 'default' | 'thick';
+export type { MeterTone };
 
 type MeterOptions = {
   value: number;
@@ -18,36 +19,32 @@ type Meter = {
 };
 
 export function meter(options: MeterOptions): Meter {
-  const element = el('span', 'ui-meter');
-  element.dataset.thickness = options.thickness ?? 'default';
-  element.append(el('span', 'ui-meter-fill'));
+  const descriptor = meterDescriptor(options);
+  const element = el('span', descriptor.className);
+  element.dataset.thickness = descriptor.thickness;
+  element.append(el('span', descriptor.fillClassName));
   const label = options.label;
-  if (label !== undefined) {
-    element.setAttribute('role', 'meter');
-    element.setAttribute('aria-label', label);
-    element.setAttribute('aria-valuemin', '0');
-    element.setAttribute('aria-valuemax', '100');
+  if (descriptor.role) {
+    element.setAttribute('role', descriptor.role);
+    element.setAttribute('aria-label', descriptor.ariaLabel ?? '');
+    element.setAttribute('aria-valuemin', descriptor.ariaValueMin ?? '0');
+    element.setAttribute('aria-valuemax', descriptor.ariaValueMax ?? '100');
   }
-  if (label === undefined) element.setAttribute('aria-hidden', 'true');
+  if (descriptor.ariaHidden) element.setAttribute('aria-hidden', descriptor.ariaHidden);
 
   const setValue = (value: number, valueText?: string) => {
-    const fraction = clampFraction(value);
-    element.style.setProperty('--meter-value', String(fraction));
+    const state = meterValueState(value, label, valueText);
+    element.style.setProperty('--meter-value', state.cssValue);
     if (label === undefined) return;
-    element.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
-    if (valueText) element.setAttribute('aria-valuetext', valueText);
-    if (!valueText) element.removeAttribute('aria-valuetext');
+    if (state.ariaValueNow !== undefined) element.setAttribute('aria-valuenow', state.ariaValueNow);
+    if (state.ariaValueText) element.setAttribute('aria-valuetext', state.ariaValueText);
+    if (!state.ariaValueText) element.removeAttribute('aria-valuetext');
   };
   const setTone = (tone: MeterTone) => {
     element.dataset.tone = tone;
   };
 
-  setTone(options.tone ?? 'accent');
+  setTone(descriptor.tone);
   setValue(options.value, options.valueText);
   return { element, setValue, setTone };
-}
-
-function clampFraction(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.min(Math.max(value, 0), 1);
 }

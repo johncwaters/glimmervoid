@@ -1,7 +1,6 @@
 import { el } from '../dom-helpers.ts';
-
-type TagTone = 'muted' | 'neutral' | 'accent' | 'warning' | 'failed';
-type TagShape = 'box' | 'pill';
+import { tagDescriptor } from './tag-core.ts';
+import type { TagShape, TagTone } from './tag-core.ts';
 
 type TagOptions = {
   text: string;
@@ -10,8 +9,9 @@ type TagOptions = {
 };
 
 export function tag(options: TagOptions): HTMLSpanElement {
-  const element = el('span', 'ui-tag', options.text);
-  element.dataset.tone = options.tone ?? 'muted';
-  element.dataset.shape = options.shape ?? 'box';
+  const descriptor = tagDescriptor(options);
+  const element = el('span', descriptor.className, descriptor.text);
+  element.dataset.tone = descriptor.tone;
+  element.dataset.shape = descriptor.shape;
   return element;
 }

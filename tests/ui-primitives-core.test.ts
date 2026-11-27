@@ -9,11 +9,15 @@ import {
   outlineIconStateAttributes,
 } from '../public/ui/button-core.ts';
 import { choiceDescriptor } from '../public/ui/checkbox-core.ts';
+import { detailsBlockDescriptor, disclosureDescriptor } from '../public/ui/disclosure-core.ts';
 import { fieldDescriptor, fieldMessageState, isLabelableTagName } from '../public/ui/field-core.ts';
+import { keyChordParts, keycapDescriptor } from '../public/ui/keycap-core.ts';
+import { clampMeterFraction, meterDescriptor, meterValueState } from '../public/ui/meter-core.ts';
 import { iconPressableLabel, pressableAttributes } from '../public/ui/pressable-core.ts';
 import { nextSegmentedValue, segmentedDescriptor, segmentedOptionStates } from '../public/ui/segmented-core.ts';
 import { findSelectChoice, resolveSelectSelection, selectDescriptor } from '../public/ui/select-core.ts';
 import { switchDescriptor } from '../public/ui/switch-core.ts';
+import { tagDescriptor } from '../public/ui/tag-core.ts';
 import { textAreaDescriptor, textInputDescriptor } from '../public/ui/text-input-core.ts';
 
 describe('pressable-core', () => {
@@ -239,5 +243,84 @@ describe('segmented-core', () => {
     assert.equal(nextSegmentedValue(['day', 'week', 'month'], 'day', 'ArrowLeft'), 'month');
     assert.equal(nextSegmentedValue(['day', 'week', 'month'], 'day', 'Enter'), null);
     assert.equal(nextSegmentedValue([], 'day' as never, 'ArrowRight'), null);
+  });
+});
+
+describe('disclosure-core', () => {
+  test('defaults marker to plus and open to false, and defines detailsBlock summary', () => {
+    assert.deepEqual(disclosureDescriptor(), {
+      className: 'ui-disclosure',
+      summaryClassName: 'ui-disclosure-summary',
+      markerClassName: 'ui-disclosure-marker',
+      bodyClassName: 'ui-disclosure-body',
+      marker: 'plus',
+      open: false,
+    });
+    const opened = disclosureDescriptor({ marker: 'chevron', open: true });
+    assert.equal(opened.marker, 'chevron');
+    assert.equal(opened.open, true);
+    assert.deepEqual(detailsBlockDescriptor('stack trace'), {
+      summary: 'Show details',
+      bodyClassName: 'ui-details-block-text',
+      text: 'stack trace',
+    });
+  });
+});
+
+describe('tag-core', () => {
+  test('defaults tone to muted and shape to box while preserving overrides', () => {
+    assert.deepEqual(tagDescriptor({ text: 'Beta' }), {
+      className: 'ui-tag',
+      text: 'Beta',
+      tone: 'muted',
+      shape: 'box',
+    });
+    assert.deepEqual(tagDescriptor({ text: 'Failed', tone: 'failed', shape: 'pill' }), {
+      className: 'ui-tag',
+      text: 'Failed',
+      tone: 'failed',
+      shape: 'pill',
+    });
+  });
+});
+
+describe('keycap-core', () => {
+  test('omits data-tone for neutral keycaps and inserts plus separators between chord keys', () => {
+    assert.deepEqual(keycapDescriptor('K'), { className: 'ui-keycap', text: 'K', tone: undefined });
+    assert.deepEqual(keycapDescriptor('K', { tone: 'accent' }), { className: 'ui-keycap', text: 'K', tone: 'accent' });
+    assert.deepEqual(keyChordParts([]), []);
+    assert.deepEqual(keyChordParts(['Cmd', 'Shift', 'P']), [
+      { kind: 'key', text: 'Cmd', className: 'ui-keycap' },
+      { kind: 'sep', text: '+', className: 'ui-key-chord-sep' },
+      { kind: 'key', text: 'Shift', className: 'ui-keycap' },
+      { kind: 'sep', text: '+', className: 'ui-key-chord-sep' },
+      { kind: 'key', text: 'P', className: 'ui-keycap' },
+    ]);
+  });
+});
+
+describe('meter-core', () => {
+  test('clamps non-finite and out-of-range values and switches between decorative and ARIA meter modes', () => {
+    assert.equal(clampMeterFraction(Number.NaN), 0);
+    assert.equal(clampMeterFraction(-0.5), 0);
+    assert.equal(clampMeterFraction(1.4), 1);
+
+    const decorative = meterDescriptor({ value: 0.42 });
+    assert.equal(decorative.ariaHidden, 'true');
+    assert.equal(decorative.role, undefined);
+    assert.equal(decorative.ariaValueNow, undefined);
+    assert.equal(decorative.cssValue, '0.42');
+    assert.equal(decorative.tone, 'accent');
+    assert.equal(decorative.thickness, 'default');
+
+    const labelled = meterDescriptor({ value: 0.756, label: 'Context', valueText: '76% used', tone: 'waiting', thickness: 'thick' });
+    assert.equal(labelled.role, 'meter');
+    assert.equal(labelled.ariaHidden, undefined);
+    assert.equal(labelled.ariaLabel, 'Context');
+    assert.equal(labelled.ariaValueMin, '0');
+    assert.equal(labelled.ariaValueMax, '100');
+    assert.equal(labelled.ariaValueNow, '76');
+    assert.equal(labelled.ariaValueText, '76% used');
+    assert.equal(meterValueState(0.5, 'Context', '').ariaValueText, undefined);
   });
 });

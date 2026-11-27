@@ -27,6 +27,14 @@ const MODULE_URLS = {
   selectSolid: '/ui/Select.tsx',
   segmented: '/ui/segmented.ts',
   segmentedSolid: '/ui/Segmented.tsx',
+  disclosure: '/ui/disclosure.ts',
+  disclosureSolid: '/ui/Disclosure.tsx',
+  tag: '/ui/tag.ts',
+  tagSolid: '/ui/Tag.tsx',
+  keycap: '/ui/keycap.ts',
+  keycapSolid: '/ui/Keycap.tsx',
+  meter: '/ui/meter.ts',
+  meterSolid: '/ui/Meter.tsx',
 } as const;
 
 interface LoadedParityModules {
@@ -59,6 +67,18 @@ interface LoadedParityModules {
   Select: SolidComponentFn;
   segmented: (options: Record<string, unknown>) => { element: HTMLDivElement; setValue: (value: string) => void; focus: () => void };
   Segmented: SolidComponentFn;
+  disclosure: (options: Record<string, unknown>) => { element: HTMLDetailsElement; summary: HTMLElement; body: HTMLDivElement };
+  detailsBlock: (text: string) => HTMLDetailsElement;
+  Disclosure: SolidComponentFn;
+  DetailsBlock: SolidComponentFn;
+  tag: (options: Record<string, unknown>) => HTMLSpanElement;
+  Tag: SolidComponentFn;
+  keycap: (text: string, options?: Record<string, unknown>) => HTMLElement;
+  keyChord: (keys: readonly string[]) => HTMLElement;
+  Keycap: SolidComponentFn;
+  KeyChord: SolidComponentFn;
+  meter: (options: Record<string, unknown>) => { element: HTMLSpanElement; setValue: (value: number, valueText?: string) => void; setTone: (tone: string) => void };
+  Meter: SolidComponentFn;
 }
 
 export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResult> {
@@ -82,6 +102,14 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       selectSolidMod,
       segmentedMod,
       segmentedSolidMod,
+      disclosureMod,
+      disclosureSolidMod,
+      tagMod,
+      tagSolidMod,
+      keycapMod,
+      keycapSolidMod,
+      meterMod,
+      meterSolidMod,
     ] = await Promise.all([
       import(urls.island),
       import(urls.svgDom),
@@ -101,6 +129,14 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       import(urls.selectSolid),
       import(urls.segmented),
       import(urls.segmentedSolid),
+      import(urls.disclosure),
+      import(urls.disclosureSolid),
+      import(urls.tag),
+      import(urls.tagSolid),
+      import(urls.keycap),
+      import(urls.keycapSolid),
+      import(urls.meter),
+      import(urls.meterSolid),
     ]);
 
     const modules: LoadedParityModules = {
@@ -133,6 +169,18 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
       Select: selectSolidMod.Select,
       segmented: segmentedMod.segmented,
       Segmented: segmentedSolidMod.Segmented,
+      disclosure: disclosureMod.disclosure,
+      detailsBlock: disclosureMod.detailsBlock,
+      Disclosure: disclosureSolidMod.Disclosure,
+      DetailsBlock: disclosureSolidMod.DetailsBlock,
+      tag: tagMod.tag,
+      Tag: tagSolidMod.Tag,
+      keycap: keycapMod.keycap,
+      keyChord: keycapMod.keyChord,
+      Keycap: keycapSolidMod.Keycap,
+      KeyChord: keycapSolidMod.KeyChord,
+      meter: meterMod.meter,
+      Meter: meterSolidMod.Meter,
     };
 
     const normalizeIdToken = (raw: string): string => raw
@@ -397,6 +445,100 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
           width: 'fill',
           size: 'small',
           onChange: () => {},
+        }),
+      },
+      {
+        name: 'disclosure/closed-lazy',
+        buildImperative: () => modules.disclosure({
+          summary: 'Advanced',
+          marker: 'chevron',
+          body: () => {
+            const paragraph = document.createElement('p');
+            paragraph.textContent = 'Lazy body';
+            return paragraph;
+          },
+        }).element,
+        renderSolid: () => modules.Disclosure({
+          summary: 'Advanced',
+          marker: 'chevron',
+          body: () => {
+            const paragraph = document.createElement('p');
+            paragraph.textContent = 'Lazy body';
+            return paragraph;
+          },
+        }),
+      },
+      {
+        name: 'disclosure/open-lazy',
+        buildImperative: () => modules.disclosure({
+          summary: 'Diagnostics',
+          open: true,
+          body: () => {
+            const paragraph = document.createElement('p');
+            paragraph.textContent = 'Loaded';
+            return paragraph;
+          },
+        }).element,
+        renderSolid: () => modules.Disclosure({
+          summary: 'Diagnostics',
+          open: true,
+          body: () => {
+            const paragraph = document.createElement('p');
+            paragraph.textContent = 'Loaded';
+            return paragraph;
+          },
+        }),
+      },
+      {
+        name: 'disclosure/details-block',
+        buildImperative: () => modules.detailsBlock('Error: connection refused'),
+        renderSolid: () => modules.DetailsBlock({ text: 'Error: connection refused' }),
+      },
+      {
+        name: 'tag/default',
+        buildImperative: () => modules.tag({ text: 'Draft' }),
+        renderSolid: () => modules.Tag({ text: 'Draft' }),
+      },
+      {
+        name: 'tag/pill-warning',
+        buildImperative: () => modules.tag({ text: 'Stale', tone: 'warning', shape: 'pill' }),
+        renderSolid: () => modules.Tag({ text: 'Stale', tone: 'warning', shape: 'pill' }),
+      },
+      {
+        name: 'keycap/neutral',
+        buildImperative: () => modules.keycap('Esc'),
+        renderSolid: () => modules.Keycap({ text: 'Esc' }),
+      },
+      {
+        name: 'keycap/accent',
+        buildImperative: () => modules.keycap('K', { tone: 'accent' }),
+        renderSolid: () => modules.Keycap({ text: 'K', tone: 'accent' }),
+      },
+      {
+        name: 'keycap/chord',
+        buildImperative: () => modules.keyChord(['Cmd', 'Shift', 'K']),
+        renderSolid: () => modules.KeyChord({ keys: ['Cmd', 'Shift', 'K'] }),
+      },
+      {
+        name: 'meter/decorative',
+        buildImperative: () => modules.meter({ value: 0.35 }).element,
+        renderSolid: () => modules.Meter({ value: 0.35 }),
+      },
+      {
+        name: 'meter/labelled-clamped',
+        buildImperative: () => modules.meter({
+          value: 1.4,
+          label: 'Context window',
+          valueText: '100% full',
+          tone: 'waiting',
+          thickness: 'thick',
+        }).element,
+        renderSolid: () => modules.Meter({
+          value: 1.4,
+          label: 'Context window',
+          valueText: '100% full',
+          tone: 'waiting',
+          thickness: 'thick',
         }),
       },
     ];

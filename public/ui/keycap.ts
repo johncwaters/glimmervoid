@@ -1,10 +1,11 @@
 import { el } from '../dom-helpers.ts';
-
-type KeycapTone = 'neutral' | 'accent';
+import { keyChordParts, keycapDescriptor } from './keycap-core.ts';
+import type { KeycapTone } from './keycap-core.ts';
 
 export function keycap(text: string, { tone = 'neutral' }: { tone?: KeycapTone } = {}): HTMLElement {
-  const cap = el('kbd', 'ui-keycap', text);
-  if (tone !== 'neutral') cap.dataset.tone = tone;
+  const descriptor = keycapDescriptor(text, { tone });
+  const cap = el('kbd', descriptor.className, descriptor.text);
+  if (descriptor.tone) cap.dataset.tone = descriptor.tone;
   return cap;
 }
 
@@ -15,5 +16,7 @@ export function keyChord(keys: readonly string[]): HTMLElement {
 }
 
 export function setKeyChordKeys(chord: HTMLElement, keys: readonly string[]): void {
-  chord.replaceChildren(...keys.flatMap((key, keyIndex) => keyIndex === 0 ? [keycap(key)] : [el('span', 'ui-key-chord-sep', '+'), keycap(key)]));
+  chord.replaceChildren(...keyChordParts(keys).map((part) => (
+    part.kind === 'key' ? keycap(part.text) : el('span', part.className, part.text)
+  )));
 }
