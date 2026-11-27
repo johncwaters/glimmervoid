@@ -357,12 +357,9 @@
     "server/control/handlers/race-handlers.ts": 4,
     "server/control/handlers/radar-handlers.ts": 5,
     "server/control/handlers/review-handlers.ts": 3,
-    "server/control/handlers/wargames-handlers.ts": 2,
-    "server/control/handlers/worktree-handlers.ts": 1
+    "server/control/handlers/wargames-handlers.ts": 2
   },
-  "legacyMutatingWithoutRequestId": [
-    "run-session-review"
-  ],
+  "legacyMutatingWithoutRequestId": [],
   "legacyMutatingRepliesWithoutAppliedSeq": [
     "commit-signing-result",
     "community-action-result",

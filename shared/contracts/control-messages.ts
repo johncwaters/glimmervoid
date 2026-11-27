@@ -57,7 +57,7 @@ export {
 export type { OnboardingStepReport, OperatorSurface, OperatorAction, OperatorActionOf } from './control/control-fields.ts';
 
 const idOnlyClientTypes = [
-  'request-session-diff', 'request-change-map', 'request-verification', 'request-session-review', 'run-session-review', 'request-branch-sync', 'debug-state',
+  'request-session-diff', 'request-change-map', 'request-verification', 'request-session-review', 'request-branch-sync', 'debug-state',
 ] as const;
 
 function idOnlyClientVariant<const Type extends string>(type: Type) {

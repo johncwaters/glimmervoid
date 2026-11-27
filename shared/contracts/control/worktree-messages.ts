@@ -24,6 +24,7 @@ export const worktreeClientVariants = [
   loose('request-diff-file', { id: sessionId, requestId, path: diffFilePath, oldBlobId: blobId.nullable(), newBlobId: blobId }),
   loose('resolve-session-merge', { id: sessionId, force: z.unknown().optional(), requestId }),
   loose('resync-branch', { id: sessionId, force: z.unknown().optional(), requestId }),
+  loose('run-session-review', { id: sessionId, force: z.unknown().optional(), requestId }),
 ] as const;
 
 export const worktreeServerVariants = [

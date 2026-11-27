@@ -77,10 +77,18 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
       if (!s) return;
       ws.send(JSON.stringify({ type: 'session-review', id: s.id, result: deps.sessionReview?.latest(s.id) ?? null }));
     },
-    'run-session-review': (msg: ClientMessageOf<'run-session-review'>) => {
-      const s = findSession(msg);
-      if (!s || !deps.sessionReview) return;
-      void deps.sessionReview.run(s);
+    'run-session-review': (msg: ClientMessageOf<'run-session-review'>, ws: ControlSocket) => {
+      const session = findSession(msg);
+      if (!session) {
+        replyApplied(ws, msg, 'session-action-result', { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+        return;
+      }
+      if (!deps.sessionReview) {
+        replyApplied(ws, msg, 'session-action-result', { id: session.id, ok: false, error: 'Session review is not available on this server.' });
+        return;
+      }
+      void deps.sessionReview.run(session);
+      replyApplied(ws, msg, 'session-action-result', { id: session.id, ok: true, error: null });
     },
     'request-branch-sync': async (msg: ClientMessageOf<'request-branch-sync'>, ws: ControlSocket) => {
       const s = findSession(msg);
@@ -105,6 +113,7 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
     'request-diff-file': (msg, requestId, message) => ({ type: 'diff-file', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, oldContents: null, newContents: null, error: message }),
     'resolve-session-merge': (msg, requestId, message) => ({ type: 'session-action-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'resync-branch': (msg, requestId, message) => ({ type: 'resync-branch-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', branch: null, upstream: null, state: 'error', ahead: 0, behind: 0, fetched: null, action: 'none', error: message }),
+    'run-session-review': (msg, requestId, message) => ({ type: 'session-action-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, genericErrorTypes: ['request-session-diff', 'request-change-map', 'request-branch-sync'] };

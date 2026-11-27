@@ -99,16 +99,18 @@ function createSessionReviewWiring(dependencies: SessionReviewDependencies): Ses
     };
     const worktreeDir = session.worktreeDir;
     if (!session.hasOwnWorktree || worktreeDir === null) return publish({ ...base, error: 'This session has no worktree of its own to review.' }, stopped);
+    const previousResult = latestBySession.get(session.id);
+    const started = publish({ ...base, status: 'running', finishedAt: null }, stopped);
     const tree = await session.worktreeLifecycle.computeWorktreeSignature();
     if (!tree) return publish({ ...base, error: 'The worktree could not be read.' }, stopped);
-    const cached = latestBySession.get(session.id);
-    if (cached && cached.sig === tree.sig && cached.status === 'done' && cached.reviewer.agent === reviewer.agent && cached.reviewer.model === reviewer.model) return publish(cached, stopped);
+    if (previousResult && previousResult.sig === tree.sig && previousResult.status === 'done' && previousResult.reviewer.agent === reviewer.agent && previousResult.reviewer.model === reviewer.model) return publish(previousResult, stopped);
     const { patch } = await session.getDiff();
     if (patch.trim().length === 0) return publish({ ...base, sig: tree.sig, error: 'This session has no changes to review.' }, stopped);
-    const started = publish({ ...base, sig: tree.sig, status: 'running', finishedAt: null }, stopped);
-    const result = await review(session, started, worktreeDir, patch, stopped).catch((error: unknown) => {
+    const runningWithSig: SessionReviewResult = { ...started, sig: tree.sig };
+    if (!stopped.aborted) latestBySession.set(session.id, runningWithSig);
+    const result = await review(session, runningWithSig, worktreeDir, patch, stopped).catch((error: unknown) => {
       dependencies.logger.warn(`[session-review] ${session.id}: ${errorMessage(error)}`);
-      return finished(started, { status: 'failed', verdict: null, summary: '', findings: [], error: `The reviewer failed: ${errorMessage(error)}` });
+      return finished(runningWithSig, { status: 'failed', verdict: null, summary: '', findings: [], error: `The reviewer failed: ${errorMessage(error)}` });
     });
     return publish(result, stopped);
   }
