@@ -479,6 +479,7 @@ test('a scheduled pack job runs on its cron with its pack secret, saves the JSON
   const fireAt = Date.parse('2026-11-13T03:15:00Z');
   let nowMs = fireAt - 60_000;
   const armedTimers: { fire: () => void; delayMs: number }[] = [];
+  let onNextTimerArmed: (() => void) | null = null;
   const warnings: string[] = [];
   const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
   const vaultValues = new Map<string, string>();
@@ -491,42 +492,62 @@ test('a scheduled pack job runs on its cron with its pack secret, saves the JSON
     homeDir, packInUse: (packName) => packStore.packInUse(packName), commandSettings: (pack, commandRef) => packSettings.commandSettings(pack, commandRef),
     saveOutput: async (packName, jobId, value) => { const saved = await packData.setFromJob(packName, jobId, value); return saved.ok ? { ok: true } : saved; }, log: { warn: (message) => warnings.push(message) },
   });
+  let releaseSlowJob: () => void = () => {};
+  const slowJobDone = new Promise<void>((resolve) => { releaseSlowJob = resolve; });
+  const feedJobRuns: Promise<void>[] = [];
+  const runJob = (scheduled: Parameters<typeof packJobs.runJob>[0]): Promise<void> => {
+    if (scheduled.job.id === 'slow') return slowJobDone;
+    const feedRun = packJobs.runJob(scheduled);
+    feedJobRuns.push(feedRun);
+    return feedRun;
+  };
   const packLaunchers = createPackLaunchers({
     packStore, projectPaths: () => [], originUrl: async () => null, operatorSaneYolo: () => true, onResolved: () => {}, log: { warn: (message) => warnings.push(message) },
-    runsPath: packLauncherRunsPath(homeDir), isSessionLive: () => false, liveSessionNames: () => [], maxScheduledSessions: () => 3, timezone: () => 'UTC', runJob: packJobs.runJob,
-    now: () => nowMs, setTimeoutFn: (fire: () => void, delayMs: number) => { armedTimers.push({ fire, delayMs }); return setTimeout(() => {}, 0); },
+    runsPath: packLauncherRunsPath(homeDir), isSessionLive: () => false, liveSessionNames: () => [], maxScheduledSessions: () => 3, timezone: () => 'UTC', runJob,
+    now: () => nowMs,
+    setTimeoutFn: (fire: () => void, delayMs: number) => {
+      armedTimers.push({ fire, delayMs });
+      const notifyArmed = onNextTimerArmed;
+      onNextTimerArmed = null;
+      notifyArmed?.();
+      return setTimeout(() => {}, 0);
+    },
   });
   packLaunchers.attachSessionStarter(async () => ({ ok: false, error: 'no sessions in this test' }));
   const fireArmedTimer = async (atMs: number) => {
     nowMs = atMs;
-    const timersBefore = armedTimers.length;
+    const nextTimerArmed = new Promise<void>((resolve) => { onNextTimerArmed = resolve; });
     armedTimers.at(-1)?.fire();
-    await waitFor(() => armedTimers.length > timersBefore);
+    await nextTimerArmed;
   };
   try {
     await packStore.start();
-    await waitFor(() => packStore.statusFrame().packs.some((row) => row.name === 'poller'));
     const pendingRow = packStore.statusFrame().packs.find((row) => row.name === 'poller');
     assert.deepEqual(pendingRow?.jobs.map((job) => job.schedule), ['*/15 * * * *', '*/15 * * * *'], 'the approval screen gets each job schedule word for word');
     assert.deepEqual(await packStore.approve(pendingRow?.fingerprint ?? ''), { ok: true });
     await packLaunchers.refresh();
-    await waitFor(() => armedTimers.at(-1)?.delayMs === 60_000);
+    assert.equal(armedTimers.at(-1)?.delayMs, 60_000);
 
     await fireArmedTimer(fireAt);
+    await feedJobRuns.at(-1);
     assert.match(warnings.join('\n'), /waits for its settings FEED_HOST, FEED_TOKEN/);
 
     assert.deepEqual(await packSettings.save('poller', { FEED_HOST: 'feed.example', FEED_TOKEN: 'tok-abcdef' }), { ok: true });
     await fireArmedTimer(fireAt + 15 * 60_000);
-    await waitFor(() => fs.existsSync(path.join(homeDir, 'pack-data', 'poller.json')));
+    await feedJobRuns.at(-1);
     const stored = await fs.promises.readFile(path.join(homeDir, 'pack-data', 'poller.json'), 'utf8');
     assert.deepEqual(JSON.parse(stored).data, { 'job:feed': { host: 'feed.example', token: '[secret]' } });
     assert.equal((await packData.set('poller', 'job:feed', 'panel write')).ok, false, 'a panel cannot overwrite a job output key');
     await fireArmedTimer(fireAt + 30 * 60_000);
+    await feedJobRuns.at(-1);
     assert.match(warnings.join('\n'), /job Slow in pack poller: its last run is still going/);
     assert.doesNotMatch(warnings.join('\n'), /job Feed in pack poller: its last run is still going/);
   } finally {
+    releaseSlowJob();
+    await Promise.allSettled(feedJobRuns);
     await packLaunchers.stop();
     packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
 
