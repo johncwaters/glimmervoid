@@ -3,7 +3,7 @@ import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster, sessionOrderOf } from '../attention-core.ts';
-import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
+import { onSettingsPayloadChanged, settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import { wireBoardRowReorder } from './board-row-reorder.ts';
 import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
@@ -213,8 +213,8 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     if (state) writeTextIfChanged(state.refs.elapsed, sessionElapsedText(ui));
   });
 
-  subscribeSettings((change) => {
-    if (change.kind === 'broadcast' && screen.isConnected) refresh();
+  onSettingsPayloadChanged(() => {
+    if (screen.isConnected) refresh();
   });
 
   return {

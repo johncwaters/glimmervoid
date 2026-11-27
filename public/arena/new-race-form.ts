@@ -3,7 +3,7 @@ import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { RaceCheck, RaceContestant, RaceReviewCase, ReviewCaseEntry } from '#shared/contracts/race.ts';
 import { RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
+import { onSettingsPayloadChanged, settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import { el } from '../dom-helpers.ts';
 import { textArea, textInput } from '../ui/text-input.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
@@ -67,8 +67,7 @@ function adoptCatalog(nextCatalog: AgentModelCatalog): void {
   }
 }
 
-subscribeSettings((change) => {
-  if (change.kind !== 'broadcast') return;
+onSettingsPayloadChanged(() => {
   const nextCatalog = catalogFromSettings();
   if (!nextCatalog || modelChoicesOf(nextCatalog) === modelChoicesOf(catalog)) return;
   adoptCatalog(nextCatalog);

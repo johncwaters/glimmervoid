@@ -21,7 +21,7 @@ import { getReviewsBoardDetailWidth, getReviewsCardOrder, getReviewsLayout, getR
 import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
-import { subscribeSettings } from '../settings/settings-store.ts';
+import { onSettingsPayloadChanged } from '../state/collections/settings.ts';
 import {
   COLLAPSED_GROUP_IDS, ageToneOf, boardDropLaneIds, boardDropOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   isOverTurnLimit, orderDisplayGroups, placeCardBefore, shownTurnKeys, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedColumnKey, steppedRowKey,
@@ -744,7 +744,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   mineDetail = mountMyPrsDetail({ onChange: queueRender }, queueNavigation);
   attachReviewQueueView({ isLooking: () => !isPanelHidden(root), selectedKey: () => selectedKey });
   subscribeReviewQueue(applyReviewQueueChange);
-  subscribeSettings((change) => { if (change.kind === 'broadcast') skillNotice?.sync(); });
+  onSettingsPayloadChanged(() => { skillNotice?.sync(); });
   document.addEventListener('keydown', onReviewKey);
   onLayoutChange(() => render());
   render();

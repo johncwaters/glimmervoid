@@ -1,11 +1,12 @@
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
-import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { createActionStatus } from '../action-status.ts';
+import { sendControlMsg } from '../control-ws.ts';
 import { el, externalLink } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
 import { button } from '../ui/button.ts';
 import { field } from '../ui/field.ts';
-import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
+import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 
 const READ_TOKEN_PATH = 'github.readToken' as const;
 const FINE_GRAINED_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new?name=Glimmervoid+lanes+read-only&description=Read-only+GitHub+access+for+Glimmervoid+Community%2C+Team+review+and+Radar+research&expires_in=90&contents=read&issues=read&pull_requests=read';
@@ -47,19 +48,16 @@ function laneReadTokenStepBody({ laneWork, onSaved }: { laneWork: string; onSave
     saveButton.disabled = true;
     status.show('busy', 'Saving');
     try {
-      const reply = await sendControlRequest('update-settings', { settings: { github: { readToken: token } } }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-      if (reply.type === 'settings-error') {
-        status.show('error', reply.message);
+      const outcome = await updateSettingsAction({ settings: { github: { readToken: token } } });
+      if (!outcome.ok) {
+        status.show('error', outcome.error.message);
         return;
       }
-      if (reply.type !== 'settings-updated') {
+      if (outcome.reply.type !== 'settings-updated') {
         status.show('error', 'The server did not confirm the save.');
         return;
       }
-      applySettingsBroadcast(reply.settings);
       onSaved();
-    } catch (reason) {
-      status.show('error', requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS));
     } finally {
       saveButton.disabled = false;
     }

@@ -1,7 +1,7 @@
 import addSessionHTML from '../components/add-session-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { agentAccountSummary, agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { el, markAsNotCredential, query, queryTag } from '../dom-helpers.ts';

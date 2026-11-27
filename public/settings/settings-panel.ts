@@ -26,8 +26,9 @@ import { keyChord } from '../ui/keycap.ts';
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { getSoundId } from '../ui-prefs.ts';
-import { notifyPhoneSettingsScreenChanged, setPhoneSettingsScreenProbe, settingsFeatureTabViews, settingsPayloadSnapshot, subscribeSettings, takePendingSettingsActivation, returnToSettingsList } from './settings-store.ts';
-import type { SettingsChange } from './settings-store.ts';
+import { onSettingsPayloadChanged, settingsPayloadSnapshot } from '../state/collections/settings.ts';
+import { notifyPhoneSettingsScreenChanged, onSettingsUiEvent, returnToSettingsList, setPhoneSettingsScreenProbe, settingsFeatureTabViews, takePendingSettingsActivation } from './settings-panel-bridge.ts';
+import type { SettingsUiEvent } from './settings-panel-bridge.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
 import { onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
@@ -529,7 +530,8 @@ function mountSettingsView(container: HTMLElement) {
   setSettingsPayload(settingsPayloadSnapshot());
   hydrate(settingsPayload);
   setPhoneSettingsScreenProbe(currentPhoneSettingsScreen);
-  subscribeSettings(applySettingsChange);
+  onSettingsPayloadChanged(showBroadcastSettings);
+  onSettingsUiEvent(applySettingsUiEvent);
   renderNavigation();
   reloadCustomSounds();
   settingsViewVisibilityObserver?.disconnect();
@@ -625,11 +627,8 @@ function refreshUpdateRows() {
   if (setting) refreshReadout(setting);
 }
 
-function applySettingsChange(change: SettingsChange) {
+function applySettingsUiEvent(change: SettingsUiEvent) {
   switch (change.kind) {
-    case 'broadcast':
-      showBroadcastSettings();
-      return;
     case 'status':
       refreshSettingsStatus();
       return;

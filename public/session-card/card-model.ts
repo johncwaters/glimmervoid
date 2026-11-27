@@ -4,7 +4,7 @@ import { agentsWithModels, configuredSetup, defaultSetup, setupModelsOf } from '
 import { setupControls } from '../arena/setup-controls.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import { button } from '../ui/button.ts';
 import { findSessionUi } from './card-registry.ts';
 import { buildDialogShell } from './modal.ts';

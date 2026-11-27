@@ -25,7 +25,7 @@ import { applyState, createSessionCard, hasSession, removeSessionCard, renameSes
 import { setSessionAccount } from '../session-card/card-account.ts';
 import { addManagerDecision, forgetAttentionNotes, closeAnsweredPassedLine, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
-import { applySettingsProjects } from '../settings/settings-store.ts';
+import { refreshSettingsStatus } from '../settings/settings-panel-bridge.ts';
 import { forgetReview, refreshReview } from '../review/review-store.ts';
 import { getSelectedId, setSelectedId } from '../review/selection.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
@@ -85,12 +85,7 @@ function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['se
 
 function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   forgetSessionsMissingFromSnapshot(rows);
-  applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
-    id: session.id,
-    name: session.name,
-    agent: session.agent,
-    permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
-  })));
+  refreshSettingsStatus();
   for (const s of rows) {
     if (hasSession(s.id)) catchUpExistingCard(s);
     if (!hasSession(s.id)) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));

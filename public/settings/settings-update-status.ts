@@ -2,7 +2,7 @@ import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { disclosure } from '../ui/disclosure.ts';
 import { formatAgo } from '../poll-ago.ts';
-import { requestUpdateApply, requestUpdateCheck, restartServer, settingsUpdateState } from './settings-store.ts';
+import { requestUpdateApply, requestUpdateCheck, restartServer, settingsUpdateState } from './settings-panel-bridge.ts';
 import { installedUpdateText, isVersionManaged, lastUpdateCheckText, latestUpdateDetails, projectUpdateProgress, shouldAutoCheckUpdates, shouldShowLatestUpdate, updateControls, updateSummary } from '../updates-view-core.ts';
 import type { UpdateActionId, UpdateStatusView } from '../updates-view-core.ts';
 import { setAutoUpdateCheckAwaitingStatus, settingsPayload } from './settings-panel-state.ts';

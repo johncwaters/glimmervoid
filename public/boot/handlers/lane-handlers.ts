@@ -3,7 +3,7 @@ import { applyWargamesEvents, applyWargamesHistory, applyWargamesStatus } from '
 import { applyCommunityStatus } from '../../community/community-store.ts';
 import { showDesktopNotification } from '../../notifications.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from '../../radar/radar-store.ts';
-import { refreshSettingsStatus } from '../../settings/settings-store.ts';
+import { refreshSettingsStatus } from '../../settings/settings-panel-bridge.ts';
 import { applyAccountPlanLimits, applyPlanLimits, applySessionMeter, applyUsageReport, applyUsageSessions } from '../../usage/usage-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 

@@ -6,7 +6,7 @@ import type { ControlDraft, SettingsPayload, SettingsValues } from './settings-v
 import { settingsHash } from '../settings-link.ts';
 import { getThemeList } from '../theme.ts';
 import { isFlyingAnimalsEnabled, getSoundId, getThemeId, isNotificationsEnabled, isPhoneArrowPad, isSoundEnabled, getNextAttentionKeyCode, getReviewsTurnLimit } from '../ui-prefs.ts';
-import { settingsPayloadSnapshot } from './settings-store.ts';
+import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 
 type SaveTone = 'saving' | 'saved' | 'error';
 

@@ -1,7 +1,7 @@
 import agentConnectHTML from './components/agent-connect-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
-import { subscribeSettings } from './settings/settings-store.ts';
+import { onSettingsPayloadChanged } from './state/collections/settings.ts';
 import { ConnectableAgent } from '#shared/contracts/control-messages.ts';
 import type { AgentLoginStatus, InstallDetail } from '#shared/contracts/control-messages.ts';
 import { agentAccountOf, agentAccountSummary, applyAgentAccounts, CONNECTABLE_AGENT_NAMES, onAgentAccountsChanged, refreshAgentAccounts } from './agent-logins.ts';
@@ -217,8 +217,8 @@ export function openRemoteSetupDialog() {
 
 let openAddSessionSheet: { dialog: HTMLElement; refresh: () => void; applyLiveSettings: () => void } | null = null;
 
-subscribeSettings((change) => {
-  if (change.kind !== 'broadcast' || !openAddSessionSheet?.dialog.isConnected) return;
+onSettingsPayloadChanged(() => {
+  if (!openAddSessionSheet?.dialog.isConnected) return;
   openAddSessionSheet.applyLiveSettings();
 });
 

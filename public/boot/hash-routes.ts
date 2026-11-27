@@ -1,7 +1,7 @@
 import { packNameOfApprovalHash } from '#shared/pack-approval.ts';
 import { isPhoneShellActive, showPhoneScreen } from '../phone/phone-shell-gate.ts';
 import { isSettingsHash } from '../settings-link.ts';
-import { activateSettingsSection } from '../settings/settings-store.ts';
+import { activateSettingsSection } from '../settings/settings-panel-bridge.ts';
 import { openPackDetail } from '../packs/pack-approval-content.ts';
 import { PACKS_TAB_HASH } from '../packs/packs-store.ts';
 import { activateView } from './view-tabs.ts';

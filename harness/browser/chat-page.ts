@@ -47,8 +47,8 @@ async function waitForModelCatalog(page: Page): Promise<void> {
   }, 'the server model catalog');
   await page.reload();
   await waitUntilPageReports(page, async () => {
-    const settingsStoreUrl = '/settings/settings-store.ts';
-    const { settingsPayloadSnapshot } = await import(settingsStoreUrl);
+    const settingsCollectionUrl = '/state/collections/settings.ts';
+    const { settingsPayloadSnapshot } = await import(settingsCollectionUrl);
     const agents: unknown = settingsPayloadSnapshot()?.agentModels?.agents;
     return Array.isArray(agents) && agents.some((entry) => entry?.agent === 'claude-code' && Array.isArray(entry.models) && entry.models.length > 1);
   }, 'the dashboard model catalog');

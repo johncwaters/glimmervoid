@@ -9,7 +9,7 @@ import { onSessionCardsChanged, sessionUIs } from '../session-card/card-registry
 import { isPhoneLayout } from '../form-factor.ts';
 import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../page-registry.ts';
 import type { SessionPage } from '../page-registry.ts';
-import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
+import { onSettingsPayloadChanged, settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';
 import { refreshLimitCountdowns } from './chat-cards.ts';
@@ -717,8 +717,7 @@ subscribeUsage((change) => {
   mountedChat?.showRail();
 });
 
-subscribeSettings((change) => {
-  if (change.kind !== 'broadcast') return;
+onSettingsPayloadChanged(() => {
   const isEnabled = isChatEnabled();
   const hasJustEnabled = isEnabled && !wasChatEnabled;
   wasChatEnabled = isEnabled;

@@ -1,10 +1,11 @@
-import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
+import { createActionStatus } from '../action-status.ts';
 import { button } from '../ui/button.ts';
 import { select } from '../ui/select.ts';
-import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions } from '../settings/team-review-settings-core.ts';
-import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
+import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import { createSettingsLink } from '../settings-link.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SKILL_SETTING_ID } from './team-review-view-core.ts';
 import { teamReviewStatusView } from './team-review-store.ts';
@@ -46,19 +47,16 @@ export function createReviewSkillNotice() {
     saveButton.disabled = true;
     saveStatus.show('busy', 'Saving');
     try {
-      const reply = await sendControlRequest('update-settings', { settings: { teamReview: { skill: skillSelect.element.value } } }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-      if (reply.type === 'settings-error') {
-        saveStatus.show('error', reply.message);
+      const outcome = await updateSettingsAction({ settings: { teamReview: { skill: skillSelect.element.value } } });
+      if (!outcome.ok) {
+        saveStatus.show('error', outcome.error.message);
         return;
       }
-      if (reply.type !== 'settings-updated') {
+      if (outcome.reply.type !== 'settings-updated') {
         saveStatus.show('error', 'The server did not confirm the save.');
         return;
       }
       saveStatus.clear();
-      applySettingsBroadcast(reply.settings);
-    } catch (reason) {
-      saveStatus.show('error', requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS));
     } finally {
       saveButton.disabled = false;
     }

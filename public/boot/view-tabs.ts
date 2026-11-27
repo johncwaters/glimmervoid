@@ -1,10 +1,11 @@
-import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { sendControlMsg } from '../control-ws.ts';
 import { queryTag } from '../dom-helpers.ts';
 import type { FeatureSurfaceSettings } from '../feature-surfaces-core.ts';
 import { centerSessionQuietly, openChangesInFocus, openRequestedBoardInFocus } from '../focus-view/focus-view.ts';
 import { isPhoneShellActive, orderPhonePanels, setPhoneScreenAttention, setPhoneScreenAvailable, showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
 import { nextRovingIndex, wrapIndex } from '../roving-keys-core.ts';
-import { activateSettingsSection, setFeatureTabViews } from '../settings/settings-store.ts';
+import { activateSettingsSection, setFeatureTabViews } from '../settings/settings-panel-bridge.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
 import { isSettingsHash } from '../settings-link.ts';
 import { setTraceNavigate } from '../trace-store.ts';
 import { hasSession } from '../session-card/lifecycle.ts';
@@ -204,13 +205,7 @@ function focusViewTabIfFocused(tab: HTMLElement) {
 let draggedViewId: string | null = null;
 
 function saveTabOrder(nextViewOrder: string[]) {
-  const previousViewOrder = currentViewOrder();
-  applyTabOrder(nextViewOrder);
-  sendControlRequest('update-settings', { settings: { viewTabOrder: nextViewOrder } })
-    .then((message) => {
-      if (message.type === 'settings-error') applyTabOrder(previousViewOrder);
-    })
-    .catch(() => applyTabOrder(previousViewOrder));
+  void updateSettingsAction({ settings: { viewTabOrder: nextViewOrder } });
 }
 
 function dropDraggedTabOn(targetView: string) {

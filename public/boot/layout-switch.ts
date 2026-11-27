@@ -6,7 +6,7 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShe
 import { queryTag } from '../dom-helpers.ts';
 import { noticeStack } from '../ui/notice.ts';
 import { isSettingsHash } from '../settings-link.ts';
-import { activateSettingsSection, canReturnToSettingsList, onPhoneSettingsScreenChanged, returnToSettingsList } from '../settings/settings-store.ts';
+import { activateSettingsSection, canReturnToSettingsList, onPhoneSettingsScreenChanged, returnToSettingsList } from '../settings/settings-panel-bridge.ts';
 import { mountedViewModule } from './view-registry.ts';
 import { btnAddSession, btnHelp, btnMute } from './header-controls.ts';
 import { VIEW_TABS, acknowledgeViewAttention, clearSettingsHash, refreshViewOnShow, restoreDesktopViews } from './view-tabs.ts';

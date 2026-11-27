@@ -28,8 +28,9 @@ import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group
 import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
 import { buildSessionRow, paintBoardRow, paintSessionRow, paintSessionRowSplit, wrapSessionRow } from '../session-row.ts';
 import { describeFailure } from '../client-error-core.ts';
-import { reportToServerLog, sendControlRequest } from '../control-ws.ts';
-import { mergeSettingsPayload, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
+import { reportToServerLog } from '../control-ws.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
+import { onSettingsPayloadChanged, patchSettingsPayload, settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
 import { isCodeMapBoardTitle } from '#shared/contracts/control/board-session-messages.ts';
 import { beginPendingBoardDelete, boardSummariesOf, boardsConnectedTo, connectSessionToBoard, detachBoardFromSession, isBoardDeleting, onBoardListChanged, pendingBoardDeleteStartedAt, requestBoardFocus, takeOpenBoardRequest, undoPendingBoardDelete } from '../whiteboard/board-store.ts';
@@ -485,25 +486,18 @@ function savedSessionOrder(): string[] {
 export function forgetSessionInSavedOrder(sessionId: string) {
   const sessionOrder = savedSessionOrder();
   if (!sessionOrder.includes(sessionId)) return;
-  mergeSettingsPayload({ sessionOrder: sessionOrder.filter((id) => id !== sessionId) });
+  patchSettingsPayload({ sessionOrder: sessionOrder.filter((id) => id !== sessionId) });
 }
 
 export function saveSessionOrder(nextSessionOrder: string[], repaint: () => void) {
-  const previousSessionOrder = savedSessionOrder();
-  const applySessionOrder = (sessionOrder: string[]) => {
-    mergeSettingsPayload({ sessionOrder });
+  void updateSettingsAction({ settings: { sessionOrder: nextSessionOrder } }).then(() => {
     repaint();
-  };
-  applySessionOrder(nextSessionOrder);
-  sendControlRequest('update-settings', { settings: { sessionOrder: nextSessionOrder } })
-    .then((message) => {
-      if (message.type === 'settings-error') applySessionOrder(previousSessionOrder);
-    })
-    .catch(() => applySessionOrder(previousSessionOrder));
+  });
+  repaint();
 }
 
-subscribeSettings((change) => {
-  if (change.kind === 'broadcast') refreshFocusRoster();
+onSettingsPayloadChanged(() => {
+  refreshFocusRoster();
 });
 
 function sessionName(ui: SessionUi): string | null {

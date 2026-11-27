@@ -5,14 +5,12 @@ import type { HealthSnapshot } from '../../health-monitor.ts';
 import { applyHealthSnapshot } from '../../health-monitor.ts';
 import { applyHooksReport, applyLateHookResult } from '../../hooks-store.ts';
 import { applyCloneJobs } from '../../onboarding/clone-jobs.ts';
-import { refreshFirstRunChecklist } from '../../onboarding/first-run-loader.ts';
 import { reportSessionProblem } from '../../session-card/card-problems.ts';
-import { applySettingsUpdateError, applySettingsUpdateProgress, applySettingsUpdateStatus } from '../../settings/settings-store.ts';
+import { applySettingsUpdateError, applySettingsUpdateProgress, applySettingsUpdateStatus } from '../../settings/settings-panel-bridge.ts';
 import { applyTraceError } from '../../trace-store.ts';
 import { showPostTurnLeftoversBanner, showStarHintCard, showUpdateBanner } from '../banners.ts';
 import { SERVER_ERROR_SOURCE, showServerGoingDown } from '../connection-screen.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
-import { applyDashboardSettings } from '../dashboard-settings.ts';
 import { applyClientTrust } from '../../server-power.ts';
 
 const messageHandlers = {
@@ -30,10 +28,6 @@ const messageHandlers = {
     if (isUpdateErrorShownInline || isTraceErrorShownInline) return;
     if (msg.id) { reportSessionProblem(msg.id, msg.message); return; }
     reportHeaderError({ source: SERVER_ERROR_SOURCE, message: msg.message });
-  },
-  'settings-updated':   (msg) => {
-    if (msg.settings) applyDashboardSettings(msg.settings);
-    refreshFirstRunChecklist();
   },
   'agent-accounts':     (msg) => applyAgentAccounts(msg.accounts),
   'repository-clones':  (msg) => applyCloneJobs(msg.jobs),

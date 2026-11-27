@@ -1,5 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import addRepoRootsAction from '../state/actions/add-repo-roots.ts';
 import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
 import { gitRepoCountText } from './first-run-checklist-core.ts';
@@ -24,8 +25,8 @@ const TRAILING_SEPARATORS_RE = /(.)[\\/]+$/;
 export async function saveRepoRoots(addedRoots: readonly string[]): Promise<string | null> {
   const rootsToAdd = addedRoots.map((root) => root.trim()).filter(Boolean);
   if (rootsToAdd.length === 0) return null;
-  const reply = await sendControlRequest('add-repo-roots', { roots: rootsToAdd });
-  if (reply.type === 'settings-error') return reply.message;
+  const outcome = await addRepoRootsAction({ roots: rootsToAdd });
+  if (!outcome.ok) return outcome.error.message;
   return null;
 }
 

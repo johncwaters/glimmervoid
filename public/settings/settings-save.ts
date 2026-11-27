@@ -1,5 +1,4 @@
 import { playAlertSound } from '../alert-sound.ts';
-import { sendControlRequest } from '../control-ws.ts';
 import { ensureNotificationPermission } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { isSkillChoicePending } from './team-review-settings-core.ts';
@@ -10,7 +9,7 @@ import { applyFlyingAnimals } from '../flying-animals.ts';
 import { applyPhoneArrowPad, applyTheme } from '../theme.ts';
 import { reportTerminalColors } from '../terminal-color-report.ts';
 import { setPhoneArrowPad, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode, setReviewsTurnLimit } from '../ui-prefs.ts';
-import { applySettingsBroadcast } from './settings-store.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
 import { applySoundEnabled } from '../mute-button.ts';
 import { fieldErrorById, panelRefresher, pendingSaveById, saveStatusById, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
 import type { SaveStatus } from './settings-panel-state.ts';
@@ -108,26 +107,19 @@ async function saveMachineSetting(setting: SettingsSetting, value: unknown) {
     return;
   }
   setSaveStatus(setting, { tone: 'saving', text: 'Saving' });
-  try {
-    const message = await sendControlRequest('update-settings', { settings });
-    if (pendingSaveById.get(setting.id) === value) pendingSaveById.delete(setting.id);
-    if (message.type === 'settings-error') {
-      setSaveStatus(setting, { tone: 'error', text: String(message.message) });
-      panelRefresher().refreshRow(setting, { force: true });
-      return;
-    }
-    if (message.type !== 'settings-updated') {
-      setSaveStatus(setting, { tone: 'error', text: 'The server did not confirm the save.' });
-      panelRefresher().refreshRow(setting, { force: true });
-      return;
-    }
-    applySettingsBroadcast(message.settings);
-    markSaved(setting);
-  } catch (error) {
-    if (pendingSaveById.get(setting.id) === value) pendingSaveById.delete(setting.id);
-    setSaveStatus(setting, { tone: 'error', text: (error as Error)?.message || 'Failed to save the setting.' });
+  const outcome = await updateSettingsAction({ settings });
+  if (pendingSaveById.get(setting.id) === value) pendingSaveById.delete(setting.id);
+  if (!outcome.ok) {
+    setSaveStatus(setting, { tone: 'error', text: outcome.error.message || 'Failed to save the setting.' });
     panelRefresher().refreshRow(setting, { force: true });
+    return;
   }
+  if (outcome.reply.type !== 'settings-updated') {
+    setSaveStatus(setting, { tone: 'error', text: 'The server did not confirm the save.' });
+    panelRefresher().refreshRow(setting, { force: true });
+    return;
+  }
+  markSaved(setting);
 }
 
 function setFieldError(setting: SettingsSetting, error: string | null) {
@@ -149,17 +141,16 @@ async function saveTeamReviewEnabledWithoutSkill(enabledSetting: SettingsSetting
   const storedBlock = settingsPayload.teamReview;
   const teamReview = { ...(storedBlock && typeof storedBlock === 'object' ? storedBlock : {}), enabled: true, skill: '' };
   setSaveStatus(enabledSetting, { tone: 'saving', text: 'Saving' });
-  try {
-    const message = await sendControlRequest('update-settings', { settings: { teamReview } });
-    if (message.type !== 'settings-updated') {
-      setSaveStatus(enabledSetting, { tone: 'error', text: message.type === 'settings-error' ? String(message.message) : 'The server did not confirm the save.' });
-      return;
-    }
-    applySettingsBroadcast(message.settings);
-    markSaved(enabledSetting);
-  } catch (error) {
-    setSaveStatus(enabledSetting, { tone: 'error', text: (error as Error)?.message || 'Failed to save the setting.' });
+  const outcome = await updateSettingsAction({ settings: { teamReview } });
+  if (!outcome.ok) {
+    setSaveStatus(enabledSetting, { tone: 'error', text: outcome.error.message || 'Failed to save the setting.' });
+    return;
   }
+  if (outcome.reply.type !== 'settings-updated') {
+    setSaveStatus(enabledSetting, { tone: 'error', text: 'The server did not confirm the save.' });
+    return;
+  }
+  markSaved(enabledSetting);
 }
 
 export { commitSetting, setFieldError };

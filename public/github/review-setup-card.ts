@@ -8,7 +8,8 @@ import { textInput } from '../ui/text-input.ts';
 import { buildCommandRow, buildSetupStep } from '../onboarding/setup-step.ts';
 import { buildGithubConnectSection, isConnectOffered } from '../secrets/github-connect.ts';
 import { createSettingsLink } from '../settings-link.ts';
-import { applySettingsBroadcast, subscribeSettings } from '../settings/settings-store.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
+import { onSettingsPayloadChanged } from '../state/collections/settings.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from './team-review-view-core.ts';
 import { decideReviewSetupSteps, orgToSave, teamOptionsOf, teamsToSave } from './review-setup-core.ts';
 import { hasLaneReadToken, laneReadTokenStepBody } from './lane-read-token-step.ts';
@@ -184,19 +185,16 @@ export function createReviewSetupCard() {
     saveButton.disabled = true;
     saveStatus.show('busy', 'Saving');
     try {
-      const reply = await sendControlRequest('update-settings', { settings }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-      if (reply.type === 'settings-error') {
-        saveStatus.show('error', reply.message);
+      const outcome = await updateSettingsAction({ settings });
+      if (!outcome.ok) {
+        saveStatus.show('error', outcome.error.message);
         return;
       }
-      if (reply.type !== 'settings-updated') {
+      if (outcome.reply.type !== 'settings-updated') {
         saveStatus.show('error', 'The server did not confirm the save.');
         return;
       }
-      applySettingsBroadcast(reply.settings);
       saveStatus.show('ok', 'Saved. Team review starts on its next poll.');
-    } catch (reason) {
-      saveStatus.show('error', requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS));
     } finally {
       saveButton.disabled = false;
     }
@@ -239,8 +237,8 @@ export function createReviewSetupCard() {
     }
   }
 
-  subscribeSettings((change) => {
-    if (change.kind === 'broadcast' && hasLaneReadToken() !== renderedHasReadToken) render();
+  onSettingsPayloadChanged(() => {
+    if (hasLaneReadToken() !== renderedHasReadToken) render();
   });
   render();
   return { element, load };

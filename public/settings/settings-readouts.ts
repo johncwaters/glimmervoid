@@ -1,7 +1,6 @@
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
-import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
-import { sendControlRequest } from '../control-ws.ts';
+import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import { el } from '../dom-helpers.ts';
 import { button, linkButton } from '../ui/button.ts';
 import { ACCOUNT_PAGE_URL, LINK_INSTALL_PARAM } from '#shared/cloud-account.ts';
@@ -14,7 +13,8 @@ import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { secretEnvironmentSource, workflowRuleSummaryLines, workflowRuleToggleRows } from './settings-view-core.ts';
 import type { WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
-import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
+import { patchSettingsPayload } from '../state/collections/settings.ts';
 import { openRemoteSetupDialog } from '../dialogs.ts';
 import { buildAgentAccountsBlock, buildLaneAccountsBlock } from './settings-accounts.ts';
 import { buildVaultConnectionSlot } from '../secrets/secrets-settings.ts';
@@ -79,19 +79,15 @@ async function saveWorkflowRuleToggle(rule: WorkflowRuleToggleRow, isTurningOn: 
   pendingWorkflowRuleIds.add(rule.id);
   workflowRuleFeedbackById.delete(rule.id);
   panelRefresher().refreshSettingsStatus();
-  try {
-    const message = await sendControlRequest('update-settings', { settings: { workflows: { rules: [{ id: rule.id, enabled: isTurningOn }] } } }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-    pendingWorkflowRuleIds.delete(rule.id);
-    if (message.type === 'settings-error') workflowRuleFeedbackById.set(rule.id, { tone: 'error', text: String(message.message) });
-    if (message.type === 'settings-updated') {
-      showWorkflowRuleSaved(rule.id);
-      applySettingsBroadcast(message.settings);
-      return;
-    }
-  } catch (error) {
-    workflowRuleFeedbackById.set(rule.id, { tone: 'error', text: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) });
-  }
+  const outcome = await updateSettingsAction({ settings: { workflows: { rules: [{ id: rule.id, enabled: isTurningOn }] } } });
   pendingWorkflowRuleIds.delete(rule.id);
+  if (outcome.ok && outcome.reply.type === 'settings-updated') {
+    showWorkflowRuleSaved(rule.id);
+    panelRefresher().refreshSettingsStatus();
+    return;
+  }
+  const errorText = outcome.ok ? 'The server did not confirm the save.' : outcome.error.message;
+  workflowRuleFeedbackById.set(rule.id, { tone: 'error', text: errorText });
   panelRefresher().refreshSettingsStatus();
 }
 
@@ -211,7 +207,7 @@ function buildTelegramDeliverySlot() {
     const reply = await requestWithStatus('telegram-test', {}, testStatus, { busyText: 'Sending a test message to Telegram.' });
     testButton.disabled = false;
     if (reply?.type !== 'telegram-test-result') return;
-    setSettingsPayload(mergeSettingsPayload({ telegramDelivery: reply.telegramDelivery }));
+    setSettingsPayload(patchSettingsPayload({ telegramDelivery: reply.telegramDelivery }));
     renderTelegramDeliveryLines(deliveryLines);
     if (reply.ok) {
       testStatus.show('ok', 'Sent. Check the Telegram chat for the test message.');

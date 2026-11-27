@@ -25,7 +25,7 @@ import { betrayalsOf } from '#shared/wargames/analytics.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
+import { onSettingsPayloadChanged, settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import {
   CHAT_ICON_PATH,
   CHECK_ICON_PATH,
@@ -1547,8 +1547,8 @@ function handleStoreUpdate(): void {
 
 setWargamesResyncRequester(subscribeMatchStream);
 
-subscribeSettings((change) => {
-  if (change.kind === 'broadcast') render();
+onSettingsPayloadChanged(() => {
+  render();
 });
 
 export const view: ViewModule<HTMLElement> = {

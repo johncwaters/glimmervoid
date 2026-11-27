@@ -2,7 +2,7 @@ import type { SessionRow } from '../attention-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { canDropRow, dropAnchorId, sessionOrderAfterDrop, sessionOrderOf } from '../attention-core.ts';
 import { saveSessionOrder } from '../focus-view/focus-view.ts';
-import { settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 
 const LONG_PRESS_MS = 450;
 const PRESS_SLOP_PX = 8;

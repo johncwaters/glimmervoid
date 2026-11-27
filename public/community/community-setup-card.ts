@@ -1,13 +1,14 @@
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
+import { createActionStatus } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
-import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
 import { button } from '../ui/button.ts';
 import { buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings-link.ts';
-import { applySettingsBroadcast, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
+import updateSettingsAction from '../state/actions/update-settings.ts';
+import { onSettingsPayloadChanged, settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import { communitySetupStepStates } from './community-setup-core.ts';
 import { hasLaneReadToken, laneReadTokenStepBody } from '../github/lane-read-token-step.ts';
 import type { CommunitySetupProgress } from './community-setup-core.ts';
@@ -74,19 +75,16 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     saveButton.disabled = true;
     status.show('busy', 'Saving');
     try {
-      const reply = await sendControlRequest('update-settings', { settings }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-      if (reply.type === 'settings-error') {
-        status.show('error', reply.message);
+      const outcome = await updateSettingsAction({ settings });
+      if (!outcome.ok) {
+        status.show('error', outcome.error.message);
         return;
       }
-      if (reply.type !== 'settings-updated') {
+      if (outcome.reply.type !== 'settings-updated') {
         status.show('error', 'The server did not confirm the save.');
         return;
       }
-      applySettingsBroadcast(reply.settings);
       moveTo(nextProgress);
-    } catch (reason) {
-      status.show('error', requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS));
     } finally {
       saveButton.disabled = false;
     }
@@ -145,8 +143,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     render();
   }
 
-  subscribeSettings((change) => {
-    if (change.kind !== 'broadcast') return;
+  onSettingsPayloadChanged(() => {
     if (progress === 'readToken' && hasLaneReadToken()) moveTo('skill');
   });
 
