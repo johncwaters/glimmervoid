@@ -941,14 +941,12 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   const worktreePath = await pollFor('the session worktree', CARD_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
   await waitForTurnRunning(page, false);
   await sendFromComposer(page, 'declare-done');
-  await waitForOutboxEmpty(page);
-  await sendFromComposer(page, 'take-any-prompt');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   assert.equal(await page.locator('.session-chat .chat-done-pill').count(), 0, 'a turn below the panel line threshold shows no check result');
-  await sendFromComposer(page, 'work');
+  await sendFromComposer(page, 'take-any-prompt');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
   await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), Array.from({ length: PANEL_MIN_CHANGED_LINES }, (_, lineIndex) => `written during the turn ${lineIndex}`).join('\n'), 'utf8');

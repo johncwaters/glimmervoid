@@ -301,12 +301,12 @@ function osc8Link(url: string, text: string): string {
 let isTakingAnyPrompt = false;
 let isNarrating = false;
 
-function postAgentVerb(verb: string, body: unknown): void {
+function postAgentVerb(verb: string, body: unknown): Promise<void> {
   const agentUrl = new URL(process.env.GLIMMERVOID_AGENT_URL ?? '');
   const agentToken = agentUrl.searchParams.get('t') ?? '';
   agentUrl.search = '';
   agentUrl.pathname = `${agentUrl.pathname}/${verb}`;
-  fetch(agentUrl, {
+  return fetch(agentUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${agentToken}` },
     body: JSON.stringify(body),
@@ -568,7 +568,13 @@ function dispatch(command: string): void {
   }
   if (command === 'exit') process.exit(0);
   if (command === 'spawn-done-child') spawnDoneChild();
-  if (command === 'declare-done') postAgentVerb('done', { lines: [AGENT_DONE_LINE] });
+  if (command === 'declare-done') {
+    void postAgentVerb('done', { lines: [AGENT_DONE_LINE] }).finally(() => {
+      postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });
+      setTitle(WORKING_GLYPH, 'working');
+    });
+    return;
+  }
   if (command === 'take-any-prompt') isTakingAnyPrompt = true;
   if (!isTakingAnyPrompt) return;
   postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });
