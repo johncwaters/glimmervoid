@@ -431,7 +431,7 @@ async function verifyHeldMessageWaitsForTurnEnd(page: Page): Promise<void> {
   await heldRow.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   await waitForDraft(page, 'work', 'Cancel puts the held message back in the composer');
   await input.press('Enter');
-  await heldRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await heldRow.locator('button:not([disabled])', { hasText: 'Cancel' }).waitFor({ timeout: CARD_TIMEOUT_MS });
   await input.press('Escape');
   await heldRow.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   await waitForDraft(page, 'work', 'Esc puts the held message back in the composer');

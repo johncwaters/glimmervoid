@@ -1,9 +1,8 @@
-import { createEffect, createRoot, flush, runWithOwner } from 'solid-js';
 import { isRecord } from '#shared/coerce.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { cloneValue } from '#shared/settings/registry-core.ts';
 import type { SettingsPayload } from '../../settings/settings-view-core.ts';
-import { applyCollectionServerMessage, defineCollection } from '../define-collection.ts';
+import { applyCollectionServerMessage, defineCollection, watchCollection } from '../define-collection.ts';
 import {
   INITIAL_SETTINGS_STATE,
   applySettingsServerMessage,
@@ -36,23 +35,11 @@ const settingsCollection = defineCollection<SettingsCollectionState>({
   onApplied: notifyServerMessageListeners,
 });
 
-let hasMountedSettingsEffect = false;
-
-runWithOwner(null, () => {
-  createRoot(() => {
-    createEffect(
-      () => `${settingsCollection.state.serverRevision}:${settingsCollection.state.optimisticRevision}`,
-      () => {
-        if (!hasMountedSettingsEffect) {
-          hasMountedSettingsEffect = true;
-          return;
-        }
-        notifyPayloadListeners();
-      },
-    );
-  });
-});
-flush();
+watchCollection(
+  settingsCollection,
+  (state) => `${state.serverRevision}:${state.optimisticRevision}`,
+  notifyPayloadListeners,
+);
 
 export function settingsPayloadSnapshot(): SettingsPayload {
   return cloneValue(settingsCollection.state.payload) as SettingsPayload;

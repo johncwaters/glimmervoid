@@ -1,10 +1,9 @@
-import { createEffect, createRoot, flush, runWithOwner } from 'solid-js';
 import { isRecord } from '#shared/coerce.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { cloneValue } from '#shared/settings/registry-core.ts';
 import { nextRequestId, sendControlMsg } from '../../control-ws.ts';
 import type { HooksReport } from '../../hooks-view-core.ts';
-import { applyCollectionServerMessage, defineCollection } from '../define-collection.ts';
+import { applyCollectionServerMessage, defineCollection, watchCollection } from '../define-collection.ts';
 import {
   INITIAL_HOOKS_STATE,
   applyHooksServerMessage,
@@ -31,23 +30,11 @@ const hooksCollection = defineCollection<HooksCollectionState>({
   apply: applyHooksServerMessage,
 });
 
-let hasMountedHooksEffect = false;
-
-runWithOwner(null, () => {
-  createRoot(() => {
-    createEffect(
-      () => `${hooksCollection.state.serverRevision}:${hooksCollection.state.optimisticRevision}`,
-      () => {
-        if (!hasMountedHooksEffect) {
-          hasMountedHooksEffect = true;
-          return;
-        }
-        notifyChangeListeners();
-      },
-    );
-  });
-});
-flush();
+watchCollection(
+  hooksCollection,
+  (state) => `${state.serverRevision}:${state.optimisticRevision}`,
+  notifyChangeListeners,
+);
 
 export function hooksSnapshot(): { report: HooksReport | null; hasReportSendFailed: boolean } {
   const report = hooksCollection.state.report

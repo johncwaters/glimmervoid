@@ -1,8 +1,7 @@
-import { createEffect, createRoot, flush, runWithOwner } from 'solid-js';
 import type { PacksStatus } from '#shared/contracts/control/pack-messages.ts';
 import { reportTerminalColors } from '../../terminal-color-report.ts';
 import { setPackThemes } from '../../theme.ts';
-import { defineCollection } from '../define-collection.ts';
+import { defineCollection, watchCollection } from '../define-collection.ts';
 import {
   INITIAL_PACKS_STATE,
   PACKS_TAB_HASH,
@@ -26,21 +25,11 @@ export function packsSnapshot(): PacksStatus | null {
 }
 
 export function watchPacksCollection(listener: () => void): () => void {
-  let disposeWatcher = (): void => {};
-  runWithOwner(null, () => {
-    createRoot((dispose) => {
-      disposeWatcher = dispose;
-      createEffect(
-        () => `${packsCollection.state.serverRevision}:${packsCollection.state.optimisticRevision}`,
-        (_revisionKey, previousRevisionKey) => {
-          if (previousRevisionKey === undefined) return;
-          listener();
-        },
-      );
-    });
-  });
-  flush();
-  return disposeWatcher;
+  return watchCollection(
+    packsCollection,
+    (state) => `${state.serverRevision}:${state.optimisticRevision}`,
+    () => listener(),
+  );
 }
 
 export { PACKS_TAB_HASH };

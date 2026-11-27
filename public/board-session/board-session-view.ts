@@ -1,5 +1,5 @@
 import './board-session.css';
-import { createEffect, createRoot, runWithOwner } from 'solid-js';
+import { watchCollection } from '../state/define-collection.ts';
 import { branchParentIdOf } from '#shared/parent-link.ts';
 import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
@@ -893,16 +893,13 @@ function mountBoardSessionView(panel: HTMLElement): void {
     if (message.type !== 'director-digest-kept') return;
     if (isActive && (message.id === studioCollection.state.shownSessionId || watchBySessionId.has(message.id))) requestDigests();
   });
-  runWithOwner(null, () => {
-    createRoot(() => {
-      createEffect(
-        () => studioCollection.state.areas.map((area) => `${area.repoKey}:${area.isFolded}:${area.branchAgentId ?? ''}`).join('|'),
-        () => {
-          if (isActive) paintPresence();
-        },
-      );
-    });
-  });
+  watchCollection(
+    studioCollection,
+    (state) => state.areas.map((area) => `${area.repoKey}:${area.isFolded}:${area.branchAgentId ?? ''}`).join('|'),
+    () => {
+      if (isActive) paintPresence();
+    },
+  );
   onBoardSessionStatusChanged((sessionId) => {
     if (!isActive) return;
     if (watchBySessionId.has(sessionId)) paintPresence();

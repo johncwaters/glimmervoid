@@ -16,7 +16,10 @@ import type {
   CollectionOptions,
   defineCollection,
   unregisterCollection,
+  watchCollection,
 } from '../../public/state/define-collection.ts';
+import type { watchChatOutbox } from '../../public/state/collections/chat-outbox.ts';
+import type { watchPacksCollection } from '../../public/state/collections/packs.ts';
 import type { ingestControlMessage } from '../../public/state/ingest.ts';
 import type {
   PersistedOptions,
@@ -25,13 +28,19 @@ import type {
   definePersisted,
 } from '../../public/state/persist.ts';
 import type { currentSeq, whenSeqReached } from '../../public/state/seq.ts';
+import type { mountIsland } from '../../public/ui/island.ts';
+import type { Notice } from '../../public/ui/Notice.tsx';
 
 const SEQ_MODULE_URL = '/state/seq.ts';
 const PERSIST_MODULE_URL = '/state/persist.ts';
 const COLLECTION_MODULE_URL = '/state/define-collection.ts';
+const CHAT_OUTBOX_MODULE_URL = '/state/collections/chat-outbox.ts';
+const PACKS_MODULE_URL = '/state/collections/packs.ts';
 const INGEST_MODULE_URL = '/state/ingest.ts';
 const ACTION_MODULE_URL = '/state/define-action.ts';
 const ACTION_STATUS_MODULE_URL = '/action-status.ts';
+const ISLAND_MODULE_URL = '/ui/island.ts';
+const NOTICE_MODULE_URL = '/ui/Notice.tsx';
 
 export interface StateCoreCheckResult {
   ok: boolean;
@@ -51,6 +60,23 @@ interface PersistModule {
 interface CollectionModule {
   defineCollection: typeof defineCollection;
   unregisterCollection: typeof unregisterCollection;
+  watchCollection: typeof watchCollection;
+}
+
+interface ChatOutboxModule {
+  watchChatOutbox: typeof watchChatOutbox;
+}
+
+interface PacksModule {
+  watchPacksCollection: typeof watchPacksCollection;
+}
+
+interface IslandModule {
+  mountIsland: typeof mountIsland;
+}
+
+interface NoticeModule {
+  Notice: typeof Notice;
 }
 
 interface IngestModule {
@@ -88,23 +114,35 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       seqUrl,
       persistUrl,
       collectionUrl,
+      chatOutboxUrl,
+      packsUrl,
       ingestUrl,
       actionUrl,
       actionStatusUrl,
+      islandUrl,
+      noticeUrl,
     }: {
       seqUrl: string;
       persistUrl: string;
       collectionUrl: string;
+      chatOutboxUrl: string;
+      packsUrl: string;
       ingestUrl: string;
       actionUrl: string;
       actionStatusUrl: string;
+      islandUrl: string;
+      noticeUrl: string;
     }) => {
       const seqMod = (await import(seqUrl)) as Partial<SeqModule>;
       const persistMod = (await import(persistUrl)) as Partial<PersistModule>;
       const collectionMod = (await import(collectionUrl)) as Partial<CollectionModule>;
+      const chatOutboxMod = (await import(chatOutboxUrl)) as Partial<ChatOutboxModule>;
+      const packsMod = (await import(packsUrl)) as Partial<PacksModule>;
       const ingestMod = (await import(ingestUrl)) as Partial<IngestModule>;
       const actionMod = (await import(actionUrl)) as Partial<ActionModule>;
       const actionStatusMod = (await import(actionStatusUrl)) as Partial<ActionStatusModule>;
+      const islandMod = (await import(islandUrl)) as Partial<IslandModule>;
+      const noticeMod = (await import(noticeUrl)) as Partial<NoticeModule>;
 
       if (
         typeof seqMod.currentSeq !== 'function'
@@ -113,12 +151,23 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
         || typeof persistMod.cleanupSessionPersistedKeys !== 'function'
         || typeof collectionMod.defineCollection !== 'function'
         || typeof collectionMod.unregisterCollection !== 'function'
+        || typeof collectionMod.watchCollection !== 'function'
+        || typeof chatOutboxMod.watchChatOutbox !== 'function'
+        || typeof packsMod.watchPacksCollection !== 'function'
         || typeof ingestMod.ingestControlMessage !== 'function'
         || typeof actionMod.defineAction !== 'function'
         || typeof actionStatusMod.clearHeaderError !== 'function'
+        || typeof islandMod.mountIsland !== 'function'
+        || typeof noticeMod.Notice !== 'function'
       ) {
         return { ok: false, detail: 'one or more public/state/ exports are missing' };
       }
+
+      const watchCollectionFn = collectionMod.watchCollection;
+      const watchChatOutboxFn = chatOutboxMod.watchChatOutbox;
+      const watchPacksCollectionFn = packsMod.watchPacksCollection;
+      const mountIslandFn = islandMod.mountIsland;
+      const NoticeComponent = noticeMod.Notice;
 
       const flushMicrotasks = async (): Promise<void> => {
         await Promise.resolve();
@@ -128,6 +177,8 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       const noticeSource = 'StateCoreProbe';
       const persistKey = 'glimmervoid-state-core-probe-value';
       const sessionPrefix = 'glimmervoid-state-core-probe-session:';
+      const watcherCleanups: Array<() => void> = [];
+      const probeHosts: HTMLElement[] = [];
 
       try {
         const baseSeq = seqMod.currentSeq();
@@ -143,7 +194,65 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
 
         const readCount = (): number | undefined => collection.state.items[0]?.count;
 
+        const observedCounts: number[] = [];
+        let effectCallbackError: unknown = null;
+        let hasSubscribedInEffectCallback = false;
+        let mountedIslandInWatcher = false;
+        const effectProbeHost = document.createElement('div');
+        effectProbeHost.hidden = true;
+        document.body.append(effectProbeHost);
+        probeHosts.push(effectProbeHost);
+        const disposeEffectProbe = mountIslandFn(effectProbeHost, () => NoticeComponent({
+          id: 'telemetry-notice',
+          shown: true,
+          text: 'state-core watcher probe',
+          dismissLabel: 'Dismiss',
+          isDismissIcon: false,
+          onDismiss() {},
+          onShown() {
+            try {
+              watcherCleanups.push(
+                watchCollectionFn(
+                  collection,
+                  (state) => state.items[0]?.count,
+                  (nextCount) => {
+                    if (typeof nextCount === 'number') observedCounts.push(nextCount);
+                    if (mountedIslandInWatcher) return;
+                    mountedIslandInWatcher = true;
+                    const nestedHost = document.createElement('div');
+                    nestedHost.hidden = true;
+                    document.body.append(nestedHost);
+                    probeHosts.push(nestedHost);
+                    watcherCleanups.push(
+                      mountIslandFn(nestedHost, () => NoticeComponent({
+                        id: 'telemetry-notice',
+                        shown: false,
+                        text: 'nested watcher island',
+                        dismissLabel: 'Dismiss',
+                        isDismissIcon: false,
+                        onDismiss() {},
+                      })),
+                    );
+                  },
+                ),
+                watchChatOutboxFn('state-core-probe-session', () => {}),
+                watchPacksCollectionFn(() => {}),
+              );
+              hasSubscribedInEffectCallback = true;
+            } catch (caught) {
+              effectCallbackError = caught;
+            }
+          },
+        }));
+        watcherCleanups.push(disposeEffectProbe);
+
         await flushMicrotasks();
+        if (effectCallbackError) {
+          throw effectCallbackError;
+        }
+        if (!hasSubscribedInEffectCallback) {
+          return { ok: false, detail: 'effect callback probe did not run onShown' };
+        }
         if (readCount() !== 1) {
           return { ok: false, detail: `unexpected initial collection count: ${String(readCount())}` };
         }
@@ -251,6 +360,12 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
         }
         if (readCount() !== 99) {
           return { ok: false, detail: `collection did not settle to server truth: ${String(readCount())}` };
+        }
+        if (!mountedIslandInWatcher) {
+          return { ok: false, detail: 'watchCollection listener did not mount a Solid island outside effect callback' };
+        }
+        if (observedCounts.join(',') !== '5,42,99') {
+          return { ok: false, detail: `unexpected watchCollection transitions: ${observedCounts.join(',')}` };
         }
 
         const runTimeout = actionMod.defineAction<{ count: number }>({
@@ -390,6 +505,12 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
           : String(caughtError);
         return { ok: false, detail: `uncaught error: ${message}` };
       } finally {
+        for (let index = watcherCleanups.length - 1; index >= 0; index -= 1) {
+          watcherCleanups[index]();
+        }
+        for (const host of probeHosts) {
+          host.remove();
+        }
         collectionMod.unregisterCollection('wargames');
         actionStatusMod.clearHeaderError(noticeSource);
         window.localStorage.removeItem(persistKey);
@@ -401,9 +522,13 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       seqUrl: SEQ_MODULE_URL,
       persistUrl: PERSIST_MODULE_URL,
       collectionUrl: COLLECTION_MODULE_URL,
+      chatOutboxUrl: CHAT_OUTBOX_MODULE_URL,
+      packsUrl: PACKS_MODULE_URL,
       ingestUrl: INGEST_MODULE_URL,
       actionUrl: ACTION_MODULE_URL,
       actionStatusUrl: ACTION_STATUS_MODULE_URL,
+      islandUrl: ISLAND_MODULE_URL,
+      noticeUrl: NOTICE_MODULE_URL,
     },
   );
 }

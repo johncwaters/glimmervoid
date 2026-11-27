@@ -1,4 +1,4 @@
-import { createOptimisticStore, createRoot, createSignal, flush, runWithOwner } from 'solid-js';
+import { createOptimisticStore, createRoot, createSignal, flush, runWithOwner, untrack } from 'solid-js';
 import type { Store } from 'solid-js';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import type { CollectionName } from '#shared/contracts/control/message-classes.ts';
@@ -31,6 +31,8 @@ export interface CollectionHandle<State extends object> {
 interface RegisteredCollection {
   applyServerMessageWithoutNotify(message: ServerMessage): void;
   notifyApplied(message: ServerMessage): void;
+  notifyChanged(): void;
+  addChangeListener(listener: () => void): () => void;
   dispose(): void;
 }
 
@@ -49,22 +51,57 @@ export function defineCollection<State extends object>({
 
   let serverState = structuredClone(initial);
   let nextOverlayId = 1;
+  let currentVersion = 0;
+  let appliedVersion = 0;
+  let hasPendingDeferredNotify = false;
   const activeOverlays: Array<{ id: number; updater: OptimisticDraftUpdater<State> }> = [];
+  const changeListeners = new Set<() => void>();
   let handle!: CollectionHandle<State>;
   let disposeRoot = (): void => {};
   let bumpVersion = (): void => {};
+
+  const notifyChanged = (): void => {
+    for (const listener of [...changeListeners]) {
+      if (!changeListeners.has(listener)) continue;
+      listener();
+    }
+  };
+
+  const notifyAfterFlush = (): void => {
+    if (appliedVersion === currentVersion) {
+      notifyChanged();
+      return;
+    }
+    if (hasPendingDeferredNotify) return;
+    hasPendingDeferredNotify = true;
+    queueMicrotask(() => {
+      hasPendingDeferredNotify = false;
+      if (!collectionsByName.has(name)) return;
+      flush();
+      notifyChanged();
+    });
+  };
+
+  const removeOverlayEntry = (overlayId: number): boolean => {
+    const overlayIndex = activeOverlays.findIndex((entry) => entry.id === overlayId);
+    if (overlayIndex === -1) return false;
+    activeOverlays.splice(overlayIndex, 1);
+    bumpVersion();
+    return true;
+  };
 
   runWithOwner(null, () => {
     createRoot((dispose) => {
       disposeRoot = dispose;
       const [version, setVersion] = createSignal(0);
       bumpVersion = () => {
-        setVersion((count) => count + 1);
+        currentVersion += 1;
+        setVersion(currentVersion);
       };
       const seed = structuredClone(initial);
       const [state] = createOptimisticStore<State>(
         () => {
-          version();
+          appliedVersion = version();
           const nextState = structuredClone(serverState);
           for (const overlay of activeOverlays) {
             overlay.updater(nextState);
@@ -80,11 +117,17 @@ export function defineCollection<State extends object>({
         nextOverlayId += 1;
         activeOverlays.push({ id: overlayId, updater });
         bumpVersion();
+        try {
+          flush();
+          notifyAfterFlush();
+        } catch (error) {
+          if (removeOverlayEntry(overlayId)) flush();
+          throw error;
+        }
         return () => {
-          const overlayIndex = activeOverlays.findIndex((entry) => entry.id === overlayId);
-          if (overlayIndex === -1) return;
-          activeOverlays.splice(overlayIndex, 1);
-          bumpVersion();
+          if (!removeOverlayEntry(overlayId)) return;
+          flush();
+          notifyAfterFlush();
         };
       };
 
@@ -111,7 +154,15 @@ export function defineCollection<State extends object>({
     notifyApplied(message: ServerMessage) {
       onApplied?.(message);
     },
+    notifyChanged: notifyAfterFlush,
+    addChangeListener(listener: () => void) {
+      changeListeners.add(listener);
+      return () => {
+        changeListeners.delete(listener);
+      };
+    },
     dispose() {
+      changeListeners.clear();
       activeOverlays.length = 0;
       disposeRoot();
     },
@@ -126,6 +177,7 @@ export function applyCollectionServerMessage(name: CollectionName, message: Serv
   registered.applyServerMessageWithoutNotify(message);
   flush();
   registered.notifyApplied(message);
+  registered.notifyChanged();
   return true;
 }
 
@@ -143,8 +195,29 @@ export function applyCollectionServerMessages(
   if (applied.length > 0) flush();
   for (const registered of applied) {
     registered.notifyApplied(message);
+    registered.notifyChanged();
   }
   return { appliedCount: applied.length, totalCount: names.length };
+}
+
+export function watchCollection<State extends object, Selected>(
+  handle: CollectionHandle<State>,
+  select: (state: Store<State>) => Selected,
+  listener: (value: Selected, previousValue: Selected) => void,
+  isEqual: (previous: Selected, next: Selected) => boolean = Object.is,
+): () => void {
+  const registered = collectionsByName.get(handle.name);
+  if (!registered) {
+    throw new Error(`Collection "${handle.name}" is not registered.`);
+  }
+  let previousValue = untrack(() => select(handle.state));
+  return registered.addChangeListener(() => {
+    const nextValue = untrack(() => select(handle.state));
+    if (isEqual(previousValue, nextValue)) return;
+    const priorValue = previousValue;
+    previousValue = nextValue;
+    listener(nextValue, priorValue);
+  });
 }
 
 export function addCollectionOptimisticOverlay<State extends object>(

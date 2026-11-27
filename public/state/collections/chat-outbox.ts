@@ -1,6 +1,5 @@
-import { createEffect, createRoot, flush, runWithOwner, untrack } from 'solid-js';
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
-import { defineCollection } from '../define-collection.ts';
+import { defineCollection, watchCollection } from '../define-collection.ts';
 import {
   INITIAL_CHAT_OUTBOX_STATE,
   applyChatOutboxServerMessage,
@@ -40,25 +39,11 @@ export function watchChatOutbox(
   sessionId: string,
   listener: (entries: readonly ChatOutboxEntry[]) => void,
 ): () => void {
-  let disposeWatcher = (): void => {};
-  let hasRunInitial = false;
-  runWithOwner(null, () => {
-    createRoot((dispose) => {
-      disposeWatcher = dispose;
-      createEffect(
-        () => snapshotEntriesOf(sessionId),
-        (entries) => {
-          if (!hasRunInitial) {
-            hasRunInitial = true;
-            return;
-          }
-          untrack(() => listener(entries));
-        },
-      );
-    });
-  });
-  flush();
-  return disposeWatcher;
+  return watchCollection(
+    chatOutboxCollection,
+    () => JSON.stringify(snapshotEntriesOf(sessionId)),
+    () => listener(snapshotEntriesOf(sessionId)),
+  );
 }
 
 export default chatOutboxCollection;
