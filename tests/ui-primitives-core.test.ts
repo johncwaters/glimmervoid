@@ -23,6 +23,16 @@ import { keyChordParts, keycapDescriptor } from '../public/ui/keycap-core.ts';
 import { clampMeterFraction, meterDescriptor, meterValueState } from '../public/ui/meter-core.ts';
 import { noticeDescriptor, noticeMetaState, noticeShownPayload } from '../public/ui/notice-core.ts';
 import { iconPressableLabel, pressableAttributes } from '../public/ui/pressable-core.ts';
+import {
+  findTypeaheadIndex,
+  isMenuArrowKey,
+  isMenuJumpKey,
+  isTypeaheadKey,
+  menuItemDescriptor,
+  nextMenuItemIndex,
+  nextTypeaheadQuery,
+  popupMenuStateAttributes,
+} from '../public/ui/popup-menu-core.ts';
 import { sectionHeadingCountState, sectionHeadingDescriptor } from '../public/ui/section-heading-core.ts';
 import { nextSegmentedValue, segmentedDescriptor, segmentedOptionStates } from '../public/ui/segmented-core.ts';
 import { findSelectChoice, resolveSelectSelection, selectDescriptor } from '../public/ui/select-core.ts';
@@ -472,5 +482,64 @@ describe('dialog-core', () => {
     assert.equal(isDialogBackdropClick({ clientX: 99, clientY: 260 }, bounds), true);
     assert.equal(isDialogBackdropClick({ clientX: 250, clientY: 381 }, bounds), true);
     assert.equal(isDialogBackdropClick({ clientX: 10, clientY: 10 }, { left: 0, right: 0, top: 0, bottom: 0 }), false);
+  });
+});
+
+describe('popup-menu-core', () => {
+  test('builds menu item descriptors with tone and checkable role attributes', () => {
+    assert.deepEqual(menuItemDescriptor({ label: 'Rename', className: 'overflow-rename' }), {
+      className: 'popup-menu-item overflow-rename',
+      role: 'menuitem',
+      tone: null,
+      label: 'Rename',
+    });
+    assert.deepEqual(menuItemDescriptor({ label: 'Remove', className: '', tone: 'danger' }), {
+      className: 'popup-menu-item',
+      role: 'menuitem',
+      tone: 'danger',
+      label: 'Remove',
+    });
+    assert.deepEqual(menuItemDescriptor({ label: 'Question manager', role: 'menuitemcheckbox', checked: true }), {
+      className: 'popup-menu-item',
+      role: 'menuitemcheckbox',
+      tone: null,
+      label: 'Question manager',
+      ariaChecked: 'true',
+    });
+  });
+
+  test('derives open and closed menu state attributes and keyboard navigation', () => {
+    assert.deepEqual(popupMenuStateAttributes(false), { hidden: true, dataState: 'closed', ariaExpanded: 'false' });
+    assert.deepEqual(popupMenuStateAttributes(true), { hidden: false, dataState: 'open', ariaExpanded: 'true' });
+
+    assert.equal(isMenuArrowKey('ArrowDown'), true);
+    assert.equal(isMenuArrowKey('ArrowLeft'), false);
+    assert.equal(isMenuJumpKey('Home'), true);
+    assert.equal(isMenuJumpKey('End'), true);
+    assert.equal(isTypeaheadKey('r', false), true);
+    assert.equal(isTypeaheadKey(' ', false), false);
+    assert.equal(isTypeaheadKey('r', true), false);
+
+    assert.equal(nextMenuItemIndex('ArrowDown', -1, 4), 0);
+    assert.equal(nextMenuItemIndex('ArrowUp', -1, 4), 3);
+    assert.equal(nextMenuItemIndex('ArrowDown', 3, 4), 0);
+    assert.equal(nextMenuItemIndex('Home', 2, 4), 0);
+    assert.equal(nextMenuItemIndex('End', 0, 4), 3);
+    assert.equal(nextMenuItemIndex('Escape', 0, 4), null);
+  });
+
+  test('matches single-char cycling, multi-char prefix, and timeout reset for typeahead', () => {
+    const labels = ['Rename', 'Restart', 'Remove', 'Snooze'];
+    assert.equal(nextTypeaheadQuery('', 'R', 100), 'r');
+    assert.equal(nextTypeaheadQuery('r', 'e', 120), 're');
+    assert.equal(nextTypeaheadQuery('re', 's', 650), 's');
+
+    assert.equal(findTypeaheadIndex(labels, 'r', -1), 0);
+    assert.equal(findTypeaheadIndex(labels, 'r', 0), 1);
+    assert.equal(findTypeaheadIndex(labels, 'rr', 1), 2);
+    assert.equal(findTypeaheadIndex(labels, 'rem', 0), 2);
+    assert.equal(findTypeaheadIndex(labels, 're', 1), 1);
+    assert.equal(findTypeaheadIndex(labels, 's', 2), 3);
+    assert.equal(findTypeaheadIndex(labels, 'z', 0), null);
   });
 });

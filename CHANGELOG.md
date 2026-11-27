@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Popup menus now support typeahead keyboard navigation.** Pressing letters while a popup menu is open jumps focus to the matching item (cycling on repeated letters and matching multi-character prefixes) alongside Arrow, Home, End, and Escape navigation.
 - **New dependencies: Solid 2 (`solid-js` 2.0.4, `@solidjs/web` 2.0.4, and `@solidjs/vite-plugin` 3.0.1).** Prepares the browser dashboard build, typecheck, linter, and gate checks for Solid 2 `.tsx` component islands. No operator-visible view uses Solid yet, so nothing in the dashboard changes in this release.
 
 ### Changed

@@ -1,30 +1,31 @@
-import { nextRovingIndex } from '../roving-keys-core.ts';
 import { isModalOpen } from './modal-state.ts';
+import {
+  findTypeaheadIndex,
+  isMenuArrowKey,
+  isMenuJumpKey,
+  isTypeaheadKey,
+  menuItemDescriptor,
+  nextMenuItemIndex,
+  nextTypeaheadQuery,
+  popupMenuStateAttributes,
+} from './popup-menu-core.ts';
+import type { MenuItemTone } from './popup-menu-core.ts';
 import { createPressable } from './pressable.ts';
 
-type MenuItemTone = 'neutral' | 'warning' | 'danger';
-
 export function buildMenuItem(label: string, className: string, { tone = 'neutral' }: { tone?: MenuItemTone } = {}) {
-  const menuItem = createPressable(`popup-menu-item ${className}`, label);
-  menuItem.setAttribute('role', 'menuitem');
-  if (tone !== 'neutral') menuItem.dataset.tone = tone;
+  const descriptor = menuItemDescriptor({ label, className, tone });
+  const menuItem = createPressable(descriptor.className, descriptor.label);
+  menuItem.setAttribute('role', descriptor.role);
+  if (descriptor.tone !== null) menuItem.dataset.tone = descriptor.tone;
   return menuItem;
-}
-
-function isMenuArrowKey(event: KeyboardEvent) {
-  return event.key === 'ArrowDown' || event.key === 'ArrowUp';
 }
 
 function focusAdjacentMenuItem(menuItems: readonly HTMLElement[], event: KeyboardEvent) {
   const focusedElement = document.activeElement;
   const focusedIndex = focusedElement instanceof HTMLElement ? menuItems.indexOf(focusedElement) : -1;
-  const nextIndex = nextRovingIndex(event.key, focusedIndex, menuItems.length, 'vertical');
+  const nextIndex = nextMenuItemIndex(event.key, focusedIndex, menuItems.length);
   if (nextIndex === null) return;
   menuItems[nextIndex].focus();
-}
-
-function isMenuJumpKey(event: KeyboardEvent) {
-  return event.key === 'Home' || event.key === 'End';
 }
 
 function hasShortcutModifier(event: KeyboardEvent) {
@@ -37,29 +38,48 @@ function isFocusLeaving(event: FocusEvent, menu: HTMLElement, trigger: HTMLEleme
   return !menu.contains(nextFocused) && !trigger.contains(nextFocused);
 }
 
-function wirePopupMenuKeys({ trigger, menu, menuItems, isOpen, open, close, signal }: {
+function wirePopupMenuKeys({ trigger, menu, menuItems, isOpen, open, close, resetTypeahead, onTypeahead, signal }: {
   trigger: HTMLElement;
   menu: HTMLElement;
   menuItems: () => HTMLElement[];
   isOpen: () => boolean;
   open: () => void;
   close: () => void;
+  resetTypeahead: () => void;
+  onTypeahead: (event: KeyboardEvent, items: readonly HTMLElement[]) => void;
   signal?: AbortSignal;
 }) {
   function moveMenuFocus(event: KeyboardEvent) {
     event.preventDefault();
     event.stopPropagation();
+    resetTypeahead();
     if (!isOpen()) open();
     focusAdjacentMenuItem(menuItems(), event);
   }
   trigger.addEventListener('keydown', (event) => {
-    if (hasShortcutModifier(event) || !isMenuArrowKey(event)) return;
-    moveMenuFocus(event);
+    const hasModifier = hasShortcutModifier(event);
+    if (hasModifier) return;
+    if (isMenuArrowKey(event.key)) {
+      moveMenuFocus(event);
+      return;
+    }
+    if (!isOpen()) return;
+    if (isMenuJumpKey(event.key)) {
+      moveMenuFocus(event);
+      return;
+    }
+    if (!isTypeaheadKey(event.key, hasModifier)) return;
+    onTypeahead(event, menuItems());
   }, { signal });
   menu.addEventListener('keydown', (event) => {
-    if (hasShortcutModifier(event)) return;
-    if (!isMenuArrowKey(event) && !isMenuJumpKey(event)) return;
-    moveMenuFocus(event);
+    const hasModifier = hasShortcutModifier(event);
+    if (hasModifier) return;
+    if (isMenuArrowKey(event.key) || isMenuJumpKey(event.key)) {
+      moveMenuFocus(event);
+      return;
+    }
+    if (!isTypeaheadKey(event.key, hasModifier)) return;
+    onTypeahead(event, menuItems());
   }, { signal });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.defaultPrevented || !isOpen() || isModalOpen()) return;
@@ -91,7 +111,11 @@ export type PopupMenu = {
 };
 
 function shownMenuItems(menu: HTMLElement) {
-  return [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter((item) => item.checkVisibility());
+  return [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter((item) => {
+    if (item instanceof HTMLButtonElement && item.disabled) return false;
+    if (item.getAttribute('aria-disabled') === 'true') return false;
+    return item.checkVisibility();
+  });
 }
 
 function isMenuItemClick(event: MouseEvent) {
@@ -99,22 +123,44 @@ function isMenuItemClick(event: MouseEvent) {
 }
 
 export function popupMenu({ trigger, menu, onOpen, onClose, signal }: PopupMenuOptions): PopupMenu {
+  let typeaheadQuery = '';
+  let lastTypeaheadAt = 0;
+  const resetTypeahead = () => {
+    typeaheadQuery = '';
+    lastTypeaheadAt = 0;
+  };
   const isOpen = () => !menu.hidden;
   const setOpen = (shouldOpen: boolean) => {
-    menu.hidden = !shouldOpen;
-    trigger.setAttribute('aria-expanded', String(shouldOpen));
+    const state = popupMenuStateAttributes(shouldOpen);
+    menu.hidden = state.hidden;
+    menu.dataset.state = state.dataState;
+    trigger.setAttribute('aria-expanded', state.ariaExpanded);
   };
   const open = () => {
     if (isOpen()) return;
+    resetTypeahead();
     onOpen?.();
     setOpen(true);
   };
   const close = () => {
     if (!isOpen()) return;
+    resetTypeahead();
     setOpen(false);
     onClose?.();
   };
   const toggle = () => (isOpen() ? close() : open());
+  const onTypeahead = (event: KeyboardEvent, items: readonly HTMLElement[]) => {
+    const elapsedMs = lastTypeaheadAt > 0 ? event.timeStamp - lastTypeaheadAt : Number.POSITIVE_INFINITY;
+    typeaheadQuery = nextTypeaheadQuery(typeaheadQuery, event.key, elapsedMs);
+    lastTypeaheadAt = event.timeStamp;
+    const focusedElement = document.activeElement;
+    const focusedIndex = focusedElement instanceof HTMLElement ? items.indexOf(focusedElement) : -1;
+    const matchedIndex = findTypeaheadIndex(items.map((item) => item.textContent ?? ''), typeaheadQuery, focusedIndex);
+    if (matchedIndex === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    items[matchedIndex].focus();
+  };
   menu.classList.add('popup-menu');
   menu.setAttribute('role', 'menu');
   setOpen(false);
@@ -128,6 +174,6 @@ export function popupMenu({ trigger, menu, onOpen, onClose, signal }: PopupMenuO
     if (menu.contains(event.target) || trigger.contains(event.target)) return;
     close();
   }, { signal });
-  wirePopupMenuKeys({ trigger, menu, menuItems: () => shownMenuItems(menu), isOpen, open, close, signal });
+  wirePopupMenuKeys({ trigger, menu, menuItems: () => shownMenuItems(menu), isOpen, open, close, resetTypeahead, onTypeahead, signal });
   return { open, close, toggle, isOpen };
 }

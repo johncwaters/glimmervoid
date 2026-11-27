@@ -773,7 +773,7 @@ export const SCENARIOS: readonly Scenario[] = [
   },
   {
     name: 'ui-primitives-parity',
-    viewports: ['desktop-1280'],
+    viewports: ['desktop-1280', 'phone-393'],
     steps: [{ kind: 'open' }, { kind: 'assert-ui-primitives-parity' }],
   },
   {

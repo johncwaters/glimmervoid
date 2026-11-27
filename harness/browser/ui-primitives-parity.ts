@@ -43,6 +43,8 @@ const MODULE_URLS = {
   copyButtonSolid: '/ui/CopyButton.tsx',
   notice: '/ui/notice.ts',
   noticeSolid: '/ui/Notice.tsx',
+  popupMenu: '/ui/popup-menu.ts',
+  popupMenuSolid: '/ui/PopupMenu.tsx',
 } as const;
 
 interface LoadedParityModules {
@@ -98,7 +100,7 @@ interface LoadedParityModules {
 }
 
 export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResult> {
-  return page.evaluate(async (urls: typeof MODULE_URLS) => {
+  const staticResult = await page.evaluate(async (urls: typeof MODULE_URLS) => {
     const [
       islandMod,
       svgDomMod,
@@ -705,4 +707,265 @@ export async function verifyUiPrimitivesParity(page: Page): Promise<UiPrimitives
 
     return { ok: true, detail: `${cases.length} UI primitive parity cases matched` };
   }, MODULE_URLS);
+
+  if (!staticResult.ok) return staticResult;
+  const popupMenuResult = await verifyPopupMenuBehavior(page);
+  if (!popupMenuResult.ok) return popupMenuResult;
+  return { ok: true, detail: `${staticResult.detail}; ${popupMenuResult.detail}` };
+}
+
+async function verifyPopupMenuBehavior(page: Page): Promise<UiPrimitivesParityResult> {
+  const setupError = await page.evaluate(async (urls: { island: string; pressable: string; popupMenu: string; popupMenuSolid: string }) => {
+    const [islandMod, pressableMod, popupMenuMod, popupMenuSolidMod] = await Promise.all([
+      import(urls.island),
+      import(urls.pressable),
+      import(urls.popupMenu),
+      import(urls.popupMenuSolid),
+    ]);
+
+    const mountRoot = document.createElement('div');
+    mountRoot.id = 'popup-menu-parity-host';
+    mountRoot.style.position = 'fixed';
+    mountRoot.style.bottom = '80px';
+    mountRoot.style.left = '16px';
+    mountRoot.style.zIndex = '9999';
+    mountRoot.style.display = 'flex';
+    mountRoot.style.gap = '24px';
+    document.body.append(mountRoot);
+
+    const outsideButton = document.createElement('button');
+    outsideButton.id = 'popup-menu-outside';
+    outsideButton.type = 'button';
+    outsideButton.textContent = 'Outside';
+    outsideButton.style.position = 'fixed';
+    outsideButton.style.bottom = '16px';
+    outsideButton.style.right = '16px';
+    outsideButton.style.zIndex = '9999';
+    mountRoot.append(outsideButton);
+
+    const solidHost = document.createElement('div');
+    solidHost.id = 'popup-menu-solid-host';
+    mountRoot.append(solidHost);
+
+    const selectedItems: string[] = [];
+    const recordSelection = (entry: string) => {
+      selectedItems.push(entry);
+      mountRoot.dataset.selected = selectedItems.join(',');
+    };
+    const labels = ['Alpha', 'Beta', 'Restart', 'Remove', 'Snooze'];
+    let docEscapeCount = 0;
+    const onDocEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      docEscapeCount += 1;
+      mountRoot.dataset.docEscapes = String(docEscapeCount);
+    };
+    document.addEventListener('keydown', onDocEscape);
+
+    const disposeSolid = islandMod.mountIsland(solidHost, () => popupMenuSolidMod.PopupMenu({
+      id: 'solid-popup-menu-panel',
+      triggerLabel: 'Solid menu',
+      triggerAction: 'solid-popup-trigger',
+      menuLabel: 'Solid actions',
+      items: labels.map((label) => ({
+        id: label.toLowerCase(),
+        label,
+        tone: label === 'Remove' ? 'danger' : label === 'Restart' ? 'warning' : 'neutral',
+        onSelect: () => {
+          recordSelection(label);
+          if (label === 'Alpha') outsideButton.focus();
+        },
+      })),
+    }));
+
+    const imperativeHost = document.createElement('div');
+    imperativeHost.id = 'popup-menu-imperative-host';
+    imperativeHost.className = 'session-overflow';
+    const imperativeTrigger = pressableMod.createPressable('ui-button', 'Imperative menu');
+    imperativeTrigger.dataset.action = 'imperative-popup-trigger';
+    const imperativeMenu = document.createElement('div');
+    imperativeMenu.id = 'imperative-popup-menu-panel';
+    const imperativeController = new AbortController();
+    const disabledItem = popupMenuMod.buildMenuItem('Readonly', 'visible');
+    disabledItem.disabled = true;
+    imperativeMenu.append(disabledItem);
+    for (const label of labels) {
+      const item = popupMenuMod.buildMenuItem(label, 'visible', {
+        tone: label === 'Remove' ? 'danger' : label === 'Restart' ? 'warning' : 'neutral',
+      });
+      item.addEventListener('click', () => recordSelection(`imp:${label}`), { signal: imperativeController.signal });
+      imperativeMenu.append(item);
+    }
+    imperativeHost.append(imperativeTrigger, imperativeMenu);
+    mountRoot.append(imperativeHost);
+    popupMenuMod.popupMenu({
+      trigger: imperativeTrigger,
+      menu: imperativeMenu,
+      signal: imperativeController.signal,
+    });
+
+    mountRoot.addEventListener('popup-menu-cleanup', () => {
+      document.removeEventListener('keydown', onDocEscape);
+      disposeSolid();
+      imperativeController.abort();
+      mountRoot.remove();
+    }, { once: true });
+    return null;
+  }, {
+    island: MODULE_URLS.island,
+    pressable: MODULE_URLS.pressable,
+    popupMenu: MODULE_URLS.popupMenu,
+    popupMenuSolid: MODULE_URLS.popupMenuSolid,
+  });
+
+  if (setupError) return { ok: false, detail: setupError };
+
+  try {
+    const readMenuSnapshot = async (triggerSelector: string, menuSelector: string) => page.evaluate(([tSel, mSel]) => {
+      const trigger = document.querySelector<HTMLElement>(tSel);
+      const menu = document.querySelector<HTMLElement>(mSel);
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      return {
+        expanded: trigger?.getAttribute('aria-expanded') ?? null,
+        hidden: menu?.hidden ?? null,
+        dataState: menu?.dataset.state ?? null,
+        popoverOpen: menu ? menu.matches(':popover-open') : false,
+        activeText: active?.textContent?.trim() ?? null,
+        activeIsTrigger: active === trigger,
+        activeId: active?.id ?? null,
+      };
+    }, [triggerSelector, menuSelector]);
+
+    const solidTrigger = 'button[data-action="solid-popup-trigger"]';
+    const solidMenu = '#solid-popup-menu-panel';
+    const impTrigger = 'button[data-action="imperative-popup-trigger"]';
+    const impMenu = '#imperative-popup-menu-panel';
+
+    await page.locator(solidTrigger).click();
+    let snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (!snap.popoverOpen || snap.hidden || snap.expanded !== 'true' || snap.dataState !== 'open') {
+      return { ok: false, detail: `PopupMenu click open failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.locator(solidTrigger).click();
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.popoverOpen || !snap.hidden || snap.expanded !== 'false' || snap.dataState !== 'closed') {
+      return { ok: false, detail: `PopupMenu trigger click toggle close failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.locator(solidTrigger).focus();
+    await page.keyboard.press('ArrowDown');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (!snap.popoverOpen || snap.activeText !== 'Alpha') {
+      return { ok: false, detail: `PopupMenu ArrowDown open failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.keyboard.press('ArrowDown');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.activeText !== 'Beta') return { ok: false, detail: `PopupMenu ArrowDown next failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('End');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.activeText !== 'Snooze') return { ok: false, detail: `PopupMenu End failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('Home');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.activeText !== 'Alpha') return { ok: false, detail: `PopupMenu Home failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('ArrowUp');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.activeText !== 'Snooze') return { ok: false, detail: `PopupMenu ArrowUp wrap failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('r');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.activeText !== 'Restart') return { ok: false, detail: `PopupMenu typeahead r failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('r');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.activeText !== 'Remove') return { ok: false, detail: `PopupMenu typeahead repeat r failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('Escape');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    const docEscapes = await page.evaluate(() => Number(document.getElementById('popup-menu-parity-host')?.dataset.docEscapes ?? '0'));
+    if (snap.popoverOpen || !snap.hidden || !snap.activeIsTrigger || docEscapes !== 0) {
+      return { ok: false, detail: `PopupMenu Escape dismiss + focus return + stopPropagation failed: ${JSON.stringify({ snap, docEscapes })}` };
+    }
+
+    await page.locator(solidTrigger).click();
+    await page.keyboard.press('r');
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (!snap.popoverOpen || snap.activeText !== 'Restart') {
+      return { ok: false, detail: `PopupMenu click-open trigger typeahead failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.locator('#popup-menu-outside').click();
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.popoverOpen || !snap.hidden || snap.activeIsTrigger) {
+      return { ok: false, detail: `PopupMenu light dismiss failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.locator(solidTrigger).click();
+    await page.locator(`${solidMenu} [data-menu-item="alpha"]`).click();
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    if (snap.popoverOpen || !snap.hidden || snap.activeId !== 'popup-menu-outside') {
+      return { ok: false, detail: `PopupMenu onSelect focus handoff failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.locator(solidTrigger).click();
+    await page.locator(`${solidMenu} [data-menu-item="beta"]`).click();
+    snap = await readMenuSnapshot(solidTrigger, solidMenu);
+    const selectedAfterSolid = await page.evaluate(() => (document.getElementById('popup-menu-parity-host')?.dataset.selected ?? '').split(',').filter(Boolean));
+    if (snap.popoverOpen || !snap.hidden || !snap.activeIsTrigger || !selectedAfterSolid.includes('Beta')) {
+      return { ok: false, detail: `PopupMenu item select failed: ${JSON.stringify({ snap, selectedAfterSolid })}` };
+    }
+
+    await page.locator(impTrigger).click();
+    await page.keyboard.press('r');
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (snap.hidden || snap.activeText !== 'Restart') {
+      return { ok: false, detail: `popupMenu click-open trigger typeahead (skipping disabled Readonly) failed: ${JSON.stringify(snap)}` };
+    }
+    await page.keyboard.press('Escape');
+
+    await page.locator(impTrigger).focus();
+    await page.keyboard.press('ArrowDown');
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (snap.hidden || snap.expanded !== 'true' || snap.dataState !== 'open' || snap.activeText !== 'Alpha') {
+      return { ok: false, detail: `popupMenu ArrowDown open failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.keyboard.press('End');
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (snap.activeText !== 'Snooze') return { ok: false, detail: `popupMenu End failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('Home');
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (snap.activeText !== 'Alpha') return { ok: false, detail: `popupMenu Home failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('r');
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (snap.activeText !== 'Restart') return { ok: false, detail: `popupMenu typeahead r failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('r');
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (snap.activeText !== 'Remove') return { ok: false, detail: `popupMenu typeahead repeat r failed: ${JSON.stringify(snap)}` };
+
+    await page.keyboard.press('Escape');
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (!snap.hidden || !snap.activeIsTrigger) {
+      return { ok: false, detail: `popupMenu Escape dismiss + focus return failed: ${JSON.stringify(snap)}` };
+    }
+
+    await page.locator(impTrigger).click();
+    await page.locator('#popup-menu-outside').click();
+    snap = await readMenuSnapshot(impTrigger, impMenu);
+    if (!snap.hidden) {
+      return { ok: false, detail: `popupMenu light dismiss failed: ${JSON.stringify(snap)}` };
+    }
+
+    return { ok: true, detail: 'PopupMenu (Popover API) + popupMenu (imperative) keyboard, typeahead, Escape, and light dismiss passed' };
+  } finally {
+    await page.evaluate(() => {
+      document.getElementById('popup-menu-parity-host')?.dispatchEvent(new Event('popup-menu-cleanup'));
+    });
+  }
 }
