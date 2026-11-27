@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **ACP sessions now enforce Sane YOLO coverage on Claude Code, report `saneYolo` honestly, route ACP questions through the question manager, and keep Codex async questions open past turn-end.** On Claude Code over ACP, Glimmervoid now passes the Sane YOLO `PreToolUse` hook and env in `session/new` and `session/load` `_meta`, opens in `default` mode, auto-allows safe asks when skip-permissions is on, and reports `saneYolo` active only when coverage holds (staying off on Codex over ACP where the adapter cannot gate sandbox-allowed commands). ACP form questions now go to the question manager before holding for the operator, and Codex async questions survive turn-end instead of being cancelled before you can answer.
+
 ### Changed
 
 - **Linux and macOS downloads are now `.tar.gz` instead of `.tar.xz`.** Release binaries publish several minutes sooner after each tag because the archives no longer spend minutes in xz compression. Each archive is about half again as large (the Linux x86_64 one goes from about 117 MB to about 177 MB). The install script, in-app updates and the Homebrew formula pick up the new names on their own. Windows stays `.zip`.

@@ -11,6 +11,9 @@ import { resolveHookTools } from "../server/hook-tools.ts";
 import { waitFor } from "./helpers/wait-for.ts";
 import { STATES } from "../shared/states.ts";
 import type { ConversationAnswers, ConversationApproval, PermissionDecision } from "../shared/contracts/session.ts";
+import { MANAGER_DECISION_EVENT } from "../shared/contracts/question-manager.ts";
+import type { ManagerDecision, ManagerVerdict } from "../shared/contracts/question-manager.ts";
+import type { QuestionManagerPort } from "../session/session-approval-holds.ts";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const RECORDINGS = path.join(ROOT, "harness", "acp-spike", "recordings");
@@ -33,7 +36,11 @@ interface OperatorReplay {
   approvals: ConversationApproval[];
   stopReasons: string[];
   answersOnWire: Record<string, unknown>[];
+  requestsOnWire: WireMessage[];
   approvalAtEnd: ConversationApproval | null;
+  saneYoloWhileLive: boolean;
+  saneYoloAfterExit: boolean;
+  managerDecisions: ManagerDecision[];
 }
 
 function scratchFolder(): string {
@@ -61,10 +68,14 @@ function derivedRecording(recordingPath: string, rewrite: (lines: string[]) => s
   return derivedPath;
 }
 
-function answersReceivedBy(receivedLogPath: string): Record<string, unknown>[] {
+function wireMessagesReceivedBy(receivedLogPath: string): WireMessage[] {
   if (!fs.existsSync(receivedLogPath)) return [];
   return fs.readFileSync(receivedLogPath, "utf8").split("\n").filter(Boolean)
-    .map((line) => JSON.parse(line) as WireMessage)
+    .map((line) => JSON.parse(line) as WireMessage);
+}
+
+function answersReceivedBy(receivedLogPath: string): Record<string, unknown>[] {
+  return wireMessagesReceivedBy(receivedLogPath)
     .flatMap((message) => (message.method === undefined && message.result !== undefined && ("outcome" in message.result || "action" in message.result) ? [message.result] : []));
 }
 
@@ -72,7 +83,23 @@ async function replayWithOperator(
   agent: AgentId,
   recordingPath: string,
   act: OperatorAct,
-  { promptCount = recordedPromptCount(recordingPath), endsOnExit = false, wireAnswerCount = 0, hookTools = [] }: { promptCount?: number; endsOnExit?: boolean; wireAnswerCount?: number; hookTools?: SessionOptions["hookTools"] } = {},
+  {
+    promptCount = recordedPromptCount(recordingPath),
+    endsOnExit = false,
+    wireAnswerCount = 0,
+    hookTools = [],
+    dangerouslySkipPermissions = false,
+    questionManager = null,
+    onTurnEnd,
+  }: {
+    promptCount?: number;
+    endsOnExit?: boolean;
+    wireAnswerCount?: number;
+    hookTools?: SessionOptions["hookTools"];
+    dangerouslySkipPermissions?: boolean;
+    questionManager?: QuestionManagerPort | null;
+    onTurnEnd?: (session: Session, stopReason: string) => void;
+  } = {},
 ): Promise<OperatorReplay> {
   const receivedLogPath = path.join(scratchFolder(), "received.jsonl");
   const session = new Session({
@@ -81,6 +108,8 @@ async function replayWithOperator(
     path: ROOT,
     agent,
     hookTools,
+    dangerouslySkipPermissions,
+    questionManager,
     driver: {
       kind: "acp",
       command: { file: process.execPath, args: [REPLAY_AGENT, recordingPath, "1", "carbon.unit@example.test", "plan-marker-7c1f", receivedLogPath] },
@@ -90,6 +119,8 @@ async function replayWithOperator(
   });
   const approvals: ConversationApproval[] = [];
   const stopReasons: string[] = [];
+  const managerDecisions: ManagerDecision[] = [];
+  let saneYoloWhileLive = false;
   let promptsSent = 0;
   const sendNextPrompt = () => {
     if (promptsSent >= promptCount) return;
@@ -97,6 +128,7 @@ async function replayWithOperator(
     assert.deepEqual(session.deliver(`replayed prompt ${promptsSent}`, { when: "now", submit: true }), { ok: true, kind: "pasted" });
   };
   session.on("error", (error: unknown) => assert.fail(String(error)));
+  session.on(MANAGER_DECISION_EVENT, ({ decision }: { decision: ManagerDecision }) => managerDecisions.push(decision));
   session.on("conversation-change", ({ conversationApproval }: { conversationApproval: ConversationApproval | null }) => {
     if (conversationApproval === null || approvals.some((seen) => seen.requestId === conversationApproval.requestId)) return;
     approvals.push(conversationApproval);
@@ -104,9 +136,13 @@ async function replayWithOperator(
   });
   const exited = new Promise<void>((resolveExit) => session.once("exit", () => resolveExit()));
   const turnsDone = new Promise<void>((resolveTurns) => {
-    session.on(SESSION_DRIVER_EVENTS.agentSession, () => sendNextPrompt());
+    session.on(SESSION_DRIVER_EVENTS.agentSession, () => {
+      saneYoloWhileLive = session.saneYolo;
+      sendNextPrompt();
+    });
     session.on(SESSION_DRIVER_EVENTS.turnEnd, ({ stopReason }: { stopReason: string }) => {
       stopReasons.push(stopReason);
+      onTurnEnd?.(session, stopReason);
       sendNextPrompt();
       if (stopReasons.length === promptCount) resolveTurns();
     });
@@ -118,8 +154,18 @@ async function replayWithOperator(
   const approvalAtEnd = session._conversationApproval;
   session.kill();
   await exited;
+  const saneYoloAfterExit = session.saneYolo;
   session.destroy();
-  return { approvals, stopReasons, answersOnWire: answersReceivedBy(receivedLogPath), approvalAtEnd };
+  return {
+    approvals,
+    stopReasons,
+    answersOnWire: answersReceivedBy(receivedLogPath),
+    requestsOnWire: wireMessagesReceivedBy(receivedLogPath),
+    approvalAtEnd,
+    saneYoloWhileLive,
+    saneYoloAfterExit,
+    managerDecisions,
+  };
 }
 
 function decideInOrder(decisions: readonly PermissionDecision[]): OperatorAct {
@@ -234,3 +280,99 @@ for (const ending of ["stop", "agent exit"] as const) {
     assert.equal(replay.approvalAtEnd, null);
   });
 }
+
+function stubQuestionManager(verdict: ManagerVerdict): QuestionManagerPort {
+  let isOn = true;
+  return {
+    get isOn() { return isOn; },
+    setOn(next) { isOn = next; },
+    mightAnswer: () => isOn,
+    decide: async () => verdict,
+  };
+}
+
+test("Claude over ACP with Sane YOLO and skip-permissions injects PreToolUse hook, sets default mode, reports saneYolo active, allows safe asks and denies blocked commands", { timeout: 30_000 }, async () => {
+  const claudePermissions = path.join(RECORDINGS, "claude", "permissions.jsonl");
+  const stashing = derivedRecording(claudePermissions, (lines) => lines.map((line) => (line.includes("session/request_permission") ? line.split("rm perm-shell.txt").join("git stash") : line)));
+  const hookTools = resolveHookTools({});
+  const replay = await replayWithOperator("claude-code", stashing, () => assert.fail("skip-permissions session should not hold approvals for the operator"), {
+    hookTools,
+    dangerouslySkipPermissions: true,
+    wireAnswerCount: 3,
+  });
+  assert.equal(replay.saneYoloWhileLive, true);
+  assert.equal(replay.saneYoloAfterExit, false);
+  assert.equal(replay.approvals.length, 0);
+  assert.deepEqual(replay.answersOnWire, recordedClientAnswers(claudePermissions));
+  const sessionNew = replay.requestsOnWire.find((message) => message.method === "session/new") as { params?: { _meta?: { claudeCode?: { options?: { settings?: { hooks?: { PreToolUse?: { matcher: string }[] } }; env?: Record<string, string> } } } } } | undefined;
+  assert.ok(sessionNew?.params?._meta?.claudeCode?.options?.settings?.hooks?.PreToolUse?.[0]?.matcher.includes("Bash"));
+  assert.ok(sessionNew?.params?._meta?.claudeCode?.options?.env?.CC_SAFETY_NET_HOME);
+  const setMode = replay.requestsOnWire.find((message) => message.method === "session/set_mode") as { params?: { modeId?: string } } | undefined;
+  assert.equal(setMode?.params?.modeId, "default");
+});
+
+test("Codex over ACP does not claim saneYolo active even when Sane YOLO is configured", { timeout: 30_000 }, async () => {
+  const replay = await replayWithOperator("codex", CODEX_PERMISSIONS, decideInOrder(ALLOW_ALLOW_DENY), {
+    hookTools: resolveHookTools({}),
+  });
+  assert.equal(replay.saneYoloWhileLive, false);
+  assert.equal(replay.saneYoloAfterExit, false);
+});
+
+for (const { agent, folder } of AGENTS) {
+  const question = path.join(RECORDINGS, folder, "question.jsonl");
+
+  test(`${agent} over ACP: question manager answers an ACP question directly without holding for the operator`, { timeout: 30_000 }, async () => {
+    const manager = stubQuestionManager({ kind: "answer", by: "rule", ruleName: "prefer-blue", answers: { "Which color?": "Blue" } });
+    const replay = await replayWithOperator(agent, question, () => assert.fail("question manager should answer without holding for operator"), {
+      questionManager: manager,
+      wireAnswerCount: 1,
+    });
+    assert.equal(replay.approvals.length, 0);
+    assert.deepEqual(replay.answersOnWire, recordedClientAnswers(question));
+    assert.equal(replay.managerDecisions.length, 1);
+    assert.equal(replay.managerDecisions[0]?.outcome, "answered");
+  });
+
+  test(`${agent} over ACP: question manager escalation hands the ACP question to the operator`, { timeout: 30_000 }, async () => {
+    const manager = stubQuestionManager({ kind: "escalate", reason: "needs operator" });
+    const answerBlue: OperatorAct = (approval, session) => {
+      const answers: ConversationAnswers = Object.fromEntries((approval.questions ?? []).map((asked) => [asked.question, "Blue"]));
+      assert.equal(session.answerConversationApproval(approval.requestId, answers), true);
+    };
+    const replay = await replayWithOperator(agent, question, answerBlue, {
+      questionManager: manager,
+      wireAnswerCount: 1,
+    });
+    assert.equal(replay.approvals.length, 1);
+    assert.deepEqual(replay.answersOnWire, recordedClientAnswers(question));
+    assert.equal(replay.managerDecisions.length, 1);
+    assert.equal(replay.managerDecisions[0]?.outcome, "escalated");
+  });
+}
+
+test("a Codex async question still open at turn-end stays held for the operator instead of being cancelled", { timeout: 30_000 }, async () => {
+  const codexQuestion = path.join(RECORDINGS, "codex", "question.jsonl");
+  const turnEndsBeforeAnswer = derivedRecording(codexQuestion, (lines) => {
+    const answerIndex = lines.findIndex((line) => line.includes('"direction":"client->agent"') && line.includes('"action":"accept"'));
+    return lines.filter((_line, index) => index !== answerIndex);
+  });
+  const approvalsAfterTurnEnd: (ConversationApproval | null)[] = [];
+  const statesObserved: string[] = [];
+  const replay = await replayWithOperator("codex", turnEndsBeforeAnswer, () => {}, {
+    wireAnswerCount: 1,
+    onTurnEnd: (session) => {
+      const held = session._conversationApproval;
+      approvalsAfterTurnEnd.push(held);
+      statesObserved.push(session.state);
+      if (held === null) return;
+      const answers: ConversationAnswers = Object.fromEntries((held.questions ?? []).map((asked) => [asked.question, "Blue"]));
+      assert.equal(session.answerConversationApproval(held.requestId, answers), true);
+      queueMicrotask(() => statesObserved.push(session.state));
+    },
+  });
+  assert.equal(approvalsAfterTurnEnd[0]?.kind, "question");
+  assert.deepEqual(statesObserved, [STATES.WAITING, STATES.COMPLETE]);
+  assert.deepEqual(replay.answersOnWire, recordedClientAnswers(codexQuestion));
+  assert.equal(replay.approvalAtEnd, null);
+});

@@ -8,8 +8,9 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "../../server/child-process-safe.ts";
 import { glimmervoidHomeDir } from "../../server/core/config-path-core.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
+import { acpSaneYoloMetaFor, acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, isAcpSaneYoloCovered, openingModePlanFor, permissionFieldsOf, planSessionOpen, questionFieldsOf } from "../core/acp-driver-core.ts";
 import type { AcpPhase } from "../core/acp-driver-core.ts";
+import type { ResolvedHookTool } from "../core/hook-tools.ts";
 import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
 import type { DriverEvent, DriverFailureStage, DriverLaunch, DriverListener, SessionDriver } from "./driver.ts";
 
@@ -18,6 +19,9 @@ interface AcpDriverOptions {
   clientVersion: string;
   mcpServers: McpServer[];
   killTree: (pid: number, scopeUnit: string | null) => void;
+  agentId?: string;
+  saneYolo?: () => { tool: ResolvedHookTool; homeDir: string } | null;
+  onSaneYoloCoverageChange?: (isCovered: boolean) => void;
 }
 
 interface ActivePrompt {
@@ -107,18 +111,32 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
 
   async function openSession(generation: number, activeConnection: ClientConnection, launch: DriverLaunch): Promise<void> {
     const initialized = await activeConnection.agent.request(methods.agent.initialize, initializeRequestFor(PROTOCOL_VERSION, options.clientName, options.clientVersion));
-    const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId);
+    const agentId = options.agentId ?? "";
+    const saneYoloConfig = options.saneYolo?.() ?? null;
+    const sessionMeta = acpSaneYoloMetaFor(agentId, saneYoloConfig?.tool, saneYoloConfig?.homeDir ?? "");
+    const plan = planSessionOpen(PROTOCOL_VERSION, initialized, launch.cwd, launch.mcpServers ?? options.mcpServers, launch.resumeAgentSessionId, sessionMeta);
     if (plan.method === "refuse") throw new Error(plan.message);
-    if (plan.method === "session/load") await activeConnection.agent.request(methods.agent.session.load, plan.request);
-    const openedSessionId = plan.method === "session/load"
-      ? plan.request.sessionId
-      : (await activeConnection.agent.request(methods.agent.session.new, plan.request)).sessionId;
+    const opened = plan.method === "session/load"
+      ? await activeConnection.agent.request(methods.agent.session.load, plan.request)
+      : await activeConnection.agent.request(methods.agent.session.new, plan.request);
+    const openedSessionId = plan.method === "session/load" ? plan.request.sessionId : (opened as { sessionId?: unknown }).sessionId;
     if (typeof openedSessionId !== "string" || openedSessionId.length === 0) {
       throw new Error("the ACP agent returned an invalid session id");
     }
+    const openedModes = typeof opened === "object" && opened !== null && "modes" in opened ? opened.modes : undefined;
+    const modePlan = openingModePlanFor(agentId, saneYoloConfig !== null, openedModes);
+    const modeOutcome = modePlan.kind === "set-mode"
+      ? await activeConnection.agent.request(methods.agent.session.setMode, { sessionId: openedSessionId, modeId: modePlan.modeId })
+        .then(() => "confirmed" as const)
+        .catch((error: unknown) => {
+          console.warn(`[acp-driver] failed to set mode "${modePlan.modeId}" on ${agentId}: ${errorMessage(error)}`);
+          return "unconfirmed" as const;
+        })
+      : modePlan.kind === "already-asking" ? "confirmed" as const : "unconfirmed" as const;
     if (generation !== runGeneration || phase !== "opening") return;
     agentSessionId = openedSessionId;
     phase = "ready";
+    options.onSaneYoloCoverageChange?.(isAcpSaneYoloCovered(agentId, saneYoloConfig !== null, sessionMeta !== undefined, modeOutcome === "confirmed"));
     emit({ kind: "agent-session", agentSessionId: openedSessionId, isResumed: plan.method === "session/load" });
   }
 
@@ -157,6 +175,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     const generation = ++runGeneration;
     agentSessionId = null;
     isPromptOpen = false;
+    options.onSaneYoloCoverageChange?.(false);
     dropActivePrompt();
     const agentProcess = spawn(launch.file, launch.args, {
       cwd: spawnCwd,
@@ -183,6 +202,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
       if (generation !== runGeneration) return;
       phase = "closed";
       isPromptOpen = false;
+      options.onSaneYoloCoverageChange?.(false);
       dropActivePrompt();
       void activeConnection.closed.then(() => {
         if (generation !== runGeneration) return;
@@ -214,6 +234,7 @@ function createAcpDriver(options: AcpDriverOptions): SessionDriver {
     if (child === null || child.pid === undefined) return false;
     phase = "closed";
     isPromptOpen = false;
+    options.onSaneYoloCoverageChange?.(false);
     dropActivePrompt();
     options.killTree(child.pid, scopeUnit);
     return true;

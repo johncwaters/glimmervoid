@@ -93,6 +93,7 @@ interface SessionHookLifecycle {
   inject(): HookInjectionResult;
   cleanup(): void;
   confirmSaneYoloActive(): void;
+  setSaneYoloActive(isActive: boolean): void;
   deactivateSaneYolo(): void;
   isSaneYoloActive(): boolean;
   token(): string | null;
@@ -418,6 +419,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     inject,
     cleanup,
     confirmSaneYoloActive: () => { if (saneYoloState === "pending") saneYoloState = "active"; },
+    setSaneYoloActive: (isActive) => { saneYoloState = isActive ? "active" : "inactive"; },
     deactivateSaneYolo: () => { saneYoloState = "inactive"; },
     isSaneYoloActive: () => saneYoloState === "active",
     token: () => token,

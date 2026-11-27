@@ -23,6 +23,10 @@ interface ChatHoldKind<Reply> {
   didDismissQuestion(): void;
 }
 
+interface DriverAskHoldOptions {
+  onHeldForOperator?: () => void;
+}
+
 interface DriverAskReplies<Reply> {
   toAnswers(answers: ConversationAnswers): Reply | null;
   toDecision(decision: PermissionDecision): Reply | null;
@@ -111,7 +115,7 @@ interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   hold(payload: unknown, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null;
   holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null;
   holdElicitation(payload: unknown, abandoned: AbortSignal): Promise<ElicitationHookReply | null> | null;
-  holdDriverAsk<Reply>(approvalFor: (requestId: string) => ConversationApproval, replies: DriverAskReplies<Reply>, abandoned: AbortSignal): Promise<Reply | null>;
+  holdDriverAsk<Reply>(approvalFor: (requestId: string) => ConversationApproval, replies: DriverAskReplies<Reply>, abandoned: AbortSignal, options?: DriverAskHoldOptions): Promise<Reply | null>;
   parksQuestionStatus(signal: Signal): boolean;
   releaseAfterHookEvent(event: string, payload: Record<string, unknown>): void;
   releaseAll(): void;
@@ -449,16 +453,67 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     };
   }
 
-  function holdDriverAsk<Reply>(approvalFor: (requestId: string) => ConversationApproval, replies: DriverAskReplies<Reply>, abandoned: AbortSignal): Promise<Reply | null> {
-    const request: ClaudePermissionRequest = { toolName: DRIVER_ASK_TOOL_NAME, toolInput: {}, agentKey: `${DRIVER_ASK_TOOL_NAME}-${nextApprovalNumber}` };
-    return holdForChat(request, approvalFor, abandoned, {
-      toAnswers: (_approval, answers) => replies.toAnswers(answers),
-      toDecision: (_approval, decision) => replies.toDecision(decision),
-      isReleasedBy: () => false,
-      didHold: () => {},
-      didSettle: () => {},
-      didDismissQuestion: () => {},
+  function driverQuestionReplyFromVerdict<Reply>(approval: ConversationApproval, verdict: ManagerVerdict | null, replies: DriverAskReplies<Reply>): Reply | null {
+    if (verdict === null) return null;
+    if (verdict.kind === "escalate") {
+      recordManagerEscalation(approval, verdict.reason);
+      return null;
+    }
+    const reply = replies.toAnswers(verdict.answers);
+    if (reply === null) {
+      recordManagerEscalation(approval, "the answer did not cover every question");
+      return null;
+    }
+    recordManagerAnswer(verdict);
+    return reply;
+  }
+
+  function holdDriverQuestionForManager<Reply>(
+    manager: QuestionManagerPort,
+    approval: ConversationApproval,
+    replies: DriverAskReplies<Reply>,
+    abandoned: AbortSignal,
+  ): Promise<Reply | null> {
+    const operatorYield = new AbortController();
+    pendingApprovalByOperatorYield.set(operatorYield, approval);
+    const decisionSignal = AbortSignal.any([abandoned, operatorYield.signal]);
+    const stopped = new Promise<null>((resolve) => {
+      if (decisionSignal.aborted) resolve(null);
+      decisionSignal.addEventListener("abort", () => resolve(null), { once: true });
     });
+    const decided = manager.decide(approval.questions ?? null, { taskTitle: port.taskTitle(), signal: decisionSignal }).catch(() => null);
+    return Promise.race([decided, stopped])
+      .then((verdict) => {
+        pendingApprovalByOperatorYield.delete(operatorYield);
+        return decisionSignal.aborted ? null : driverQuestionReplyFromVerdict(approval, verdict, replies);
+      });
+  }
+
+  function holdDriverAsk<Reply>(
+    approvalFor: (requestId: string) => ConversationApproval,
+    replies: DriverAskReplies<Reply>,
+    abandoned: AbortSignal,
+    options?: DriverAskHoldOptions,
+  ): Promise<Reply | null> {
+    const holdInChat = (): Promise<Reply | null> => {
+      options?.onHeldForOperator?.();
+      if (abandoned.aborted) return Promise.resolve(null);
+      const request: ClaudePermissionRequest = { toolName: DRIVER_ASK_TOOL_NAME, toolInput: {}, agentKey: `${DRIVER_ASK_TOOL_NAME}-${nextApprovalNumber}` };
+      return holdForChat(request, approvalFor, abandoned, {
+        toAnswers: (_approval, answers) => replies.toAnswers(answers),
+        toDecision: (_approval, decision) => replies.toDecision(decision),
+        isReleasedBy: () => false,
+        didHold: () => {},
+        didSettle: () => {},
+        didDismissQuestion: () => {},
+      });
+    };
+    if (questionManager === null || !isManagerHolding()) return holdInChat();
+    const previewApproval = approvalFor(`manager-${nextApprovalNumber}`);
+    if (previewApproval.kind !== "question" || (previewApproval.questions?.length ?? 0) === 0) return holdInChat();
+    nextApprovalNumber += 1;
+    return holdDriverQuestionForManager(questionManager, previewApproval, replies, abandoned)
+      .then((reply) => (reply !== null || abandoned.aborted ? reply : holdInChat()));
   }
 
   function holdForChat<Reply>(request: ClaudePermissionRequest, approvalFor: (requestId: string) => ConversationApproval, abandoned: AbortSignal, replies: ChatHoldKind<Reply>): Promise<Reply | null> {

@@ -6,7 +6,7 @@ import { isRecord, parseJsonOrNull } from "../../shared/coerce.ts";
 import { claudePermissionApprovalFor } from "./claude-approval-core.ts";
 import type { DriverPermissionOutcome, DriverQuestionAnswer } from "../drivers/driver.ts";
 
-type AcpPermissionChoice = "allow" | "allowAlways" | "deny";
+type AcpPermissionChoice = "allow" | "deny";
 type AcpPermissionChoices = Readonly<Record<AcpPermissionChoice, string | null>>;
 type RecordedOption = Readonly<{ optionId: string; kind: PermissionOptionKind }>;
 type QuestionTextSource = "message" | "title";
@@ -38,17 +38,14 @@ interface AcpQuestionForm {
 const ACP_PERMISSION_OPTIONS_BY_AGENT: Readonly<Record<string, Readonly<Record<AcpPermissionChoice, readonly RecordedOption[]>>>> = Object.freeze({
   "claude-code": {
     allow: [{ optionId: "allow-once", kind: "allow_once" }, { optionId: "exit-plan-default", kind: "allow_once" }],
-    allowAlways: [{ optionId: "allow-with-updates", kind: "allow_always" }],
     deny: [{ optionId: "reject", kind: "reject_once" }],
   },
   codex: {
     allow: [{ optionId: "allow_once", kind: "allow_once" }],
-    allowAlways: [{ optionId: "allow_for_session", kind: "allow_always" }, { optionId: "accept_execpolicy_amendment", kind: "allow_always" }],
     deny: [{ optionId: "cancel", kind: "reject_once" }],
   },
   antigravity: {
     allow: [{ optionId: "allow", kind: "allow_once" }],
-    allowAlways: [],
     deny: [{ optionId: "deny", kind: "reject_once" }],
   },
 });
@@ -63,7 +60,7 @@ const MAX_QUESTIONS_PER_ASK = 4;
 const COMMAND_INPUT_KEYS = ["command", "CommandLine"];
 const PATH_INPUT_KEYS = ["file_path", "path", "Path"];
 const CWD_INPUT_KEYS = ["cwd"];
-const SANE_YOLO_TOOL_BY_KIND: Readonly<Partial<Record<ToolKind, string>>> = Object.freeze({ edit: "Write", delete: "Write", move: "Write", read: "Read" });
+const SANE_YOLO_TOOL_BY_KIND: Readonly<Partial<Record<ToolKind, string>>> = Object.freeze({ edit: "Write", delete: "Write", move: "Write", read: "Read", search: "Grep" });
 
 const ChoiceProperty = z.object({
   type: z.literal("string"),
@@ -80,11 +77,15 @@ function permissionChoicesOf(agentId: string, options: readonly PermissionOption
     const recorded = table?.[choice] ?? [];
     return options.find((option) => recorded.some((known) => known.optionId === option.optionId && known.kind === option.kind))?.optionId ?? null;
   };
-  return { allow: optionIdFor("allow"), allowAlways: optionIdFor("allowAlways"), deny: optionIdFor("deny") };
+  return { allow: optionIdFor("allow"), deny: optionIdFor("deny") };
 }
 
 function canOperatorDecide(choices: AcpPermissionChoices): boolean {
   return choices.allow !== null && choices.deny !== null;
+}
+
+function isPlanExitPermission(choices: AcpPermissionChoices): boolean {
+  return choices.allow === "exit-plan-default";
 }
 
 function permissionOutcomeFor(choices: AcpPermissionChoices, choice: AcpPermissionChoice): DriverPermissionOutcome {
@@ -183,11 +184,17 @@ function questionAnswerOfDecision(decision: PermissionDecision): DriverQuestionA
   return decision === "deny" ? DECLINED_QUESTION : null;
 }
 
+function doesQuestionSurviveTurnEnd(agentId: string, toolCallId: string | null): boolean {
+  return agentId === "codex" && toolCallId === null;
+}
+
 export {
   CANCELLED_PERMISSION,
   CANCELLED_QUESTION,
   DECLINED_QUESTION,
   canOperatorDecide,
+  doesQuestionSurviveTurnEnd,
+  isPlanExitPermission,
   permissionApprovalOf,
   permissionChoicesOf,
   permissionOutcomeFor,

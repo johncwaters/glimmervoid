@@ -4,6 +4,7 @@ import { createCompactionTracking, observeCompaction, finishCompaction, isCompac
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
 import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
+import { saneYoloHomeDir } from "../server/hook-tools.ts";
 import { DEFAULT_TERMINAL_COLORS } from "./core/terminal-color-query.ts";
 import type { TerminalColors } from "./core/terminal-color-query.ts";
 import type { InputReadyCondition } from "./core/input-ready-core.ts";
@@ -579,6 +580,12 @@ class Session extends EventEmitter {
         this._reaper.kill(pid);
         if (scopeUnit !== null) this._reaper.killReap = this._reaper.reapTreeOnce(pid, scopeUnit);
       },
+      agentId: this.agentId,
+      saneYolo: () => {
+        const tool = this._hookTools.find((candidate) => candidate.id === "saneYolo");
+        return tool === undefined ? null : { tool, homeDir: saneYoloHomeDir() };
+      },
+      onSaneYoloCoverageChange: (isCovered) => { this._hooks.setSaneYoloActive(isCovered); },
     });
     this._driver.subscribe((event) => this._onDriverEvent(event));
     this._chatOutbox = createChatOutbox({
@@ -637,6 +644,7 @@ class Session extends EventEmitter {
       agentId: this.agentId,
       logName: () => this.name,
       cwd: () => this.effectiveCwd(),
+      skipPermissions: () => this.dangerouslySkipPermissions,
       saneYoloTool: () => this._hookTools.find((tool) => tool.id === "saneYolo"),
       holds: this._approvals,
       raisePermission: (request) => this._raiseDriverAsk(SESSION_DRIVER_EVENTS.permission, request),
@@ -2387,18 +2395,20 @@ class Session extends EventEmitter {
       case "question":
         this._driverAsks.takeQuestion(event.question);
         return;
-      case "turn-end":
-        this._stepAcpStatus({ kind: "turn-end" });
-        this._cancelDriverAsks();
+      case "turn-end": {
+        const survivingAsks = this._driverAsks.cancelTurnAsks();
+        this._stepAcpStatus({ kind: "turn-end", survivingAskCount: survivingAsks });
         this.emit(SESSION_DRIVER_EVENTS.turnEnd, { stopReason: event.stopReason });
-        this._chatOutbox.drain();
+        if (survivingAsks === 0) this._chatOutbox.drain();
         return;
-      case "prompt-error":
-        this._stepAcpStatus({ kind: "turn-end" });
-        this._cancelDriverAsks();
+      }
+      case "prompt-error": {
+        const survivingAsks = this._driverAsks.cancelTurnAsks();
+        this._stepAcpStatus({ kind: "turn-end", survivingAskCount: survivingAsks });
         this.emit(SESSION_DRIVER_EVENTS.promptError, { message: event.message });
-        this._chatOutbox.drain();
+        if (survivingAsks === 0) this._chatOutbox.drain();
         return;
+      }
       case "failure":
         this._failDriver(event.stage, event.message);
         return;

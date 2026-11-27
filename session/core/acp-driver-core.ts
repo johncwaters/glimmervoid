@@ -1,6 +1,8 @@
-import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest, SessionUpdate, ToolKind } from "@agentclientprotocol/sdk";
+import type { ClientCapabilities, CreateElicitationRequest, InitializeRequest, InitializeResponse, McpServer, NewSessionRequest, RequestPermissionRequest, SessionModeState, SessionUpdate, ToolKind } from "@agentclientprotocol/sdk";
 import { AGENT_URL_ENV, GIT_CREDENTIAL_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import type { DeliverOptions, DeliveryOutcome } from "./input-delivery-core.ts";
+import { HOOK_TOOLS } from "./hook-tools.ts";
+import type { ResolvedHookTool } from "./hook-tools.ts";
 import { withoutGlimmervoidSecrets } from "./spawn-env.ts";
 
 type AcpPhase = "idle" | "opening" | "ready" | "closed";
@@ -59,17 +61,52 @@ function initializeRequestFor(protocolVersion: number, clientName: string, clien
   };
 }
 
+const CLAUDE_AGENT_ID = "claude-code";
+const CLAUDE_ASKING_MODE_ID = "default";
+
+type AcpOpeningModePlan =
+  | { kind: "none" }
+  | { kind: "already-asking" }
+  | { kind: "set-mode"; modeId: string }
+  | { kind: "unreachable" };
+
+function acpSaneYoloMetaFor(agentId: string, tool: ResolvedHookTool | undefined, homeDir: string): Record<string, unknown> | undefined {
+  if (agentId !== CLAUDE_AGENT_ID || tool === undefined) return undefined;
+  return {
+    claudeCode: {
+      options: {
+        settings: { hooks: { PreToolUse: [HOOK_TOOLS.saneYolo.claudeEntry(tool)] } },
+        env: HOOK_TOOLS.saneYolo.env(tool, homeDir),
+      },
+    },
+  };
+}
+
+function openingModePlanFor(agentId: string, hasSaneYolo: boolean, modes: SessionModeState | null | undefined): AcpOpeningModePlan {
+  if (agentId !== CLAUDE_AGENT_ID || !hasSaneYolo) return { kind: "none" };
+  if (modes === null || modes === undefined || typeof modes !== "object") return { kind: "unreachable" };
+  if (modes.currentModeId === CLAUDE_ASKING_MODE_ID) return { kind: "already-asking" };
+  if (!Array.isArray(modes.availableModes)) return { kind: "unreachable" };
+  const hasAskingMode = modes.availableModes.some((mode) => typeof mode === "object" && mode !== null && mode.id === CLAUDE_ASKING_MODE_ID);
+  return hasAskingMode ? { kind: "set-mode", modeId: CLAUDE_ASKING_MODE_ID } : { kind: "unreachable" };
+}
+
+function isAcpSaneYoloCovered(agentId: string, hasSaneYolo: boolean, hasHookMeta: boolean, isAskingModeConfirmed: boolean): boolean {
+  return agentId === CLAUDE_AGENT_ID && hasSaneYolo && hasHookMeta && isAskingModeConfirmed;
+}
+
 function planSessionOpen(
   protocolVersion: number,
   initialized: InitializeResponse,
   cwd: string,
   mcpServers: McpServer[],
   resumeAgentSessionId: string | null,
+  sessionMeta?: Record<string, unknown>,
 ): AcpSessionOpenPlan {
   if (initialized.protocolVersion !== protocolVersion) {
     return { method: "refuse", message: `the agent speaks ACP version ${initialized.protocolVersion}, not ${protocolVersion}` };
   }
-  const sessionRequest = { cwd, mcpServers };
+  const sessionRequest = sessionMeta === undefined ? { cwd, mcpServers } : { cwd, mcpServers, _meta: sessionMeta };
   if (resumeAgentSessionId === null) return { method: "session/new", request: sessionRequest };
   if (initialized.agentCapabilities?.loadSession !== true) {
     return { method: "refuse", message: "the agent does not offer session/load, so the conversation cannot resume" };
@@ -155,5 +192,5 @@ function mergeAcpMcpServers(staticServers: readonly McpServer[], dynamicServers:
   return [...staticServers.filter((server) => !dynamicNames.has(server.name)), ...dynamicServers];
 }
 
-export { acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, mergeAcpMcpServers, permissionFieldsOf, pickAcpSessionEnv, planSessionOpen, questionFieldsOf };
+export { acpSaneYoloMetaFor, acpSpawnEnvFor, classifyAcpPromptError, decideAcpSend, doesUpdateConfirmPrompt, initializeRequestFor, isAcpSaneYoloCovered, mergeAcpMcpServers, openingModePlanFor, permissionFieldsOf, pickAcpSessionEnv, planSessionOpen, questionFieldsOf };
 export type { AcpPhase };

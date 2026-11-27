@@ -8,7 +8,7 @@ type AcpStatusInput =
   | { kind: "ask" }
   | { kind: "ask-answered"; askedInTurn: number }
   | { kind: "asks-closed" }
-  | { kind: "turn-end" };
+  | { kind: "turn-end"; survivingAskCount?: number };
 
 type AcpStatusSignal =
   | "opened"
@@ -18,9 +18,11 @@ type AcpStatusSignal =
   | "ask-raised"
   | "ask-answered-others-open"
   | "last-ask-answered-in-turn"
+  | "last-ask-answered-after-turn"
   | "ask-answered-after-its-turn-ended"
   | "asks-closed"
-  | "turn-ended";
+  | "turn-ended"
+  | "turn-ended-with-ask";
 
 interface AcpTurn {
   turnNumber: number;
@@ -38,9 +40,11 @@ const ACP_STATUS_EVENTS: Readonly<Record<AcpStatusSignal, Readonly<Partial<Recor
   "ask-raised": { [STATES.RUNNING]: "prompt_detected", [STATES.IDLE]: "prompt_detected", [STATES.COMPLETE]: "prompt_detected" },
   "ask-answered-others-open": {},
   "last-ask-answered-in-turn": { [STATES.WAITING]: "user_input" },
+  "last-ask-answered-after-turn": { [STATES.WAITING]: "task_complete" },
   "ask-answered-after-its-turn-ended": {},
   "asks-closed": {},
   "turn-ended": { [STATES.RUNNING]: "task_complete", [STATES.WAITING]: "task_complete" },
+  "turn-ended-with-ask": {},
 });
 
 function stepAcpStatus(turn: AcpTurn, input: AcpStatusInput): { turn: AcpTurn; signal: AcpStatusSignal } {
@@ -56,12 +60,16 @@ function stepAcpStatus(turn: AcpTurn, input: AcpStatusInput): { turn: AcpTurn; s
     case "ask-answered": {
       if (input.askedInTurn !== turn.turnNumber || turn.openAskCount === 0) return { turn, signal: "ask-answered-after-its-turn-ended" };
       const answered = { ...turn, openAskCount: turn.openAskCount - 1 };
-      return { turn: answered, signal: answered.openAskCount > 0 ? "ask-answered-others-open" : "last-ask-answered-in-turn" };
+      if (answered.openAskCount > 0) return { turn: answered, signal: "ask-answered-others-open" };
+      return { turn: answered, signal: answered.isPromptOpen ? "last-ask-answered-in-turn" : "last-ask-answered-after-turn" };
     }
     case "asks-closed":
       return { turn: { ...turn, openAskCount: 0 }, signal: "asks-closed" };
-    case "turn-end":
+    case "turn-end": {
+      const surviving = input.survivingAskCount ?? 0;
+      if (surviving > 0) return { turn: { ...turn, isPromptOpen: false, openAskCount: surviving }, signal: "turn-ended-with-ask" };
       return { turn: { turnNumber: turn.turnNumber + 1, isPromptOpen: false, openAskCount: 0 }, signal: "turn-ended" };
+    }
   }
 }
 
