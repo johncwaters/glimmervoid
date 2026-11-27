@@ -15,7 +15,7 @@ import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts'
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
 import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
 import { createProject } from '../site-capture/isolated-glimmervoid.ts';
-import { casesFor, needsDoneMeansChecks, needsGitOrigin, needsSessionChat, needsTeamReview } from './cases-core.ts';
+import { needsDoneMeansChecks, needsGitOrigin, needsSessionChat, needsTeamReview, selectCases } from './cases-core.ts';
 import { DONE_MEANS_UNTRACKED_FILE } from './chat-page.ts';
 import { deviceLogPlugin, withoutIpv4MappedPrefix } from './device-log.ts';
 import type { HarnessCase } from './cases-core.ts';
@@ -377,15 +377,19 @@ async function main(): Promise<number> {
     console.error(`--browser takes ${BROWSER_ENGINES.join(', ')}, not ${options.browserName}`);
     return EXIT_HARNESS_ERROR;
   }
-  const requestedCases = casesFor({
+  const selection = selectCases({
     only: options.only.length > 0 ? options.only : undefined,
     viewportNames: options.viewportNames.length > 0 ? options.viewportNames : isLanRun ? [LAN_DEFAULT_VIEWPORT] : undefined,
     proveFailure: options.proveFailure,
   });
+  if (selection.unmatchedOnly.length > 0) {
+    console.error(`--only matched no case: ${selection.unmatchedOnly.join(', ')}`);
+    return EXIT_HARNESS_ERROR;
+  }
   const isLanDefaultSelection = isLanRun && options.only.length === 0;
   const cases = isLanDefaultSelection
-    ? requestedCases.filter((harnessCase) => harnessCase.scenario.name.startsWith(LAN_DEFAULT_SCENARIO_PREFIX))
-    : requestedCases;
+    ? selection.cases.filter((harnessCase) => harnessCase.scenario.name.startsWith(LAN_DEFAULT_SCENARIO_PREFIX))
+    : selection.cases;
   if (cases.length === 0) {
     console.error('no case matched the requested scenarios and viewports');
     return EXIT_HARNESS_ERROR;

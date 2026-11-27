@@ -119,6 +119,11 @@ export interface CasesForOptions {
   proveFailure?: boolean;
 }
 
+export interface CaseSelection {
+  cases: HarnessCase[];
+  unmatchedOnly: string[];
+}
+
 export const MIN_VIEWPORT_WIDTH_PX = 320;
 export const MAX_VIEWPORT_WIDTH_PX = 1920;
 export const MIN_VIEWPORT_HEIGHT_PX = 300;
@@ -886,7 +891,7 @@ function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: 
   return PAIR_VIEWPORTS.includes(viewport.name);
 }
 
-export function casesFor(options: CasesForOptions = {}): HarnessCase[] {
+export function selectCases(options: CasesForOptions = {}): CaseSelection {
   const wantedViewportNames = options.viewportNames;
   const wantedScenarioNames = options.only;
   const selectedViewports = wantedViewportNames
@@ -912,7 +917,11 @@ export function casesFor(options: CasesForOptions = {}): HarnessCase[] {
       });
     }
   }
-  return resolved;
+  const matchedScenarioNames = new Set(resolved.map((harnessCase) => harnessCase.scenario.name));
+  const unmatchedOnly = wantedScenarioNames
+    ? [...new Set(wantedScenarioNames)].filter((name) => !matchedScenarioNames.has(name))
+    : [];
+  return { cases: resolved, unmatchedOnly };
 }
 
 export const DONE_CHILD_NAME = 'done-child';
