@@ -72,7 +72,8 @@ interface SessionDriver {
 
 type SessionDriverChoice =
   | { kind: "pty" }
-  | { kind: "acp"; command: { file: string; args: string[] }; mcpServers: McpServer[]; clientVersion: string };
+  | { kind: "acp"; command: { file: string; args: string[] }; mcpServers: McpServer[]; clientVersion: string }
+  | { kind: "stopped"; reason: string };
 
 const SESSION_DRIVER_EVENTS = Object.freeze({
   agentSession: "driver-agent-session",

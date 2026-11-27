@@ -148,18 +148,15 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       isStudio,
       agentId: resolvedAgentId,
       acpAgents: config.acpAgents,
-      persistedDriver: project.driverKind,
-      hasResumeSessionId: Boolean(project.resumeSessionId),
-      mode: 'load',
     });
-    if (!driverDecision.ok) throw new Error(driverDecision.error);
+    const driver = driverDecision.ok ? driverDecision.driver : { kind: 'stopped' as const, reason: driverDecision.error };
     const packMcpServersOf = isMachineShell || overrides.ephemeral ? null : dependencies.packMcpServers ?? null;
     const sessionTempFolder = ensureSessionTempFolder(project.id);
     const isolation = dependencies.isolationForProject?.(project, sessionTempFolder) ?? null;
     const prepareSandbox = isolation?.prepareSandbox ?? null;
     const isPermissionHoldPromptOnly = getAdapter(resolvedAgentId)?.capabilities.permissionHoldOnPromptOnly === true;
     const session = new Session({
-      driver: driverDecision.driver,
+      driver,
       id: project.id,
       name: project.name,
       customTitle: project.customTitle,

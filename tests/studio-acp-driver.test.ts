@@ -131,7 +131,7 @@ test('Studio spawns land on the ACP driver through the real session factory, ref
   assert.equal(focusSession.hasTerminal, true);
   focusSession.destroy();
 
-  const legacyPtyProject: ProjectEntry = {
+  const legacyStudioProject: ProjectEntry = {
     id: 'legacy-studio-1',
     name: ORCHESTRATOR_NAME,
     path: studioHome,
@@ -140,11 +140,18 @@ test('Studio spawns land on the ACP driver through the real session factory, ref
     studioRole: 'orchestrator',
     resumeSessionId: '550e8400-e29b-41d4-a716-446655440000',
   };
-  const legacyPtySession = makeSession(legacyPtyProject, config);
-  assert.equal(legacyPtySession.hasTerminal, true, 'a persisted pre-P3.1 PTY Studio session still loads on PTY');
-  legacyPtySession.destroy();
+  const legacyStudioSession = makeSession(legacyStudioProject, config);
+  assert.equal(legacyStudioSession.hasTerminal, false, 'a Studio project loads on ACP even without persisted driverKind');
+  legacyStudioSession.destroy();
 
-  const persistedAcpSession = makeSession({ ...legacyPtyProject, id: 'acp-studio-1', driverKind: 'acp' }, config);
+  const nonAcpStudioSession = makeSession({ ...legacyStudioProject, id: 'non-acp-studio-1', agent: 'kimi' }, config);
+  assert.equal(nonAcpStudioSession.hasTerminal, false, 'a Studio project whose agent has no ACP row never falls back to PTY');
+  assert.equal(nonAcpStudioSession.agentId, 'kimi', 'a Studio project with no ACP row keeps its agent unchanged');
+  await nonAcpStudioSession.start();
+  assert.equal(nonAcpStudioSession.state, 'DORMANT', 'a Studio project with no ACP row stays stopped even if start() is called');
+  nonAcpStudioSession.destroy();
+
+  const persistedAcpSession = makeSession({ ...legacyStudioProject, id: 'acp-studio-1', driverKind: 'acp' }, config);
   assert.equal(persistedAcpSession.hasTerminal, false, 'a persisted ACP Studio session stays on ACP across restart or model switch');
   persistedAcpSession.destroy();
 

@@ -7,12 +7,14 @@ import path from 'node:path';
 import test from 'node:test';
 import { z } from 'zod';
 
-import { moveStudioToOneOrchestrator } from '../server/board-session/studio-migration.ts';
+import { migrateStudioToAcp, moveStudioToOneOrchestrator } from '../server/board-session/studio-migration.ts';
 import { createStudioReposStore } from '../server/board-session/studio-repos-store.ts';
 import { createCodemapService } from '../server/codemap/codemap-wiring.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { folderCardIdOf, moduleBoxIdOf, rootBoxIdOf } from '../server/core/codemap-graph-core.ts';
+import { createSessionFactory } from '../server/session/session-factory.ts';
+import { STATES } from '../shared/states.ts';
 import { Op } from '../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../shared/contracts/whiteboard-ops-core.ts';
 import { openWhiteboardWiring } from './helpers/whiteboard-closables.ts';
@@ -110,6 +112,136 @@ test('the per-repo map boards are removed at start, and one that holds more than
     const keptBoard = await whiteboards.boardOf(sharedBoardId);
     assert.deepEqual([...(keptBoard?.elements.keys() ?? [])].sort(), [mapBoxId, 'operator-note', 'payments-group'].sort(), 'a map board the operator also drew on is kept whole, with the frame they put around a map box');
     assert.equal(fs.existsSync(perRepoMapBoardsFilePath), false, 'the per-repo board list is gone, so the next start has nothing to remove');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('pre-P3.1 Studio sessions migrate onto ACP in one write, non-ACP Studio projects stay stopped with a note and unchanged agent, and a second run changes nothing', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-acp-migration-'));
+  const studioHome = path.join(home, 'studio-home');
+  const repoDir = path.join(home, 'repo');
+  const tracesDir = path.join(home, 'traces');
+  const configPath = path.join(home, 'config.json');
+  fs.mkdirSync(studioHome, { recursive: true });
+  fs.mkdirSync(repoDir, { recursive: true });
+  const config: GlimmervoidConfig = {
+    ...DEFAULT_CONFIG,
+    projects: [
+      {
+        id: 'studio-orch',
+        name: 'Orchestrator',
+        path: studioHome,
+        agent: 'claude-code',
+        isStudioMain: true,
+        studioRole: 'orchestrator',
+        resumeSessionId: '550e8400-e29b-41d4-a716-446655440001',
+        wasActive: true,
+      },
+      {
+        id: 'studio-branch',
+        name: 'repo lib',
+        path: repoDir,
+        agent: 'codex',
+        driverKind: 'pty',
+        parent: { sessionId: 'studio-orch', box: { id: 'cm-lib', title: 'lib', repoName: 'repo' } },
+        resumeSessionId: '550e8400-e29b-41d4-a716-446655440002',
+        wasActive: true,
+      },
+      {
+        id: 'studio-blocked',
+        name: 'repo app',
+        path: repoDir,
+        agent: 'kimi',
+        driverKind: 'pty',
+        parent: { sessionId: 'studio-orch', box: { id: 'cm-app', title: 'app', repoName: 'repo' } },
+        wasActive: true,
+        wasWorking: true,
+      },
+      {
+        id: 'focus-plain',
+        name: 'Focus',
+        path: repoDir,
+        agent: 'kimi',
+      },
+    ],
+  };
+  let saveCalls = 0;
+  const configStore = {
+    save: (mutate: (savedConfig: GlimmervoidConfig) => unknown) => {
+      saveCalls += 1;
+      mutate(config);
+      return config;
+    },
+  };
+  const logs: string[] = [];
+  const logger = {
+    log: (line: string) => { logs.push(line); },
+    warn: (line: string) => { logs.push(line); },
+  };
+  try {
+    migrateStudioToAcp({ config, configStore, tracesDir, logger });
+    assert.equal(saveCalls, 1, 'migration persists config in one write');
+
+    const migratedOrch = config.projects.find((project) => project.id === 'studio-orch');
+    const migratedBranch = config.projects.find((project) => project.id === 'studio-branch');
+    const blockedBranch = config.projects.find((project) => project.id === 'studio-blocked');
+    const focusProject = config.projects.find((project) => project.id === 'focus-plain');
+    assert.equal(migratedOrch?.driverKind, 'acp');
+    assert.equal(migratedOrch?.resumeSessionId, '550e8400-e29b-41d4-a716-446655440001');
+    assert.equal(migratedOrch?.acpMigrationFreshFallback, true);
+    assert.equal(migratedBranch?.driverKind, 'acp');
+    assert.equal(migratedBranch?.resumeSessionId, '550e8400-e29b-41d4-a716-446655440002');
+    assert.equal(migratedBranch?.acpMigrationFreshFallback, true);
+
+    assert.equal(blockedBranch?.agent, 'kimi', 'non-ACP Studio project never has its agent switched');
+    assert.equal(blockedBranch?.driverKind, undefined);
+    assert.equal(blockedBranch?.wasActive, false);
+    assert.equal(blockedBranch?.wasWorking, false);
+    assert.equal(blockedBranch?.acpMigrationBlockedNoted, true);
+    assert.equal(focusProject?.driverKind, undefined, 'Focus session is untouched');
+
+    const blockedTracePath = path.join(tracesDir, 'studio-blocked.jsonl');
+    const blockedLines = fs.readFileSync(blockedTracePath, 'utf8').trim().split('\n');
+    assert.equal(blockedLines.length, 1);
+    const blockedNotice = JSON.parse(blockedLines[0] ?? '{}') as { kind?: string; text?: string };
+    assert.equal(blockedNotice.kind, 'notice');
+    assert.match(blockedNotice.text ?? '', /kimi.*no ACP row/i);
+    assert.match(blockedNotice.text ?? '', /pick an agent Studio can run/i);
+
+    const makeSession = createSessionFactory({
+      configStore: { configPath },
+      getConfig: () => config,
+      hookRouter: null,
+      getHookPort: () => null,
+      getGitWorkspace: () => null,
+      resolveHookTools: () => [],
+      getUserHooks: () => [],
+    });
+    assert.ok(migratedOrch && migratedBranch && blockedBranch && focusProject);
+    const orchSession = makeSession(migratedOrch, config);
+    const branchSession = makeSession(migratedBranch, config);
+    const blockedSession = makeSession(blockedBranch, config);
+    const focusSession = makeSession(focusProject, config);
+    assert.equal(orchSession.hasTerminal, false);
+    assert.equal(branchSession.hasTerminal, false);
+    assert.equal(blockedSession.hasTerminal, false);
+    assert.equal(blockedSession.agentId, 'kimi');
+    assert.equal(blockedSession.state, STATES.DORMANT);
+    await blockedSession.start();
+    assert.equal(blockedSession.state, STATES.DORMANT);
+    assert.equal(focusSession.hasTerminal, true);
+    orchSession.destroy();
+    branchSession.destroy();
+    blockedSession.destroy();
+    focusSession.destroy();
+
+    const projectsAfterFirstRun = structuredClone(config.projects);
+    const traceAfterFirstRun = fs.readFileSync(blockedTracePath, 'utf8');
+    migrateStudioToAcp({ config, configStore, tracesDir, logger });
+    assert.equal(saveCalls, 1, 'second migration run performs zero config writes');
+    assert.deepEqual(config.projects, projectsAfterFirstRun);
+    assert.equal(fs.readFileSync(blockedTracePath, 'utf8'), traceAfterFirstRun, 'second run writes no duplicate notice');
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

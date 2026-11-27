@@ -97,7 +97,7 @@ import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createLandedBranches } from '../board-session/landed-branches.ts';
 import type { BranchWiring } from '../board-session/branch-wiring.ts';
 import { studioHomeDir } from '../board-session/studio-main.ts';
-import { moveStudioToOneOrchestrator } from '../board-session/studio-migration.ts';
+import { migrateStudioToAcp, moveStudioToOneOrchestrator } from '../board-session/studio-migration.ts';
 import { branchParentIdOf } from '../../shared/parent-link.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
 import { createDirector, isStudioSession } from '../board-session/director.ts';
@@ -749,6 +749,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
   moveStudioToOneOrchestrator({ config, configStore, studioHome: studioHomeDir(), studioReposFilePath: path.join(glimmervoidHomeDir(), 'studio-repos.json'), logger: console });
+  migrateStudioToAcp({ config, configStore, tracesDir: configSiblingPath(configStore.configPath, 'traces'), logger: console });
   void codemap.removePerRepoMapBoards();
   sessionRegistry.initialize();
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;

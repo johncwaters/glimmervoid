@@ -17,9 +17,6 @@ interface SessionDriverInput {
   isStudio: boolean;
   agentId: string;
   acpAgents?: unknown;
-  persistedDriver?: PersistedSessionDriver;
-  hasResumeSessionId?: boolean;
-  mode: 'spawn' | 'load';
   clientVersion?: string;
 }
 
@@ -39,18 +36,10 @@ function formatUsableAcpAgents(entries: readonly AcpAgentEntry[]): string {
 
 function decideSessionDriver(input: SessionDriverInput): SessionDriverDecision {
   if (!input.isStudio) return { ok: true, driver: PTY_DRIVER };
-  if (input.mode === 'load') {
-    if (input.persistedDriver === 'pty') return { ok: true, driver: PTY_DRIVER };
-    if (input.persistedDriver === undefined && input.hasResumeSessionId === true) return { ok: true, driver: PTY_DRIVER };
-  }
   const table = buildAcpAgentTable(input.acpAgents ?? []);
-  if (!table.ok) {
-    if (input.mode === 'load' && input.persistedDriver === undefined) return { ok: true, driver: PTY_DRIVER };
-    return { ok: false, error: table.error };
-  }
+  if (!table.ok) return { ok: false, error: table.error };
   const entry = table.entriesById.get(input.agentId);
   if (!entry) {
-    if (input.mode === 'load' && input.persistedDriver === undefined) return { ok: true, driver: PTY_DRIVER };
     return {
       ok: false,
       error: `Studio runs agents over ACP, and "${input.agentId}" has no ACP row. Usable ACP agents: ${formatUsableAcpAgents(table.entries)}.`,
@@ -70,5 +59,6 @@ function decideSessionDriver(input: SessionDriverInput): SessionDriverDecision {
 
 export {
   decideSessionDriver,
+  formatUsableAcpAgents,
   isStudioProject,
 };

@@ -67,13 +67,65 @@ function latestUsageLimitOf(records: readonly TraceRecord[]): UsageLimit | null 
   return { resetsAtMs: latest.resetsAtMs, window: latest.window };
 }
 
+function sessionTraceFilePath(traceDirectory: string, glimmervoidSessionId: string): string | null {
+  if (!isSafePathSegment(glimmervoidSessionId)) return null;
+  return path.join(traceDirectory, `${glimmervoidSessionId}${TRACE_SUFFIX}`);
+}
+
+function hasNoticeLine(filePath: string, vendorSessionId: string, text: string): boolean {
+  if (!fs.existsSync(filePath)) return false;
+  const content = fs.readFileSync(filePath, 'utf8');
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = TraceRecordSchema.safeParse(JSON.parse(line));
+      if (parsed.success && parsed.data.kind === 'notice' && parsed.data.vendorSessionId === vendorSessionId && parsed.data.text === text) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+function appendTraceNoticeSync({
+  traceDirectory,
+  sessionId,
+  vendorSessionId,
+  text,
+  ts,
+}: {
+  traceDirectory: string;
+  sessionId: string;
+  vendorSessionId: string;
+  text: string;
+  ts: number;
+}): boolean {
+  const filePath = sessionTraceFilePath(traceDirectory, sessionId);
+  if (!filePath) return false;
+  const candidate = clippedToTraceLimits({
+    ts,
+    uuid: null,
+    parentUuid: null,
+    vendorSessionId,
+    kind: 'notice',
+    text,
+  });
+  const parsed = TraceRecordSchema.safeParse(candidate);
+  if (!parsed.success || parsed.data.kind !== 'notice') return false;
+  if (hasNoticeLine(filePath, parsed.data.vendorSessionId, parsed.data.text)) return true;
+  fs.mkdirSync(traceDirectory, { recursive: true, mode: 0o700 });
+  fs.appendFileSync(filePath, `${JSON.stringify(parsed.data)}\n`, { mode: 0o600 });
+  return true;
+}
+
 function createTraceRecordStore(context: TraceWiringContext) {
   const { traceDirectory, emitter, laneLog, nowFn, bindingByGlimmervoidSessionId, agentIdBySessionId, pendingRecordsBySessionId } = context;
   let hasEnsuredDirectory = false;
 
   function traceFilePath(glimmervoidSessionId: string): string | null {
-    if (!isSafePathSegment(glimmervoidSessionId)) return null;
-    return path.join(traceDirectory, `${glimmervoidSessionId}${TRACE_SUFFIX}`);
+    return sessionTraceFilePath(traceDirectory, glimmervoidSessionId);
   }
 
   async function readTracePage(glimmervoidSessionId: string, request: TracePageRequest): Promise<TracePage> {
@@ -175,5 +227,5 @@ function createTraceRecordStore(context: TraceWiringContext) {
 
 type TraceRecordStore = ReturnType<typeof createTraceRecordStore>;
 
-export { createTraceRecordStore };
+export { appendTraceNoticeSync, createTraceRecordStore };
 export type { TracePage, TracePageRequest, TraceRecordStore };

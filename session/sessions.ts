@@ -287,6 +287,20 @@ type TitleGate = "open" | "quiet";
 type HookPromptReporting = "none" | "hooks";
 type ResumeCaptureMode = "active" | "suppressed";
 
+function createStoppedDriver(): SessionDriver {
+  return {
+    hasTerminal: false,
+    pid: null,
+    scopeUnit: null,
+    isLive: false,
+    start() {},
+    send() { return { ok: false, kind: "refused", reason: "no-pty" }; },
+    interrupt() {},
+    stop() { return false; },
+    subscribe() { return () => {}; },
+  };
+}
+
 class Session extends EventEmitter {
   _taskTitle: SessionTaskTitleController;
   _promptNotes: SessionPromptNotes;
@@ -325,6 +339,7 @@ class Session extends EventEmitter {
   _driver: SessionDriver;
   _pty: PtyDriver | null;
   _acpLaunch: Extract<SessionDriverChoice, { kind: "acp" }> | null;
+  _stoppedReason: string | null;
   _acpTurn: AcpTurn = ACP_TURN_AT_START;
   _chatOutbox: ChatOutbox;
   _adapter: AgentAdapter;
@@ -516,7 +531,7 @@ class Session extends EventEmitter {
     if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");
     this._adapter = resolvedAdapter;
     const requestedAgentId = typeof agent === "string" ? agent.trim() : "";
-    this.agentId = driver.kind === "acp" && requestedAgentId.length > 0 ? requestedAgentId : this._adapter.id;
+    this.agentId = driver.kind !== "pty" && requestedAgentId.length > 0 ? requestedAgentId : this._adapter.id;
     this._taskTitle = createSessionTaskTitle({
       customTitle: customTitle || null,
       persistedTitle: taskTitleState,
@@ -551,6 +566,8 @@ class Session extends EventEmitter {
     this._recorder = null;
     this._lastOperatorInputAt = Number.NEGATIVE_INFINITY;
     this._acpLaunch = driver.kind === "acp" ? driver : null;
+    this._stoppedReason = driver.kind === "stopped" ? driver.reason : null;
+    this.failureReason = this._stoppedReason;
     this._pty = driver.kind === "pty" ? createPtyDriver({
       sessionId: id,
       spawn: ptySpawn,
@@ -577,7 +594,7 @@ class Session extends EventEmitter {
       screenKeeperFactory,
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     }) : null;
-    this._driver = this._pty ?? createAcpDriver({
+    this._driver = this._pty ?? (driver.kind === "stopped" ? createStoppedDriver() : createAcpDriver({
       clientName: "glimmervoid",
       clientVersion: this._acpLaunch?.clientVersion ?? "",
       mcpServers: this._acpLaunch?.mcpServers ?? [],
@@ -591,7 +608,7 @@ class Session extends EventEmitter {
         return tool === undefined ? null : { tool, homeDir: saneYoloHomeDir() };
       },
       onSaneYoloCoverageChange: (isCovered) => { this._hooks.setSaneYoloActive(isCovered); },
-    });
+    }));
     this._driver.subscribe((event) => this._onDriverEvent(event));
     this._chatOutbox = createChatOutbox({
       canTakeMessage: () => this.hasLivePty && this.isBetweenTurns() && this._isAgentReadyForChat(),
@@ -1916,7 +1933,7 @@ class Session extends EventEmitter {
   }
 
   async _startBody({ fresh = false, resumePrompt = null }: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
-    if (this._destroyed) return;
+    if (this._destroyed || this._stoppedReason !== null) return;
     const startGeneration = ++this._startGeneration;
 
     const previousPty = this._liveAgentHandle();

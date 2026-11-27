@@ -526,7 +526,6 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
         isStudio: true,
         agentId: requestedAgent || DEFAULT_AGENT_ID,
         acpAgents: config.acpAgents,
-        mode: 'spawn',
       });
       if (!driverDecision.ok) return { error: driverDecision.error };
     }

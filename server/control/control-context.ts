@@ -137,7 +137,6 @@ function createControlContext(deps: ControlHandlerDeps, resolveAnsweringSocket?:
       isStudio,
       agentId: resolvedAgentId,
       acpAgents: config.acpAgents,
-      mode: 'spawn',
     });
     if (!driverDecision.ok) return { ok: false, error: driverDecision.error };
     const project: ProjectEntry = { ...runSettings, id, name: uniqueName, path: resolvedPath };

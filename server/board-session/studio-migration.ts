@@ -6,10 +6,15 @@ import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import type { StudioRepo } from '../../shared/contracts/studio-repos.ts';
 import { branchParentIdOf } from '../../shared/parent-link.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { generateProjectId } from '../config-store.ts';
+import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
+import { buildAcpAgentTable } from '../../session/core/acp-agents-core.ts';
+import { validResumeSessionId } from '../../session/core/auto-resume.ts';
+import { decideSessionDriver, formatUsableAcpAgents, isStudioProject } from '../../session/core/session-driver-core.ts';
+import { ABORT_CONFIG_SAVE, generateProjectId } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { repoBoxIdOfUnscopedBox, rootBoxIdOf } from '../core/codemap-graph-core.ts';
 import { ORCHESTRATOR_NAME, ORCHESTRATOR_RUN_SETTINGS } from '../core/studio-main-core.ts';
+import { appendTraceNoticeSync } from '../trace/trace-record-store.ts';
 import { newStudioRepoKey, readStudioReposFile, unusedRepoNameOf } from './studio-repos-store.ts';
 
 interface StudioMoveInput {
@@ -127,4 +132,129 @@ function moveStudioToOneOrchestrator({ config, configStore, studioHome, studioRe
   }
 }
 
-export { moveStudioToOneOrchestrator };
+interface StudioAcpBlockedNotice {
+  sessionId: string;
+  agentId: string;
+  text: string;
+}
+
+interface StudioAcpMigrationPlan {
+  projects: ProjectEntry[];
+  migratedCount: number;
+  blockedNotices: StudioAcpBlockedNotice[];
+}
+
+interface StudioAcpMigrationDeps {
+  config: GlimmervoidConfig;
+  configStore: { save(mutate: (savedConfig: GlimmervoidConfig) => unknown): GlimmervoidConfig | null };
+  tracesDir: string;
+  logger: Pick<Console, 'log' | 'warn'>;
+}
+
+function blockedStudioNoticeText(agentId: string, acpAgents: unknown): string {
+  const table = buildAcpAgentTable(acpAgents ?? []);
+  const usableSuffix = table.ok ? ` (${formatUsableAcpAgents(table.entries)})` : '';
+  return `Studio runs agents over ACP, and "${agentId}" has no ACP row, so this session was left stopped. Pick an agent Studio can run${usableSuffix} by closing this session and opening a new one, or add an ACP row for "${agentId}" in settings.`;
+}
+
+function planStudioAcpMigration(
+  projects: readonly ProjectEntry[],
+  acpAgents: unknown,
+  notedSessionIds?: ReadonlySet<string>,
+): StudioAcpMigrationPlan | null {
+  let hasChanges = false;
+  let migratedCount = 0;
+  const blockedNotices: StudioAcpBlockedNotice[] = [];
+  const nextProjects = projects.map((project): ProjectEntry => {
+    if (!isStudioProject(project)) return project;
+    if (project.driverKind === 'acp') return project;
+    const agentId = typeof project.agent === 'string' && project.agent.trim() !== '' ? project.agent.trim() : DEFAULT_AGENT_ID;
+    const decision = decideSessionDriver({ isStudio: true, agentId, acpAgents });
+    if (decision.ok) {
+      hasChanges = true;
+      migratedCount += 1;
+      const { acpMigrationBlockedNoted: _clearedBlocked, ...rest } = project;
+      const hasResumeId = validResumeSessionId(project.resumeSessionId) !== null;
+      return {
+        ...rest,
+        driverKind: 'acp',
+        ...(hasResumeId ? { acpMigrationFreshFallback: true } : {}),
+      };
+    }
+    const needsStateCleanup = project.driverKind !== undefined || project.wasActive === true || project.wasWorking === true;
+    const needsNotice = project.acpMigrationBlockedNoted !== true;
+    const isNotedNow = project.id !== undefined && (notedSessionIds === undefined || notedSessionIds.has(project.id));
+    if (!needsStateCleanup && (!needsNotice || !isNotedNow)) return project;
+    hasChanges = true;
+    const { driverKind: _removedDriver, ...rest } = project;
+    if (needsNotice && project.id) {
+      blockedNotices.push({
+        sessionId: project.id,
+        agentId,
+        text: blockedStudioNoticeText(agentId, acpAgents),
+      });
+    }
+    return {
+      ...rest,
+      wasActive: false,
+      wasWorking: false,
+      ...(needsNotice && isNotedNow ? { acpMigrationBlockedNoted: true } : {}),
+    };
+  });
+  if (!hasChanges) return null;
+  return { projects: nextProjects, migratedCount, blockedNotices };
+}
+
+function writeBlockedTraceNotices(tracesDir: string, notices: readonly StudioAcpBlockedNotice[], logger: Pick<Console, 'warn'>): Set<string> {
+  const notedSessionIds = new Set<string>();
+  const nowMs = clock.nowMs();
+  for (const notice of notices) {
+    try {
+      const wrote = appendTraceNoticeSync({
+        traceDirectory: tracesDir,
+        sessionId: notice.sessionId,
+        vendorSessionId: 'studio-migration',
+        text: notice.text,
+        ts: nowMs,
+      });
+      if (wrote) notedSessionIds.add(notice.sessionId);
+    } catch (error) {
+      logger.warn(`[studio] could not write Studio migration notice for ${notice.sessionId}: ${errorMessage(error)}`);
+    }
+  }
+  return notedSessionIds;
+}
+
+function migrateStudioToAcp({ config, configStore, tracesDir, logger }: StudioAcpMigrationDeps): void {
+  const initialPlan = planStudioAcpMigration(config.projects, config.acpAgents);
+  if (!initialPlan) return;
+  try {
+    const notedSessionIds = writeBlockedTraceNotices(tracesDir, initialPlan.blockedNotices, logger);
+    let appliedPlan: StudioAcpMigrationPlan | null = null;
+    const saved = configStore.save((savedConfig) => {
+      const freshPlan = planStudioAcpMigration(savedConfig.projects, savedConfig.acpAgents, notedSessionIds);
+      appliedPlan = freshPlan;
+      if (!freshPlan) return ABORT_CONFIG_SAVE;
+      savedConfig.projects = freshPlan.projects;
+      return undefined;
+    });
+    if (!appliedPlan) return;
+    if (!saved) {
+      logger.warn('[studio] Studio sessions were not migrated onto ACP because config.json could not be saved, and retry at the next start');
+      return;
+    }
+    config.projects = saved.projects;
+    const plan: StudioAcpMigrationPlan = appliedPlan;
+    if (plan.migratedCount > 0) {
+      logger.log(`[studio] migrated ${plan.migratedCount} Studio session(s) onto ACP`);
+    }
+    const notedBlocked = plan.blockedNotices.filter((item) => notedSessionIds.has(item.sessionId));
+    if (notedBlocked.length > 0) {
+      logger.warn(`[studio] left ${notedBlocked.length} Studio session(s) stopped because their agent has no ACP row: ${notedBlocked.map((item) => item.agentId).join(', ')}`);
+    }
+  } catch (error) {
+    logger.warn(`[studio] Studio sessions were not migrated onto ACP, and retry at the next start: ${errorMessage(error)}`);
+  }
+}
+
+export { migrateStudioToAcp, moveStudioToOneOrchestrator };

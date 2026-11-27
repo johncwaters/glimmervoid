@@ -181,6 +181,8 @@ export const ProjectConfig = z.preprocess(legacyParentLinkOf, z.object({
   isStudioMain: z.boolean().optional().catch(undefined),
   studioRole: z.literal('orchestrator').optional().catch(undefined),
   driverKind: SessionDriverKind.optional().catch(undefined),
+  acpMigrationFreshFallback: z.boolean().optional().catch(undefined),
+  acpMigrationBlockedNoted: z.boolean().optional().catch(undefined),
   isDoneMeansOff: z.boolean().optional(),
   agentDoneLines: z.array(z.unknown()).transform(readablePersistedDoneLines).optional().catch(undefined),
 }).passthrough());
