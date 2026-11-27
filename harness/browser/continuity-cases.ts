@@ -131,7 +131,7 @@ async function openSettingsSection(page: Page, layout: Layout, sectionName: stri
     await settingsItem.click();
     if (sectionName === null) return;
     if (sectionName === 'Hooks' && await page.locator('.hooks-panel').isVisible()) return;
-    const settingsBack = page.locator('button.settings-view-back').first();
+    const settingsBack = page.locator('button[data-action="back-to-settings-list"]').first();
     if (await settingsBack.isVisible()) await settingsBack.click();
   }
   if (layout !== 'phone') {
@@ -1161,7 +1161,7 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
   {
     name: 'hooks',
     checks: ['C3', 'C4'],
-    async prepare(ctx, check) {
+    async prepare(ctx) {
       const { page, layout } = ctx;
       await openSettingsSection(page, layout, 'Hooks');
       await page.locator('.hooks-panel [data-action="new-hook"]').waitFor({ state: 'visible', timeout: 5000 });
@@ -1169,13 +1169,12 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
       return {
         listSelector: '.hooks-panel',
         scrollSelector: '.settings-view-main, .settings-view-body',
-        focusSelector: check === 'C3' || layout !== 'phone' ? '.hooks-panel [data-action="new-hook"]' : null,
-        observeRemovedNodesOnC4: layout !== 'phone',
+        focusSelector: '.hooks-panel [data-action="new-hook"]',
         switchAwayAndBack: async () => {
           await openPacksScreen(page, layout);
           await openSettingsSection(page, layout, null);
         },
-        verifyAfterReturn: layout === 'phone' ? undefined : async () => {
+        verifyAfterReturn: async () => {
           await page.locator('.hooks-panel [data-action="new-hook"]').click();
           const nameInput = page.locator('.hooks-editor input[placeholder="Lint after edits"]');
           await nameInput.waitFor({ state: 'visible', timeout: 5000 });
@@ -1241,14 +1240,17 @@ export const COLLECTION_CONTINUITY_CASES: readonly CollectionContinuityCase[] = 
   {
     name: 'settings',
     checks: ['C3', 'C4'],
-    async prepare(ctx, check) {
+    async prepare(ctx) {
       const { page, layout } = ctx;
       await openSettingsSection(page, layout, null);
+      if (layout === 'phone') {
+        const settingsBack = page.locator('button[data-action="back-to-settings-list"]').first();
+        if (await settingsBack.isVisible()) await settingsBack.click();
+      }
       return {
         listSelector: '.settings-view-nav',
         scrollSelector: '.settings-view-main, .settings-view-body',
-        focusSelector: check === 'C3' || layout !== 'phone' ? 'button.settings-view-nav-item' : '.settings-view-search',
-        observeRemovedNodesOnC4: layout !== 'phone',
+        focusSelector: 'button.settings-view-nav-item',
         switchAwayAndBack: async () => {
           await openPacksScreen(page, layout);
           await openSettingsSection(page, layout, null);

@@ -18,7 +18,6 @@ function mountPhoneLayout() {
     onScreenShown: (screenId: string) => {
       refreshViewOnShow(screenId);
       if (screenId !== 'settings') clearSettingsHash();
-      if (screenId === 'settings' && !isSettingsHash(location.hash)) activateSettingsSection();
       acknowledgeViewAttention(screenId);
     },
 

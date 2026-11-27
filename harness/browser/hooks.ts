@@ -12,7 +12,15 @@ export interface HooksCheckResult {
 }
 
 async function openHooksPage(page: Page): Promise<void> {
-  const layout = await page.evaluate(() => document.documentElement.dataset.layout ?? 'desktop');
+  const newHookButton = page.locator('.hooks-panel [data-action="new-hook"]');
+  const { layout, hash } = await page.evaluate(() => ({
+    layout: document.documentElement.dataset.layout ?? 'desktop',
+    hash: location.hash,
+  }));
+  if (layout === 'phone' && hash === '#settings/machine-hooks') {
+    await newHookButton.waitFor({ state: 'visible', timeout: 10000 });
+    return;
+  }
   if (layout === 'phone') {
     await page.locator(PHONE_MORE_SELECTOR).first().click();
     await page.locator(PHONE_SETTINGS_MENU_SELECTOR).first().click();
@@ -23,7 +31,7 @@ async function openHooksPage(page: Page): Promise<void> {
   const hooksNav = page.locator(SETTINGS_NAV_ITEM_SELECTOR, { hasText: /^Hooks$/ }).first();
   await hooksNav.waitFor({ state: 'visible', timeout: 10000 });
   await hooksNav.click();
-  await page.locator('.hooks-panel [data-action="new-hook"]').waitFor({ state: 'visible', timeout: 10000 });
+  await newHookButton.waitFor({ state: 'visible', timeout: 10000 });
 }
 
 async function headerErrorText(page: Page): Promise<string | null> {
