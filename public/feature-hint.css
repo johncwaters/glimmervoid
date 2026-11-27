@@ -91,7 +91,13 @@
   }
 
   html[data-layout="phone"] .feature-hint {
-    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    position: static;
+    right: auto;
+    bottom: auto;
+    z-index: auto;
+    width: auto;
+    margin: 8px;
+    box-shadow: none;
   }
 
   @keyframes feature-hint-arrive {

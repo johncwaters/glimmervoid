@@ -3,6 +3,7 @@ import { REPO_SLUG } from '#shared/repo.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { openExternalUrl } from './external-link.ts';
+import { isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import { buildLockMark, playLockMark } from './loading-unlock.ts';
 import { localStorageBackend } from './local-store.ts';
 import { button } from './ui/button.ts';
@@ -11,6 +12,22 @@ import { clock } from '#shared/clock.ts';
 
 let shownHintCard: HTMLElement | null = null;
 let isStarHintWaiting = false;
+
+function hintCardHost(): HTMLElement {
+  if (!isPhoneLayout()) return document.body;
+  return document.querySelector<HTMLElement>('.phone-notice-slot') ?? document.body;
+}
+
+function mountHintCard(hintCard: HTMLElement) {
+  const host = hintCardHost();
+  if (hintCard.parentElement === host) return;
+  host.append(hintCard);
+}
+
+onLayoutChange(() => {
+  if (!shownHintCard?.isConnected) return;
+  mountHintCard(shownHintCard);
+});
 
 function claimCard(category: string, cardKey: string) {
   try {
@@ -82,7 +99,7 @@ export function showHintCard({ eyebrow, title, detail, facts = [], ariaLabel, op
     onDismiss();
   });
 
-  document.body.append(hintCard);
+  mountHintCard(hintCard);
   shownHintCard = hintCard;
   void playLockMark(hintCard);
 }

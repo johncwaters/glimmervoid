@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import type { CDPSession, Page } from 'playwright-core';
+import { STAR_HINT_PROMPT_THRESHOLD } from '../../shared/contracts/star-hint.ts';
 import { WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
 
 const CONTEXT_TIMEOUT_MS = 10_000;
 
 const keyStrip = '.phone-key-strip';
+const starHintCard = 'aside.feature-hint[aria-label="Star Glimmervoid on GitHub"]';
+const PRIOR_WORK_PROMPTS_IN_KEY_STRIP_CASE = 2;
 const ARROW_RIGHT_BYTES = '\x1b[C';
 const ARROW_UP_BYTES = '\x1b[A';
 const HOLD_LONG_ENOUGH_TO_REPEAT_MS = 700;
@@ -56,6 +59,18 @@ async function assertRowFitsWithoutScroll(page: Page) {
   assert.equal(overflowPx, 0, 'the key strip fits its row without scrolling');
 }
 
+async function assertElementsDoNotOverlap(page: Page, firstSelector: string, secondSelector: string, description: string) {
+  const firstBox = await page.locator(firstSelector).boundingBox();
+  const secondBox = await page.locator(secondSelector).boundingBox();
+  assert.ok(firstBox, `${firstSelector} is on screen`);
+  assert.ok(secondBox, `${secondSelector} is on screen`);
+  const isClear = firstBox.x + firstBox.width <= secondBox.x
+    || secondBox.x + secondBox.width <= firstBox.x
+    || firstBox.y + firstBox.height <= secondBox.y
+    || secondBox.y + secondBox.height <= firstBox.y;
+  assert.ok(isClear, `${description} (${JSON.stringify(firstBox)} vs ${JSON.stringify(secondBox)})`);
+}
+
 export async function modifierState(page: Page, slotId: string) {
   const modifier = page.locator(`[data-key="${slotId}"]`).first();
   return { isPressed: await modifier.getAttribute('aria-pressed') === 'true', isLocked: await modifier.getAttribute('data-locked') !== null };
@@ -103,6 +118,16 @@ export async function verifyKeyStripContexts(page: Page, typeCommand: (command: 
   await typeCommand('stop');
   await waitForContext(page, 'ready');
 
+  for (let promptIndex = PRIOR_WORK_PROMPTS_IN_KEY_STRIP_CASE; promptIndex < STAR_HINT_PROMPT_THRESHOLD; promptIndex += 1) {
+    await typeCommand('work');
+  }
+  await typeCommand('stop');
+  await waitForContext(page, 'ready');
+  await page.locator(starHintCard).waitFor({ timeout: CONTEXT_TIMEOUT_MS });
+  await assertElementsDoNotOverlap(page, starHintCard, '.phone-terminal-bar', 'the feature hint stays clear of the phone top bar');
+  await assertElementsDoNotOverlap(page, starHintCard, keyStrip, 'the feature hint stays clear of the phone key strip');
+  await assertElementsDoNotOverlap(page, starHintCard, '.phone-nav', 'the feature hint stays clear of the phone bottom nav');
+
   const control = page.locator(`${keyStrip} [data-key="ctrl"]`);
   await control.click();
   assert.deepEqual(await modifierState(page, 'ctrl'), { isPressed: true, isLocked: false }, 'one tap holds Ctrl for the next key');
@@ -119,13 +144,14 @@ export async function verifyKeyStripContexts(page: Page, typeCommand: (command: 
   const moreSheet = page.locator('.phone-key-more-sheet');
   await page.locator('.phone-key-more').click();
   await moreSheet.waitFor();
+  await assertElementsDoNotOverlap(page, starHintCard, '.phone-key-more-sheet', 'the feature hint stays clear of the phone More key sheet');
   await moreSheet.locator('[data-key="alt"]').click();
   assert.equal(await moreSheet.isVisible(), true, 'tapping Alt keeps the More sheet open');
   await moreSheet.locator('[data-key="pipe"]').click();
   await moreSheet.waitFor({ state: 'hidden' });
   assert.deepEqual(await modifierState(page, 'alt'), { isPressed: false, isLocked: false }, 'a sheet key consumes Alt and closes the sheet');
 
-  return 'working and ready rows; an agent drawing its own alternate screen keeps the ready row; a swipe types no arrow; a held arrow repeats and stops after a rebuild; Ctrl once, locked and released; the More sheet keeps Alt and closes on a key';
+  return 'working and ready rows; an agent drawing its own alternate screen keeps the ready row; a swipe types no arrow; a held arrow repeats and stops after a rebuild; a shown feature hint stays clear of the key strip and bottom nav; Ctrl once, locked and released; the More sheet keeps Alt and closes on a key';
 }
 
 export async function focusTerminalTextarea(page: Page) {
