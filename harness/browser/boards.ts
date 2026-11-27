@@ -3,6 +3,7 @@ import type { Locator, Page } from 'playwright-core';
 import { utils as workbookUtils, write as writeWorkbook } from '@stackline/xlsx';
 import { z } from 'zod';
 import type { Layout } from './cases-core.ts';
+import { OPTIMISTIC_DOM_BUDGET_MS } from './continuity-budgets.ts';
 import { commitFile, findSessionWorktree, pollFor } from './review-changes.ts';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -78,7 +79,10 @@ async function reviewOf(open: OpenBoard): Promise<BoardReview> {
 
 async function shownBoardOf(open: OpenBoard): Promise<Board> {
   const board = await boardOf(open);
-  await open.panel.locator(`.wb-board-meta[data-board-version="${board.version}"]`).waitFor();
+  await pollFor(`board view catches up to version ${board.version}`, BOARD_TIMEOUT_MS, async () => {
+    const shownVersion = Number(await open.panel.locator('.wb-board-meta').getAttribute('data-board-version') ?? -1);
+    return shownVersion >= board.version ? true : null;
+  });
   return board;
 }
 
@@ -532,7 +536,9 @@ async function verifyEraser(open: OpenBoard, anchorBoxId: string): Promise<void>
     const restored = (await boardOf(open)).elements;
     return ['erase-top', 'erase-bottom', 'erase-wire'].every((elementId) => restored.get(elementId)) ? true : null;
   });
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: ['erase-wire', 'erase-top', 'erase-bottom', 'erase-bystander'].map((id) => ({ op: 'remove', id })) });
+  await panel.getByRole('button', { name: 'Redo', exact: true }).click();
+  await boardWithout(open, 'one redo removes everything the eraser sweep erased again', (element) => ['erase-top', 'erase-bottom', 'erase-wire'].includes(element.id));
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'erase-bystander' }] });
   await boardWithout(open, 'the eraser targets are gone', (element) => element.id === 'erase-top' || element.id === 'erase-bystander');
   await viewport.focus();
   await page.keyboard.press('v');
@@ -678,6 +684,27 @@ async function verifyKeyboardEditing(open: OpenBoard, boxId: string): Promise<vo
   );
   await page.keyboard.press('ControlOrMeta+0');
   await pollFor('Ctrl+0 resets zoom after wheel checks', BOARD_TIMEOUT_MS, async () => (Math.abs((await cameraOf(open)).scale - 1) < 0.001 ? true : null));
+  const cameraBeforeTouchPinch = await cameraOf(open);
+  const boardPointBeforeTouchPinch = {
+    x: (zoomAnchor.x - viewportBox.x - cameraBeforeTouchPinch.translateX) / cameraBeforeTouchPinch.scale,
+    y: (zoomAnchor.y - viewportBox.y - cameraBeforeTouchPinch.translateY) / cameraBeforeTouchPinch.scale,
+  };
+  await pinchOn(page, zoomAnchor, 80, 160);
+  const cameraAfterTouchPinch = await cameraOf(open);
+  const boardPointAfterTouchPinch = {
+    x: (zoomAnchor.x - viewportBox.x - cameraAfterTouchPinch.translateX) / cameraAfterTouchPinch.scale,
+    y: (zoomAnchor.y - viewportBox.y - cameraAfterTouchPinch.translateY) / cameraAfterTouchPinch.scale,
+  };
+  assert.ok(
+    cameraAfterTouchPinch.scale > cameraBeforeTouchPinch.scale * 1.5,
+    `two-finger touch pinch zooms the board canvas in (got ${cameraAfterTouchPinch.scale.toFixed(4)}x)`,
+  );
+  assert.ok(
+    Math.abs(boardPointAfterTouchPinch.x - boardPointBeforeTouchPinch.x) < 2 && Math.abs(boardPointAfterTouchPinch.y - boardPointBeforeTouchPinch.y) < 2,
+    'two-finger touch pinch keeps the board point under the pinch midpoint fixed',
+  );
+  await page.keyboard.press('ControlOrMeta+0');
+  await pollFor('Ctrl+0 resets zoom after touch pinch', BOARD_TIMEOUT_MS, async () => (Math.abs((await cameraOf(open)).scale - 1) < 0.001 ? true : null));
   const panStart = { x: viewportBox.x + viewportBox.width - 40, y: viewportBox.y + viewportBox.height - 40 };
   const cameraBeforePan = await cameraOf(open);
   await page.keyboard.down('Space');
@@ -690,8 +717,62 @@ async function verifyKeyboardEditing(open: OpenBoard, boxId: string): Promise<vo
   assert.ok(Math.abs(cameraAfterPan.translateX - cameraBeforePan.translateX + 60) < 2, 'holding Space and dragging pans the board left');
   await page.keyboard.press('Shift+Digit1');
   await pollFor('Shift+1 fits the board again', BOARD_TIMEOUT_MS, async () => ((await cameraOf(open)).translateX !== cameraAfterPan.translateX ? true : null));
+  const cameraBeforeMiddlePan = await cameraOf(open);
+  const elementCountBeforeMiddlePan = (await boardOf(open)).elements.size;
+  await page.evaluate(() => {
+    const probe = { fired: false, pasteDefaultPrevented: false };
+    Object.assign(window, { __middlePasteProbe: probe });
+    window.addEventListener('pointerup', () => {
+      probe.fired = true;
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', 'Middle paste');
+      const pasteEvent = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData });
+      document.dispatchEvent(pasteEvent);
+      probe.pasteDefaultPrevented = pasteEvent.defaultPrevented;
+    }, { once: true });
+  });
+  await page.mouse.move(panStart.x, panStart.y);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(panStart.x - 70, panStart.y - 35, { steps: 5 });
+  await page.mouse.up({ button: 'middle' });
+  const middlePasteProbe = await page.evaluate(() => {
+    const probe = Reflect.get(window, '__middlePasteProbe') as { fired: boolean; pasteDefaultPrevented: boolean } | undefined;
+    Reflect.deleteProperty(window, '__middlePasteProbe');
+    return probe;
+  });
+  const cameraAfterMiddlePan = await cameraOf(open);
+  assert.ok(
+    Math.abs(cameraAfterMiddlePan.translateX - cameraBeforeMiddlePan.translateX + 70) < 2 && Math.abs(cameraAfterMiddlePan.translateY - cameraBeforeMiddlePan.translateY + 35) < 2,
+    'middle-button dragging pans the board canvas',
+  );
+  assert.equal(middlePasteProbe?.fired, true, 'middle-button release fires pointerup for the paste suppression check');
+  assert.equal(middlePasteProbe?.pasteDefaultPrevented, true, 'middle-button release suppresses a primary-selection paste event');
+  assert.equal((await boardOf(open)).elements.size, elementCountBeforeMiddlePan, 'middle-button dragging does not paste primary selection onto the board');
+  const cameraBeforeWheelPan = await cameraOf(open);
+  await viewport.evaluate((node, { clientX, clientY }) => {
+    node.dispatchEvent(new WheelEvent('wheel', { deltaX: -70, deltaY: -35, deltaMode: 0, clientX, clientY, bubbles: true, cancelable: true }));
+  }, { clientX: panStart.x, clientY: panStart.y });
+  const cameraAfterWheelPan = await cameraOf(open);
+  assert.ok(
+    Math.abs(cameraAfterWheelPan.translateX - cameraBeforeWheelPan.translateX - 70) < 2 && Math.abs(cameraAfterWheelPan.translateY - cameraBeforeWheelPan.translateY - 35) < 2,
+    'two-finger scroll (plain wheel) pans the board canvas in both axes',
+  );
   await page.keyboard.press('h');
   assert.equal(await drawingTool(panel, 'Hand').getAttribute('aria-pressed'), 'true', 'H picks the hand tool');
+  const cameraBeforeHandPan = await cameraOf(open);
+  await page.mouse.move(panStart.x, panStart.y);
+  await page.mouse.down();
+  await page.mouse.move(panStart.x - 55, panStart.y - 25, { steps: 5 });
+  await page.mouse.up();
+  const cameraAfterHandPan = await cameraOf(open);
+  assert.ok(
+    Math.abs(cameraAfterHandPan.translateX - cameraBeforeHandPan.translateX + 55) < 2 && Math.abs(cameraAfterHandPan.translateY - cameraBeforeHandPan.translateY + 25) < 2,
+    'dragging with the hand tool pans the board canvas',
+  );
+  await page.mouse.move(panStart.x - 55, panStart.y - 25);
+  await page.mouse.down();
+  await page.mouse.move(panStart.x, panStart.y, { steps: 5 });
+  await page.mouse.up();
   await page.keyboard.press('Escape');
   await page.keyboard.press('q');
   assert.equal(await drawingTool(panel, 'Keep tool selected').getAttribute('aria-pressed'), 'true', 'Q locks the tool');
@@ -702,9 +783,29 @@ async function verifyKeyboardEditing(open: OpenBoard, boxId: string): Promise<vo
   await viewport.focus();
   await page.keyboard.press('q');
   await page.keyboard.press('Escape');
+  const lockedOneRect = await screenRectOf(open, lockedOne.id);
+  const lockedTwoRect = await screenRectOf(open, lockedTwo.id);
+  const marqueeStart = { x: Math.min(lockedOneRect.x, lockedTwoRect.x) - 16, y: Math.min(lockedOneRect.y, lockedTwoRect.y) - 16 };
+  const marqueeEnd = { x: Math.max(lockedOneRect.x + lockedOneRect.width, lockedTwoRect.x + lockedTwoRect.width) + 16, y: Math.max(lockedOneRect.y + lockedOneRect.height, lockedTwoRect.y + lockedTwoRect.height) + 16 };
+  await page.mouse.move(marqueeStart.x, marqueeStart.y);
+  await page.mouse.down();
+  await page.mouse.move(marqueeEnd.x, marqueeEnd.y, { steps: 6 });
+  await page.mouse.up();
+  await panel.locator('.wb-inspect .wb-inspect-heading', { hasText: '2 selected' }).waitFor({ timeout: BOARD_TIMEOUT_MS });
+  await viewport.focus();
+  await page.keyboard.press('Escape');
+  await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
   await selectBoxes(open, [lockedOne.id, lockedTwo.id]);
   await page.keyboard.press('Delete');
   await boardWithout(open, 'Delete removes both locked placements', (element) => element.id === lockedOne.id || element.id === lockedTwo.id);
+  await viewport.focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await pollFor('undo restores both deleted boxes', BOARD_TIMEOUT_MS, async () => {
+    const restored = (await boardOf(open)).elements;
+    return restored.get(lockedOne.id) && restored.get(lockedTwo.id) ? true : null;
+  });
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await boardWithout(open, 'redo removes both deleted boxes again', (element) => element.id === lockedOne.id || element.id === lockedTwo.id);
   await viewport.focus();
   await page.keyboard.press('ControlOrMeta+a');
   await panel.locator('.wb-inspect').waitFor();
@@ -839,6 +940,15 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await page.keyboard.press('Enter');
   placedNote = await elementWhere(open, 'a box titled Ask the team', titled('Ask the team'));
   assert.ok(placedNote.kind === 'box' && placedNote.shape === 'note' && placedNote.tone === 'yellow', 'the note tool places a yellow note');
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await elementWhere(open, 'undo reverts the note title edit', (element) => element.id === placedNote.id && element.kind === 'box' && element.title === 'Note');
+  await page.keyboard.press('ControlOrMeta+z');
+  await boardWithout(open, 'a second undo removes the placed note', (element) => element.id === placedNote.id);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await elementWhere(open, 'redo restores the placed note', (element) => element.id === placedNote.id && element.kind === 'box' && element.title === 'Note');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await elementWhere(open, 'a second redo restores the note title edit', (element) => element.id === placedNote.id && element.kind === 'box' && element.title === 'Ask the team');
   const noteCountBeforeRefusal = [...(await boardOf(open)).elements.values()].filter((element) => element.kind === 'box' && element.shape === 'note').length;
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('s');
@@ -884,8 +994,40 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   await page.mouse.move(canvasBox.x + 40, canvasBox.y + 520);
+  await page.evaluate(() => {
+    const probe = { downAt: 0, draftAt: 0, pointCountAtMove: 0 };
+    Object.assign(window, { __penLagProbe: probe });
+    const viewportNode = document.querySelector<HTMLElement>('.wb-viewport');
+    viewportNode?.addEventListener('pointerdown', () => {
+      probe.downAt = performance.now();
+    }, { capture: true, once: true });
+    const onMove = () => {
+      if (probe.downAt === 0 || probe.draftAt > 0) return;
+      const draft = document.querySelector<SVGPolylineElement>('.wb-ink-draft');
+      const pointsText = draft?.getAttribute('points')?.trim() ?? '';
+      probe.pointCountAtMove = pointsText ? pointsText.split(/\s+/).length : 0;
+      if (probe.pointCountAtMove < 2) return;
+      probe.draftAt = performance.now();
+      viewportNode?.removeEventListener('pointermove', onMove);
+    };
+    viewportNode?.addEventListener('pointermove', onMove);
+  });
   await page.mouse.down();
   for (let step = 1; step <= 8; step += 1) await page.mouse.move(canvasBox.x + 40 + step * 20, canvasBox.y + 520 + step * 5);
+  const penLag = await page.evaluate(() => {
+    const probe = Reflect.get(window, '__penLagProbe') as { downAt: number; draftAt: number; pointCountAtMove: number } | undefined;
+    Reflect.deleteProperty(window, '__penLagProbe');
+    const draft = document.querySelector<SVGPolylineElement>('.wb-ink-draft');
+    const pointsText = draft?.getAttribute('points')?.trim() ?? '';
+    return {
+      hasDraft: draft !== null,
+      livePointCount: pointsText ? pointsText.split(/\s+/).length : 0,
+      pointCountAtMove: probe?.pointCountAtMove ?? 0,
+      lagMs: probe && probe.downAt > 0 && probe.draftAt > 0 ? Math.round((probe.draftAt - probe.downAt) * 100) / 100 : -1,
+    };
+  });
+  assert.ok(penLag.hasDraft && penLag.livePointCount >= 8, `pen stroke draws a live draft polyline before pointerup (got ${JSON.stringify(penLag)})`);
+  assert.ok(penLag.pointCountAtMove >= 2 && penLag.lagMs >= 0 && penLag.lagMs <= OPTIMISTIC_DOM_BUDGET_MS, `pen stroke starts within ${OPTIMISTIC_DOM_BUDGET_MS} ms without waiting for the server (got ${JSON.stringify(penLag)})`);
   await page.mouse.up();
   const ink = await elementWhere(open, 'the pen draws a stroke', (element) => element.kind === 'stroke');
   assert.ok(ink.kind === 'stroke' && ink.points.length >= 8, 'a drawn stroke keeps the points it passed through');
@@ -1559,10 +1701,10 @@ async function verifyCtrlWheelOverInteractivePageZoomsBoard({ page, panel }: Ope
     `a 3-line DOM_DELTA_LINE Ctrl+wheel notch over a page card zooms by ~1.1x (got ${(scaleAfterLineNotch / scaleBefore).toFixed(4)}x)`,
   );
   await pageBody.evaluate((body) => {
-    body.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: 100, deltaMode: 0, clientX: 20, clientY: 20, bubbles: true, cancelable: true }));
+    body.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: 3, deltaMode: 1, clientX: 20, clientY: 20, bubbles: true, cancelable: true }));
     parent.postMessage({ type: 'glimmervoid-board-page-gesture', gesture: 'pan', deltaX: 1e308, deltaY: 0 }, '*');
   });
-  await pollFor('a +100 px ctrl wheel after the line notch returns the board zoom', BOARD_TIMEOUT_MS, async () => (Math.abs((await worldScale()) / scaleBefore - 1) < 0.02 ? true : null));
+  await pollFor('a +3-line ctrl wheel after the line notch returns the board zoom', BOARD_TIMEOUT_MS, async () => (Math.abs((await worldScale()) / scaleBefore - 1) < 0.001 ? true : null));
   assert.ok(Number.isFinite(await panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).e)), 'a page cannot pan the board camera to infinity');
   const worldOffsetX = () => panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).e);
   const pageBounds = await pageMedia.boundingBox();

@@ -1439,9 +1439,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
     const clearSuppression = () => {
       window.removeEventListener('auxclick', stopAuxiliaryClick, true);
+      window.removeEventListener('paste', stopAuxiliaryPaste, true);
       window.removeEventListener('pointerup', scheduleCleanup, true);
       window.removeEventListener('mouseup', scheduleCleanup, true);
-      window.removeEventListener('pointercancel', scheduleCleanup, true);
+      window.removeEventListener('pointercancel', clearSuppression, true);
       window.removeEventListener('blur', clearSuppression);
       if (cleanupTimer !== null) clearTimeout(cleanupTimer);
       cleanupTimer = null;
@@ -1450,16 +1451,20 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const stopAuxiliaryClick = (event: MouseEvent) => {
       if (event.button !== BOARD_MIDDLE_MOUSE_BUTTON) return;
       event.preventDefault();
-      clearSuppression();
+    };
+    const stopAuxiliaryPaste = (event: ClipboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
     };
     const scheduleCleanup = (event: MouseEvent) => {
       if (event.button !== BOARD_MIDDLE_MOUSE_BUTTON || cleanupTimer !== null) return;
       cleanupTimer = setTimeout(clearSuppression, 0);
     };
     window.addEventListener('auxclick', stopAuxiliaryClick, true);
+    window.addEventListener('paste', stopAuxiliaryPaste, true);
     window.addEventListener('pointerup', scheduleCleanup, true);
     window.addEventListener('mouseup', scheduleCleanup, true);
-    window.addEventListener('pointercancel', scheduleCleanup, true);
+    window.addEventListener('pointercancel', clearSuppression, true);
     window.addEventListener('blur', clearSuppression);
     cancelAuxClickSuppression = clearSuppression;
   }
