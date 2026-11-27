@@ -20,6 +20,7 @@ import type {
 } from '../../public/state/define-collection.ts';
 import type { watchChatOutbox } from '../../public/state/collections/chat-outbox.ts';
 import type { watchPacksCollection } from '../../public/state/collections/packs.ts';
+import type sessionsCollection from '../../public/state/collections/sessions.ts';
 import type { ingestControlMessage } from '../../public/state/ingest.ts';
 import type {
   PersistedOptions,
@@ -36,6 +37,7 @@ const PERSIST_MODULE_URL = '/state/persist.ts';
 const COLLECTION_MODULE_URL = '/state/define-collection.ts';
 const CHAT_OUTBOX_MODULE_URL = '/state/collections/chat-outbox.ts';
 const PACKS_MODULE_URL = '/state/collections/packs.ts';
+const SESSIONS_MODULE_URL = '/state/collections/sessions.ts';
 const INGEST_MODULE_URL = '/state/ingest.ts';
 const ACTION_MODULE_URL = '/state/define-action.ts';
 const ACTION_STATUS_MODULE_URL = '/action-status.ts';
@@ -69,6 +71,10 @@ interface ChatOutboxModule {
 
 interface PacksModule {
   watchPacksCollection: typeof watchPacksCollection;
+}
+
+interface SessionsModule {
+  default: typeof sessionsCollection;
 }
 
 interface IslandModule {
@@ -116,6 +122,7 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       collectionUrl,
       chatOutboxUrl,
       packsUrl,
+      sessionsUrl,
       ingestUrl,
       actionUrl,
       actionStatusUrl,
@@ -127,6 +134,7 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       collectionUrl: string;
       chatOutboxUrl: string;
       packsUrl: string;
+      sessionsUrl: string;
       ingestUrl: string;
       actionUrl: string;
       actionStatusUrl: string;
@@ -138,6 +146,7 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       const collectionMod = (await import(collectionUrl)) as Partial<CollectionModule>;
       const chatOutboxMod = (await import(chatOutboxUrl)) as Partial<ChatOutboxModule>;
       const packsMod = (await import(packsUrl)) as Partial<PacksModule>;
+      const sessionsMod = (await import(sessionsUrl)) as Partial<SessionsModule>;
       const ingestMod = (await import(ingestUrl)) as Partial<IngestModule>;
       const actionMod = (await import(actionUrl)) as Partial<ActionModule>;
       const actionStatusMod = (await import(actionStatusUrl)) as Partial<ActionStatusModule>;
@@ -154,6 +163,7 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
         || typeof collectionMod.watchCollection !== 'function'
         || typeof chatOutboxMod.watchChatOutbox !== 'function'
         || typeof packsMod.watchPacksCollection !== 'function'
+        || !sessionsMod.default
         || typeof ingestMod.ingestControlMessage !== 'function'
         || typeof actionMod.defineAction !== 'function'
         || typeof actionStatusMod.clearHeaderError !== 'function'
@@ -179,6 +189,15 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       const sessionPrefix = 'glimmervoid-state-core-probe-session:';
       const watcherCleanups: Array<() => void> = [];
       const probeHosts: HTMLElement[] = [];
+      const originalConsoleWarn = console.warn;
+      const solidDiagnosticWarnings: string[] = [];
+      console.warn = (...args: unknown[]) => {
+        const text = args.map((arg) => (typeof arg === 'string' ? arg : String(arg))).join(' ');
+        if (text.includes('[STRICT_READ_UNTRACKED]') || text.includes('[FLUSH_IN_EFFECT_CALLBACK]')) {
+          solidDiagnosticWarnings.push(text);
+        }
+        originalConsoleWarn.apply(console, args);
+      };
 
       try {
         const baseSeq = seqMod.currentSeq();
@@ -216,7 +235,8 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
                   collection,
                   (state) => state.items[0]?.count,
                   (nextCount) => {
-                    if (typeof nextCount === 'number') observedCounts.push(nextCount);
+                    const liveCount = readCount();
+                    if (typeof liveCount === 'number' && liveCount === nextCount) observedCounts.push(nextCount);
                     if (mountedIslandInWatcher) return;
                     mountedIslandInWatcher = true;
                     const nestedHost = document.createElement('div');
@@ -495,6 +515,32 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
           return { ok: false, detail: 'cleanupSessionPersistedKeys left dead session key behind' };
         }
 
+        const liveSessionId = sessionsMod.default.state.order[0];
+        if (!liveSessionId) {
+          return { ok: false, detail: 'sessionsCollection has no live session to exercise session-frames watcher' };
+        }
+        const originalSessionName = sessionsMod.default.state.byId[liveSessionId]?.name;
+        if (!originalSessionName) {
+          return { ok: false, detail: `sessionsCollection missing record for ${liveSessionId}` };
+        }
+        ingestMod.ingestControlMessage({
+          type: 'session-renamed',
+          id: liveSessionId,
+          oldName: originalSessionName,
+          newName: `${originalSessionName}-probe`,
+        } as ServerMessage);
+        ingestMod.ingestControlMessage({
+          type: 'session-renamed',
+          id: liveSessionId,
+          oldName: `${originalSessionName}-probe`,
+          newName: originalSessionName,
+        } as ServerMessage);
+        await flushMicrotasks();
+
+        if (solidDiagnosticWarnings.length > 0) {
+          return { ok: false, detail: `unexpected Solid 2 diagnostic warnings: ${solidDiagnosticWarnings[0]}` };
+        }
+
         return {
           ok: true,
           detail: 'ingest, defineCollection, defineAction (optimistic, appliedSeq hold, rollback notice), seq, and persist verified',
@@ -505,6 +551,7 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
           : String(caughtError);
         return { ok: false, detail: `uncaught error: ${message}` };
       } finally {
+        console.warn = originalConsoleWarn;
         for (let index = watcherCleanups.length - 1; index >= 0; index -= 1) {
           watcherCleanups[index]();
         }
@@ -524,6 +571,7 @@ export async function verifyStateCore(page: Page): Promise<StateCoreCheckResult>
       collectionUrl: COLLECTION_MODULE_URL,
       chatOutboxUrl: CHAT_OUTBOX_MODULE_URL,
       packsUrl: PACKS_MODULE_URL,
+      sessionsUrl: SESSIONS_MODULE_URL,
       ingestUrl: INGEST_MODULE_URL,
       actionUrl: ACTION_MODULE_URL,
       actionStatusUrl: ACTION_STATUS_MODULE_URL,

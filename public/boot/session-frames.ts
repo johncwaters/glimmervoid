@@ -1,4 +1,3 @@
-import { createEffect, createRoot, runWithOwner } from 'solid-js';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { setSessionPlanGate } from '../plan/plan-gate-panel.ts';
 import { STATES } from '#shared/states.ts';
@@ -31,6 +30,7 @@ import { getSelectedId, setSelectedId } from '../review/selection.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { showBoardSessionFeed } from '../whiteboard/board-session-feed.ts';
+import { watchCollection } from '../state/define-collection.ts';
 import sessionsCollection, { onSessionsServerMessage } from '../state/collections/sessions.ts';
 import '../state/collections/studio.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
@@ -357,52 +357,49 @@ function wireSessionsCollection() {
   onSessionsServerMessage(handleSessionsCollectionMessage);
 
   let previousOrderKey = '';
-  runWithOwner(null, () => {
-    createRoot(() => {
-      createEffect<ProjectedSessionSnapshot>(
-        () => {
-          const order = sessionsCollection.state.order;
-          const entries: ProjectedSessionSnapshot['entries'] = [];
-          for (const sessionId of order) {
-            const record = sessionsCollection.state.byId[sessionId];
-            if (!record) continue;
-            entries.push({
-              id: record.id,
-              name: record.name,
-              state: record.state,
-              stateSince: record.stateSince,
-            });
-          }
-          return { orderKey: order.join('\0'), entries };
-        },
-        (snapshot) => {
-          let changedCount = 0;
-          let traceSyncCount = 0;
-          for (const entry of snapshot.entries) {
-            const ui = sessionUIs.get(entry.id);
-            if (!ui) continue;
-            if (sessionName(ui) !== entry.name) {
-              renameSessionCard(entry.id, entry.name);
-              changedCount += 1;
-              traceSyncCount += 1;
-            }
-            if (ui.currentState !== entry.state) {
-              applyState(entry.id, entry.state, entry.stateSince);
-              changedCount += 1;
-            }
-          }
-          if (snapshot.orderKey !== previousOrderKey) {
-            previousOrderKey = snapshot.orderKey;
-            changedCount += 1;
-            traceSyncCount += 1;
-          }
-          if (changedCount === 0) return;
-          refreshRosterAndAttentionSurfaces();
-          if (traceSyncCount > 0) syncTraceSessionsFromCards();
-        },
-      );
-    });
-  });
+  watchCollection<typeof sessionsCollection.state, ProjectedSessionSnapshot>(
+    sessionsCollection,
+    (state) => {
+      const order = state.order;
+      const entries: ProjectedSessionSnapshot['entries'] = [];
+      for (const sessionId of order) {
+        const record = state.byId[sessionId];
+        if (!record) continue;
+        entries.push({
+          id: record.id,
+          name: record.name,
+          state: record.state,
+          stateSince: record.stateSince,
+        });
+      }
+      return { orderKey: order.join('\0'), entries };
+    },
+    (snapshot) => {
+      let changedCount = 0;
+      let traceSyncCount = 0;
+      for (const entry of snapshot.entries) {
+        const ui = sessionUIs.get(entry.id);
+        if (!ui) continue;
+        if (sessionName(ui) !== entry.name) {
+          renameSessionCard(entry.id, entry.name);
+          changedCount += 1;
+          traceSyncCount += 1;
+        }
+        if (ui.currentState !== entry.state) {
+          applyState(entry.id, entry.state, entry.stateSince);
+          changedCount += 1;
+        }
+      }
+      if (snapshot.orderKey !== previousOrderKey) {
+        previousOrderKey = snapshot.orderKey;
+        changedCount += 1;
+        traceSyncCount += 1;
+      }
+      if (changedCount === 0) return;
+      refreshRosterAndAttentionSurfaces();
+      if (traceSyncCount > 0) syncTraceSessionsFromCards();
+    },
+  );
 }
 
 export {
