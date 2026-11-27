@@ -484,7 +484,7 @@ test('a stopped Orchestrator with no ACP row offers runnable ACP agents, starts 
     assert.equal(startedOrch.failureReason, null);
     const modifiedBroadcast = broadcasts.findLast((frame) => frame.type === 'session-modified' && frame.id === 'studio-orch');
     assert.equal(modifiedBroadcast?.agent, 'replay-acp');
-    assert.equal(modifiedBroadcast?.failureReason, null);
+    assert.equal(modifiedBroadcast?.failureReason ?? null, null);
 
     const savedOrch = config.projects.find((project) => project.id === 'studio-orch');
     assert.equal(savedOrch?.agent, 'replay-acp');

@@ -111,7 +111,7 @@ function sessionRecordFromCardFields(
     pendingPromptKind: previous?.pendingPromptKind ?? null,
     usageLimit: previous?.usageLimit ?? null,
     unseenOutcome: previous?.unseenOutcome ?? null,
-    failureReason: msg.failureReason !== undefined ? msg.failureReason : (previous?.failureReason ?? null),
+    failureReason: msg.failureReason ?? null,
   };
 }
 

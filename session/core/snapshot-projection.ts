@@ -67,7 +67,7 @@ function projectSessionCard(
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
     ...(source.doneMeans?.length ? { doneMeans: [...source.doneMeans] } : {}),
     ...(source.agentDoneLines?.length ? { agentDoneLines: source.agentDoneLines.map((line) => ({ ...line })) } : {}),
-    failureReason: source.failureReason ?? null,
+    ...(source.failureReason ? { failureReason: source.failureReason } : {}),
     ...(source.parent ? { parent: { sessionId: source.parent.sessionId, box: source.parent.box ? { ...source.parent.box } : null } } : {}),
     ...(source.isStudioMain ? { isStudioMain: true } : {}),
     ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
