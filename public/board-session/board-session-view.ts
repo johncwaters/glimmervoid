@@ -42,7 +42,6 @@ import type { AgentCardModel, AgentCards } from './agent-card.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { sessionRailFieldsOf } from '../chat/chat-page.ts';
 import { chatOutboxEntriesOf } from '../state/collections/chat-outbox.ts';
-import sessionsCollection from '../state/collections/sessions.ts';
 import { createAgentWaits } from './agent-waits.ts';
 import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';

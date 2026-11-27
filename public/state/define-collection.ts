@@ -120,6 +120,15 @@ export function defineCollection<State extends object>({
   return handle;
 }
 
+export function applyCollectionServerMessage(name: CollectionName, message: ServerMessage): boolean {
+  const registered = collectionsByName.get(name);
+  if (!registered) return false;
+  registered.applyServerMessageWithoutNotify(message);
+  flush();
+  registered.notifyApplied(message);
+  return true;
+}
+
 export function applyCollectionServerMessages(
   names: readonly CollectionName[],
   message: ServerMessage,
