@@ -180,6 +180,7 @@ function applySessionStatusToDraft(draft: SessionsCollectionState, msg: ServerMe
 
 export interface SessionsApplyContext {
   confirmedChatStopSessionId?: string;
+  confirmedApprovalSessionId?: string;
 }
 
 export function applySessionsServerMessage(
@@ -191,6 +192,9 @@ export function applySessionsServerMessage(
   if (message.type === 'session-action-result') {
     if (message.ok && context.confirmedChatStopSessionId) {
       applyOptimisticChatStop(draft, context.confirmedChatStopSessionId);
+    }
+    if (message.ok && context.confirmedApprovalSessionId) {
+      applyOptimisticApprovalDecision(draft, context.confirmedApprovalSessionId);
     }
     return;
   }
@@ -283,4 +287,14 @@ export function applyOptimisticChatStop(
   const record = draft.byId[sessionId];
   if (!record) return;
   record.state = STATES.IDLE;
+}
+
+export function applyOptimisticApprovalDecision(
+  draft: SessionsCollectionState,
+  sessionId: string,
+): void {
+  const record = draft.byId[sessionId];
+  if (!record) return;
+  record.state = STATES.RUNNING;
+  record.pendingPromptKind = null;
 }

@@ -57,4 +57,13 @@ export function applyChatStopReply(reply: ServerMessage, sessionId: string): voi
   }
 }
 
+export function applyApprovalDecisionReply(reply: ServerMessage, sessionId: string): void {
+  activeApplyContext = { confirmedApprovalSessionId: sessionId };
+  try {
+    applyCollectionServerMessage('sessions', reply);
+  } finally {
+    activeApplyContext = {};
+  }
+}
+
 export default sessionsCollection;

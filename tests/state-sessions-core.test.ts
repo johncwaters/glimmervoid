@@ -6,6 +6,7 @@ import type { SessionSnapshot } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import {
   INITIAL_SESSIONS_STATE,
+  applyOptimisticApprovalDecision,
   applyOptimisticSessionRemove,
   applyOptimisticSessionRename,
   applyOptimisticSessionRestart,
@@ -143,4 +144,12 @@ test('optimistic helpers update name, restart state, and removal without mutatin
   applyOptimisticSessionRemove(removed, 'session-1');
   assert.equal(removed.byId['session-1'], undefined);
   assert.deepEqual(removed.order, ['session-2']);
+
+  const approved = structuredClone(seeded);
+  approved.byId['session-1'].state = STATES.WAITING;
+  approved.byId['session-1'].pendingPromptKind = 'approval';
+  applyOptimisticApprovalDecision(approved, 'session-1');
+  assert.equal(approved.byId['session-1']?.state, STATES.RUNNING);
+  assert.equal(approved.byId['session-1']?.pendingPromptKind, null);
+  assert.equal(approved.byId['session-2']?.state, STATES.IDLE);
 });

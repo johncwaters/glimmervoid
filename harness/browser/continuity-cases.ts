@@ -53,6 +53,7 @@ const PHONE_BOARD_TAB_SELECTOR = 'button.phone-nav-item[data-screen="board"]';
 const PHONE_BACK_SELECTOR = 'button[data-action="back-to-board"]';
 
 const MODULE_URLS = {
+  defineCollection: '/state/define-collection.ts',
   ingest: '/state/ingest.ts',
   seq: '/state/seq.ts',
   settingsCollection: '/state/collections/settings.ts',
@@ -63,16 +64,19 @@ const MODULE_URLS = {
   settingsBridge: '/settings/settings-panel-bridge.ts',
   addRepoRoots: '/state/actions/add-repo-roots.ts',
   addSession: '/state/actions/add-session.ts',
+  answerApproval: '/state/actions/answer-approval.ts',
   branchSpawn: '/state/actions/branch-spawn.ts',
   chatCancel: '/state/actions/chat-cancel.ts',
   chatSend: '/state/actions/chat-send.ts',
   chatStop: '/state/actions/chat-stop.ts',
   codemapFolderSet: '/state/actions/codemap-folder-set.ts',
+  decideApproval: '/state/actions/decide-approval.ts',
   deleteHook: '/state/actions/delete-hook.ts',
   packApprove: '/state/actions/pack-approve.ts',
   packFolderRemove: '/state/actions/pack-folder-remove.ts',
   packSourceEnable: '/state/actions/pack-source-enable.ts',
   packSourceRemove: '/state/actions/pack-source-remove.ts',
+  planDecision: '/state/actions/plan-decision.ts',
   removeSession: '/state/actions/remove-session.ts',
   renameSession: '/state/actions/rename-session.ts',
   restart: '/state/actions/restart.ts',
@@ -334,6 +338,76 @@ async function seedStudioAreaFixture(page: Page, sessionId: string, repoDir: str
   }, { studioUrl: MODULE_URLS.studioCollection, targetSessionId: sessionId, targetRepoDir: repoDir });
 }
 
+async function prepareSessionWaitActionCase(
+  ctx: ContinuityCaseContext,
+  check: ActionCheckId,
+  options: {
+    requestType: 'answer-approval' | 'decide-approval' | 'plan-decision';
+    actionUrl: string;
+    payload: (sessionId: string) => Record<string, unknown>;
+  },
+): Promise<ActionCaseHandle> {
+  const { page, sessionId, faults } = ctx;
+  await preloadModules(page, [MODULE_URLS.defineCollection, MODULE_URLS.sessionsCollection, options.actionUrl]);
+  if (check === 'C1' || check === 'C5') {
+    const pushFields = options.requestType === 'plan-decision'
+      ? { planGate: null }
+      : { conversationApproval: null };
+    faults.stubRequestReply(options.requestType, (_frame, nextSeq) => ({
+      reply: { type: 'session-action-result', id: sessionId, ok: true, appliedSeq: nextSeq },
+      push: {
+        type: 'session-status',
+        id: sessionId,
+        session: 'continuity',
+        timestamp: Date.now(),
+        ...pushFields,
+      },
+    }));
+  }
+  await page.evaluate(({ defineCollectionUrl, sessionsUrl, actionUrl, targetSessionId, actionPayload }) => {
+    const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+    const applyCollectionServerMessage = cache[defineCollectionUrl].applyCollectionServerMessage as (name: string, msg: Record<string, unknown>) => boolean;
+    applyCollectionServerMessage('sessions', {
+      type: 'session-status',
+      id: targetSessionId,
+      session: 'continuity',
+      timestamp: Date.now(),
+      transition: { from: 'RUNNING', to: 'WAITING', event: 'wait' },
+    });
+    const sessions = cache[sessionsUrl].default as { state: { byId: Record<string, { state: string }> } };
+    const readState = (): string => sessions.state.byId[targetSessionId]?.state ?? '';
+    Reflect.set(window, '__continuityActiveAction', {
+      readValue: readState,
+      isOptimisticShown: () => readState() === 'RUNNING',
+      fire: () => {
+        const runAction = cache[actionUrl].default as (input: Record<string, unknown>) => Promise<unknown>;
+        Reflect.set(window, '__continuityActionPromise', runAction(actionPayload));
+      },
+    });
+  }, {
+    defineCollectionUrl: MODULE_URLS.defineCollection,
+    sessionsUrl: MODULE_URLS.sessionsCollection,
+    actionUrl: options.actionUrl,
+    targetSessionId: sessionId,
+    actionPayload: options.payload(sessionId),
+  });
+  return {
+    cleanup: async () => {
+      await page.evaluate(({ defineCollectionUrl, targetSessionId }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const applyCollectionServerMessage = cache[defineCollectionUrl].applyCollectionServerMessage as (name: string, msg: Record<string, unknown>) => boolean;
+        applyCollectionServerMessage('sessions', {
+          type: 'session-status',
+          id: targetSessionId,
+          session: 'continuity',
+          timestamp: Date.now(),
+          transition: { from: 'RUNNING', to: 'IDLE', event: 'cleanup' },
+        });
+      }, { defineCollectionUrl: MODULE_URLS.defineCollection, targetSessionId: sessionId });
+    },
+  };
+}
+
 export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
   {
     name: 'add-repo-roots',
@@ -410,6 +484,33 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
         },
       };
     },
+  },
+  {
+    name: 'answer-approval',
+    checks: ['C1', 'C2', 'C5'],
+    prepare: (ctx, check) => prepareSessionWaitActionCase(ctx, check, {
+      requestType: 'answer-approval',
+      actionUrl: MODULE_URLS.answerApproval,
+      payload: (id) => ({ id, approvalRequestId: 'continuity-approval-1', answers: { 'Proceed?': 'Yes' } }),
+    }),
+  },
+  {
+    name: 'decide-approval',
+    checks: ['C1', 'C2', 'C5'],
+    prepare: (ctx, check) => prepareSessionWaitActionCase(ctx, check, {
+      requestType: 'decide-approval',
+      actionUrl: MODULE_URLS.decideApproval,
+      payload: (id) => ({ id, approvalRequestId: 'continuity-approval-2', decision: 'allow' }),
+    }),
+  },
+  {
+    name: 'plan-decision',
+    checks: ['C1', 'C2', 'C5'],
+    prepare: (ctx, check) => prepareSessionWaitActionCase(ctx, check, {
+      requestType: 'plan-decision',
+      actionUrl: MODULE_URLS.planDecision,
+      payload: (id) => ({ id, decision: 'approve' }),
+    }),
   },
   {
     name: 'branch-spawn',

@@ -35,11 +35,6 @@
       "sendControlRequest": 1,
       "onControlMessage": 0
     },
-    "public/board-session/agent-waits.ts": {
-      "sendControlMsg": 1,
-      "sendControlRequest": 0,
-      "onControlMessage": 0
-    },
     "public/board-session/ask-card.ts": {
       "sendControlMsg": 0,
       "sendControlRequest": 1,
@@ -379,12 +374,10 @@
     "agent-account-rename",
     "agent-account-sign-in",
     "agent-lane-account",
-    "answer-approval",
     "board-ask-answer",
     "cancel-repository-clone",
     "cancel-wake",
     "community-action",
-    "decide-approval",
     "dismiss",
     "force-restart",
     "github-polling-refresh",
@@ -402,7 +395,6 @@
     "pack-session-start",
     "pack-source-add",
     "pack-source-update",
-    "plan-decision",
     "pr-action-run",
     "pr-flow-approve",
     "pr-flow-dispose",
