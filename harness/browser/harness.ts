@@ -236,13 +236,18 @@ interface FakeAgentScan extends SurvivorCheck {
   unavailableReason: string | null;
 }
 
-function scanProcForFakeAgents(procRoot: string): FakeAgentScan {
+function scanProcForFakeAgents(procRoot: string, glimmervoidHome?: string): FakeAgentScan {
   const leftoverPids: number[] = [];
+  const expectedHomeEnv = glimmervoidHome ? `GLIMMERVOID_HOME=${glimmervoidHome}` : null;
   for (const entry of fs.readdirSync(procRoot)) {
     if (!/^\d+$/.test(entry)) continue;
     try {
       const commandLine = fs.readFileSync(path.join(procRoot, entry, 'cmdline'), 'utf8');
       if (!commandLine.includes(FAKE_AGENT_PATH) && !commandLine.includes(FAKE_ACP_AGENT_PATH)) continue;
+      if (expectedHomeEnv !== null) {
+        const environEntries = fs.readFileSync(path.join(procRoot, entry, 'environ'), 'utf8').split('\0');
+        if (!environEntries.includes(expectedHomeEnv)) continue;
+      }
       leftoverPids.push(Number(entry));
     } catch {}
   }
@@ -268,8 +273,8 @@ function scanProcessListingForFakeAgents(): FakeAgentScan {
   }
 }
 
-function scanForFakeAgents(): FakeAgentScan {
-  if (fs.existsSync('/proc')) return scanProcForFakeAgents('/proc');
+function scanForFakeAgents(glimmervoidHome?: string): FakeAgentScan {
+  if (fs.existsSync('/proc')) return scanProcForFakeAgents('/proc', glimmervoidHome);
   if (process.platform === 'darwin') return scanProcessListingForFakeAgents();
   return {
     available: false,
@@ -278,11 +283,11 @@ function scanForFakeAgents(): FakeAgentScan {
   };
 }
 
-async function waitForFakeAgentsToExit(): Promise<FakeAgentScan> {
-  let scan = scanForFakeAgents();
+async function waitForFakeAgentsToExit(glimmervoidHome?: string): Promise<FakeAgentScan> {
+  let scan = scanForFakeAgents(glimmervoidHome);
   for (let attempt = 0; attempt < LEFTOVER_SCAN_ATTEMPTS && scan.available && scan.leftoverPids.length > 0; attempt += 1) {
     await new Promise((resolve) => { setTimeout(resolve, LEFTOVER_SCAN_INTERVAL_MS); });
-    scan = scanForFakeAgents();
+    scan = scanForFakeAgents(glimmervoidHome);
   }
   return scan;
 }
@@ -399,6 +404,7 @@ async function main(): Promise<number> {
   }
 
   const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-browser-'));
+  const glimmervoidHome = path.join(tempDirectory, 'home');
   const previousEnvironment = {
     GLIMMERVOID_HOME: process.env.GLIMMERVOID_HOME,
     GLIMMERVOID_CONFIG: process.env.GLIMMERVOID_CONFIG,
@@ -432,7 +438,7 @@ async function main(): Promise<number> {
       } catch (error) {
         console.error(`vite cleanup failed: ${safeTextTail(error, 400)}`);
       }
-      fakeAgentScan = await waitForFakeAgentsToExit();
+      fakeAgentScan = await waitForFakeAgentsToExit(glimmervoidHome);
       removeHarnessTempDirectory(tempDirectory);
       restoreTranscriptHomes();
       for (const [name, value] of Object.entries(previousEnvironment)) {
@@ -473,7 +479,6 @@ async function main(): Promise<number> {
     const baseUrl = `http://${servedHost}:${port}/`;
     writeConfigDocument(configPath, port, cases, sessionIds, projectDirs, isLanRun ? baseUrl.slice(0, -1) : null);
 
-    const glimmervoidHome = path.join(tempDirectory, 'home');
     fs.mkdirSync(glimmervoidHome, { recursive: true });
     process.env.GLIMMERVOID_HOME = glimmervoidHome;
     process.env.GLIMMERVOID_CONFIG = configPath;

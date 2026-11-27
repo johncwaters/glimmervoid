@@ -151,6 +151,8 @@ async function boardBoxCenterWhere(page: Page, panel: Locator, boardId: string, 
   const open: OpenBoard = { page, panel, boardId };
   const { found, laidOut } = await pollFor('a matching board box laid out as a rect', BOARD_TIMEOUT_MS, async () => {
     const board = await boardOf(open);
+    const shownVersionText = await open.panel.locator('.wb-board-meta').first().getAttribute('data-board-version').catch(() => null);
+    if (shownVersionText === null || Number(shownVersionText) !== board.version) return null;
     const matched = [...board.elements.values()].find(isMatch);
     if (matched === undefined) return null;
     const matchedLayout = layoutBoard(board).elements.find((element) => element.id === matched.id);
