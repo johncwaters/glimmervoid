@@ -3,6 +3,7 @@ import { errorMessage } from '#shared/text.ts';
 import { mountPatchDiff } from '../review/diff-view.ts';
 import type { ReaderFile } from '../review/review-reader-core.ts';
 import { button } from '../ui/button.ts';
+import { isModalOpen } from '../ui/modal-state.ts';
 import { createPressable } from '../ui/pressable.ts';
 
 type ChangedFile = Pick<ReaderFile, 'path' | 'added' | 'removed' | 'patch'>;
@@ -71,7 +72,7 @@ export function createDiffPanel(): DiffPanel {
   head.append(title, closeButton);
   element.append(head, failure, body);
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || event.defaultPrevented || element.hidden) return;
+    if (event.key !== 'Escape' || event.defaultPrevented || element.hidden || isModalOpen()) return;
     event.preventDefault();
     close();
   });

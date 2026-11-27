@@ -1,5 +1,6 @@
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
+import { isModalOpen } from '../ui/modal-state.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { jumpTargetCount, pickStrongestAttention } from '../attention-core.ts';
 import { getRestorableSessionId, isSessionShown, requestSessionOpen, selectSession } from '../session-actions.ts';
@@ -236,7 +237,8 @@ function build() {
     setMoreMenuOpen(false);
   });
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && isMoreMenuOpen()) setMoreMenuOpen(false);
+    if (event.key !== 'Escape' || event.defaultPrevented || !isMoreMenuOpen() || isModalOpen()) return;
+    setMoreMenuOpen(false);
   });
 }
 

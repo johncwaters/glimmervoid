@@ -7,6 +7,7 @@ import { isPhoneLayout } from '../form-factor.ts';
 import { buildPackApprovalContent } from '../packs/pack-approval-content.ts';
 import { subscribePacks } from '../packs/packs-store.ts';
 import { button } from '../ui/button.ts';
+import { isModalOpen } from '../ui/modal-state.ts';
 import type { SessionUi } from './card-registry.ts';
 import { copyTextToClipboard } from './terminal-notices.ts';
 import { decideHostMismatch, decidePopupPlacement, HIDDEN_POPUP, nextPopupState, roomBesideAnchorPx, splitUrlForDisplay } from './terminal-link-popup-core.ts';
@@ -129,7 +130,8 @@ export function createLinkPopup<Anchor>(popupHost: LinkPopupHost<Anchor>): LinkP
   }
 
   function closeOnEscape(event: KeyboardEvent) {
-    if (event.key === 'Escape') dispatch('escape');
+    if (event.key !== 'Escape' || event.defaultPrevented || isModalOpen()) return;
+    dispatch('escape');
   }
 
   function anchorWithinBounds(link: HoveredLink<Anchor>) {

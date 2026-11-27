@@ -3,6 +3,7 @@ import type { Page } from 'playwright-core';
 const MODAL_MODULE_URL = '/session-card/modal.ts';
 const ISLAND_MODULE_URL = '/ui/island.ts';
 const DIALOG_MODULE_URL = '/ui/Dialog.tsx';
+const DIFF_PANEL_MODULE_URL = '/board-session/studio-diff-panel.ts';
 
 export interface ConfirmDialogCheckResult {
   ok: boolean;
@@ -36,6 +37,7 @@ interface ProbeWindow extends Window {
   __glimmervoidConfirmProbe?: ProbeState;
   __docEscCleanup?: () => boolean;
   __noEscCleanup?: () => void;
+  __diffPanelProbe?: { element: HTMLElement; close: () => void };
 }
 
 export async function verifyConfirmDialog(page: Page): Promise<ConfirmDialogCheckResult> {
@@ -69,6 +71,10 @@ export async function verifyConfirmDialog(page: Page): Promise<ConfirmDialogChec
       probe?.legacyClose?.();
       probe?.opener.remove();
       delete (window as ProbeWindow).__glimmervoidConfirmProbe;
+      const diffPanelProbe = (window as ProbeWindow).__diffPanelProbe;
+      diffPanelProbe?.close();
+      diffPanelProbe?.element.remove();
+      delete (window as ProbeWindow).__diffPanelProbe;
     });
   };
 
@@ -395,7 +401,63 @@ export async function verifyConfirmDialog(page: Page): Promise<ConfirmDialogChec
     }, MODAL_MODULE_URL);
     if (legacyOverNativeError) return { ok: false, detail: legacyOverNativeError };
 
-    return { ok: true, detail: 'native dialog confirm options, keyboard navigation, backdrop, drag-out, stacking, Escape isolation, and focus return passed' };
+    await page.evaluate(async ({ modalUrl, diffPanelUrl }: { modalUrl: string; diffPanelUrl: string }) => {
+      const [modal, diffPanelModule] = await Promise.all([
+        import(modalUrl) as Promise<ModalRuntime>,
+        import(diffPanelUrl) as Promise<{ createDiffPanel: () => { element: HTMLElement; open: (file: { path: string; added: number; removed: number; patch: string }) => void; close: () => void } }>,
+      ]);
+      const diffPanel = diffPanelModule.createDiffPanel();
+      document.body.appendChild(diffPanel.element);
+      (window as ProbeWindow).__diffPanelProbe = diffPanel;
+      diffPanel.open({ path: 'example.ts', added: 1, removed: 0, patch: '@@ -1 +1 @@\n-old\n+new\n' });
+      const legacy = modal.createModalOverlay();
+      const legacyBtn = document.createElement('button');
+      legacyBtn.type = 'button';
+      legacyBtn.textContent = 'Legacy over diff panel';
+      legacy.dialog.appendChild(legacyBtn);
+      legacyBtn.focus();
+    }, { modalUrl: MODAL_MODULE_URL, diffPanelUrl: DIFF_PANEL_MODULE_URL });
+
+    await page.keyboard.press('Escape');
+    const diffPanelOverLegacyError = await page.evaluate(async (modalUrl: string) => {
+      const modal = (await import(modalUrl)) as ModalRuntime;
+      const diffPanel = (window as ProbeWindow).__diffPanelProbe;
+      if (!diffPanel) return 'diff panel probe missing';
+      if (diffPanel.element.hidden) return 'Escape inside a legacy modal closed the studio diff panel';
+      if (modal.isModalOpen()) return 'Escape did not close the legacy modal over the studio diff panel';
+      modal.openConfirmDialog({
+        title: 'Confirm over diff panel',
+        message: 'Escape should close only this dialog.',
+      });
+      return null;
+    }, MODAL_MODULE_URL);
+    if (diffPanelOverLegacyError) return { ok: false, detail: diffPanelOverLegacyError };
+
+    await dialog.waitFor({ state: 'visible' });
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+
+    const diffPanelAfterNativeError = await page.evaluate(() => {
+      const diffPanel = (window as ProbeWindow).__diffPanelProbe;
+      if (!diffPanel) return 'diff panel probe missing';
+      if (diffPanel.element.hidden) return 'Escape inside a native confirm dialog closed the studio diff panel';
+      return null;
+    });
+    if (diffPanelAfterNativeError) return { ok: false, detail: diffPanelAfterNativeError };
+
+    await page.keyboard.press('Escape');
+    const diffPanelCloseError = await page.evaluate(() => {
+      const diffPanel = (window as ProbeWindow).__diffPanelProbe;
+      if (!diffPanel) return 'diff panel probe missing';
+      const stayedOpen = !diffPanel.element.hidden;
+      diffPanel.close();
+      diffPanel.element.remove();
+      delete (window as ProbeWindow).__diffPanelProbe;
+      return stayedOpen ? 'Escape with no modal open did not close the studio diff panel' : null;
+    });
+    if (diffPanelCloseError) return { ok: false, detail: diffPanelCloseError };
+
+    return { ok: true, detail: 'native dialog confirm options, keyboard navigation, backdrop, drag-out, stacking, Escape isolation, studio diff panel guard, and focus return passed' };
   } finally {
     await cleanupProbe();
   }

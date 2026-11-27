@@ -10,6 +10,7 @@ import { el } from '../dom-helpers.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { loadResumeDialog } from '../session-card/deferred-loads.ts';
+import { isModalOpen } from '../ui/modal-state.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
@@ -880,7 +881,8 @@ function mountBoardSessionView(panel: HTMLElement): void {
   parts = { root, menu, menuOpener: null, topLeft, noRepoChip, notice, dockSlot, presenceLayer, askCards, agentCards, changesPeek, diffPanel, guide, guest };
   observeFixedAreas([dockSlot, guide.element, agentCards.element]);
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !menu.hidden) closeMenu();
+    if (event.key !== 'Escape' || event.defaultPrevented || menu.hidden || isModalOpen()) return;
+    closeMenu();
   });
   document.addEventListener('pointerdown', (event) => {
     if (menu.hidden || !(event.target instanceof Node) || menu.contains(event.target) || parts?.menuOpener?.contains(event.target)) return;
