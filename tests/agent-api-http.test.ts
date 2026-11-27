@@ -1563,6 +1563,45 @@ test('a child that stops while its parent works wakes the parent once the parent
   }
 });
 
+test('a parent that read a report and closed its child mid-turn is not woken by the child turn-end notices, which reach it as one current state', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const written: string[] = [];
+  fixture.parent.write = (text) => { written.push(text); };
+  const wakeLines = () => written.filter((text) => text.includes('has news'));
+  const waitForSubmitDelay = () => new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'land F16' });
+    const child = fixture.created[0];
+    await fixture.parent.start();
+    fixture.parent.transition('first_output');
+    fixture.parent.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 1, payload: { prompt: 'dispatch the plan' } });
+    fixture.parent.transition('new_output');
+    assert.equal(fixture.parent.state, STATES.RUNNING);
+
+    assert.equal((await fixture.wiring.handle(child, 'send', { words: ['F16', 'landed'] })).status, 200);
+    const report = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', { child: child.id })).body);
+    assert.deepEqual(report.channels[0]?.entries.map(({ text }) => text), ['F16 landed']);
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE, event: 'task_complete' });
+    child.emit('state-change', { from: STATES.COMPLETE, to: STATES.RUNNING, event: 'new_output' });
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'close', { child: child.id })).status, 200);
+
+    fixture.parent.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 2, payload: {} });
+    for (let waitedMs = 0; waitedMs < 3000 && !fixture.parent.isBetweenTurns(); waitedMs += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(fixture.parent.isBetweenTurns(), true);
+    advanceBy(1000);
+    await waitForSubmitDelay();
+    assert.equal(wakeLines().length, 0, 'a closed child wakes no one');
+
+    const afterClose = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', { child: child.id })).body);
+    const stopNotes = (afterClose.channels[0]?.entries ?? []).filter(({ text }) => text.includes('finished a turn'));
+    assert.deepEqual(stopNotes.map(({ text }) => text.replace(/^.* finished a turn/, 'finished a turn')), ['finished a turn and is Idle'], 'the newer state replaces the unread one');
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
 test('a child resuming after the parent wake line was submitted, before the parent has started its turn, types no second wake line', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });

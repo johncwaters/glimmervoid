@@ -90,6 +90,7 @@ interface ChannelLink {
   child: Session;
   lastChildMessage: string | null;
   waitingStopNoteText: string | null;
+  stateOnlyStopNoteText: string | null;
   hasParentRead: boolean;
   pendingWakeSides: Set<ChannelSide>;
   retryTimersBySide: Map<ChannelSide, TimerHandle>;

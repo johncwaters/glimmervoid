@@ -85,6 +85,11 @@ function withdrawUnreadNote(channel: AgentChannel, side: ChannelSide, text: stri
   return { ...channel, [side]: { ...channel[side], unread } };
 }
 
+function quietUnread(channel: AgentChannel, side: ChannelSide): AgentChannel {
+  const unread = channel[side].unread.map((entry) => ({ ...entry, wakes: false }));
+  return { ...channel, [side]: { ...channel[side], unread } };
+}
+
 function drainChannel(channel: AgentChannel, side: ChannelSide): { channel: AgentChannel; drained: DrainedMailbox } {
   const { unread, droppedCount } = channel[side];
   return { channel: { ...channel, [side]: EMPTY_MAILBOX }, drained: { entries: unread, droppedCount } };
@@ -196,6 +201,6 @@ function decideWake(facts: WakeFacts): WakeDecision {
 
 export {
   WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread,
-  isWakeLineAwaitingTurnStart, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote,
+  isWakeLineAwaitingTurnStart, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide };

@@ -3,7 +3,7 @@ import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
@@ -35,6 +35,9 @@ function createChildChannels(runtime: AgentApiRuntime) {
 
   function noteEndCause(childId: string, cause: ChildEndCause): void {
     if (!endCauseByChildId.has(childId)) endCauseByChildId.set(childId, cause);
+    if (endCauseByChildId.get(childId) !== 'parent-closed') return;
+    const channel = channelsByChildId.get(childId);
+    if (channel) channelsByChildId.set(childId, quietUnread(channel, 'toParent'));
   }
 
   function unlink(childId: string): void {
@@ -248,6 +251,13 @@ function createChildChannels(runtime: AgentApiRuntime) {
     link.waitingStopNoteText = null;
   }
 
+  function withdrawStateOnlyStopNote(childId: string, link: ChannelLink): void {
+    const channel = channelsByChildId.get(childId);
+    if (!channel || link.stateOnlyStopNoteText === null) return;
+    channelsByChildId.set(childId, withdrawUnreadNote(channel, 'toParent', link.stateOnlyStopNoteText));
+    link.stateOnlyStopNoteText = null;
+  }
+
   function watchChild(link: ChannelLink, childId: string): () => void {
     let lastRelayedQuestionId: ConversationApproval['requestId'] | null = null;
     const relayQuestion = ({ conversationApproval }: { conversationApproval: ConversationApproval | null }) => {
@@ -269,7 +279,9 @@ function createChildChannels(runtime: AgentApiRuntime) {
       const isHeldQuestionWaiting = to === STATES.WAITING && link.child._conversationApproval?.kind === 'question';
       if (!isHeldQuestionWaiting && shouldPostStopNote(from, to, event)) {
         const text = describeStopNote({ childName: link.child.name, state: to, lastMessage: link.lastChildMessage });
-        post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: shouldStopNoteWake(to, link.hasParentRead) });
+        withdrawStateOnlyStopNote(childId, link);
+        post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: endCauseByChildId.get(childId) !== 'parent-closed' && shouldStopNoteWake(to, link.hasParentRead) });
+        link.stateOnlyStopNoteText = link.lastChildMessage === null ? text : null;
         link.lastChildMessage = null;
         link.waitingStopNoteText = to === STATES.WAITING ? text : null;
       }
@@ -291,7 +303,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     const keptChannel = channelsByChildId.get(child.id);
     channelsByChildId.set(child.id, kind === 'branch' && keptChannel?.kind === 'branch' && keptChannel.parentId === parent.id ? keptChannel : openChannel({ kind, parentId: parent.id, childId: child.id, childName }));
     const link: ChannelLink = {
-      parent, child, lastChildMessage: null, waitingStopNoteText: null, hasParentRead: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(), stopWatchingChild: () => {},
+      parent, child, lastChildMessage: null, waitingStopNoteText: null, stateOnlyStopNoteText: null, hasParentRead: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(), stopWatchingChild: () => {},
     };
     linksByChildId.get(child.id)?.stopWatchingChild();
     linksByChildId.set(child.id, link);
