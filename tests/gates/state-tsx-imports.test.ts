@@ -250,7 +250,7 @@ test('state-tsx-imports gate fails on planted violations with file, line, form, 
       content: [
         "import { sendControlMsg } from '../control-ws.ts';",
         "import { getString } from '../local-store.js';",
-        "import { subscribeHooks } from '/hooks-store.ts';",
+        "import { subscribeFixture } from '/legacy-fixture-store.ts';",
         "import { action, createOptimisticStore, createStore } from 'solid-js';",
         "import * as $Solid from 'solid-js';",
         'export async function PlantedBadView() {',
@@ -258,12 +258,12 @@ test('state-tsx-imports gate fails on planted violations with file, line, form, 
         '  const { createStore: nsStore } = $Solid;',
         "  const solidMod = await import('solid-js'); solidMod.action(() => {});",
         "  void self.fetch('/api/self'); void fetch?.('/api/opt');",
-        '  return <div>{String(Boolean(sendControlMsg && getString && subscribeHooks && action && createOptimisticStore && createStore && nsStore))}</div>;',
+        '  return <div>{String(Boolean(sendControlMsg && getString && subscribeFixture && action && createOptimisticStore && createStore && nsStore))}</div>;',
         '}',
       ].join('\n'),
     },
   ];
-  const recordedStores = ['public/hooks-store.ts'];
+  const recordedStores = ['public/legacy-fixture-store.ts'];
 
   const violations = tsxImportViolationsIn(plantedFiles, recordedStores);
   assert.ok(
@@ -275,7 +275,7 @@ test('state-tsx-imports gate fails on planted violations with file, line, form, 
     `expected local-store.js violation, got: ${violations.join(' | ')}`,
   );
   assert.ok(
-    violations.some((entry) => entry.includes('public/ui/planted-bad-view.tsx:3:') && entry.includes('/hooks-store.ts') && entry.includes('public/ui/store-signal.ts')),
+    violations.some((entry) => entry.includes('public/ui/planted-bad-view.tsx:3:') && entry.includes('/legacy-fixture-store.ts') && entry.includes('public/ui/store-signal.ts')),
     `expected root-relative legacy store violation, got: ${violations.join(' | ')}`,
   );
   assert.ok(
