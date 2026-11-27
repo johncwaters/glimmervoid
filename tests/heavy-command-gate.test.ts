@@ -122,3 +122,60 @@ console.log('OK');
   gate.stop();
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
+
+test('lightweight agent done-line checks do not block on heavyCommandGate while a heavy slot is held, whereas heavy agent done-line checks still wait', async (context) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-light-done-'));
+  context.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(tempRoot, 'marker.txt'), 'ready\n');
+
+  const gate = createHeavyCommandGate({ maxSlots: 1, defaultLeaseTtlMs: Number.POSITIVE_INFINITY });
+  const held = await gate.acquire({ sessionId: 'other-npm-test', toolUseId: 'bash-1', commandClass: 'test' });
+  assert.equal(held.status, 'granted');
+
+  const wiring = createVerificationWiring({
+    getVerificationConfig: () => ({}),
+    isSessionSandboxOn: () => false,
+    broadcastControl: () => {},
+    heavyCommandGate: gate,
+    logger: { warn: () => {} },
+  });
+  context.after(() => {
+    wiring.stop();
+    gate.stop();
+  });
+
+  const makeSession = (id: string, agentDoneLines: { text: string; command: string }[]) => Object.assign(new EventEmitter(), {
+    id,
+    path: tempRoot,
+    ephemeral: false,
+    agentDoneLines,
+    hasOwnWorktree: true,
+    worktreeDir: tempRoot,
+    worktreeLifecycle: {
+      computeGateTree: async () => ({ sig: `sig-${id}`, dirty: false, headSha: null }),
+      snapshot: () => ({ baseSha: null, effectiveBase: null }),
+      setMergeGate: () => {},
+    },
+  });
+
+  wiring.attachSession(makeSession('light-session', [
+    { text: 'marker exists', command: 'test -f marker.txt' },
+    { text: 'marker matches', command: 'grep -q ready marker.txt' },
+  ]));
+  const lightOutcome = await wiring.checkNow('light-session', 1_500);
+  assert.equal(lightOutcome.ok, true);
+  assert.ok(lightOutcome.ok && lightOutcome.run !== null, 'lightweight done-line checks finish without waiting for heavyCommandGate');
+  assert.deepEqual(lightOutcome.run.checks.map((check) => check.status), ['pass', 'pass']);
+
+  wiring.attachSession(makeSession('heavy-session', [
+    { text: 'node test', command: 'node --test --version' },
+  ]));
+  const blockedOutcome = await wiring.checkNow('heavy-session', 150);
+  assert.equal(blockedOutcome.ok, true);
+  assert.equal(blockedOutcome.ok ? blockedOutcome.run : 'unexpected', null, 'heavy agent done-line check still queues while heavyCommandGate is held');
+
+  gate.release(held.lease.id);
+  const unblockedOutcome = await wiring.checkNow('heavy-session', 5_000);
+  assert.equal(unblockedOutcome.ok, true);
+  assert.ok(unblockedOutcome.ok && unblockedOutcome.run !== null, 'heavy agent done-line check finishes once heavyCommandGate is released');
+});

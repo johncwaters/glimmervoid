@@ -210,7 +210,7 @@ function withTestConcurrencyArg(argv: readonly string[], testConcurrency: number
   return [...argv.slice(0, testFlagIndex + 1), `--test-concurrency=${testConcurrency}`, ...argv.slice(testFlagIndex + 1)];
 }
 
-  async function runCheck(sessionId: string, worktreeDir: string, spec: { id: string; command: string }, timeoutMs: number): Promise<CheckOutcome> {
+  async function runCheck(sessionId: string, worktreeDir: string, spec: { id: string; command: string }, timeoutMs: number, { gateUnclassifiedAsHeavy }: { gateUnclassifiedAsHeavy: boolean }): Promise<CheckOutcome> {
     if (dependencies.isSessionSandboxOn()) return skippedOutcome(spec, SANDBOX_SKIP_REASON);
     const parsedArgv = parseCheckCommand(spec.command);
     if (!parsedArgv) return skippedOutcome(spec, 'the command uses shell syntax, so it was not run; give a plain program and arguments');
@@ -223,8 +223,9 @@ function withTestConcurrencyArg(argv: readonly string[], testConcurrency: number
     const waitSignal = sessionController
       ? AbortSignal.any([stopController.signal, sessionController.signal])
       : stopController.signal;
-    const acquired = dependencies.heavyCommandGate
-      ? await dependencies.heavyCommandGate.acquire({ sessionId, toolUseId: `verify:${spec.id}`, commandClass: classifyHeavyCommand(spec.command) ?? 'test', signal: waitSignal })
+    const heavyCommandClass = classifyHeavyCommand(spec.command) ?? (gateUnclassifiedAsHeavy ? 'test' : null);
+    const acquired = dependencies.heavyCommandGate && heavyCommandClass !== null
+      ? await dependencies.heavyCommandGate.acquire({ sessionId, toolUseId: `verify:${spec.id}`, commandClass: heavyCommandClass, signal: waitSignal })
       : null;
     if (acquired && acquired.status !== 'granted') return skippedOutcome(spec, 'the verification check was cancelled while waiting for a build slot');
     try {
@@ -242,7 +243,7 @@ function withTestConcurrencyArg(argv: readonly string[], testConcurrency: number
   function runAgentCheck(sessionId: string, worktreeDir: string, agentCheck: AgentCheck, timeoutMs: number): Promise<CheckOutcome> {
     const screened = checkCommand({ command: agentCheck.command, cwd: worktreeDir });
     if (screened.kind === 'deny') return Promise.resolve({ id: agentCheck.id, command: agentCheck.command, status: 'fail', exitCode: null, outputTail: `Sane YOLO refused to run it: ${screened.reason}` });
-    return runCheck(sessionId, worktreeDir, agentCheck, timeoutMs);
+    return runCheck(sessionId, worktreeDir, agentCheck, timeoutMs, { gateUnclassifiedAsHeavy: false });
   }
 
   function agentChecksOf(session: VerifiableSession): AgentCheck[] {
@@ -259,7 +260,7 @@ function withTestConcurrencyArg(argv: readonly string[], testConcurrency: number
     });
     for (const spec of settings.checks) {
       if (!attachedSessionIds.has(session.id)) break;
-      checks.push(worktreeDir ? await runCheck(session.id, worktreeDir, spec, settings.timeoutSeconds * 1000) : skippedOutcome(spec, 'the session has no worktree'));
+      checks.push(worktreeDir ? await runCheck(session.id, worktreeDir, spec, settings.timeoutSeconds * 1000, { gateUnclassifiedAsHeavy: true }) : skippedOutcome(spec, 'the session has no worktree'));
     }
     for (const agentCheck of agentChecks) {
       if (!attachedSessionIds.has(session.id)) break;
