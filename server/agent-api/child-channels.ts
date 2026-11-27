@@ -318,7 +318,12 @@ function createChildChannels(runtime: AgentApiRuntime) {
     };
     linksByChildId.get(child.id)?.stopWatchingChild();
     linksByChildId.set(child.id, link);
-    link.stopWatchingChild = watchChild(link, child.id);
+    const stopWatching = watchChild(link, child.id);
+    const unlinkFromParent = parent.noteChildLinked(child);
+    link.stopWatchingChild = () => {
+      stopWatching();
+      unlinkFromParent();
+    };
     watchOperatorInput(parent);
     watchOperatorInput(child);
     if (!parentsWithChannelCleanup.has(parent)) {

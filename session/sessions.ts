@@ -165,8 +165,9 @@ function startsTurn(from: SessionState, to: SessionState): boolean {
 
 type StartupSignal = "output" | "ready";
 type TimerField = "_titleQuietFallbackTimer" | "_inputReadyFallbackTimer";
-type SnoozeRefusal = "in-progress" | "no-conversation" | "not-snoozable";
+type SnoozeRefusal = "in-progress" | "no-conversation" | "has-children" | "not-snoozable";
 type SnoozeOutcome = { ok: true } | { ok: false; reason: SnoozeRefusal };
+type LinkedChild = Pick<Session, "state" | "_destroyed">;
 
 interface SessionRecorderPort {
   writeHeader(config: { agent?: string | null; cols?: number; rows?: number } & Record<string, unknown>): void;
@@ -375,6 +376,7 @@ class Session extends EventEmitter {
   _agentLiveChildren: number;
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
+  _linkedChildren: Set<LinkedChild>;
   _probeGraphicalSession: () => Promise<GraphicalSessionState>;
   _requiresWorktree: boolean;
   _platform: NodeJS.Platform;
@@ -753,6 +755,7 @@ class Session extends EventEmitter {
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
     this._agentSpawnsInFlight = 0;
+    this._linkedChildren = new Set();
     this._platform = platform;
     this._probeGraphicalSession = probeGraphicalSession;
     this._launch = createSessionLaunch({
@@ -1519,6 +1522,20 @@ class Session extends EventEmitter {
 
   noteAgentChildExit(): void {
     this._agentLiveChildren = Math.max(0, this._agentLiveChildren - 1);
+  }
+
+  noteChildLinked(child: LinkedChild): () => void {
+    this._linkedChildren.add(child);
+    return () => {
+      this._linkedChildren.delete(child);
+    };
+  }
+
+  get hasLiveChildren(): boolean {
+    for (const child of this._linkedChildren) {
+      if (!child._destroyed && KILLABLE_STATES.includes(child.state)) return true;
+    }
+    return false;
   }
 
   raiseAttention(origin: AttentionOrigin, note: string): AgentAttentionReply {
@@ -2799,6 +2816,7 @@ class Session extends EventEmitter {
   snooze(): SnoozeOutcome {
     if (this._destroyed || this._teardownPending()) return { ok: false, reason: "in-progress" };
     if (!this._resumeSessionId) return { ok: false, reason: "no-conversation" };
+    if (this.hasLiveChildren) return { ok: false, reason: "has-children" };
     if (!this.transition("user_snooze")) return { ok: false, reason: "not-snoozable" };
     this._startGeneration += 1;
     this._launch.clearApprovedLaunches();

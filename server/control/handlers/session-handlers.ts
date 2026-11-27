@@ -506,6 +506,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   const SNOOZE_REFUSAL_TEXT: Readonly<Record<SnoozeRefusal, string>> = {
     'in-progress': 'This session is already restarting or finishing. Snooze it once that settles.',
     'no-conversation': 'This session has no saved conversation to pick back up, so snoozing it would lose the conversation.',
+    'has-children': "Close this session's child sessions before snoozing it.",
     'not-snoozable': 'Only a running or finished session can be snoozed.',
   };
 

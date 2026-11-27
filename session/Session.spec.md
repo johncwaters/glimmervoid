@@ -34,3 +34,8 @@ The session domain: spawning, supervising, resuming and shutting down agent sess
   via: a merge outcome lands whether the agent stays alive or exits while the merge runs
   because: an exit, discard or reset writes pending-review or none while git merges, and a refused outcome leaves a merged worktree shown as unmerged with nothing to act on
   kinds: none
+- a live child holds off snooze: A session is never snoozed while a child session linked to it holds a live agent.
+  over: every way a session with a linked child, spawned or Studio branch, is snoozed: the Snooze action, the automatic idle snooze and the budget hold
+  via: a session with a live child refuses snooze and is passed over by the idle sweep, which snoozes the next idle session, then the parent once its child is closed
+  because: a snoozed parent's exit closed every session it had spawned mid-task, and a snoozed Studio main never heard its branches
+  kinds: none

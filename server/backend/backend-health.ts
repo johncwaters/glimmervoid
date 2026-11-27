@@ -16,6 +16,7 @@ interface HealthSession {
   readonly resumeSessionId: string | null;
   readonly ephemeral?: boolean;
   readonly hasBackgroundWork: boolean;
+  readonly hasLiveChildren: boolean;
   snooze(): { ok: boolean; reason?: string };
   getHealthStats(): ReturnType<Session['getHealthStats']>;
   getDetectionStats(): ReturnType<Session['getDetectionStats']>;
@@ -126,6 +127,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     if (session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) return false;
     if (hasActiveTerminalViewer(id)) return false;
     if (session.hasBackgroundWork) return false;
+    if (session.hasLiveChildren) return false;
     return true;
   }
 

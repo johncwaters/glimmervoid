@@ -1812,6 +1812,10 @@
     {
       "name": "tool",
       "definition": "An external build or package-manager CLI required or invoked on the host (such as C++ build tools, npm, or pnpm), or an MCP capability Glimmervoid exposes to an agent session."
+    },
+    {
+      "name": "snooze",
+      "definition": "Stopping a live session's agent while keeping its worktree, changes and conversation, so its next start resumes the same conversation and a Glimmervoid restart does not start it; done by the Snooze action on a session card, automatically to an unviewed idle session on a host of 32 GiB or less, and to running sessions when a budget is reached, and refused while the session has no saved conversation or a live child session"
     }
   ],
   "retired": [

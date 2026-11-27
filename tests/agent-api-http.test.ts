@@ -37,6 +37,8 @@ import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV, AgentLimitsReply, AgentReadReply, A
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
+import { createBudgetSessionPauser } from '../server/session/session-budget-pause.ts';
+import { createBackendHealth } from '../server/backend/backend-health.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
@@ -1066,7 +1068,70 @@ test('a Studio branch and its main message each other on a channel opened from t
   }
 });
 
-test('siblings the same parent spawned message each other and see each other\'s file claims, and no other session can', async () => {
+test('a session with a live child refuses snooze and is passed over by the idle sweep, which snoozes the next idle session, then the parent once its child is closed', async () => {
+  const fixture = wiringFixture();
+  const bystander = new Session({ id: 'bystander', name: 'bystander', path: process.cwd(), ptySpawn: () => fakePty() });
+  const idleSessions = new Map([[fixture.parent.id, fixture.parent], [bystander.id, bystander]]);
+  const health = createBackendHealth({
+    sessions: idleSessions,
+    getAllSessions: () => [...idleSessions.values()],
+    sessionDataClients: new Map(),
+    getMemoryGateStatus: () => ({ headroomBytes: 0, headroomReadAtMs: null, heldStartCount: 0 }),
+    idleHibernation: { idleHibernateMs: null, headroomFloorBytes: 1, readHeadroom: async () => ({ ok: true, headroomBytes: 0 }) },
+    controlWss: { clients: new Set() },
+    viewerControlClientCount: () => 0,
+    dataWss: { clients: new Set() },
+    broadcastControl: () => {},
+  });
+  try {
+    for (const idleSession of idleSessions.values()) {
+      await idleSession.start();
+      idleSession.transition('first_output');
+      idleSession.setResumeConversation(`conversation-of-${idleSession.id}`);
+    }
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
+    const child = fixture.created[0];
+
+    assert.deepEqual(fixture.parent.snooze(), { ok: false, reason: 'has-children' });
+    assert.deepEqual(await health.runIdleHibernationSweep(), ['bystander']);
+    assert.deepEqual([fixture.parent.state, child._destroyed], [STATES.IDLE, false], 'the parent stays awake and its child lives');
+
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'close', { child: String(spawned.body.sessionId) })).status, 200);
+    assert.deepEqual(await health.runIdleHibernationSweep(), ['parent']);
+    assert.equal(fixture.parent.state, STATES.DORMANT);
+  } finally {
+    clearInterval(health.healthInterval);
+    bystander.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('a Studio main refuses snooze while a branch agent is live, and a budget hold pauses its branches first, snoozing one and stopping one with no conversation, so the main ends dormant, not killed', async () => {
+  const studioBranch = (id: string, title: string) => new Session({ id, name: `parent ${title}`, path: process.cwd(), ptySpawn: () => fakePty(), parent: { sessionId: 'parent', box: { id: `box-${title}`, title, repoName: 'glimmervoid' } } });
+  const resumableBranch = studioBranch('branch-server', 'server');
+  const branchWithoutConversation = studioBranch('branch-ui', 'ui');
+  const studioSessions = [resumableBranch, branchWithoutConversation];
+  const fixture = wiringFixture({ parentIsStudioMain: true, laneSessions: studioSessions });
+  const pauseForBudget = createBudgetSessionPauser(() => [fixture.parent, ...studioSessions], () => 1_000_000);
+  try {
+    for (const studioSession of [fixture.parent, ...studioSessions]) {
+      await studioSession.start();
+      studioSession.transition('first_output');
+    }
+    fixture.parent.setResumeConversation('conversation-of-main');
+    resumableBranch.setResumeConversation('conversation-of-server');
+    fixture.wiring.linkBranchSession(fixture.parent);
+
+    assert.deepEqual(fixture.parent.snooze(), { ok: false, reason: 'has-children' });
+    assert.deepEqual(pauseForBudget('start'), ['parent server', 'parent ui', 'parent']);
+    assert.deepEqual([resumableBranch.state, branchWithoutConversation.state, fixture.parent.state], [STATES.DORMANT, STATES.DONE, STATES.DORMANT]);
+  } finally {
+    for (const studioSession of studioSessions) studioSession.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('siblings the same parent spawned message each other and see each other\'s file claims, and no other session can',async () => {
   const fixture = wiringFixture();
   const stranger = new Session({ id: 'stranger', name: 'stranger', path: process.cwd(), ptySpawn: () => fakePty() });
   try {
