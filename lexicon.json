@@ -1824,6 +1824,10 @@
     {
       "name": "dialog",
       "definition": "A modal window on the dashboard that the operator answers or closes before going on, such as Restart, Add Session, Pull requests and every confirm prompt; confirm prompts come from openConfirmDialog, built on the browser's native dialog element in public/ui/Dialog.tsx"
+    },
+    {
+      "name": "control socket",
+      "definition": "The authenticated WebSocket a dashboard opens to the server for JSON control messages: requests and replies, collection frames stamped with seq, and the snapshot and since replay on reconnect (ControlSocket in server/backend/backend-websockets.ts)"
     }
   ],
   "retired": [
