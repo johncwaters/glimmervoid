@@ -1106,7 +1106,7 @@ test('a session with a live child refuses snooze and is passed over by the idle 
   }
 });
 
-test('a Studio main refuses snooze while a branch agent is live, and a budget hold pauses its branches first, snoozing one and stopping one with no conversation, so the main ends dormant, not killed', async () => {
+test('a Studio main refuses snooze while a branch agent is live, and a budget hold pauses its branches first, snoozing one and stopping one with no conversation, so the main ends dormant, not killed, and once restarted waits for a branch the operator is using', async () => {
   const studioBranch = (id: string, title: string) => new Session({ id, name: `parent ${title}`, path: process.cwd(), ptySpawn: () => fakePty(), parent: { sessionId: 'parent', box: { id: `box-${title}`, title, repoName: 'glimmervoid' } } });
   const resumableBranch = studioBranch('branch-server', 'server');
   const branchWithoutConversation = studioBranch('branch-ui', 'ui');
@@ -1125,6 +1125,19 @@ test('a Studio main refuses snooze while a branch agent is live, and a budget ho
     assert.deepEqual(fixture.parent.snooze(), { ok: false, reason: 'has-children' });
     assert.deepEqual(pauseForBudget('start'), ['parent server', 'parent ui', 'parent']);
     assert.deepEqual([resumableBranch.state, branchWithoutConversation.state, fixture.parent.state], [STATES.DORMANT, STATES.DONE, STATES.DORMANT]);
+
+    for (const restartedSession of [fixture.parent, resumableBranch]) {
+      await restartedSession._handlePtyExit(0, null);
+      await restartedSession.start();
+      restartedSession.transition('first_output');
+    }
+    resumableBranch.noteOperatorInput('y');
+    assert.deepEqual(pauseForBudget('continue'), []);
+    assert.equal(fixture.parent.state, STATES.IDLE, 'the restarted main is neither snoozed nor killed while the operator works in its branch');
+
+    assert.deepEqual(resumableBranch.snooze(), { ok: true });
+    assert.deepEqual(pauseForBudget('continue'), ['parent']);
+    assert.equal(fixture.parent.state, STATES.DORMANT);
   } finally {
     for (const studioSession of studioSessions) studioSession.destroy();
     fixture.destroyAll();

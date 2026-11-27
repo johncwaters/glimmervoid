@@ -5,7 +5,12 @@ import type { Session } from '../../session/sessions.ts';
 type PausableSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'parent' | 'state' | '_lastOperatorInputAt' | 'snooze' | 'killSession'>;
 type BudgetHoldPhase = 'start' | 'continue' | 'end';
 
-function pauseEach(sessions: readonly PausableSession[]): PausableSession[] {
+interface PauseOutcome {
+  paused: PausableSession[];
+  waitingOnChildren: PausableSession[];
+}
+
+function pauseEach(sessions: readonly PausableSession[]): PauseOutcome {
   const paused: PausableSession[] = [];
   let waitingOnChildren = [...sessions];
   let hasSettledAny = true;
@@ -22,12 +27,12 @@ function pauseEach(sessions: readonly PausableSession[]): PausableSession[] {
     hasSettledAny = stillWaitingOnChildren.length < waitingOnChildren.length;
     waitingOnChildren = stillWaitingOnChildren;
   }
-  return [...paused, ...waitingOnChildren.filter((session) => session.killSession())];
+  return { paused, waitingOnChildren };
 }
 
 function createBudgetSessionPauser(liveSessions: () => readonly PausableSession[], nowMs: () => number) {
   let pausedAtMs = 0;
-  const pausedSessionIds = new Set<string>();
+  const heldSessionIds = new Set<string>();
 
   function isRunning(session: PausableSession): boolean {
     const isLaneSession = session.ephemeral && ownerIdOf(session.parent) === null;
@@ -36,26 +41,26 @@ function createBudgetSessionPauser(liveSessions: () => readonly PausableSession[
 
   function pauseAll(): string[] {
     pausedAtMs = nowMs();
-    const paused = pauseEach(liveSessions().filter(isRunning));
-    for (const session of paused) pausedSessionIds.add(session.id);
+    const { paused, waitingOnChildren } = pauseEach(liveSessions().filter(isRunning));
+    for (const session of [...paused, ...waitingOnChildren]) heldSessionIds.add(session.id);
     return paused.map((session) => session.name);
   }
 
   function repauseRestarted(): string[] {
-    const restartedWithoutOperator = liveSessions()
-      .filter((session) => pausedSessionIds.has(session.id) && isRunning(session))
+    const runningWithoutOperator = liveSessions()
+      .filter((session) => heldSessionIds.has(session.id) && isRunning(session))
       .filter((session) => {
         if (session._lastOperatorInputAt < pausedAtMs) return true;
-        pausedSessionIds.delete(session.id);
+        heldSessionIds.delete(session.id);
         return false;
       });
-    return pauseEach(restartedWithoutOperator).map((session) => session.name);
+    return pauseEach(runningWithoutOperator).paused.map((session) => session.name);
   }
 
   return (phase: BudgetHoldPhase): string[] => {
     if (phase === 'start') return pauseAll();
     if (phase === 'continue') return repauseRestarted();
-    pausedSessionIds.clear();
+    heldSessionIds.clear();
     return [];
   };
 }
