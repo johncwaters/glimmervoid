@@ -7,7 +7,8 @@ import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from '../action-status.ts';
 import { SESSION_CLOSE_UNDO_WINDOW_MS } from '../session-actions.ts';
 
-type BoardCommandOutcome = { ok: true; reply: ServerMessageOf<'whiteboard-result'> } | { ok: false; error: string; isConflict: boolean };
+type WhiteboardReplyMessage = ServerMessageOf<'whiteboard-result'> | ServerMessageOf<'whiteboard-read-result'>;
+type BoardCommandOutcome = { ok: true; reply: WhiteboardReplyMessage } | { ok: false; error: string; isConflict: boolean };
 type BoardListener = (boardId: string) => void;
 
 const listListeners: (() => void)[] = [];
@@ -25,8 +26,8 @@ function notifyBoard(boardId: string): void {
   for (const listener of boardListeners) listener(boardId);
 }
 
-function isWhiteboardResult(message: ServerMessage): message is ServerMessageOf<'whiteboard-result'> {
-  return message.type === 'whiteboard-result';
+function isWhiteboardResult(message: ServerMessage): message is WhiteboardReplyMessage {
+  return message.type === 'whiteboard-result' || message.type === 'whiteboard-read-result';
 }
 
 async function runBoardCommand(type: string, payload: Record<string, unknown>): Promise<BoardCommandOutcome> {

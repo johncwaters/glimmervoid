@@ -360,7 +360,6 @@
     "server/control/handlers/review-handlers.ts": 3,
     "server/control/handlers/settings-handlers.ts": 8,
     "server/control/handlers/wargames-handlers.ts": 2,
-    "server/control/handlers/whiteboard-handlers.ts": 7,
     "server/control/handlers/worktree-handlers.ts": 1
   },
   "legacyMutatingWithoutRequestId": [
@@ -399,7 +398,6 @@
     "studio-progress-ask-result",
     "team-review-action-result",
     "wargames-abort-result",
-    "wargames-start-result",
-    "whiteboard-result"
+    "wargames-start-result"
   ]
 }

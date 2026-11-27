@@ -3,12 +3,12 @@ import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import type { WhiteboardPort } from '../../whiteboard/whiteboard-wiring.ts';
 import type { TileViewer } from '../../whiteboard/board-tile-service.ts';
-import type { ControlContext, RequestWithId } from '../control-context.ts';
+import type { ControlContext, MutatingControlMessage, RequestWithId } from '../control-context.ts';
 import { replyTo } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
-  const { findSession } = context;
+  const { findSession, replyApplied } = context;
   const { whiteboards = null } = deps;
   const tileViewerBySocket = new WeakMap<ControlSocket, TileViewer>();
 
@@ -21,28 +21,36 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     return viewer;
   }
 
-  async function answerWhiteboard(ws: ControlSocket, msg: RequestWithId, command: (port: WhiteboardPort['handleOperator']) => Promise<Record<string, unknown>>): Promise<void> {
+  async function answerWhiteboardRead(ws: ControlSocket, msg: RequestWithId, command: (port: WhiteboardPort['handleOperator']) => Promise<Record<string, unknown>>): Promise<void> {
     if (!whiteboards) {
-      replyTo(ws, msg, 'whiteboard-result', { ok: false, error: 'Whiteboards are not available on this server.' });
+      replyTo(ws, msg, 'whiteboard-read-result', { ok: false, error: 'Whiteboards are not available on this server.' });
       return;
     }
-    replyTo(ws, msg, 'whiteboard-result', { ...await command(whiteboards.handleOperator) });
+    replyTo(ws, msg, 'whiteboard-read-result', { ...await command(whiteboards.handleOperator) });
+  }
+
+  async function answerWhiteboardMutation(ws: ControlSocket, msg: MutatingControlMessage, command: (port: WhiteboardPort['handleOperator']) => Promise<Record<string, unknown>>): Promise<void> {
+    if (!whiteboards) {
+      replyApplied(ws, msg, 'whiteboard-result', { ok: false, error: 'Whiteboards are not available on this server.' });
+      return;
+    }
+    replyApplied(ws, msg, 'whiteboard-result', { ...await command(whiteboards.handleOperator) });
   }
 
   const handlers = {
-    'whiteboard-create': (msg: ClientMessageOf<'whiteboard-create'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.create(msg.title)),
-    'whiteboard-op': (msg: ClientMessageOf<'whiteboard-op'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.put(msg.boardId, msg.ops, msg.expected)),
-    'whiteboard-delete': (msg: ClientMessageOf<'whiteboard-delete'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.remove(msg.boardId)),
-    'whiteboard-get': (msg: ClientMessageOf<'whiteboard-get'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.get(msg.boardId)),
-    'whiteboard-review': (msg: ClientMessageOf<'whiteboard-review'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.review(msg.boardId)),
-    'whiteboard-slides': (msg: ClientMessageOf<'whiteboard-slides'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.slides(msg.boardId)),
-    'whiteboard-connect': (msg: ClientMessageOf<'whiteboard-connect'>, ws: ControlSocket) => answerWhiteboard(ws, msg, async (port) => {
+    'whiteboard-create': (msg: ClientMessageOf<'whiteboard-create'>, ws: ControlSocket) => answerWhiteboardMutation(ws, msg, (port) => port.create(msg.title)),
+    'whiteboard-op': (msg: ClientMessageOf<'whiteboard-op'>, ws: ControlSocket) => answerWhiteboardMutation(ws, msg, (port) => port.put(msg.boardId, msg.ops, msg.expected)),
+    'whiteboard-delete': (msg: ClientMessageOf<'whiteboard-delete'>, ws: ControlSocket) => answerWhiteboardMutation(ws, msg, (port) => port.remove(msg.boardId)),
+    'whiteboard-get': (msg: ClientMessageOf<'whiteboard-get'>, ws: ControlSocket) => answerWhiteboardRead(ws, msg, (port) => port.get(msg.boardId)),
+    'whiteboard-review': (msg: ClientMessageOf<'whiteboard-review'>, ws: ControlSocket) => answerWhiteboardRead(ws, msg, (port) => port.review(msg.boardId)),
+    'whiteboard-slides': (msg: ClientMessageOf<'whiteboard-slides'>, ws: ControlSocket) => answerWhiteboardRead(ws, msg, (port) => port.slides(msg.boardId)),
+    'whiteboard-connect': (msg: ClientMessageOf<'whiteboard-connect'>, ws: ControlSocket) => answerWhiteboardMutation(ws, msg, async (port) => {
       if (!findSession({ id: msg.sessionId })) return { ok: false, error: 'That session is no longer on the dashboard.' };
       return port.connect(msg.boardId, msg.sessionId);
     }),
-    'whiteboard-disconnect': (msg: ClientMessageOf<'whiteboard-disconnect'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.disconnect(msg.boardId, msg.sessionId)),
-    'whiteboard-detach': (msg: ClientMessageOf<'whiteboard-detach'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.detach(msg.boardId, msg.sessionId)),
-    'whiteboard-linked-doc-save': (msg: ClientMessageOf<'whiteboard-linked-doc-save'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.saveLinkedDoc(msg.boardId, msg.boxId, msg.text, msg.baseAsset)),
+    'whiteboard-disconnect': (msg: ClientMessageOf<'whiteboard-disconnect'>, ws: ControlSocket) => answerWhiteboardMutation(ws, msg, (port) => port.disconnect(msg.boardId, msg.sessionId)),
+    'whiteboard-detach': (msg: ClientMessageOf<'whiteboard-detach'>, ws: ControlSocket) => answerWhiteboardMutation(ws, msg, (port) => port.detach(msg.boardId, msg.sessionId)),
+    'whiteboard-linked-doc-save': (msg: ClientMessageOf<'whiteboard-linked-doc-save'>, ws: ControlSocket) => answerWhiteboardMutation(ws, msg, (port) => port.saveLinkedDoc(msg.boardId, msg.boxId, msg.text, msg.baseAsset)),
     'whiteboard-view': (msg: ClientMessageOf<'whiteboard-view'>, ws: ControlSocket) => {
       if (!whiteboards) return;
       void whiteboards.tiles.view(tileViewerOf(ws, whiteboards), { boardId: msg.boardId, view: msg.view, lod: msg.lod, scale: msg.scale, knownVersion: msg.knownVersion });
@@ -53,14 +61,14 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     'whiteboard-create': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-op': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-delete': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
-    'whiteboard-get': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
-    'whiteboard-review': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
-    'whiteboard-slides': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-get': (_msg, requestId, message) => ({ type: 'whiteboard-read-result', requestId, ok: false, error: message }),
+    'whiteboard-review': (_msg, requestId, message) => ({ type: 'whiteboard-read-result', requestId, ok: false, error: message }),
+    'whiteboard-slides': (_msg, requestId, message) => ({ type: 'whiteboard-read-result', requestId, ok: false, error: message }),
     'whiteboard-connect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-disconnect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-detach': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-linked-doc-save': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
-    'whiteboard-view': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-view': (_msg, requestId, message) => ({ type: 'whiteboard-read-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies };

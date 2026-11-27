@@ -472,6 +472,7 @@ export const SERVER_MESSAGE_CLASS = {
   'wargames-status': 'collection',
   'wargames-watch-result': 'reply',
   'whiteboard-agent-change': 'collection',
+  'whiteboard-read-result': 'reply',
   'whiteboard-removed': 'collection',
   'whiteboard-result': 'reply',
   'whiteboard-tile-diff': 'collection',

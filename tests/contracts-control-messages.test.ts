@@ -270,8 +270,9 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     at: NOW,
     change: { author: { id: 'session-1', name: 'checkout fix' }, boxes: [{ id: 'shown-1', title: 'login.png', rect: { x: 40, y: 80, width: 480, height: 300 } }] },
   },
+  { type: 'whiteboard-read-result', requestId: 'wb-read-1', ok: true, error: null },
   {
-    type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null,
+    type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null, appliedSeq: 1,
     board: {
       id: 'board-1', title: 'Ingest plan', version: 1, caption: null, legend: [], codeSessionId: null, project: null, link: null,
       elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 40, y: 40 } }, shape: 'box', borderless: null, tone: null, textSize: 'M', titleGradient: false, fullBleed: false, autoplay: false, backdrop: false, feeds: [], angle: 0, ask: null, pullRequest: null, author: null, refHashes: {}, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null } },
