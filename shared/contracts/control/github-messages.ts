@@ -9,7 +9,7 @@ import { HostReady } from '../host-ready.ts';
 import { PrActionRunRequest, PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItemRequest, PrFlowSaveRuleRequest, PrFlowsStatus } from '../pr-flows.ts';
 import { ModelSelection } from '../agent-models.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
-import { collectionFields, requestId, GithubTeam, PullRequestKey, loose, optionalError, timestamp } from './control-fields.ts';
+import { collectionFields, requestId, GithubTeam, PullRequestKey, loose, looseMutatingReply, optionalError, timestamp } from './control-fields.ts';
 
 export const githubClientVariants = [
   loose('list-github-teams', { requestId }),
@@ -54,9 +54,9 @@ export const githubServerVariants = [
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
-  loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
-  loose('my-pr-merge-when-ready-result', { ...MyPrMergeWhenReadyResult.shape, requestId }),
-  loose('github-polling-refresh-result', { ...GithubPollingRefreshResult.shape, requestId }),
+  looseMutatingReply('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
+  looseMutatingReply('my-pr-merge-when-ready-result', { ...MyPrMergeWhenReadyResult.shape, requestId }),
+  looseMutatingReply('github-polling-refresh-result', { ...GithubPollingRefreshResult.shape, requestId }),
   loose('pr-flow-dispose-result', { ...PrFlowDisposeResult.shape, requestId }),
   loose('github-connection-result', { requestId, connection: GithubConnection.nullable() }),
   loose('commit-signing-result', { requestId, status: CommitSigningStatus.nullable() }),

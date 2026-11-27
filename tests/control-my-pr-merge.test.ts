@@ -34,6 +34,7 @@ interface MergeFrame {
   ok?: boolean;
   kind?: string;
   error?: string;
+  appliedSeq?: number;
 }
 
 function readyNode(overrides: Partial<MyPrSearchNode> = {}): MyPrSearchNode {
@@ -463,7 +464,9 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     connection.sent.length = 0;
     const request = { type: 'my-pr-keep-mergeable', requestId: 'toggle-1', repo: 'Acme/app', number: 7, keepMergeable: true };
     await connection.send(request);
-    assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: KEY, ok: true });
+    const toggleReply = connection.sent.at(-1);
+    assert.equal(typeof toggleReply?.appliedSeq, 'number');
+    assert.deepEqual(toggleReply, { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: KEY, ok: true, appliedSeq: toggleReply?.appliedSeq });
     assert.equal(statuses.at(-1)?.prs[0]?.keepMergeable, true);
     assert.deepEqual(fixes, [`${KEY}@${SEEN_HEAD}`]);
     await repairFinished;
@@ -525,7 +528,9 @@ test('merge when ready control reaches the real lane and persists the queue', as
     await firstPoll;
     const connection = connectControl<MergeFrame>(createControlServer(controlDeps({ projects: [] }, { myPrs: wiring })));
     await connection.send({ type: 'my-pr-merge-when-ready', requestId: 'queue-1', repo: 'Acme/app', number: 7, mergeWhenReady: true });
-    assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: KEY, ok: true });
+    const queueReply = connection.sent.at(-1);
+    assert.equal(typeof queueReply?.appliedSeq, 'number');
+    assert.deepEqual(queueReply, { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: KEY, ok: true, appliedSeq: queueReply?.appliedSeq });
     assert.equal(statuses.at(-1)?.prs[0]?.mergeQueuePosition, 1);
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
     assert.deepEqual(savedState, { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [KEY], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [], stageSince: [{ key: KEY, stage: 'checks-pending', sinceMs: Date.parse('2026-09-28T11:00:00Z') }] });

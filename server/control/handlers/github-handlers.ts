@@ -123,11 +123,11 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     captureOperatorAction('reviews', 'refresh');
     const lane = { 'my-prs': myPrs, 'team-review': teamReview }[msg.lane];
     if (!lane?.refresh) {
-      replyTo(ws, msg, 'github-polling-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
+      context.replyApplied(ws, msg, 'github-polling-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
       return;
     }
     const refreshOutcome = await lane.refresh();
-    replyTo(ws, msg, 'github-polling-refresh-result', {
+    context.replyApplied(ws, msg, 'github-polling-refresh-result', {
       ...refreshOutcome,
       ...(githubStore ? { freshness: githubStore.getFreshness() } : {}),
     });
@@ -143,7 +143,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
   }
 
   async function handleMyPrKeepMergeable(msg: ClientMessageOf<'my-pr-keep-mergeable'>, ws: ControlSocket): Promise<void> {
-    const reply = (outcome: Omit<MyPrKeepMergeableResult, 'key'>) => replyTo(ws, msg, 'my-pr-keep-mergeable-result', { key: myPrMergeKey(msg), ...outcome });
+    const reply = (outcome: Omit<MyPrKeepMergeableResult, 'key'>) => context.replyApplied(ws, msg, 'my-pr-keep-mergeable-result', { key: myPrMergeKey(msg), ...outcome });
     const parsed = MyPrKeepMergeableRequest.safeParse(msg);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
     captureOperatorAction('reviews', 'keep-mergeable');
@@ -152,7 +152,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
   }
 
   async function handleMyPrMergeWhenReady(msg: ClientMessageOf<'my-pr-merge-when-ready'>, ws: ControlSocket): Promise<void> {
-    const reply = (outcome: Omit<MyPrMergeWhenReadyResult, 'key'>) => replyTo(ws, msg, 'my-pr-merge-when-ready-result', { key: myPrMergeKey(msg), ...outcome });
+    const reply = (outcome: Omit<MyPrMergeWhenReadyResult, 'key'>) => context.replyApplied(ws, msg, 'my-pr-merge-when-ready-result', { key: myPrMergeKey(msg), ...outcome });
     const parsed = MyPrMergeWhenReadyRequest.safeParse(msg);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
     captureOperatorAction('reviews', 'merge-when-ready');
