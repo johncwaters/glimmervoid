@@ -255,11 +255,6 @@
       "sendControlRequest": 3,
       "onControlMessage": 0
     },
-    "public/settings/settings-controls.ts": {
-      "sendControlMsg": 0,
-      "sendControlRequest": 1,
-      "onControlMessage": 0
-    },
     "public/terminal-color-report.ts": {
       "sendControlMsg": 1,
       "sendControlRequest": 0,

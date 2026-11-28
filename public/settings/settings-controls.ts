@@ -15,7 +15,7 @@ import { recordNextAttentionKey, shortcutChord } from '../shortcuts-core.ts';
 import { draftByControl, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
 import { renderReadout } from './settings-readouts.ts';
 import { commitSetting, setFieldError } from './settings-save.ts';
-import { sendControlRequest } from '../control-ws.ts';
+import { listAddSessionAgents } from '../state/actions/add-session.ts';
 import { DEFAULT_AGENT_ID } from '../session-card/agent-core.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
 
@@ -292,7 +292,7 @@ interface ListedAgent {
 let lastListedAgents: readonly ListedAgent[] | null = null;
 
 function requestListedAgents(): Promise<readonly ListedAgent[]> {
-  return sendControlRequest('list-agents', {}).then((message) => {
+  return listAddSessionAgents(false).then((message) => {
     if (message.type !== 'agents-listed') throw new Error('the agent list did not arrive');
     lastListedAgents = message.agents.map(({ id, label, resolvable }) => ({ id, label, resolvable }));
     return lastListedAgents;
