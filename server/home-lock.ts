@@ -108,6 +108,11 @@ function createSharedHomeHandle(): HomeLockHandle {
   };
 }
 
+function sharedHandleWhenLocksUnavailable(log: Pick<Console, 'warn'>): HomeLockHandle {
+  log.warn('[glimmervoid] Home lock disabled: fs-native-extensions could not load.');
+  return createSharedHomeHandle();
+}
+
 function releaseDescriptor(locks: FileLocks, descriptor: number): void {
   try {
     locks.unlock(descriptor);
@@ -183,7 +188,7 @@ function acquireHomeLockSync({
   const resolvedHomeDir = path.resolve(homeDir);
   const handoffFromPid = consumeHandoffFromPid(env);
   const locks = loadFileLocks();
-  if (locks === null) return createSharedHomeHandle();
+  if (locks === null) return sharedHandleWhenLocksUnavailable(log);
 
   let descriptor = tryAcquireExclusiveDescriptor(locks, resolvedHomeDir);
   if (descriptor !== null) return createExclusiveHomeHandle(locks, resolvedHomeDir, descriptor, port, startedAt);
@@ -212,7 +217,7 @@ async function acquireHomeLockAsync({
   const resolvedHomeDir = path.resolve(homeDir);
   const handoffFromPid = consumeHandoffFromPid(env);
   const locks = loadFileLocks();
-  if (locks === null) return createSharedHomeHandle();
+  if (locks === null) return sharedHandleWhenLocksUnavailable(log);
 
   let descriptor = tryAcquireExclusiveDescriptor(locks, resolvedHomeDir);
   if (descriptor !== null) return createExclusiveHomeHandle(locks, resolvedHomeDir, descriptor, port, startedAt);

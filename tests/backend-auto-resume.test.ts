@@ -490,7 +490,7 @@ test('createBackend shutdown removes pending boot listeners before listen', asyn
   try {
     const listenersBeforeBackend = server.listenerCount('listening');
     live.backend = createBackend(server, { staticDir: null });
-    assert.equal(server.listenerCount('listening'), listenersBeforeBackend + 3);
+    assert.equal(server.listenerCount('listening'), listenersBeforeBackend + 4);
     await settleBackendShutdown(live.backend);
     live.backend = null;
     assert.equal(server.listenerCount('listening'), listenersBeforeBackend);

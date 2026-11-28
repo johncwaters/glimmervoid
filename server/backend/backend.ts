@@ -178,7 +178,7 @@ function initializeBackend(httpServer: Server, options: CreateBackendOptions, ho
     if (address === null || typeof address === 'string') return port;
     return address.port;
   };
-  httpServer.once('listening', () => { homeLock.updatePort(boundDashboardPort()); });
+  const updateHomeLockPortOnListen = (): void => { homeLock.updatePort(boundDashboardPort()); };
 
   const trust = createBackendTrust({
     localPort: port,
@@ -1026,6 +1026,7 @@ function initializeBackend(httpServer: Server, options: CreateBackendOptions, ho
     dataWss,
   });
   const shutdown = () => {
+    httpServer.off('listening', updateHomeLockPortOnListen);
     const outcome = stopBackend();
     if (shouldReleaseHomeLockOnShutdown) homeLock.release();
     return outcome;
@@ -1062,6 +1063,7 @@ function initializeBackend(httpServer: Server, options: CreateBackendOptions, ho
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown: () => {
       shouldReleaseHomeLockOnShutdown = false;
+      httpServer.off('listening', updateHomeLockPortOnListen);
       return stopBackend();
     },
     httpServer,
@@ -1163,6 +1165,7 @@ function initializeBackend(httpServer: Server, options: CreateBackendOptions, ho
   httpServer.on('upgrade', handleUpgrade);
   updateApply.startAfterListening(httpServer);
   httpServer.once('listening', startPostTurnLeftoverCleanup);
+  httpServer.once('listening', updateHomeLockPortOnListen);
 
   broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, telegramDelivery: notifications.telegramDelivery.status() }) });
   const agentModelCatalog = startLiveSettingsSources({ onChange: () => broadcastSettings?.(), log: console });
