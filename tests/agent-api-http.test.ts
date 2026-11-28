@@ -1166,6 +1166,77 @@ test('a session with a live child refuses snooze and is passed over by the idle 
   }
 });
 
+test('a recently viewed idle session is protected across the viewer-disconnect grace window on both memory-pressure and TTL paths while unviewed sessions still hibernate', async () => {
+  const reloading = new Session({ id: 'reloading', name: 'reloading', path: process.cwd(), ptySpawn: () => fakePty() });
+  const unviewed = new Session({ id: 'unviewed', name: 'unviewed', path: process.cwd(), ptySpawn: () => fakePty() });
+  const ttlSession = new Session({ id: 'ttl-session', name: 'ttl-session', path: process.cwd(), ptySpawn: () => fakePty() });
+  const nowBase = Date.now();
+  let currentNowMs = nowBase + 5_000;
+  const pressureViewerLeftAtMs = new Map<string, number>([[reloading.id, nowBase]]);
+  const ttlViewerLeftAtMs = new Map<string, number>([[ttlSession.id, nowBase]]);
+  const pressureSessions = new Map([[reloading.id, reloading], [unviewed.id, unviewed]]);
+  const pressureHealth = createBackendHealth({
+    sessions: pressureSessions,
+    getAllSessions: () => [...pressureSessions.values()],
+    sessionDataClients: new Map(),
+    lastTerminalViewerLeftAtMs: pressureViewerLeftAtMs,
+    nowMs: () => currentNowMs,
+    getMemoryGateStatus: () => ({ headroomBytes: 0, headroomReadAtMs: null, heldStartCount: 0 }),
+    idleHibernation: { idleHibernateMs: null, headroomFloorBytes: 1, readHeadroom: async () => ({ ok: true, headroomBytes: 0 }) },
+    controlWss: { clients: new Set() },
+    viewerControlClientCount: () => 0,
+    dataWss: { clients: new Set() },
+    broadcastControl: () => {},
+  });
+  const ttlSessions = new Map([[ttlSession.id, ttlSession]]);
+  const ttlHealth = createBackendHealth({
+    sessions: ttlSessions,
+    getAllSessions: () => [...ttlSessions.values()],
+    sessionDataClients: new Map(),
+    lastTerminalViewerLeftAtMs: ttlViewerLeftAtMs,
+    nowMs: () => currentNowMs,
+    getMemoryGateStatus: () => ({ headroomBytes: 10_000, headroomReadAtMs: null, heldStartCount: 0 }),
+    idleHibernation: { idleHibernateMs: 1_000, headroomFloorBytes: 0, readHeadroom: async () => ({ ok: true, headroomBytes: 10_000 }) },
+    controlWss: { clients: new Set() },
+    viewerControlClientCount: () => 0,
+    dataWss: { clients: new Set() },
+    broadcastControl: () => {},
+  });
+  try {
+    for (const idleSession of [reloading, unviewed, ttlSession]) {
+      await idleSession.start();
+      idleSession.transition('first_output');
+      idleSession.setResumeConversation(`conversation-of-${idleSession.id}`);
+    }
+    reloading.stateSince = nowBase - 60_000;
+    unviewed.stateSince = nowBase - 30_000;
+    ttlSession.stateSince = nowBase - 600_000;
+
+    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [unviewed.id], 'under memory pressure, the unviewed session is snoozed while the reloading session stays awake');
+    assert.equal(reloading.state, STATES.IDLE);
+    assert.equal(unviewed.state, STATES.DORMANT);
+
+    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [], 'the reloading session alone is not snoozed inside the grace window under memory pressure');
+    assert.equal(reloading.state, STATES.IDLE);
+
+    assert.deepEqual(await ttlHealth.runIdleHibernationSweep(), [], 'a TTL-expired idle session is not snoozed inside the grace window right after its viewer disconnects');
+    assert.equal(ttlSession.state, STATES.IDLE);
+
+    currentNowMs = nowBase + 60_000;
+    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [reloading.id], 'once the grace window expires, memory pressure snoozes the idle session');
+    assert.equal(reloading.state, STATES.DORMANT);
+
+    assert.deepEqual(await ttlHealth.runIdleHibernationSweep(), [ttlSession.id], 'once the grace window expires, the TTL path snoozes the idle session');
+    assert.equal(ttlSession.state, STATES.DORMANT);
+  } finally {
+    clearInterval(pressureHealth.healthInterval);
+    clearInterval(ttlHealth.healthInterval);
+    reloading.destroy();
+    unviewed.destroy();
+    ttlSession.destroy();
+  }
+});
+
 test('non-terminal ACP sessions stay awake while a dashboard viewer is connected, hibernate when unviewed, and wake when chat-send arrives', async () => {
   const acpSession = new Session({
     id: 'acp-studio-main',

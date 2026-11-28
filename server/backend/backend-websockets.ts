@@ -61,6 +61,7 @@ interface BackendWebSockets {
   dataWss: WebSocketServer;
   controlReplayLog: ReplayLog;
   sessionDataClients: Map<string, Map<WebSocket, ViewerSizeRecord | null>>;
+  lastTerminalViewerLeftAtMs: Map<string, number>;
   broadcastControl: ControlBroadcast;
   broadcastControlFlushed: FlushedControlBroadcast;
   viewerControlClientCount(): number;
@@ -128,6 +129,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     for (const handleConnection of controlConnectionHandlers) handleConnection(socket, request);
   });
   const sessionDataClients = new Map<string, Map<WebSocket, ViewerSizeRecord | null>>();
+  const lastTerminalViewerLeftAtMs = new Map<string, number>();
   const fastCloseCountBySessionKey = new Map<string, number>();
   const socketsClosedByServer = new WeakSet<WebSocket>();
   let nextViewerResizeSeq = 0;
@@ -165,9 +167,12 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   function closeSessionDataClients(sessionId: string): void {
     const clients = sessionDataClients.get(sessionId);
     if (!clients) return;
-    for (const socket of clients.keys()) {
+    let hadActiveViewer = false;
+    for (const [socket, size] of clients) {
+      if (size !== null) hadActiveViewer = true;
       closeDataSocketFromServer(socket, 1001, 'Session removed');
     }
+    if (hadActiveViewer) lastTerminalViewerLeftAtMs.set(sessionId, clock.nowMs());
     sessionDataClients.delete(sessionId);
     fastCloseCountBySessionKey.delete(sessionId);
   }
@@ -279,10 +284,18 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       session.resize(resolved.cols, resolved.rows);
     };
 
+    const hasOtherActiveViewer = (): boolean => {
+      for (const [otherSocket, size] of viewerSizeMap) {
+        if (otherSocket !== socket && size !== null) return true;
+      }
+      return false;
+    };
+
     const releaseViewerSize = (): void => {
       if (!viewerSizeMap.get(socket)) return;
       viewerSizeMap.set(socket, null);
       if (sessionDataClients.get(activeSessionId) !== viewerSizeMap) return;
+      if (!hasOtherActiveViewer()) lastTerminalViewerLeftAtMs.set(activeSessionId, clock.nowMs());
       applyResolvedSize(true);
     };
 
@@ -330,6 +343,8 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
         return;
       }
       if (message.type === 'claim') {
+        if (sessionDataClients.get(activeSessionId) !== viewerSizeMap) return;
+        lastTerminalViewerLeftAtMs.delete(activeSessionId);
         nextViewerResizeSeq += 1;
         viewerSizeMap.set(socket, { cols: message.cols, rows: message.rows, resizeSeq: nextViewerResizeSeq });
         applyResolvedSize(false);
@@ -420,6 +435,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     dataWss,
     controlReplayLog,
     sessionDataClients,
+    lastTerminalViewerLeftAtMs,
     broadcastControl,
     broadcastControlFlushed,
     viewerControlClientCount,

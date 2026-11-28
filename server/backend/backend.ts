@@ -343,6 +343,7 @@ function initializeBackend(httpServer: Server, options: CreateBackendOptions, ho
     dataWss,
     controlReplayLog,
     sessionDataClients,
+    lastTerminalViewerLeftAtMs,
     broadcastControl: broadcastControlFromWebSockets,
     closeSessionDataClients,
     viewerControlClientCount,
@@ -445,6 +446,7 @@ function initializeBackend(httpServer: Server, options: CreateBackendOptions, ho
     sessions,
     getAllSessions: () => allLiveSessions(),
     sessionDataClients,
+    lastTerminalViewerLeftAtMs,
     getMemoryGateStatus: () => laneAssembly.memoryAdmission.gateStatus(),
     idleHibernation: {
       idleHibernateMs: hostResourceProfile.idleHibernateMs,

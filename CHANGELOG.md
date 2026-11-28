@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reloading the dashboard on a busy or low-memory machine no longer snoozes the focused idle session to "No session selected".** Idle-session hibernation now waits 60 seconds after the last terminal viewer disconnects before snoozing a session on either the memory-pressure or idle-TTL sweep, so a browser reload or brief reconnect keeps the session alive and restores it with its open page.
 - **Non-terminal ACP sessions no longer open `/terminals/` WebSockets.** Dashboard cards now carry `hasTerminal` at creation and skip terminal setup, data-socket attachment, and reconnect retries for sessions with `hasTerminal: false`, eliminating spurious `1008 Session has no terminal` closes in Studio.
 - **Middle-button dragging to pan a whiteboard on Linux no longer pastes the primary selection onto the board.** `armAuxiliaryClickSuppression` in `public/whiteboard/board-edit.ts` now also suppresses the follow-up `paste` event fired on middle-button release until the current event turn clears.
 - **Trackpad pinch zoom over embedded whiteboard page cards now scales continuously with `deltaY` and `deltaMode`.** Embedded page frames now forward `event.deltaMode` in wheel gesture messages so pinching or wheel-zooming over a page card on the board or in the media viewer matches canvas zoom instead of stepping a fixed 1.1x per wheel event.

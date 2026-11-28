@@ -1,6 +1,7 @@
 import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
 import type { MemoryReading } from '../core/memory-admission-core.ts';
+import { isWithinViewerDisconnectGrace } from '../core/memory-admission-core.ts';
 import type { MemoryGateStatus } from '../spawn-gate.ts';
 import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
@@ -33,6 +34,8 @@ interface BackendHealthDependencies {
   sessions: Map<string, HealthSession>;
   getAllSessions: () => HealthSession[];
   sessionDataClients: Map<string, Map<WebSocket, unknown>>;
+  lastTerminalViewerLeftAtMs?: Map<string, number>;
+  nowMs?: () => number;
   getMemoryGateStatus: () => MemoryGateStatus;
   idleHibernation?: IdleHibernationOptions;
   controlWss: { clients: Set<WebSocket> };
@@ -123,10 +126,11 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     return false;
   }
 
-  function isEligibleForHibernation(id: string, session: HealthSession): boolean {
+  function isEligibleForHibernation(id: string, session: HealthSession, nowMs: number): boolean {
     if (session.ephemeral || !session.hasLivePty || !session.resumeSessionId) return false;
     if (session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) return false;
     if (hasActiveTerminalViewer(id)) return false;
+    if (isWithinViewerDisconnectGrace(dependencies.lastTerminalViewerLeftAtMs?.get(id), nowMs)) return false;
     if (!session.hasTerminal && dependencies.viewerControlClientCount() > 0) return false;
     if (session.hasBackgroundWork) return false;
     if (session.hasLiveChildren) return false;
@@ -138,14 +142,19 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     if (!config) return [];
     const { idleHibernateMs, headroomFloorBytes, readHeadroom } = config;
     if (idleHibernateMs === null && headroomFloorBytes <= 0) return [];
+    if (dependencies.lastTerminalViewerLeftAtMs) {
+      for (const trackedSessionId of dependencies.lastTerminalViewerLeftAtMs.keys()) {
+        if (!dependencies.sessions.has(trackedSessionId)) dependencies.lastTerminalViewerLeftAtMs.delete(trackedSessionId);
+      }
+    }
     const reading = headroomFloorBytes > 0 ? await readHeadroom() : { ok: false as const, reason: 'disabled' };
     const isUnderMemoryPressure = reading.ok && reading.headroomBytes < headroomFloorBytes;
-    const nowMs = clock.nowMs();
+    const nowMs = dependencies.nowMs ? dependencies.nowMs() : clock.nowMs();
     const snoozedIds: string[] = [];
     let oldestVictim: { id: string; session: HealthSession; stateSince: number } | null = null;
 
     for (const [id, session] of dependencies.sessions) {
-      if (!isEligibleForHibernation(id, session)) continue;
+      if (!isEligibleForHibernation(id, session, nowMs)) continue;
       if (idleHibernateMs !== null && nowMs - session.stateSince >= idleHibernateMs) {
         if (session.snooze().ok) snoozedIds.push(id);
         continue;

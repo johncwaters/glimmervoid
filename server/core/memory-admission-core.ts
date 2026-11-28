@@ -9,8 +9,18 @@ const COMPACT_IDLE_HIBERNATE_MS = 10 * 60 * 1000;
 const STANDARD_IDLE_HIBERNATE_MS = 20 * 60 * 1000;
 
 export const MEMORY_RECHECK_MS = 5_000;
+const VIEWER_DISCONNECT_GRACE_MS = 60_000;
 const MEMORY_RESERVATION_SETTLE_MS = 30_000;
 export const DEFAULT_SESSION_MEMORY_RESERVE_MB = 600;
+
+export function isWithinViewerDisconnectGrace(
+  lastViewerLeftAtMs: number | null | undefined,
+  nowMs: number,
+  graceMs: number = VIEWER_DISCONNECT_GRACE_MS,
+): boolean {
+  if (lastViewerLeftAtMs == null || !Number.isFinite(lastViewerLeftAtMs)) return false;
+  return nowMs - lastViewerLeftAtMs < graceMs;
+}
 
 type ResourceTier = 'compact' | 'standard' | 'workstation';
 
