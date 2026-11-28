@@ -8,6 +8,7 @@ export const PICK_AGENT_DIALOG_CHROME = {
   message: PICK_AGENT_DIALOG_MESSAGE,
   confirmLabel: PICK_AGENT_CONFIRM_LABEL,
   closeOnConfirm: false,
+  defaultAction: 'autofocus',
 } as const;
 export const PICK_AGENT_LOADING_TEXT = 'Loading ACP agents.';
 export const PICK_AGENT_STARTING_TEXT = 'Starting the Orchestrator.';
@@ -45,6 +46,10 @@ export function initialPickAgentDialogState(): PickAgentDialogState {
 
 export function canStartPickAgent(state: PickAgentDialogState): boolean {
   return !state.isStarting && state.chosenAgentId !== null;
+}
+
+export function shouldFocusChosenAgentRadio(state: PickAgentDialogState, hasFocusedOnce: boolean): boolean {
+  return !hasFocusedOnce && state.status === null && state.chosenAgentId !== null;
 }
 
 export function pickAgentStatusClassName(tone: PickAgentStatusTone): string {

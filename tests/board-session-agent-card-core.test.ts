@@ -47,6 +47,7 @@ import {
   beginPickAgentStart,
   canStartPickAgent,
   initialPickAgentDialogState,
+  shouldFocusChosenAgentRadio,
 } from '../public/board-session/pick-agent-dialog-core.ts';
 
 function sampleCard(overrides: Partial<AgentCardCoreModel> = {}): AgentCardCoreModel {
@@ -198,6 +199,9 @@ test('pick-agent-dialog-core transitions through loading, selection, starting, a
       { id: 'codex', label: 'Codex', resolvable: true },
     ],
   });
+  assert.equal(shouldFocusChosenAgentRadio(initial, false), false);
+  assert.equal(shouldFocusChosenAgentRadio(loaded, false), true);
+  assert.equal(shouldFocusChosenAgentRadio(loaded, true), false);
   assert.equal(canStartPickAgent(loaded), true);
   assert.equal(loaded.chosenAgentId, 'claude-code');
   assert.equal(loaded.status, null);

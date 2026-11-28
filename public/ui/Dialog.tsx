@@ -139,9 +139,10 @@ export function Dialog(props: DialogProps): JSX.Element {
       openModals.push(activeModalEntry);
       syncModalInert();
       if (!dialogElement.open) dialogElement.showModal();
-      const defaultButton = untrack(() => descriptor().defaultAction) === 'confirm'
+      const action = untrack(() => descriptor().defaultAction);
+      const defaultButton = action === 'confirm'
         ? confirmButtonElement
-        : cancelButtonElement;
+        : (action === 'cancel' ? cancelButtonElement : undefined);
       defaultButton?.focus();
       return () => {
         finalizeClose('programmatic', false);

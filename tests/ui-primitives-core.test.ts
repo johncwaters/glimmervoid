@@ -502,6 +502,9 @@ describe('dialog-core', () => {
     assert.equal(isDialogBackdropClick({ clientX: 99, clientY: 260 }, bounds), true);
     assert.equal(isDialogBackdropClick({ clientX: 250, clientY: 381 }, bounds), true);
     assert.equal(isDialogBackdropClick({ clientX: 10, clientY: 10 }, { left: 0, right: 0, top: 0, bottom: 0 }), false);
+
+    const autofocused = dialogDescriptor({ title: 'Pick', confirmLabel: 'Start', canConfirm: false, defaultAction: 'autofocus' });
+    assert.equal(autofocused.defaultAction, 'autofocus');
   });
 });
 

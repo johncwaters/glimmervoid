@@ -1,6 +1,6 @@
 export type DialogCloseReason = 'escape' | 'backdrop' | 'cancel' | 'confirm' | 'programmatic';
 
-type DialogAction = 'cancel' | 'confirm';
+type DialogAction = 'cancel' | 'confirm' | 'autofocus';
 
 export interface DialogCoreOptions {
   title: string;
@@ -83,9 +83,9 @@ export function dialogDescriptor(options: DialogCoreOptions): DialogDescriptor {
         action: options.confirmAction ?? DEFAULT_CONFIRM_ACTION,
         disabled: !canConfirm,
       };
-  const defaultAction: DialogAction = options.defaultAction === 'confirm' && confirmButton !== null && canConfirm
-    ? 'confirm'
-    : 'cancel';
+  const defaultAction: DialogAction = options.defaultAction === 'autofocus'
+    ? 'autofocus'
+    : (options.defaultAction === 'confirm' && confirmButton !== null && canConfirm ? 'confirm' : 'cancel');
 
   return {
     className: normalizeDialogClass(options.dialogClass),

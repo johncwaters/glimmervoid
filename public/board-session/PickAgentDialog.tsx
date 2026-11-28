@@ -16,6 +16,7 @@ import {
   canStartPickAgent,
   initialPickAgentDialogState,
   pickAgentStatusClassName,
+  shouldFocusChosenAgentRadio,
 } from './pick-agent-dialog-core.ts';
 import type { PickAgentDialogState } from './pick-agent-dialog-core.ts';
 
@@ -28,6 +29,8 @@ function PickAgentDialog(props: PickAgentDialogProps): JSX.Element {
   const [state, setState] = createSignal<PickAgentDialogState>(initialPickAgentDialogState());
   const [isAlive, setIsAlive] = createSignal(true);
   const [statusElement, setStatusElement] = createSignal<HTMLParagraphElement | null>(null);
+  const [listElement, setListElement] = createSignal<HTMLFieldSetElement | null>(null);
+  const [hasFocusedRadio, setHasFocusedRadio] = createSignal(false);
 
   onCleanup(() => setIsAlive(false));
 
@@ -36,6 +39,17 @@ function PickAgentDialog(props: PickAgentDialogProps): JSX.Element {
     ({ element, status }) => {
       if (!element || !status) return;
       paintActionStatus(element, status.tone, status.text);
+    },
+  );
+
+  createEffect(
+    () => ({ list: listElement(), currentState: state(), focused: hasFocusedRadio() }),
+    ({ list, currentState, focused }) => {
+      if (!list || !shouldFocusChosenAgentRadio(currentState, focused)) return;
+      const checkedInput = list.querySelector<HTMLInputElement>('input[type="radio"]:checked');
+      if (!checkedInput) return;
+      checkedInput.focus();
+      setHasFocusedRadio(true);
     },
   );
 
@@ -72,7 +86,7 @@ function PickAgentDialog(props: PickAgentDialogProps): JSX.Element {
       onConfirm={handleConfirm}
       onClose={props.onDone}
     >
-      <fieldset class="dialog-workspace-list" aria-label="Agents">
+      <fieldset ref={setListElement} class="dialog-workspace-list" aria-label="Agents">
         <For each={state().options}>
           {(option) => (
             <Radio
