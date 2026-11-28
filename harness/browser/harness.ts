@@ -11,6 +11,7 @@ import type { Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
 
 import { resolveWorktreeGitDir } from '../../detection/worktree-watch.ts';
+import { setDefaultHeadroomReader } from '../../server/backend/backend-health.ts';
 import { getAdapter, listAgentIds } from '../../session/adapters/index.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
@@ -41,6 +42,7 @@ const REFUSED_LIFECYCLE_EVENTS = new Set(['build', 'start', 'prepare', 'postinst
 const LEFTOVER_SCAN_ATTEMPTS = 25;
 const LEFTOVER_SCAN_INTERVAL_MS = 200;
 const PROCESS_LISTING_MAX_BYTES = 8 * 1024 * 1024;
+const HARNESS_FIXED_HEADROOM_BYTES = 64 * 1024 * 1024 * 1024;
 
 interface HarnessOptions {
   only: string[];
@@ -444,6 +446,7 @@ async function main(): Promise<number> {
         console.error(`vite cleanup failed: ${safeTextTail(error, 400)}`);
       }
       fakeAgentScan = await waitForFakeAgentsToExit(glimmervoidHome);
+      setDefaultHeadroomReader(null);
       removeHarnessTempDirectory(tempDirectory);
       restoreTranscriptHomes();
       for (const [name, value] of Object.entries(previousEnvironment)) {
@@ -493,6 +496,7 @@ async function main(): Promise<number> {
     process.env[FAKE_PR_STATE_ENV] = fakePrStatePathIn(shimDirectory);
     process.env.PATH = `${shimDirectory}${path.delimiter}${previousEnvironment.PATH ?? ''}`;
 
+    setDefaultHeadroomReader(async () => ({ ok: true, headroomBytes: HARNESS_FIXED_HEADROOM_BYTES }));
     const { createServer } = await import('vite');
     const devServer = await createServer({
       configFile: path.join(REPO_ROOT, 'vite.config.ts'),

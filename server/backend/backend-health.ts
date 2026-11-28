@@ -9,6 +9,17 @@ import { clock } from '../../shared/clock.ts';
 
 const HEALTH_SNAPSHOT_INTERVAL_MS = 10000;
 
+type HeadroomReader = () => Promise<MemoryReading>;
+let defaultHeadroomReader: HeadroomReader | null = null;
+
+function setDefaultHeadroomReader(reader: HeadroomReader | null): void {
+  defaultHeadroomReader = reader;
+}
+
+function resolveHeadroomReader(fallback: HeadroomReader): HeadroomReader {
+  return defaultHeadroomReader ?? fallback;
+}
+
 interface HealthSession {
   readonly id: string;
   readonly state: Session['state'];
@@ -206,4 +217,4 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
   return { buildHealthSnapshot, runIdleHibernationSweep, healthInterval };
 }
 
-export { createBackendHealth };
+export { createBackendHealth, resolveHeadroomReader, setDefaultHeadroomReader };

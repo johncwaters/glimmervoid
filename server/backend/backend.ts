@@ -65,7 +65,7 @@ import type { GithubUserGrant } from '../../shared/contracts/watcher-link.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
 import type { AgentIngressDependencies } from './backend-http.ts';
 import { decideWasActiveFlip, shouldStartAfterModify } from '../session/core/session-registry-core.ts';
-import { createBackendHealth } from './backend-health.ts';
+import { createBackendHealth, resolveHeadroomReader } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
 import { createStudioReposStore } from '../board-session/studio-repos-store.ts';
@@ -451,12 +451,13 @@ function initializeBackend(httpServer: Server, options: CreateBackendOptions, ho
     idleHibernation: {
       idleHibernateMs: hostResourceProfile.idleHibernateMs,
       headroomFloorBytes: hostResourceProfile.headroomFloorBytes,
-      readHeadroom: readMemoryHeadroom,
+      readHeadroom: () => resolveHeadroomReader(readMemoryHeadroom)(),
     },
     controlWss,
     viewerControlClientCount,
     dataWss,
     broadcastControl,
+    logger: console,
   });
   const { buildHealthSnapshot, healthInterval } = health;
 
