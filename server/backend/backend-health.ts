@@ -1,7 +1,7 @@
 import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
-import type { MemoryReading } from '../core/memory-admission-core.ts';
-import { isWithinHibernationGrace } from '../core/memory-admission-core.ts';
+import type { DataSocketViewerState, MemoryReading } from '../core/memory-admission-core.ts';
+import { hasOpenSessionViewer, isWithinHibernationGrace } from '../core/memory-admission-core.ts';
 import type { MemoryGateStatus } from '../spawn-gate.ts';
 import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
@@ -45,7 +45,7 @@ interface BackendHealthDependencies {
   sessions: Map<string, HealthSession>;
   getAllSessions: () => HealthSession[];
   sessionDataClients: Map<string, Map<WebSocket, unknown>>;
-  activeViewerCountBySessionId?: Map<string, number>;
+  sessionViewerStates?: (id: string) => readonly DataSocketViewerState[];
   lastTerminalViewerLeftAtMs?: Map<string, number>;
   nowMs?: () => number;
   getMemoryGateStatus: () => MemoryGateStatus;
@@ -131,15 +131,12 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
   let hibernationSweepInFlight: Promise<string[]> | null = null;
 
   function hasActiveSessionViewer(id: string): boolean {
-    if (dependencies.activeViewerCountBySessionId) {
-      return (dependencies.activeViewerCountBySessionId.get(id) ?? 0) > 0;
+    if (dependencies.sessionViewerStates) {
+      return hasOpenSessionViewer(dependencies.sessionViewerStates(id));
     }
     const clients = dependencies.sessionDataClients.get(id);
     if (!clients) return false;
-    for (const viewer of clients.values()) {
-      if (viewer !== null) return true;
-    }
-    return false;
+    return hasOpenSessionViewer([...clients.values()].map((viewer) => ({ isClaimed: viewer !== null, isOutputPaused: true })));
   }
 
   function formatHeadroomSummary(reading: MemoryReading): string {
@@ -175,11 +172,6 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     if (dependencies.lastTerminalViewerLeftAtMs) {
       for (const trackedSessionId of dependencies.lastTerminalViewerLeftAtMs.keys()) {
         if (!dependencies.sessions.has(trackedSessionId)) dependencies.lastTerminalViewerLeftAtMs.delete(trackedSessionId);
-      }
-    }
-    if (dependencies.activeViewerCountBySessionId) {
-      for (const trackedSessionId of dependencies.activeViewerCountBySessionId.keys()) {
-        if (!dependencies.sessions.has(trackedSessionId)) dependencies.activeViewerCountBySessionId.delete(trackedSessionId);
       }
     }
     const reading = headroomFloorBytes > 0 ? await readHeadroom() : { ok: false as const, reason: 'disabled' };

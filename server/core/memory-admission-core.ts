@@ -13,6 +13,15 @@ const HIBERNATION_GRACE_MS = 60_000;
 const MEMORY_RESERVATION_SETTLE_MS = 30_000;
 export const DEFAULT_SESSION_MEMORY_RESERVE_MB = 600;
 
+export interface DataSocketViewerState {
+  isClaimed: boolean;
+  isOutputPaused: boolean;
+}
+
+export function hasOpenSessionViewer(viewers: readonly DataSocketViewerState[]): boolean {
+  return viewers.some((viewer) => viewer.isClaimed || !viewer.isOutputPaused);
+}
+
 export function isWithinHibernationGrace({
   stateSinceMs,
   lastViewerLeftAtMs,

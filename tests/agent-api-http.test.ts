@@ -1286,7 +1286,7 @@ test('a session open in Chat with no terminal grid claim is protected from memor
     sessions: liveSessions,
     getAllSessions: () => [...liveSessions.values()],
     sessionDataClients: webSockets.sessionDataClients,
-    activeViewerCountBySessionId: webSockets.activeViewerCountBySessionId,
+    sessionViewerStates: webSockets.sessionViewerStates,
     lastTerminalViewerLeftAtMs: webSockets.lastTerminalViewerLeftAtMs,
     nowMs: () => currentNowMs,
     getMemoryGateStatus: () => ({ headroomBytes: 0, headroomReadAtMs: null, heldStartCount: 0 }),
