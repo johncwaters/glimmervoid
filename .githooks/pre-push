@@ -17,6 +17,14 @@ diff_base_of() {
   echo origin/main
 }
 
+run_covering_tests() {
+  if [ ! -f scripts/test-covering.ts ]; then
+    echo "pre-push: this commit predates covering-test selection, so no covering tests run" >&2
+    return 0
+  fi
+  node scripts/test-covering.ts --since "$1" --no-gates
+}
+
 run_selected_scenarios() {
   if ! grep -q -- "--since" scripts/e2e.ts 2>/dev/null; then
     echo "pre-push: this commit predates scenario selection, so no end-to-end scenario runs" >&2
@@ -32,7 +40,7 @@ check_in_temp_worktree() {
   git worktree add --quiet --detach "$check_dir" "$pushed_sha" || return 1
   ln -s "$repo_root/node_modules" "$check_dir/node_modules"
   [ -d "$repo_root/dist" ] && ln -s "$repo_root/dist" "$check_dir/dist"
-  (cd "$check_dir" && npm run --silent check:fast && run_selected_scenarios "$diff_base")
+  (unset $(git rev-parse --local-env-vars) && cd "$check_dir" && npm run --silent check:fast && run_covering_tests "$diff_base" && run_selected_scenarios "$diff_base")
   check_status=$?
   git worktree remove --force "$check_dir"
   return $check_status
@@ -45,6 +53,7 @@ while read -r local_ref pushed_sha remote_ref remote_sha; do
   diff_base=$(diff_base_of "$remote_sha")
   if [ "$pushed_sha" = "$head_sha" ] && [ -z "$(git status --porcelain)" ]; then
     npm run --silent check:fast || exit 1
+    run_covering_tests "$diff_base" || exit 1
     run_selected_scenarios "$diff_base" || exit 1
     continue
   fi

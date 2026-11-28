@@ -66,7 +66,7 @@ These areas stay on as today and take fixes for crashes, data loss and security 
 
 ### Testing Requirements
 
-- Before claiming completion, run `npm run typecheck` and the tests covering the changed files (`npm run test:files -- <files>`). A pull request needs the full `npm test`; the maintainer's host runs it and `npm run build` only on the operator's ask (out of memory).
+- Before claiming completion, run `npm run typecheck` and `npm run test:covering` (which selects and runs the tests covering your diff). A pull request needs the full `npm test`; the maintainer's host runs it and `npm run build` only on the operator's ask (out of memory).
 - Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
 
 ## Invariants
