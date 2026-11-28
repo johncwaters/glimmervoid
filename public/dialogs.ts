@@ -12,7 +12,7 @@ import { emptyState } from './ui/empty-state.ts';
 import { radio } from './ui/checkbox.ts';
 import { field } from './ui/field.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
-import { mountAddSessionPicker } from './add-session/add-session-picker.ts';
+import { mountAddSessionPicker } from './add-session/AddSessionPicker.tsx';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
 import { formatTrailOffset, trailContentKey, trailStatusText, trailTimelineRows } from './radar/radar-core.ts';

@@ -13,7 +13,6 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['detection/osc-title-source.ts', 7],
   ['detection/settings-injector.ts', 4],
   ['notifications/telegram-outbox.ts', 2],
-  ['public/add-session/add-session-picker.ts', 7],
   ['public/boot/connection-screen.ts', 2],
   ['public/control-ws.ts', 3],
   ['public/dialogs.ts', 1],

@@ -1,9 +1,10 @@
-import { For, Match, Show, Switch, createEffect, createMemo, flush } from 'solid-js';
+import { Show, createEffect, createMemo, flush } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import { markAsNotCredential } from '../dom-helpers.ts';
 import { switchSessionModel, switchableSetupOf } from '../session-card/card-model.ts';
 import { Pressable } from '../ui/Pressable.tsx';
 import { createSyncedSignal } from '../ui/store-signal.ts';
+import { ModelPickerRows } from './ModelPickerRows.tsx';
 import {
   CLOSED_MODEL_PICKER_STATE,
   applyModelPickerQuery,
@@ -198,81 +199,22 @@ export function ModelPicker(props: ModelPickerProps): JSX.Element {
                 role="listbox"
                 aria-label="Models"
               >
-                <For each={rows()}>
-                  {(row) => (
-                    <Switch>
-                      <Match when={row.kind === 'group-label' ? row : undefined}>
-                        {(groupLabel) => (
-                          <div class="add-session-list-label" role="presentation">
-                            {groupLabel().text}
-                          </div>
-                        )}
-                      </Match>
-                      <Match when={row.kind === 'back' ? row : undefined}>
-                        {(backRow) => (
-                          <Pressable
-                            class="add-session-row add-session-row-back"
-                            data-key={backRow().key}
-                            onClick={() => switchStep('models')}
-                          >
-                            <span class="add-session-row-chevron" />
-                            <span class="add-session-row-name">{backRow().label}</span>
-                          </Pressable>
-                        )}
-                      </Match>
-                      <Match when={row.kind === 'typed' ? row : undefined}>
-                        {(typedRow) => (
-                          <Pressable
-                            class="add-session-row add-session-row-choice"
-                            data-key={typedRow().key}
-                            onClick={() => {
-                              const current = pickerState.peek();
-                              if (current.isOpen) applyActionOutcome(pickTypedModel(current, typedRow().provider, typedRow().modelId));
-                            }}
-                          >
-                            <span class="add-session-row-name">{typedRow().label}</span>
-                            <span class="add-session-row-chevron" />
-                          </Pressable>
-                        )}
-                      </Match>
-                      <Match when={row.kind === 'model' ? row : undefined}>
-                        {(modelRow) => (
-                          <Pressable
-                            class="add-session-row"
-                            role="option"
-                            aria-selected={modelRow().isPicked ? 'true' : 'false'}
-                            data-key={modelRow().key}
-                            onClick={() => {
-                              const current = pickerState.peek();
-                              if (current.isOpen) applyActionOutcome(pickListedModel(current, modelRow().provider, modelRow().modelId));
-                            }}
-                          >
-                            <span class="add-session-row-name">{modelRow().label}</span>
-                            <Show when={modelRow().meta}>
-                              {(meta) => <span class="add-session-row-meta">{meta()}</span>}
-                            </Show>
-                          </Pressable>
-                        )}
-                      </Match>
-                      <Match when={row.kind === 'effort' ? row : undefined}>
-                        {(effortRow) => (
-                          <Pressable
-                            class="add-session-row"
-                            role="option"
-                            aria-selected={effortRow().isPicked ? 'true' : 'false'}
-                            data-key={effortRow().key}
-                            onClick={() => {
-                              const current = pickerState.peek();
-                              if (current.isOpen) applyActionOutcome(pickEffortChoice(current, effortRow().effort));
-                            }}
-                          >
-                            <span class="add-session-row-name">{effortRow().label}</span>
-                          </Pressable>
-                        )}
-                      </Match>
-                    </Switch>
-                  )}
-                </For>
+                <ModelPickerRows
+                  rows={rows()}
+                  onBack={() => switchStep('models')}
+                  onPickModel={(provider, modelId) => {
+                    const current = pickerState.peek();
+                    if (current.isOpen) applyActionOutcome(pickListedModel(current, provider, modelId));
+                  }}
+                  onPickTypedModel={(provider, modelId) => {
+                    const current = pickerState.peek();
+                    if (current.isOpen) applyActionOutcome(pickTypedModel(current, provider, modelId));
+                  }}
+                  onPickEffort={(effort) => {
+                    const current = pickerState.peek();
+                    if (current.isOpen) applyActionOutcome(pickEffortChoice(current, effort));
+                  }}
+                />
               </div>
             </div>
           </div>

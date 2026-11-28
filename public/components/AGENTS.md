@@ -10,7 +10,6 @@ Static HTML fragments imported by `dialogs.ts` via Vite's `?raw` suffix and inje
 
 | File | Description |
 |------|-------------|
-| `add-session-dialog.html` | Add Session dialog markup |
 | `agent-connect-dialog.html` | Agent account sign-in dialog markup |
 
 ## For AI Agents

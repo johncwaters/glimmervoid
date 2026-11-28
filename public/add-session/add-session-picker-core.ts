@@ -28,7 +28,7 @@ export type AddSessionSlot = 'agent' | 'account' | 'model' | 'project';
 type QueriedSlot = 'project' | 'model';
 type OperatorTouch = 'untouched' | 'acted' | 'reopened';
 
-export type AddSessionTarget =
+type AddSessionTarget =
   | { readonly kind: 'none' }
   | { readonly kind: 'project'; readonly row: RecentRow }
   | { readonly kind: 'github'; readonly repo: GithubRepo }
@@ -89,11 +89,10 @@ interface AddSessionPickerState {
 
 type AddSessionFocusTarget = 'none' | 'dialog' | 'find' | 'selected-row' | 'workspace-find' | 'path' | 'confirm';
 
-interface AddSessionTransition {
+export interface AddSessionTransition {
   readonly state: AddSessionPickerState;
   readonly syncFindValue: string | null;
-  readonly shouldFocus: boolean;
-  readonly shouldSubmit: boolean;
+  readonly postAction: 'none' | 'focus' | 'submit';
 }
 
 interface AddSessionDisplay {
@@ -128,6 +127,14 @@ interface AddSessionDisplay {
   readonly scanAgainHidden: boolean;
   readonly scanAgainDisabled: boolean;
   readonly repoRootsHidden: boolean;
+  readonly scanStatusTone: 'busy' | 'error' | null;
+  readonly scanStatusText: string;
+  readonly scanStatusClassName: string;
+  readonly scanStatusHidden: boolean;
+  readonly startStatusTone: 'busy' | null;
+  readonly startStatusText: string;
+  readonly startStatusClassName: string;
+  readonly startStatusHidden: boolean;
 }
 
 interface LiveCountBadge {
@@ -136,21 +143,21 @@ interface LiveCountBadge {
   readonly tone: 'running' | 'waiting';
 }
 
-type ProjectSlotRow =
+export type ProjectSlotRow =
   | { readonly kind: 'issue'; readonly key: string; readonly name: string; readonly project: ScannedProject; readonly issueNumber: number }
   | { readonly kind: 'project'; readonly key: string; readonly name: string; readonly isPicked: boolean; readonly row: RecentRow; readonly counts: readonly LiveCountBadge[]; readonly ageText: string | null }
   | { readonly kind: 'choice'; readonly key: string; readonly label: string; readonly choice: 'workspace' | 'folder' }
   | { readonly kind: 'group-label'; readonly key: string; readonly text: string }
   | { readonly kind: 'github'; readonly key: string; readonly name: string; readonly isPicked: boolean; readonly repo: GithubRepo; readonly metaText: string };
 
-interface AgentSlotRow {
+export interface AgentSlotRow {
   readonly key: string;
   readonly id: string;
   readonly label: string;
   readonly isPicked: boolean;
 }
 
-interface AccountSlotRow {
+export interface AccountSlotRow {
   readonly key: string;
   readonly value: string;
   readonly label: string;
@@ -163,7 +170,7 @@ type WorkspacePanelRow =
   | { readonly kind: 'group-label'; readonly key: string; readonly text: string }
   | { readonly kind: 'repo'; readonly key: string; readonly name: string; readonly path: string; readonly isPicked: boolean };
 
-type AddSessionRequestPayload =
+export type AddSessionRequestPayload =
   | { readonly requestType: 'add-session'; readonly message: Record<string, unknown>; readonly timeoutMs: number }
   | { readonly requestType: 'pack-launch'; readonly message: { readonly pack: string; readonly launcherId: string }; readonly timeoutMs: number }
   | { readonly requestType: 'open-issue-session'; readonly message: Record<string, unknown>; readonly timeoutMs: number };
@@ -309,8 +316,7 @@ function openSlotTransition(state: AddSessionPickerState, slot: AddSessionSlot |
   return {
     state: nextState,
     syncFindValue: syncFindValueForSlot(nextState, slot),
-    shouldFocus: true,
-    shouldSubmit: false,
+    postAction: 'focus',
   };
 }
 
@@ -336,8 +342,7 @@ function advanceFromPickTransition(state: AddSessionPickerState, isTargetChosenB
   return {
     state: { ...state, operatorTouch: nextTouch },
     syncFindValue: null,
-    shouldFocus: false,
-    shouldSubmit: true,
+    postAction: 'submit',
   };
 }
 
@@ -429,7 +434,7 @@ function settleOpenSlot(
   isFocusAdrift: boolean,
 ): AddSessionTransition {
   if (state.operatorTouch !== 'untouched' && isFocusInsidePick) {
-    return { state, syncFindValue: null, shouldFocus: false, shouldSubmit: false };
+    return { state, syncFindValue: null, postAction: 'none' };
   }
   const nextEmpty = firstEmptySlotOf(state);
   const isOpenSlotDone = state.openSlot === null
@@ -440,8 +445,7 @@ function settleOpenSlot(
   return {
     state,
     syncFindValue: null,
-    shouldFocus: state.operatorTouch !== 'reopened' && isFocusAdrift,
-    shouldSubmit: false,
+    postAction: state.operatorTouch !== 'reopened' && isFocusAdrift ? 'focus' : 'none',
   };
 }
 
@@ -569,6 +573,18 @@ export function addSessionDisplayOf(
     scanAgainHidden: state.scanState.kind !== 'error',
     scanAgainDisabled: state.scanState.kind === 'busy',
     repoRootsHidden: state.scanState.kind !== 'empty',
+    scanStatusTone: state.scanState.kind === 'busy' || state.scanState.kind === 'error' ? state.scanState.kind : null,
+    scanStatusText: state.scanState.kind === 'busy' || state.scanState.kind === 'error' ? state.scanState.text : '',
+    scanStatusClassName: state.scanState.kind === 'busy'
+      ? 'dialog-hint text-meta text-text-muted'
+      : state.scanState.kind === 'error'
+        ? 'dialog-hint text-meta text-state-failed'
+        : 'dialog-hint',
+    scanStatusHidden: state.scanState.kind !== 'busy' && state.scanState.kind !== 'error',
+    startStatusTone: state.workState.kind === 'busy' ? 'busy' : null,
+    startStatusText: state.workState.kind === 'busy' ? state.workState.statusText : '',
+    startStatusClassName: state.workState.kind === 'busy' ? 'dialog-hint text-meta text-text-muted' : 'dialog-hint',
+    startStatusHidden: state.workState.kind !== 'busy',
   };
 }
 
@@ -779,8 +795,7 @@ export function applyPickListedModel(
   return {
     state: { ...withSetup, effortStepModelId: modelId },
     syncFindValue: null,
-    shouldFocus: true,
-    shouldSubmit: false,
+    postAction: 'focus',
   };
 }
 
@@ -804,8 +819,7 @@ export function applyBackToModels(state: AddSessionPickerState): AddSessionTrans
   return {
     state: { ...state, effortStepModelId: null },
     syncFindValue: null,
-    shouldFocus: true,
-    shouldSubmit: false,
+    postAction: 'focus',
   };
 }
 
@@ -814,8 +828,7 @@ export function applyBackToProjects(state: AddSessionPickerState): AddSessionTra
   return {
     state: nextState,
     syncFindValue: syncFindValueForSlot(nextState, 'project'),
-    shouldFocus: true,
-    shouldSubmit: false,
+    postAction: 'focus',
   };
 }
 
@@ -883,6 +896,23 @@ export function decideFindKeydown(
   return { kind: 'advance-project', isTargetVisible: isProjectPickVisible(state) };
 }
 
+export function applyFindKeydown(
+  state: AddSessionPickerState,
+  key: string,
+  isComposing: boolean,
+): { readonly kind: 'none' } | { readonly kind: 'transition'; readonly transition: AddSessionTransition } | { readonly kind: 'start-issue'; readonly project: ScannedProject; readonly issueNumber: number } {
+  const decision = decideFindKeydown(state, key, isComposing);
+  if (decision.kind === 'none') return { kind: 'none' };
+  if (decision.kind === 'pick-listed-model') {
+    return { kind: 'transition', transition: applyPickListedModel(state, decision.provider, decision.modelId) };
+  }
+  if (decision.kind === 'pick-typed-model') {
+    return { kind: 'transition', transition: applyPickTypedModel(state, decision.provider, decision.modelId) };
+  }
+  if (decision.kind === 'start-issue') return decision;
+  return { kind: 'transition', transition: applyAdvanceFromPick(state, decision.isTargetVisible) };
+}
+
 export function decidePathKeydown(key: string, isComposing: boolean): 'submit' | 'none' {
   if (isComposing || key === 'Process' || key !== 'Enter') return 'none';
   return 'submit';
@@ -941,7 +971,7 @@ export function applyAgentsListed(
   isFocusAdrift: boolean,
 ): AddSessionTransition {
   if (loadNumber !== state.agentsLoadCount) {
-    return { state, syncFindValue: null, shouldFocus: false, shouldSubmit: false };
+    return { state, syncFindValue: null, postAction: 'none' };
   }
   const replyError = message.type !== 'agents-listed'
     ? (message.type === 'error' ? message.message : `unexpected reply ${message.type}`)
@@ -985,7 +1015,7 @@ export function applyAgentsLoadError(
   isFocusAdrift: boolean,
 ): AddSessionTransition {
   if (loadNumber !== state.agentsLoadCount || state.agentListState === 'settled') {
-    return { state, syncFindValue: null, shouldFocus: false, shouldSubmit: false };
+    return { state, syncFindValue: null, postAction: 'none' };
   }
   const nextState: AddSessionPickerState = {
     ...state,
@@ -1234,4 +1264,15 @@ export function decideActionOutcome(
     return { kind: 'refused', errorText: outcome.error.message };
   }
   return { kind: 'refused', errorText: formatRefusal(outcome.reply) };
+}
+
+export function decideCloneJobProgress(
+  repoFullName: string,
+  job: RepositoryCloneJob | null,
+  isUnsettled: boolean,
+  statusText: string,
+): { readonly kind: 'busy'; readonly statusText: string } | { readonly kind: 'done' } | { readonly kind: 'failed'; readonly errorText: string } {
+  if (isUnsettled) return { kind: 'busy', statusText: `Cloning ${repoFullName}: ${statusText}` };
+  if (job?.state === 'done') return { kind: 'done' };
+  return { kind: 'failed', errorText: `${repoFullName} was not cloned: ${statusText}` };
 }

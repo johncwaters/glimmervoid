@@ -115,7 +115,7 @@ test('add-session-picker-core steps through agent, model/effort, account, and pr
   const afterAgent = applyPickAgent(state, 'claude-code', ACCOUNTS);
   state = afterAgent.state;
   assert.equal(state.openSlot, 'project');
-  assert.equal(afterAgent.shouldSubmit, false);
+  assert.equal(afterAgent.postAction, 'focus');
 
   state = applyReopenSlot(state, 'model').state;
   assert.equal(modelSlotRowsOf(state).some((row) => row.kind === 'model' && row.modelId === 'claude-sonnet-4-6'), true);
@@ -138,7 +138,7 @@ test('add-session-picker-core steps through agent, model/effort, account, and pr
   const betaRow = projectRows.find((row) => row.kind === 'project' && row.name === 'beta');
   assert.ok(betaRow && betaRow.kind === 'project');
   const afterProject = applyPickProject(state, betaRow.row);
-  assert.equal(afterProject.shouldSubmit, true);
+  assert.equal(afterProject.postAction, 'submit');
 
   const submission = buildStartSubmission(afterProject.state, {
     accounts: ACCOUNTS,
@@ -198,7 +198,7 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   const filteredMiss = applyFindInput(filteredMatch, 'zzzz-no-match');
   const hiddenEnter = decideFindKeydown(filteredMiss, 'Enter', false);
   assert.deepEqual(hiddenEnter, { kind: 'advance-project', isTargetVisible: false });
-  assert.equal(applyAdvanceFromPick(filteredMiss, false).shouldSubmit, false);
+  assert.equal(applyAdvanceFromPick(filteredMiss, false).postAction, 'focus');
 
   const errAgentsLoad = beginAgentsLoad(state);
   const afterErrAgents = applyAgentsListed(errAgentsLoad.state, errAgentsLoad.loadNumber, {

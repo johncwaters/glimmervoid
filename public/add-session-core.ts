@@ -61,12 +61,6 @@ export function filterRows<Row extends { name: string }>(rows: readonly Row[], q
   return rows.filter((row) => row.name.toLowerCase().includes(needle));
 }
 
-export function orderWorkspaceRows<Row extends { name: string; path: string }>(rows: readonly Row[], pickedPaths: readonly string[], query: string): { picked: Row[]; others: Row[] } {
-  const picked = pickedPaths.flatMap((pickedPath) => rows.filter((row) => row.path === pickedPath));
-  const others = filterRows(rows.filter((row) => !pickedPaths.includes(row.path)), query);
-  return { picked, others };
-}
-
 export function lastPathSegment(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
