@@ -30,6 +30,11 @@ function gitLines(gitArguments: readonly string[]): string[] | null {
   return run.stdout.split('\n').filter((line) => line !== '');
 }
 
+function scrubInheritedGitLocalEnv(): void {
+  const localEnvVars = gitLines(['rev-parse', '--local-env-vars']) ?? [];
+  for (const name of localEnvVars) delete process.env[name];
+}
+
 function listRepoSourcePaths(): string[] | null {
   const listed = gitLines(['ls-files', '--cached', '--others', '--exclude-standard', '--', ...SOURCE_GLOBS]);
   if (listed === null) return null;
@@ -186,6 +191,7 @@ function main(argumentList: readonly string[]): number {
     return 2;
   }
 
+  scrubInheritedGitLocalEnv();
   const selectStartedAt = clock.nowMs();
   const sourcePaths = listRepoSourcePaths();
   if (sourcePaths === null) {

@@ -52,9 +52,7 @@ while read -r local_ref pushed_sha remote_ref remote_sha; do
   checked_shas="$checked_shas $pushed_sha"
   diff_base=$(diff_base_of "$remote_sha")
   if [ "$pushed_sha" = "$head_sha" ] && [ -z "$(git status --porcelain)" ]; then
-    npm run --silent check:fast || exit 1
-    run_covering_tests "$diff_base" || exit 1
-    run_selected_scenarios "$diff_base" || exit 1
+    (unset $(git rev-parse --local-env-vars) && npm run --silent check:fast && run_covering_tests "$diff_base" && run_selected_scenarios "$diff_base") || exit 1
     continue
   fi
   echo "pre-push: checking $pushed_sha in a temporary worktree" >&2

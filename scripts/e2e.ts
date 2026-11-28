@@ -29,6 +29,11 @@ function gitLines(gitArguments: readonly string[]): string[] | null {
   return run.stdout.split('\n').filter((line) => line !== '');
 }
 
+function scrubInheritedGitLocalEnv(): void {
+  const localEnvVars = gitLines(['rev-parse', '--local-env-vars']) ?? [];
+  for (const name of localEnvVars) delete process.env[name];
+}
+
 function listScenarioFiles(): string[] {
   return fs.readdirSync(path.join(REPO_ROOT, SCENARIO_DIRECTORY))
     .filter((entryName) => entryName.endsWith(SCENARIO_SUFFIX))
@@ -118,6 +123,7 @@ function main(argumentList: readonly string[]): number {
     console.error(USAGE);
     return 2;
   }
+  scrubInheritedGitLocalEnv();
   const scenarioFiles = listScenarioFiles();
   const selected = selectionFor(request.choice, scenarioFiles);
   const selectedFiles = selected.map((selection) => selection.scenario);
