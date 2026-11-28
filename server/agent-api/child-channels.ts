@@ -1,4 +1,7 @@
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 import type { Session } from '../../session/sessions.ts';
+import { unreadNoticeFlagPath } from '../../detection/settings-injector.ts';
 import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
@@ -32,12 +35,43 @@ interface HookEvent {
 
 function createChildChannels(runtime: AgentApiRuntime) {
   const { listAllSessions, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, lastOperatorInputAtBySession, childIdsToDiscard, endCauseByChildId } = runtime;
+  const flagSyncBySessionId = new Map<string, Promise<void>>();
+
+  function hasAnyWakingUnreadFor(sessionId: string): boolean {
+    for (const channel of channelsByChildId.values()) {
+      if (channel.childId === sessionId && hasWakingUnread(channel.toChild)) return true;
+      if (channel.parentId === sessionId && hasWakingUnread(channel.toParent)) return true;
+    }
+    return false;
+  }
+
+  function syncUnreadFlag(sessionId: string): void {
+    const previous = flagSyncBySessionId.get(sessionId) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      const flagPath = unreadNoticeFlagPath(sessionId);
+      if (hasAnyWakingUnreadFor(sessionId)) {
+        await fsp.mkdir(path.dirname(flagPath), { recursive: true, mode: 0o700 });
+        await fsp.writeFile(flagPath, '', { mode: 0o600 });
+        return;
+      }
+      await fsp.unlink(flagPath).catch(() => {});
+    }).catch(() => {}).finally(() => {
+      if (flagSyncBySessionId.get(sessionId) === next) flagSyncBySessionId.delete(sessionId);
+    });
+    flagSyncBySessionId.set(sessionId, next);
+  }
+
+  function recipientIdOf(channel: AgentChannel, side: ChannelSide): string {
+    return side === 'toChild' ? channel.childId : channel.parentId;
+  }
 
   function noteEndCause(childId: string, cause: ChildEndCause): void {
     if (!endCauseByChildId.has(childId)) endCauseByChildId.set(childId, cause);
     if (endCauseByChildId.get(childId) !== 'parent-closed') return;
     const channel = channelsByChildId.get(childId);
-    if (channel) channelsByChildId.set(childId, quietUnread(channel, 'toParent'));
+    if (!channel) return;
+    channelsByChildId.set(childId, quietUnread(channel, 'toParent'));
+    syncUnreadFlag(channel.parentId);
   }
 
   function unlink(childId: string): void {
@@ -48,8 +82,12 @@ function createChildChannels(runtime: AgentApiRuntime) {
   }
 
   function forgetLink(childId: string): void {
+    const channel = channelsByChildId.get(childId);
     unlink(childId);
     channelsByChildId.delete(childId);
+    if (!channel) return;
+    syncUnreadFlag(channel.parentId);
+    syncUnreadFlag(channel.childId);
   }
 
   function forgetChannelsOf(parent: Session): void {
@@ -208,6 +246,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
       const current = channelsByChildId.get(childId);
       if (!current) return;
       channelsByChildId.set(childId, quietUnread(current, side, submittedSeq));
+      syncUnreadFlag(recipientIdOf(current, side));
     })) {
       if (isWakeLineInFlight(recipient)) {
         waitForWakeLineRelease(recipient, childId, side);
@@ -260,6 +299,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     if (!channel || link.waitingStopNoteText === null) return;
     channelsByChildId.set(childId, withdrawUnreadNote(channel, 'toParent', link.waitingStopNoteText));
     link.waitingStopNoteText = null;
+    syncUnreadFlag(channel.parentId);
   }
 
   function withdrawStateOnlyStopNote(childId: string, link: ChannelLink): void {
@@ -267,6 +307,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     if (!channel || link.stateOnlyStopNoteText === null) return;
     channelsByChildId.set(childId, withdrawUnreadNote(channel, 'toParent', link.stateOnlyStopNoteText));
     link.stateOnlyStopNoteText = null;
+    syncUnreadFlag(channel.parentId);
   }
 
   function watchChild(link: ChannelLink, childId: string): () => void {
@@ -428,6 +469,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     const channel = channelsByChildId.get(childId);
     if (!channel) return;
     channelsByChildId.set(childId, postToChannel(channel, side, entry));
+    syncUnreadFlag(recipientIdOf(channel, side));
     wakeRecipient(childId, side);
   }
 
@@ -436,6 +478,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     if (!channel) return null;
     const { channel: drainedChannel, drained } = drainChannelPage(channel, side);
     channelsByChildId.set(childId, drainedChannel);
+    syncUnreadFlag(recipientIdOf(drainedChannel, side));
     const link = linksByChildId.get(childId);
     if (link && side === 'toParent' && drained.entries.length > 0) link.hasParentRead = true;
     const peerId = side === 'toParent' ? channel.childId : channel.parentId;
@@ -478,6 +521,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
   function takeInTurnNotice(sessionId: string): string | null {
     const { updatedChannels, notices } = takeSessionInTurnNotices([...channelsByChildId.values()], sessionId);
     for (const channel of updatedChannels) channelsByChildId.set(channel.childId, channel);
+    syncUnreadFlag(sessionId);
     return notices.length === 0 ? null : notices.join('\n');
   }
 

@@ -480,7 +480,6 @@ function createSettingsHandlers(context: ControlContext, deps: ControlHandlerDep
     const saneYoloPath = config.saneYolo !== false ? resolvePackageBin('cc-safety-net', 'cc-safety-net') : null;
     if (saneYoloPath) hookTools.push({ id: 'saneYolo', binPath: saneYoloPath, launch: scriptLaunch(saneYoloPath, 'cc-safety-net') });
     const flags: InstalledHookFlags = {
-      detectScheduledWakeups: true,
       observeToolCalls: false,
       hookTools,
     };

@@ -1,13 +1,14 @@
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import type { ChatApprovalMode } from '../shared/contracts/session.ts';
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import { realAgentHome } from "./agent-home.ts";
 import { CLAUDE_HOME_PROFILE } from "./core/agent-home-core.ts";
-import { writeSessionSettings, generateToken } from "../detection/settings-injector.ts";
+import { writeSessionSettings, generateToken, unreadNoticeFlagPath } from "../detection/settings-injector.ts";
 import type { HookRegistration, HookSignal } from "../detection/hook-source.ts";
 import type { ModelSelection } from "../shared/contracts/agent-models.ts";
-import { HOOK_URL_ENV } from "./core/hook-relay-core.ts";
+import { HOOK_URL_ENV, UNREAD_FLAG_ENV } from "./core/hook-relay-core.ts";
 import { HOOK_TOOLS } from "./core/hook-tools.ts";
 import type { ResolvedHookTool } from "./core/hook-tools.ts";
 import { saneYoloHomeDir } from "../server/hook-tools.ts";
@@ -58,7 +59,6 @@ interface SessionHookOptions {
   getHookPort: (() => number | null) | null;
   hooksBaseDir: string | undefined;
   settingsPermissions: Record<string, unknown> | null;
-  detectScheduledWakeups: boolean;
   observeToolCalls: boolean;
   readChatApprovals: () => ChatApprovalMode;
   enableProjectMcp: boolean;
@@ -138,6 +138,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   function cleanup(): void {
     if (saneYoloState === "pending") saneYoloState = "inactive";
     releaseGeneratedHome();
+    void fsp.unlink(unreadNoticeFlagPath(options.id)).catch(() => {});
     if (!token && !settingsHandle) return;
     if (options.hookRouter) {
       try { options.hookRouter.unregister(options.id); } catch {}
@@ -208,7 +209,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         hooks: hookProfileOf(options.adapter),
         enrichPayload: payloadEnricherFor(hookProfileOf(options.adapter), options.agentEnv),
       });
-      return { args, env: { [HOOK_URL_ENV]: hookUrl, ...hookToolEnv(isSaneYoloActive) }, isSaneYoloActive };
+      return { args, env: { [HOOK_URL_ENV]: hookUrl, [UNREAD_FLAG_ENV]: unreadNoticeFlagPath(options.id), ...hookToolEnv(isSaneYoloActive) }, isSaneYoloActive };
     } catch (error) {
       console.warn(`[session:${options.name}] hook injection failed: ${errorMessage(error)} - falling back to OSC title only`);
       cleanup();
@@ -381,7 +382,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         glimmervoidId: options.id,
         baseDir: options.hooksBaseDir,
         permissions: options.settingsPermissions,
-        detectScheduledWakeups: options.detectScheduledWakeups,
         observeToolCalls: options.observeToolCalls,
         chatApprovals: options.readChatApprovals(),
         enableProjectMcp: options.enableProjectMcp,

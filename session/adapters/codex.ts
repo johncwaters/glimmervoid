@@ -12,6 +12,7 @@ import type { ChatApprovalMode } from "../../shared/contracts/session.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
+import { UNREAD_FLAG_ENV } from "../core/hook-relay-core.ts";
 import { codexHomes, codexSessionIdFromPath } from "../../server/usage/core/usage-scan-core.ts";
 import { openContainedFile } from "../../server/contained-file.ts";
 import { isRelevantRolloutLine, isTurnStartLine, proposedPlanOfTurn } from "../core/codex-plan-rollout-core.ts";
@@ -27,7 +28,7 @@ import type { UserHookTrust } from "../codex-hook-trust.ts";
 import type { CodexAppServerCommand } from "../../server/codex-app-server-request.ts";
 import { canonicalizePath } from "../../shared/canonical-paths.ts";
 import { errorMessage } from "../../shared/text.ts";
-import type { CodexHookPlan, MatchedRelayHook } from "../core/codex-version-core.ts";
+import type { CodexHookPlan, CodexUnreadNoticeHook, MatchedRelayHook } from "../core/codex-version-core.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
@@ -213,12 +214,20 @@ function userConfigFolders(env: Record<string, string | undefined>): string[] {
 
 const TOML_LITERAL_STRING_FORBIDDEN = /[\x00-\x08\x0a-\x1f\x27\x7f]/;
 
+function unreadGatedPostToolUseCommand(relayLaunch: readonly string[]): string | null {
+  const relayCommand = buildHookCommand(relayLaunch, "PostToolUse");
+  if (!relayCommand) return null;
+  if (process.platform === "win32") return `if defined ${UNREAD_FLAG_ENV} if exist "%${UNREAD_FLAG_ENV}%" ${relayCommand}`;
+  return `[ -f "$${UNREAD_FLAG_ENV}" ] || exit 0; exec ${relayCommand}`;
+}
+
 function buildHookArgs({
   relayLaunch = RELAY_LAUNCH,
   events = HOOK_EVENTS,
   matchedRelayHooks = [],
   bypassHookTrust = false,
   gatesMcpToolCalls = false,
+  unreadNoticeHook = "none",
   hookTools = [],
   userHooks = [],
   observeToolCalls = false,
@@ -230,6 +239,7 @@ function buildHookArgs({
   matchedRelayHooks?: readonly MatchedRelayHook[];
   bypassHookTrust?: boolean;
   gatesMcpToolCalls?: boolean;
+  unreadNoticeHook?: CodexUnreadNoticeHook;
   hookTools?: ResolvedHookTool[];
   userHooks?: readonly UserHook[];
   observeToolCalls?: boolean;
@@ -254,7 +264,7 @@ function buildHookArgs({
     groupsByEvent.set(event, [`{hooks=[{type='command',command='${command}'}]}`]);
   }
   for (const { event, matcher, isAsync } of relayedMatchedHooks) {
-    const command = buildHookCommand(relayLaunch, event);
+    const command = buildHookCommand(relayLaunch, event, isAsync ? ["async"] : []);
     if (!command) return null;
     const asyncField = isAsync ? ",async=true" : "";
     const group = `{matcher='${matcher}',hooks=[{type='command',command='${command}'${asyncField}}]}`;
@@ -263,6 +273,11 @@ function buildHookArgs({
       continue;
     }
     groupsByEvent.set(event, [...(groupsByEvent.get(event) ?? []), group]);
+  }
+  if (!hasHomeHooks && unreadNoticeHook === "gated-post-tool-use") {
+    const unreadCommand = unreadGatedPostToolUseCommand(relayLaunch);
+    if (!unreadCommand) return null;
+    groupsByEvent.set("PostToolUse", [...(groupsByEvent.get("PostToolUse") ?? []), `{hooks=[{type='command',command='${unreadCommand}'}]}`]);
   }
   if (hasQuestionHook(argvMatchedHooks)) {
     const questionHoldCommand = buildHookCommand(relayLaunch, QUESTION_TOOL_HOLD_HOOK_EVENT);
@@ -341,9 +356,14 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
     hooks.push({ event, matcher: null, command });
   }
   for (const { event, matcher, isAsync } of plan.matchedRelayHooks) {
-    const command = buildHookCommand(RELAY_LAUNCH, event);
+    const command = buildHookCommand(RELAY_LAUNCH, event, isAsync ? ["async"] : []);
     if (!command) return null;
     hooks.push({ event, matcher, command, isAsync });
+  }
+  if (plan.unreadNoticeHook === "gated-post-tool-use") {
+    const unreadCommand = unreadGatedPostToolUseCommand(RELAY_LAUNCH);
+    if (!unreadCommand) return null;
+    hooks.push({ event: "PostToolUse", matcher: null, command: unreadCommand });
   }
   if (hasQuestionHook(plan.matchedRelayHooks)) {
     const questionHoldCommand = buildHookCommand(RELAY_LAUNCH, QUESTION_TOOL_HOLD_HOOK_EVENT);

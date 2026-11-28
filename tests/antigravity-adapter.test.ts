@@ -164,7 +164,7 @@ test('Antigravity plugin wires Sane YOLO PreToolUse hook and describes its insta
   assert.equal(saneYoloEntry.matcher, '*');
   assert.equal(antigravity.capabilities.saneYolo, true);
 
-  const installed = antigravity.hooks.describeInstalledHooks?.({ detectScheduledWakeups: true, observeToolCalls: true, hookTools: [] });
+  const installed = antigravity.hooks.describeInstalledHooks?.({ observeToolCalls: true, hookTools: [] });
   assert.ok(installed && 'hooks' in installed);
   assert.ok(installed.hooks.some((hook) => hook.route === 'saneYolo' && hook.event === 'PreToolUse'));
   assert.ok(installed.hooks.some((hook) => hook.event === 'AgentState'));

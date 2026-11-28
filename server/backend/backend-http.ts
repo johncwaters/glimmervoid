@@ -59,19 +59,18 @@ import { BOARD_PAGE_ARROW_KEYS, BOARD_PAGE_ARROW_MESSAGE, BOARD_PAGE_CONTENT_WID
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
-import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from '../http-body.ts';
+import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody, readCappedBodyOrDrainHead } from '../http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
 import { mountFrameOpenRoute, mountKeyedFrameRoutes } from './http/backend-http-frames.ts';
 import type { PackFileSource } from './http/backend-http-frames.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
+import { HOOK_BODY_CAP_BYTES, SILENT_OVERSIZE_HOOK_EVENTS } from '../../shared/hook-oversize-core.ts';
 import { clock } from '../../shared/clock.ts';
 
-const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
 const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { agentstate: 512 * 1024, permissionrequest: 512 * 1024, [CONVERSATION_PERMISSION_HOOK_EVENT]: 512 * 1024, [QUESTION_TOOL_HOLD_HOOK_EVENT]: 512 * 1024, [PLAN_GATE_HOOK_EVENT]: 512 * 1024, [ELICITATION_HOOK_EVENT]: 512 * 1024 };
 const AGENT_BODY_CAP_BYTES_BY_VERB: Readonly<Record<string, number>> = { whiteboard: WHITEBOARD_LIMITS.putBytes + HOOK_BODY_CAP_BYTES };
 const UNNAMED_HOOK_EVENT = 'an unknown event';
-const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
 const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   ...HOOK_EVENTS.map((event) => event.toLowerCase()),
   'agentstate',
@@ -594,11 +593,17 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       if (res.writableFinished) return;
       abandonedByClaudeCode.abort();
     });
-    void readCappedBody(req, bodyCapBytes, overCap).then(async (body) => {
-      if (body === null) return;
+    const readBody = SILENT_OVERSIZE_HOOK_EVENTS.has(hookEventName)
+      ? readCappedBodyOrDrainHead(req, bodyCapBytes, AGENT_OVERSIZE_DRAIN_BYTES)
+      : readCappedBody(req, bodyCapBytes, overCap).then((body) => (body === null ? null : { kind: 'ok' as const, body }));
+    void readBody.then(async (bodyResult) => {
+      if (bodyResult === null) return;
       const token = presentedToken(req);
-      const parsedPayload = parseJsonBody(body);
-      const payload = hookRouter.enrich
+      const isOversizeBody = bodyResult.kind === 'oversize';
+      const parsedPayload: Record<string, unknown> = isOversizeBody
+        ? (bodyResult.hasTopLevelAgentId ? { agent_id: 'oversize-subagent' } : {})
+        : parseJsonBody(bodyResult.body);
+      const payload = !isOversizeBody && hookRouter.enrich
         ? await hookRouter.enrich({ glimmervoidId: req.params.glimmervoidId, event: req.params.event, token, payload: parsedPayload })
         : parsedPayload;
       const output = hookRouter.handle({
@@ -623,8 +628,9 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         takeResumeNote: () => getSession(req.params.glimmervoidId)?.takeResumeNote() ?? null,
       });
       const isResponseClosed = res.destroyed || res.closed || res.writableEnded || abandonedByClaudeCode.signal.aborted;
+      const isAsyncHook = req.query?.async === '1';
       const toolHint = output.status === 200 ? toolHookHintReply(req.params.glimmervoidId, req.params.event, payload) : null;
-      const inTurnNotice = output.status === 200 && !isResponseClosed ? inTurnNoticeHookReply(req.params.glimmervoidId, req.params.event, payload) : null;
+      const inTurnNotice = output.status === 200 && !isResponseClosed && !isAsyncHook ? inTurnNoticeHookReply(req.params.glimmervoidId, req.params.event, payload) : null;
       const agentReply = mergeHookAgentReplies([refocusReply, toolHint, inTurnNotice]);
       const answer = (decision: Record<string, unknown> | null) => {
         if (res.headersSent || res.writableEnded || res.destroyed) return;

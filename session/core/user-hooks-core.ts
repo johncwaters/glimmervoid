@@ -266,7 +266,6 @@ interface InstalledHook {
 }
 
 interface InstalledHookFlags {
-  detectScheduledWakeups: boolean;
   observeToolCalls: boolean;
   hookTools: ResolvedHookTool[];
 }

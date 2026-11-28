@@ -22,6 +22,10 @@ import { clock } from '../shared/clock.ts';
 function defaultBaseDir(): string {
   return path.join(hostScratchRoot(), 'glimmervoid-hooks');
 }
+
+function unreadNoticeFlagPath(sessionId: string): string {
+  return path.join(defaultBaseDir(), `${safePathSegment(sessionId)}.unread`);
+}
 const DEFAULT_TIMEOUT_SEC = 5;
 const HELD_HOOK_TIMEOUT_SEC = 86400;
 
@@ -67,7 +71,6 @@ interface BuildHookSettingsOptions {
   token: string;
   timeoutSec?: number;
   permissions?: SessionPermissions | null;
-  detectScheduledWakeups?: boolean;
   observeToolCalls?: boolean;
   chatApprovals?: ChatApprovalMode;
   enableProjectMcp?: boolean;
@@ -200,7 +203,7 @@ function buildSessionStartCommand(
   return buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl, replyHandler: isRewake ? REMOTE_RELAY_REWAKE_HANDLER : REMOTE_RELAY_STDOUT_HANDLER });
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups: _detectScheduledWakeups = true, observeToolCalls = false, chatApprovals = 'off', enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, carryBypassModeAcceptance, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, observeToolCalls = false, chatApprovals = 'off', enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, carryBypassModeAcceptance, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -362,4 +365,4 @@ function sweepOrphans(baseDir: string = defaultBaseDir(), maxAgeMs: number = 24 
   return removed;
 }
 
-export { buildHookSettings, describeInstalledClaudeHooks, writeSessionSettings, sweepOrphans, generateToken, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, RELAY_LAUNCH, COMMAND_HOOK_RELAY_LAUNCH, NO_CHAIN };
+export { buildHookSettings, describeInstalledClaudeHooks, writeSessionSettings, sweepOrphans, generateToken, unreadNoticeFlagPath, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, RELAY_LAUNCH, COMMAND_HOOK_RELAY_LAUNCH, NO_CHAIN };

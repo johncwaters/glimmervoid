@@ -1,5 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import type { Request } from 'express';
+import { createTopLevelAgentIdScanner } from '../shared/hook-oversize-core.ts';
 import { parseJsonRecord } from './core/json-core.ts';
 
 function readCappedBody(
@@ -65,4 +66,53 @@ function declaredContentLength(req: Request): number | null {
   return Number.isFinite(declared) && declared >= 0 ? declared : null;
 }
 
-export { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody };
+type CappedBodyOrDrainResult =
+  | { kind: 'ok'; body: string }
+  | { kind: 'oversize'; hasTopLevelAgentId: boolean };
+
+function readCappedBodyOrDrainHead(
+  req: IncomingMessage,
+  capBytes: number,
+  drainBytes: number,
+): Promise<CappedBodyOrDrainResult | null> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    const agentIdScanner = createTopLevelAgentIdScanner();
+    let receivedBytes = 0;
+    let state: 'reading' | 'oversize' | 'settled' = 'reading';
+    const abandon = () => {
+      if (state === 'settled') return;
+      state = 'settled';
+      resolve(null);
+    };
+    req.on('error', abandon);
+    req.on('data', (chunk: Buffer) => {
+      if (state === 'settled') return;
+      receivedBytes += chunk.length;
+      agentIdScanner.push(chunk);
+      if (receivedBytes <= capBytes) {
+        chunks.push(chunk);
+        return;
+      }
+      if (state === 'reading') {
+        state = 'oversize';
+        chunks.length = 0;
+      }
+      if (receivedBytes <= capBytes + drainBytes) return;
+      req.destroy();
+      abandon();
+    });
+    req.on('end', () => {
+      if (state === 'settled') return;
+      const finalState = state;
+      state = 'settled';
+      if (finalState === 'oversize') {
+        resolve({ kind: 'oversize', hasTopLevelAgentId: agentIdScanner.hasTopLevelAgentId() });
+        return;
+      }
+      resolve({ kind: 'ok', body: Buffer.concat(chunks).toString('utf8') });
+    });
+  });
+}
+
+export { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody, readCappedBodyOrDrainHead };

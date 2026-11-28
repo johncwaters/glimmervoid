@@ -1,8 +1,10 @@
+import { HOOK_BODY_CAP_BYTES, SILENT_OVERSIZE_HOOK_EVENTS } from "../../shared/hook-oversize-core.ts";
 import { isLoopbackHostname } from "../../shared/loopback-hosts.ts";
 import { HELD_RELAY_HOOK_EVENTS, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/question-tool-hold.ts";
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
+const UNREAD_FLAG_ENV = "GV_UNREAD_FLAG";
 
-const MAX_PAYLOAD_BYTES = 65536;
+const MAX_PAYLOAD_BYTES = HOOK_BODY_CAP_BYTES;
 const MAX_PAYLOAD_BYTES_BY_EVENT: Record<string, number> = { agentstate: 512 * 1024 };
 const MAX_RESPONSE_BYTES = 65536;
 const POST_TIMEOUT_MS = 1500;
@@ -18,6 +20,7 @@ interface RelayPostVerdict {
   event: string | null;
   postTimeoutMs: number;
   reason: string;
+  shouldStripOversizeBody?: boolean;
 }
 
 function readHookUrl(env: Record<string, unknown> | null | undefined): string | null {
@@ -38,6 +41,7 @@ function resolveHookTarget(
   baseUrl: string,
   event: string,
   pathPrefix: string = HOOK_PATH_PREFIX,
+  isAsync = false,
 ): { url: string | null; reason: string } {
   let target: URL;
   try {
@@ -50,6 +54,7 @@ function resolveHookTarget(
   if (!target.pathname.startsWith(pathPrefix)) return { url: null, reason: "not-hook-path" };
   const base = target.pathname.replace(/\/+$/, "");
   target.pathname = `${base}/${event}`;
+  if (isAsync) target.searchParams.set("async", "1");
   return { url: target.toString(), reason: "ok" };
 }
 
@@ -58,10 +63,11 @@ function refusedPost(reason: string): RelayPostVerdict {
 }
 
 function decideRelayPost(
-  { env = {}, event = null, payloadBytes = 0 }: {
+  { env = {}, event = null, payloadBytes = 0, isAsync = false }: {
     env?: Record<string, string | undefined>;
     event?: unknown;
     payloadBytes?: number;
+    isAsync?: boolean;
   } = {},
 ): RelayPostVerdict {
   const baseUrl = readHookUrl(env);
@@ -69,19 +75,22 @@ function decideRelayPost(
   const name = normalizeEvent(event);
   if (!name) return refusedPost("bad-event");
   if (!Number.isFinite(payloadBytes) || payloadBytes < 0) return refusedPost("bad-payload");
-  if (payloadBytes > (MAX_PAYLOAD_BYTES_BY_EVENT[name] ?? MAX_PAYLOAD_BYTES)) return refusedPost("payload-too-large");
-  const target = resolveHookTarget(baseUrl, name);
+  const isOversize = payloadBytes > (MAX_PAYLOAD_BYTES_BY_EVENT[name] ?? MAX_PAYLOAD_BYTES);
+  if (isOversize && !SILENT_OVERSIZE_HOOK_EVENTS.has(name)) return refusedPost("payload-too-large");
+  const target = resolveHookTarget(baseUrl, name, HOOK_PATH_PREFIX, isAsync);
   if (!target.url) return refusedPost(target.reason);
   const postTimeoutMs = HELD_RELAY_HOOK_EVENTS.has(name)
     ? QUESTION_TOOL_HOLD_TIMEOUT_MS
     : name === "pretooluse"
       ? PRETOOLUSE_HOLD_TIMEOUT_MS
       : POST_TIMEOUT_MS;
+  if (isOversize) return { post: true, url: target.url, event: name, postTimeoutMs, reason: "ok-oversize-stripped", shouldStripOversizeBody: true };
   return { post: true, url: target.url, event: name, postTimeoutMs, reason: "ok" };
 }
 
 export {
   HOOK_URL_ENV,
+  UNREAD_FLAG_ENV,
   MAX_PAYLOAD_BYTES,
   MAX_RESPONSE_BYTES,
   POST_TIMEOUT_MS,

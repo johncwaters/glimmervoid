@@ -634,11 +634,91 @@ test('hook route formats in-turn channel notices per adapter, skips subagents an
       GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/agy-child?t=ok`,
     }, { write: (text: string) => { relayedMidTurn += text; } });
     assert.deepEqual(JSON.parse(relayedMidTurn), { injectSteps: [{ userMessage: noticeLine }] });
+
+    pendingNoticeById.set('claude-child', noticeLine);
+    const oversizeSubagent = JSON.stringify({ tool_name: 'Read', tool_response: 'x'.repeat(200 * 1024), agent_id: 'sub-late' });
+    const oversizeSubagentRes = await fetch(`${baseUrl}/hook/claude-child/PostToolUse`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: oversizeSubagent,
+    });
+    assert.equal(oversizeSubagentRes.status, 200);
+    assert.equal((await agentReplyOf(oversizeSubagentRes)).hookSpecificOutput, undefined, 'oversize subagent PostToolUse with late agent_id never consumes parent notice');
+
+    let relayedAsync = '';
+    await relayHook(['PostToolUse', 'async'], Readable.from([Buffer.from(JSON.stringify({ tool_name: 'Bash' }), 'utf8')]), {
+      GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/claude-child?t=ok`,
+    }, { write: (text: string) => { relayedAsync += text; } });
+    assert.equal(relayedAsync, '', 'async PostToolUse relay never consumes an unread notice');
+    assert.equal(pendingNoticeById.get('claude-child'), noticeLine);
+
+    const oversizeNestedAgentId = JSON.stringify({ tool_name: 'Read', tool_response: { agent_id: 'nested-not-subagent', data: 'x'.repeat(200 * 1024) } });
+    const oversizeMainRes = await fetch(`${baseUrl}/hook/claude-child/PostToolUse`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: oversizeNestedAgentId,
+    });
+    assert.equal(oversizeMainRes.status, 200);
+    assert.deepEqual((await agentReplyOf(oversizeMainRes)).hookSpecificOutput, { hookEventName: 'PostToolUse', additionalContext: noticeLine });
+
+    pendingNoticeById.set('claude-child', noticeLine);
+    let relayedOversize = '';
+    await relayHook(['PostToolUse'], Readable.from([Buffer.from(oversizeNestedAgentId, 'utf8')]), {
+      GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/claude-child?t=ok`,
+    }, { write: (text: string) => { relayedOversize += text; } });
+    assert.deepEqual(JSON.parse(relayedOversize), { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: noticeLine } });
   } finally {
     claudeChild.destroy();
     agyChild.destroy();
     server.closeAllConnections();
     await closeServer(server);
+  }
+});
+
+test('arbitrary PostToolUse (including oversize bodies) moves no derived status, fires no operator notification, and leaves a held awaiting-input state intact', async () => {
+  const { base, session, token } = ctx();
+  session.transition('user_start');
+  session.transition('spawn_success', { spawnCwdExists: true });
+  session.transition('first_output');
+  session.transition('new_output');
+  assert.equal(session.state, 'RUNNING');
+  const stateChanges: string[] = [];
+  const notifications: unknown[] = [];
+  const onStateChange = (change: { from: string; to: string }) => { stateChanges.push(`${change.from}->${change.to}`); };
+  const onNotify = (detail: unknown) => { notifications.push(detail); };
+  session.on('state-change', onStateChange);
+  session.on('notify', onNotify);
+  const oversizeReadBody = JSON.stringify({ tool_name: 'Read', tool_input: { file_path: 'README.md' }, tool_response: 'x'.repeat(120 * 1024) });
+  try {
+    for (const body of [JSON.stringify({ tool_name: 'Read', tool_input: { file_path: 'README.md' } }), oversizeReadBody]) {
+      const readPostTool = await fetch(`${base}/hook/${SESSION_ID}/PostToolUse?t=${encodeURIComponent(token)}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body,
+      });
+      assert.equal(readPostTool.status, 200);
+      await readPostTool.text();
+    }
+    assert.equal(session.state, 'RUNNING');
+    assert.deepEqual(stateChanges, []);
+    assert.deepEqual(notifications, []);
+
+    const askPermission = await fetch(`${base}/hook/${SESSION_ID}/PermissionRequest?t=${encodeURIComponent(token)}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tool_name: 'AskUserQuestion', tool_input: { questions: [] } }),
+    });
+    assert.equal(askPermission.status, 200);
+    await askPermission.text();
+    assert.equal(session.state, 'WAITING');
+    stateChanges.length = 0;
+    notifications.length = 0;
+
+    for (const body of [JSON.stringify({ tool_name: 'Read', tool_input: { file_path: 'README.md' } }), oversizeReadBody]) {
+      const readWhileWaiting = await fetch(`${base}/hook/${SESSION_ID}/PostToolUse?t=${encodeURIComponent(token)}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body,
+      });
+      assert.equal(readWhileWaiting.status, 200);
+      await readWhileWaiting.text();
+    }
+    assert.equal(session.state, 'WAITING', 'arbitrary PostToolUse never clears an awaiting-input state');
+    assert.deepEqual(stateChanges, []);
+    assert.deepEqual(notifications, []);
+  } finally {
+    session.off('state-change', onStateChange);
+    session.off('notify', onNotify);
   }
 });
 

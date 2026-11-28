@@ -1,8 +1,13 @@
 import { readStdin } from "./relay-stdin.ts";
 import type { StdinLike } from "./relay-stdin.ts";
 
+import { hasTopLevelAgentId } from "../shared/hook-oversize-core.ts";
 import { decideRelayPost } from "./core/hook-relay-core.ts";
 import { postToLoopback } from "./loopback-post.ts";
+
+function strippedOversizeBodyOf(body: Buffer): Buffer {
+  return Buffer.from(hasTopLevelAgentId(body) ? '{"agent_id":"subagent"}' : "{}", "utf8");
+}
 
 async function main(
   argv: string[] = process.argv.slice(2),
@@ -10,11 +15,12 @@ async function main(
   env: Record<string, string | undefined> = process.env,
   stdout: { write(text: string): unknown } = process.stdout,
 ): Promise<{ code: number; reason: string }> {
-  const [event] = argv;
+  const [event, deliveryMode] = argv;
   const body = await readStdin(stdin);
-  const verdict = decideRelayPost({ env, event, payloadBytes: body.length });
+  const verdict = decideRelayPost({ env, event, payloadBytes: body.length, isAsync: deliveryMode === "async" });
   if (!verdict.post || !verdict.url || !verdict.event) return { code: 0, reason: verdict.reason };
-  const response = await postToLoopback(verdict.url, body, verdict.postTimeoutMs);
+  const postedBody = verdict.shouldStripOversizeBody ? strippedOversizeBodyOf(body) : body;
+  const response = await postToLoopback(verdict.url, postedBody, verdict.postTimeoutMs);
   if (!response.responseBody) return { code: 0, reason: response.reason };
   const { relayedHookContextOutput } = await import("./core/refocus-core.ts");
   const contextOutput = relayedHookContextOutput(verdict.event, response.responseBody);

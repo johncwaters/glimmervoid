@@ -741,7 +741,6 @@ class Session extends EventEmitter {
       getHookPort,
       hooksBaseDir,
       settingsPermissions,
-      detectScheduledWakeups: hasScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
       readChatApprovals: this._readChatApprovals,
       enableProjectMcp: enableProjectMcp === true,
