@@ -10,11 +10,17 @@ import planDecisionAction from '../state/actions/plan-decision.ts';
 import type { ActionResult } from '../state/define-action.ts';
 import { createSyncedSignal } from '../ui/store-signal.ts';
 import {
-  NOT_SENT_TEXT,
+  INITIAL_AGENT_WAITS_STATE,
   OPEN_CARD_SELECTOR,
-  classifyWaitsOutgoingMessage,
+  beginWaitsSync,
+  closeWaitsState,
+  decideWaitsDispatchSettled,
+  decideWaitsFailureDisplay,
+  decideWaitsOutgoingDispatch,
+  shouldExposePlanGate,
+  withPlanGateReset,
 } from './agent-waits-core.ts';
-import type { WaitsActionDispatch } from './agent-waits-core.ts';
+import type { AgentWaitsState, WaitsActionDispatch, WaitsRollbackKind } from './agent-waits-core.ts';
 
 export interface AgentWaits {
   elements(): readonly HTMLElement[];
@@ -71,9 +77,7 @@ export function createAgentWaitsHandle(sessionId: string, showFailure: (failureT
   const hostElement = document.createElement('div');
   const partElementById = new Map<string, HTMLElement>();
   const elementsSignal = createSyncedSignal<readonly HTMLElement[]>([]);
-  const resetPlanSignal = createSyncedSignal(false);
-  const generationSignal = createSyncedSignal(0);
-  const isClosedSignal = createSyncedSignal(false);
+  const stateSignal = createSyncedSignal<AgentWaitsState>(INITIAL_AGENT_WAITS_STATE);
 
   const publishElements = () => {
     elementsSignal.update([...partElementById.values()]);
@@ -105,22 +109,29 @@ export function createAgentWaitsHandle(sessionId: string, showFailure: (failureT
     root: hostElement,
     view: () => view,
     getApproval: () => chatApprovalOf(sessionId),
-    getPlanGate: () => (resetPlanSignal.peek() ? null : chatPlanGateOf(sessionId)),
+    getPlanGate: () => (shouldExposePlanGate(stateSignal.peek()) ? chatPlanGateOf(sessionId) : null),
     showFailure: (failureText) => {
-      if (!isClosedSignal.peek() && failureText !== null) showFailure(failureText);
+      const decision = decideWaitsFailureDisplay(stateSignal.peek(), failureText);
+      if (decision.shouldShow && decision.message !== null) showFailure(decision.message);
     },
     sendOrFail: (message) => {
-      const dispatch = classifyWaitsOutgoingMessage(message);
-      if (dispatch === null) {
-        if (!isClosedSignal.peek()) showFailure(NOT_SENT_TEXT);
+      const started = decideWaitsOutgoingDispatch(stateSignal.peek(), message);
+      if (started.dispatch === null) {
+        if (started.shouldShowFailure && started.failureText !== null) showFailure(started.failureText);
         return false;
       }
-      const dispatchGeneration = generationSignal.peek();
+      const dispatch = started.dispatch;
       onFlush(() => {
         void runWaitsAction(dispatch).then((outcome) => {
-          if (generationSignal.peek() !== dispatchGeneration || outcome.ok) return;
-          rollbackFailedDispatch(dispatch.kind);
-          showFailure(outcome.error.message || NOT_SENT_TEXT);
+          const settled = decideWaitsDispatchSettled(
+            stateSignal.peek(),
+            dispatch.kind,
+            started.generation,
+            outcome.ok,
+            outcome.ok ? null : outcome.error.message,
+          );
+          applyRollback(settled.rollback);
+          if (settled.shouldShowFailure && settled.failureText !== null) showFailure(settled.failureText);
         });
       });
       return true;
@@ -130,17 +141,22 @@ export function createAgentWaitsHandle(sessionId: string, showFailure: (failureT
   const isAsking = () => elementsSignal.peek().some(isRenderedCardOpen);
 
   const sync = () => {
-    isClosedSignal.update(false);
+    stateSignal.update(beginWaitsSync);
     waits.sync();
     if (isAsking()) return;
     view.remove([...partElementById.keys()]);
   };
 
-  const rollbackFailedDispatch = (kind: WaitsActionDispatch['kind']) => {
-    if (kind === 'plan-decision') {
-      resetPlanSignal.update(true);
-      waits.sync();
-      resetPlanSignal.update(false);
+  const resetPlanCard = () => {
+    stateSignal.update((previous) => withPlanGateReset(previous, true));
+    waits.sync();
+    stateSignal.update((previous) => withPlanGateReset(previous, false));
+  };
+
+  const applyRollback = (rollback: WaitsRollbackKind) => {
+    if (rollback === 'none') return;
+    if (rollback === 'reset-plan') {
+      resetPlanCard();
       sync();
       return;
     }
@@ -157,11 +173,8 @@ export function createAgentWaitsHandle(sessionId: string, showFailure: (failureT
       waits.answerCard(cardId, action, value);
     },
     close: () => {
-      isClosedSignal.update(true);
-      generationSignal.update((count) => count + 1);
-      resetPlanSignal.update(true);
-      waits.sync();
-      resetPlanSignal.update(false);
+      stateSignal.update(closeWaitsState);
+      resetPlanCard();
       waits.clearApproval();
       view.remove([...partElementById.keys()]);
     },

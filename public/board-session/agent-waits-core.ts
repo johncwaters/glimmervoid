@@ -18,6 +18,102 @@ export type WaitsActionDispatch =
       input: { id: string; decision: PlanDecision; feedback?: string };
     };
 
+export interface AgentWaitsState {
+  isClosed: boolean;
+  generation: number;
+  isResettingPlan: boolean;
+}
+
+export const INITIAL_AGENT_WAITS_STATE: AgentWaitsState = {
+  isClosed: false,
+  generation: 0,
+  isResettingPlan: false,
+};
+
+export type WaitsRollbackKind = 'none' | 'clear-approval' | 'reset-plan';
+
+interface WaitsFailureDecision {
+  shouldShow: boolean;
+  message: string | null;
+}
+
+interface WaitsDispatchStart {
+  dispatch: WaitsActionDispatch | null;
+  generation: number;
+  shouldShowFailure: boolean;
+  failureText: string | null;
+}
+
+interface WaitsDispatchSettledDecision {
+  rollback: WaitsRollbackKind;
+  shouldShowFailure: boolean;
+  failureText: string | null;
+}
+
+export function beginWaitsSync(state: AgentWaitsState): AgentWaitsState {
+  return { ...state, isClosed: false };
+}
+
+export function closeWaitsState(state: AgentWaitsState): AgentWaitsState {
+  return {
+    isClosed: true,
+    generation: state.generation + 1,
+    isResettingPlan: false,
+  };
+}
+
+export function shouldExposePlanGate(state: AgentWaitsState): boolean {
+  return !state.isResettingPlan;
+}
+
+export function withPlanGateReset(state: AgentWaitsState, isResettingPlan: boolean): AgentWaitsState {
+  return { ...state, isResettingPlan };
+}
+
+export function decideWaitsFailureDisplay(
+  state: AgentWaitsState,
+  failureText: string | null,
+): WaitsFailureDecision {
+  if (state.isClosed || failureText === null) return { shouldShow: false, message: null };
+  return { shouldShow: true, message: failureText };
+}
+
+export function decideWaitsOutgoingDispatch(
+  state: AgentWaitsState,
+  message: Record<string, unknown>,
+): WaitsDispatchStart {
+  const dispatch = classifyWaitsOutgoingMessage(message);
+  if (dispatch === null) {
+    return {
+      dispatch: null,
+      generation: state.generation,
+      shouldShowFailure: !state.isClosed,
+      failureText: state.isClosed ? null : NOT_SENT_TEXT,
+    };
+  }
+  return {
+    dispatch,
+    generation: state.generation,
+    shouldShowFailure: false,
+    failureText: null,
+  };
+}
+
+export function decideWaitsDispatchSettled(
+  state: AgentWaitsState,
+  dispatchKind: WaitsActionDispatch['kind'],
+  dispatchGeneration: number,
+  isOk: boolean,
+  errorMessage: string | null,
+): WaitsDispatchSettledDecision {
+  if (isOk || state.isClosed || state.generation !== dispatchGeneration) {
+    return { rollback: 'none', shouldShowFailure: false, failureText: null };
+  }
+  const rollback: WaitsRollbackKind = dispatchKind === 'plan-decision' ? 'reset-plan' : 'clear-approval';
+  const failureText = errorMessage !== null && errorMessage.length > 0 ? errorMessage : NOT_SENT_TEXT;
+  return { rollback, shouldShowFailure: true, failureText };
+}
+
 export function classifyWaitsOutgoingMessage(message: Record<string, unknown>): WaitsActionDispatch | null {
   const id = typeof message.id === 'string' && message.id.length > 0 ? message.id : null;
   if (id === null) return null;
