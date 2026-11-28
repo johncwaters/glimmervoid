@@ -20,7 +20,7 @@ import { verifySolidStoreSignal } from './solid-store-signal.ts';
 import { verifyStateCore } from './state-core.ts';
 import { verifyContinuity } from './continuity.ts';
 import type { ControlFaultController } from './continuity.ts';
-import { SERVER_MESSAGE_CLASS } from '../../shared/contracts/control/message-classes.ts';
+import { controlServerFrameDelayMs } from './control-faults-core.ts';
 import { SCREEN_KEEPER_ATTACH_SCROLLBACK } from '../../session/core/screen-keeper-core.ts';
 import { verifyPacks } from './packs.ts';
 import { verifyHooks } from './hooks.ts';
@@ -1166,11 +1166,6 @@ function parseJsonFrame(raw: string | Buffer): Record<string, unknown> | null {
   }
 }
 
-function isCollectionPushType(frameType: string): boolean {
-  if (!Object.hasOwn(SERVER_MESSAGE_CLASS, frameType)) return false;
-  return SERVER_MESSAGE_CLASS[frameType as keyof typeof SERVER_MESSAGE_CLASS] === 'collection';
-}
-
 function clearSocketTimers(routed: RoutedSocket): void {
   for (const timer of routed.timers) clearTimeout(timer);
   routed.timers.clear();
@@ -1300,15 +1295,9 @@ async function routeDashboardSockets(page: Page): Promise<{
           resolve();
         }
       }
-      const hasRequestId = typeof frame?.requestId === 'string';
-      const isCollectionPush = frameType !== null && isCollectionPushType(frameType);
-      const hasSeq = typeof frame?.seq === 'number';
-      if ((isCollectionPush || (hasSeq && !hasRequestId)) && pushDelayMs > 0) {
-        scheduleSocketSend(routed, pageSide, outboundPayload, pushDelayMs);
-        return;
-      }
-      if (hasRequestId && !isCollectionPush && replyDelayMs > 0) {
-        scheduleSocketSend(routed, pageSide, outboundPayload, replyDelayMs);
+      const frameDelayMs = controlServerFrameDelayMs(frame, { replyDelayMs, pushDelayMs });
+      if (frameDelayMs > 0) {
+        scheduleSocketSend(routed, pageSide, outboundPayload, frameDelayMs);
         return;
       }
       pageSide.send(outboundPayload);
