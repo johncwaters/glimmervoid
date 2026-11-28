@@ -127,9 +127,13 @@ function withdrawUnreadNote(channel: AgentChannel, side: ChannelSide, text: stri
   return { ...channel, [side]: { ...channel[side], unread } };
 }
 
-function quietUnread(channel: AgentChannel, side: ChannelSide): AgentChannel {
-  const unread = channel[side].unread.map((entry) => ({ ...entry, wakes: false }));
+function quietUnread(channel: AgentChannel, side: ChannelSide, throughSeq?: number): AgentChannel {
+  const unread = channel[side].unread.map((entry) => (throughSeq === undefined || entry.seq <= throughSeq ? { ...entry, wakes: false } : entry));
   return { ...channel, [side]: { ...channel[side], unread } };
+}
+
+function highestWakingSeq(mailbox: Mailbox): number {
+  return mailbox.unread.reduce((maxSeq, entry) => (entry.wakes && entry.seq > maxSeq ? entry.seq : maxSeq), 0);
 }
 
 function drainChannelPage(channel: AgentChannel, side: ChannelSide, pageChars = READ_PAGE_CHARS): { channel: AgentChannel; drained: DrainedMailboxPage } {
@@ -307,7 +311,7 @@ function decideWake(facts: WakeFacts): WakeDecision {
 }
 
 export {
-  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread,
+  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread, highestWakingSeq,
   isWakeLineAwaitingTurnStart, matchesMailboxCursor, openChannel, parseChannelReadCursor, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, takeSessionInTurnNotices, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelKind, ChannelPageCursor, ChannelSide };

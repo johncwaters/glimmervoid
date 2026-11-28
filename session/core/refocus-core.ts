@@ -135,10 +135,10 @@ function inTurnNoticeReplyFor({ event, payload, hasToolHookContext, promptContex
     if (notice === null) return null;
     return { hookSpecificOutput: { hookEventName: TOOL_HOOK_EVENT_NAMES[eventLower], additionalContext: notice } };
   }
-  if (promptContextReply === 'inject-steps' && eventLower === 'preinvocation' && payload.invocationNum !== 0) {
+  if (promptContextReply === 'inject-steps' && eventLower === 'preinvocation') {
     const notice = takeNotice();
     if (notice === null) return null;
-    return { injectSteps: [{ systemMessage: { systemMessage: notice } }] };
+    return promptContextReplyOf('inject-steps', notice);
   }
   return null;
 }

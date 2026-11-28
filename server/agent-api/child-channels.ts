@@ -3,7 +3,7 @@ import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, matchesMailboxCursor, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, takeSessionInTurnNotices, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread, highestWakingSeq, isWakeLineAwaitingTurnStart, matchesMailboxCursor, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, takeSessionInTurnNotices, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelKind, ChannelPageCursor, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
@@ -77,7 +77,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
   const turnStartListenerBySession = new WeakMap<Session, () => void>();
   const turnStartBoundTimerBySession = new WeakMap<Session, TimerHandle>();
   const wakeWaitersBySession = new WeakMap<Session, Map<string, () => void>>();
-  const withheldWakeBySession = new WeakMap<Session, { line: string; pastedAt: number; clear: () => void }>();
+  const withheldWakeBySession = new WeakMap<Session, { line: string; pastedAt: number; onSettled: (isSubmitted: boolean) => void; clear: () => void }>();
 
   function clearWithheldWake(session: Session): void {
     const entry = withheldWakeBySession.get(session);
@@ -86,7 +86,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     entry.clear();
   }
 
-  function rememberWithheldWake(session: Session, line: string, pastedAt: number): void {
+  function rememberWithheldWake(session: Session, line: string, pastedAt: number, onSettled: (isSubmitted: boolean) => void): void {
     clearWithheldWake(session);
     const onCleared = () => clearWithheldWake(session);
     session.on('operator-input', onCleared);
@@ -96,6 +96,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     withheldWakeBySession.set(session, {
       line,
       pastedAt,
+      onSettled,
       clear: () => {
         session.off('operator-input', onCleared);
         session.off('user-prompt', onCleared);
@@ -168,7 +169,10 @@ function createChildChannels(runtime: AgentApiRuntime) {
       if (shouldReuseWithheldWakeLine({ pastedAt: withheld.pastedAt, lastOperatorInputAt: lastOperatorInputAtOf(recipient) })) {
         recipient.write('\r');
         holdWakeLineUntilTurnStart(recipient);
-        if (withheld.line !== line) return false;
+        if (withheld.line !== line) {
+          queueMicrotask(() => withheld.onSettled(true));
+          return false;
+        }
         queueMicrotask(() => onSettled(true));
         return true;
       }
@@ -181,7 +185,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
         const isSubmitted = settlement === 'submitted';
         if (!isSubmitted) {
           if (settlement === 'withheld' && shouldReuseWithheldWakeLine({ pastedAt, lastOperatorInputAt: lastOperatorInputAtOf(recipient) })) {
-            rememberWithheldWake(recipient, line, pastedAt);
+            rememberWithheldWake(recipient, line, pastedAt, onSettled);
           }
           releaseWakeLine(recipient);
           onSettled(false);
@@ -197,7 +201,14 @@ function createChildChannels(runtime: AgentApiRuntime) {
   }
 
   function typeWakeLine(childId: string, link: ChannelLink, channel: AgentChannel, side: ChannelSide, recipient: Session): void {
-    if (!submitWakeLine(recipient, describeWakeLine(channel, side), () => link.pendingWakeSides.delete(side))) {
+    const submittedSeq = highestWakingSeq(channel[side]);
+    if (!submitWakeLine(recipient, describeWakeLine(channel, side), (isSubmitted) => {
+      link.pendingWakeSides.delete(side);
+      if (!isSubmitted) return;
+      const current = channelsByChildId.get(childId);
+      if (!current) return;
+      channelsByChildId.set(childId, quietUnread(current, side, submittedSeq));
+    })) {
       if (isWakeLineInFlight(recipient)) {
         waitForWakeLineRelease(recipient, childId, side);
         return;

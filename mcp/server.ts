@@ -89,7 +89,7 @@ function toolResultOf(presented: PresentedReply) {
   return 'content' in presented ? presented : toolResultFromReply(presented);
 }
 
-function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Session, agentApi: AgentApiPort, stores: FileStores): void {
+function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Session, agentApi: AgentApiPort, stores: FileStores, isResponseClosed: () => boolean): void {
   const actionNames = allowedActionNames(tool, (verb) => agentApi.refuseRole(session, verb) === null);
   if (actionNames.length === 0) return;
   server.registerTool(tool.name, {
@@ -98,10 +98,14 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
     inputSchema: inputSchemaFor(tool, actionNames),
     annotations: combinedAnnotations(tool, actionNames),
     _meta: { [LOADS_UPFRONT_META_KEY]: tool.loadsUpfront },
-  }, async (toolArguments: ToolArguments) => {
+  }, async (toolArguments: ToolArguments, toolContext) => {
     const route = routeToolCall(tool, toolArguments, callContextFor(session, agentApi));
     if (!route.ok) return toolErrorResult(route.error);
-    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getWhiteboardAssets: stores.getWhiteboardAssets, getWhiteboardLayouts: stores.getWhiteboardLayouts }, route.verb, route.payload));
+    const toolResult = toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getWhiteboardAssets: stores.getWhiteboardAssets, getWhiteboardLayouts: stores.getWhiteboardLayouts }, route.verb, route.payload));
+    if (route.verb === 'read' || ('isError' in toolResult && toolResult.isError) || isResponseClosed() || toolContext?.mcpReq?.signal?.aborted) return toolResult;
+    const unreadNotice = agentApi.takeInTurnNotice(session.id);
+    if (unreadNotice === null) return toolResult;
+    return { ...toolResult, content: [...toolResult.content, { type: 'text' as const, text: unreadNotice }] };
   });
 }
 
@@ -111,9 +115,9 @@ function studioRoleOf(session: Session): StudioRole | null {
   return null;
 }
 
-function buildSessionServer(session: Session, agentApi: AgentApiPort, stores: FileStores): McpServer {
+function buildSessionServer(session: Session, agentApi: AgentApiPort, stores: FileStores, isResponseClosed: () => boolean): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: serverInstructionsWith(agentApi.operatorRules(), { asksForDone: agentApi.refuseRole(session, 'done') === null, studioRole: studioRoleOf(session) }), capabilities: { tools: { listChanged: false } } });
-  for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, stores);
+  for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, stores, isResponseClosed);
   return server;
 }
 
@@ -130,6 +134,7 @@ function authenticatedSession(req: Request, dependencies: AgentMcpDependencies):
 }
 
 function mountAgentMcp(app: Express, dependencies: AgentMcpDependencies): void {
+  const responseClosedByAuth = new WeakMap<object, () => boolean>();
   const handler = createMcpHandler(({ authInfo }) => {
     const session = authInfo ? dependencies.getSession(authInfo.clientId) : null;
     if (!session) throw new Error('the MCP request lost its session');
@@ -143,7 +148,8 @@ function mountAgentMcp(app: Express, dependencies: AgentMcpDependencies): void {
     }
     const agentApi = dependencies.getAgentApi();
     if (!agentApi) throw new Error('the MCP request lost its session');
-    return buildSessionServer(session, agentApi, dependencies);
+    const isResponseClosed = (authInfo ? responseClosedByAuth.get(authInfo) : undefined) ?? (() => false);
+    return buildSessionServer(session, agentApi, dependencies, isResponseClosed);
   }, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const nodeHandler = toNodeHandler(handler, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const answer = (req: AuthenticatedRequest, res: Response) => {
@@ -153,7 +159,13 @@ function mountAgentMcp(app: Express, dependencies: AgentMcpDependencies): void {
       refuse(res);
       return;
     }
-    req.auth = { token: session.id, clientId: session.id, scopes: [] };
+    let isAbandoned = false;
+    res.on('close', () => {
+      if (!res.writableFinished) isAbandoned = true;
+    });
+    const auth = { token: session.id, clientId: session.id, scopes: [] };
+    responseClosedByAuth.set(auth, () => isAbandoned || res.destroyed || res.closed || res.writableEnded);
+    req.auth = auth;
     void nodeHandler(req, res);
   };
   app.post(MCP_ROUTE, answer);

@@ -16,11 +16,9 @@ const CODEX_EXTENDED_HOOKS_FLOOR = '0.163.0';
 const CODEX_MCP_PRE_TOOL_USE_FLOOR = '0.165.0';
 
 const LEGACY_HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'PermissionRequest'];
-const EXTENDED_HOOK_EVENTS = [...LEGACY_HOOK_EVENTS, 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop'];
+const EXTENDED_HOOK_EVENTS = [...LEGACY_HOOK_EVENTS, 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'PostToolUse'];
 const EXTENDED_MATCHED_RELAY_HOOKS: readonly MatchedRelayHook[] = [
   { event: 'PreToolUse', matcher: 'request_user_input' },
-  { event: 'PostToolUse', matcher: 'Bash', isAsync: true },
-  { event: 'PostToolUse', matcher: 'request_user_input' },
 ];
 
 const CODEX_VERSION_RE = /\bcodex-cli\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/;

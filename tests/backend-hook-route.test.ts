@@ -629,16 +629,11 @@ test('hook route formats in-turn channel notices per adapter, skips subagents an
     assert.deepEqual(firstReply.hookSpecificOutput, { hookEventName: 'PostToolUse', additionalContext: noticeLine });
 
     pendingNoticeById.set('agy-child', noticeLine);
-    let relayedOpening = '';
+    let relayedMidTurn = '';
     await relayHook(['PreInvocation'], Readable.from([Buffer.from(JSON.stringify({ invocationNum: 0 }), 'utf8')]), {
       GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/agy-child?t=ok`,
-    }, { write: (text: string) => { relayedOpening += text; } });
-    assert.equal(relayedOpening, '', 'turn-start PreInvocation (invocationNum 0) does not duplicate a PTY wake line');
-    let relayedMidTurn = '';
-    await relayHook(['PreInvocation'], Readable.from([Buffer.from(JSON.stringify({ invocationNum: 1 }), 'utf8')]), {
-      GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/agy-child?t=ok`,
     }, { write: (text: string) => { relayedMidTurn += text; } });
-    assert.deepEqual(JSON.parse(relayedMidTurn), { injectSteps: [{ systemMessage: { systemMessage: noticeLine } }] });
+    assert.deepEqual(JSON.parse(relayedMidTurn), { injectSteps: [{ userMessage: noticeLine }] });
   } finally {
     claudeChild.destroy();
     agyChild.destroy();

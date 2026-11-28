@@ -103,9 +103,6 @@ function ensureOwnedDir(dir: string, mode: number): void {
 
 const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PreCompact', 'PostCompact'];
 
-const WAKEUP_TOOL_MATCHER = 'ScheduleWakeup|CronCreate|CronDelete';
-const PR_LINK_TOOL_MATCHER = 'Bash';
-const COMMAND_HINT_TOOL_MATCHER = 'Write|Edit|Agent|Task';
 const FAILED_SHELL_TOOL_MATCHER = 'Bash';
 
 const RELAY_LAUNCH = hookLaunch('statusline-relay');
@@ -203,7 +200,7 @@ function buildSessionStartCommand(
   return buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl, replyHandler: isRewake ? REMOTE_RELAY_REWAKE_HANDLER : REMOTE_RELAY_STDOUT_HANDLER });
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, chatApprovals = 'off', enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, carryBypassModeAcceptance, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups: _detectScheduledWakeups = true, observeToolCalls = false, chatApprovals = 'off', enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, carryBypassModeAcceptance, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -238,19 +235,13 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
     });
   }
   hooks.Elicitation = [{ hooks: [{ type: 'http', url: hookUrl(ELICITATION_HOOK_EVENT), timeout: HELD_HOOK_TIMEOUT_SEC }] }];
-  const sharedPostToolUseMatchers: string[] = [];
-  if (detectScheduledWakeups) sharedPostToolUseMatchers.push(WAKEUP_TOOL_MATCHER);
-  sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER, ASK_USER_QUESTION_TOOL_NAME, COMMAND_HINT_TOOL_MATCHER, EXIT_PLAN_MODE_TOOL_NAME);
-  const sharedPostToolUseUrl = hookUrl('PostToolUse');
-  const postToolUse: SettingsHookEntry[] = sharedPostToolUseMatchers
-    .map((matcher) => ({ matcher, hooks: [{ type: 'http', url: sharedPostToolUseUrl, timeout: timeoutSec }] }));
-  postToolUse.push({
-    matcher: ASK_USER_QUESTION_TOOL_NAME,
-    hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }],
-  });
-  if (postToolUse.length > 0) {
-    hooks.PostToolUse = postToolUse;
-  }
+  hooks.PostToolUse = [
+    { hooks: [{ type: 'http', url: hookUrl('PostToolUse'), timeout: timeoutSec }] },
+    {
+      matcher: ASK_USER_QUESTION_TOOL_NAME,
+      hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }],
+    },
+  ];
   hooks.PostToolUseFailure = [{ matcher: FAILED_SHELL_TOOL_MATCHER, hooks: [{ type: 'http', url: hookUrl('PostToolUseFailure'), timeout: timeoutSec }] }];
   const preToolUse: SettingsHookEntry[] = [];
   if (observeToolCalls) {

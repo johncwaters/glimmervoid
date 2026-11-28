@@ -255,6 +255,17 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     waitingNotification: 'forbidden',
     fixtureByAgent: { 'claude-code': 'v2-claude-code-resume-continue.jsonl', codex: 'v2-codex-resume-continue.jsonl', kimi: 'v2-kimi-resume-continue.jsonl', opencode: 'v2-opencode-resume-continue.jsonl', pi: 'v2-pi-resume-continue.jsonl', antigravity: 'v2-antigravity-resume-continue.jsonl' },
   },
+  {
+    name: 'mid-turn-notice',
+    expectedFinalState: STATES.COMPLETE,
+    expectedCompleteNotifications: 1,
+    waitingNotification: 'forbidden',
+    fixtureByAgent: {
+      'claude-code': 'v2-claude-code-mid-turn-notice.jsonl',
+      codex: 'v2-codex-mid-turn-notice.jsonl',
+      antigravity: 'v2-antigravity-mid-turn-notice.jsonl',
+    },
+  },
 ];
 
 const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
