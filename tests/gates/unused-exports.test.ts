@@ -41,7 +41,8 @@ function unparsedExportLinesIn(sourceText: string): string[] {
 test('every export is named by some other tracked source file', () => {
   const sourceTextByPath = new Map(trackedSourceFiles().map((repoPath) => [repoPath, fs.readFileSync(path.join(ROOT, repoPath), 'utf8')]));
   const namingFileCountByIdentifier = new Map<string, number>();
-  for (const sourceText of sourceTextByPath.values()) {
+  for (const [repoPath, sourceText] of sourceTextByPath) {
+    if (repoPath === 'tests/gates/unused-exports.test.ts') continue;
     for (const identifier of new Set(sourceText.match(IDENTIFIER))) {
       namingFileCountByIdentifier.set(identifier, (namingFileCountByIdentifier.get(identifier) ?? 0) + 1);
     }
@@ -63,4 +64,36 @@ test('every export is named by some other tracked source file', () => {
     }
   }
   assert.deepEqual(unusedExports, [], 'Drop the export keyword, or delete the declaration when nothing in its module uses it either');
+});
+
+const HEADROOM_OVERRIDE_SYMBOL = /\bsetDefaultHeadroomReader\b/;
+const HEADROOM_OVERRIDE_OWNER = 'server/backend/backend-health.ts';
+
+function findDisallowedHeadroomOverrideCallers(sourceTextByPath: ReadonlyMap<string, string>): string[] {
+  const offenders: string[] = [];
+  for (const [repoPath, sourceText] of sourceTextByPath) {
+    if (repoPath === HEADROOM_OVERRIDE_OWNER) continue;
+    if (repoPath.startsWith('harness/') || repoPath.startsWith('tests/')) continue;
+    if (HEADROOM_OVERRIDE_SYMBOL.test(sourceText)) offenders.push(repoPath);
+  }
+  return offenders;
+}
+
+test('only harness/ and tests/ may reference setDefaultHeadroomReader', () => {
+  const sourceTextByPath = new Map(trackedSourceFiles().map((repoPath) => [repoPath, fs.readFileSync(path.join(ROOT, repoPath), 'utf8')]));
+  assert.deepEqual(
+    findDisallowedHeadroomOverrideCallers(sourceTextByPath),
+    [],
+    'setDefaultHeadroomReader is a test/harness-only override seam; product code outside server/backend/backend-health.ts must not reference it',
+  );
+});
+
+test('the headroom-override gate catches a planted product-code reference while allowing harness/ and tests/', () => {
+  const planted = new Map<string, string>([
+    [HEADROOM_OVERRIDE_OWNER, 'export function setDefaultHeadroomReader() {}'],
+    ['harness/browser/harness.ts', 'setDefaultHeadroomReader(null);'],
+    ['tests/agent-api-http.test.ts', 'setDefaultHeadroomReader(null);'],
+    ['server/backend/backend.ts', 'setDefaultHeadroomReader(null);'],
+  ]);
+  assert.deepEqual(findDisallowedHeadroomOverrideCallers(planted), ['server/backend/backend.ts']);
 });
