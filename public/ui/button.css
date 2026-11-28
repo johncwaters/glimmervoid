@@ -14,7 +14,6 @@
   .ui-button-shortcut {
     display: inline-grid;
     min-width: 18px;
-    margin-left: 4px;
   }
 
   html[data-layout="phone"] .ui-button-shortcut { display: none; }
@@ -35,14 +34,21 @@
   .ui-button {
     --button-height: var(--control-height);
     --button-padding-inline: var(--control-padding-inline);
+    --button-border: 1px;
+    --button-radius: var(--radius);
+    --button-pill-radius: calc(var(--button-height) / 2);
+    --button-icon-size: 16px;
+    --button-shortcut-size: 18px;
+    --button-inner-height: calc(var(--button-height) - 2 * var(--button-border));
+    --button-label-edge: 0px;
     box-sizing: border-box;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: max((var(--button-inner-height) - 1lh) / 2, var(--button-padding-inline) - (1lh - 1cap) / 2);
     height: var(--button-height);
-    padding: 0 var(--button-padding-inline);
-    border: 1px solid transparent;
-    border-radius: var(--radius);
+    padding: 0 calc(var(--button-padding-inline) + var(--button-label-edge));
+    border: var(--button-border) solid transparent;
+    border-radius: var(--button-radius);
     background: transparent;
     color: var(--text-dim);
     font-family: var(--font-mono);
@@ -55,6 +61,19 @@
     text-decoration: none;
     cursor: pointer;
     transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+  }
+
+  .ui-button[data-shape="pill"] {
+    --button-radius: var(--button-pill-radius);
+    --button-label-edge: calc(var(--button-pill-radius) * var(--optical-corner));
+  }
+
+  .ui-button:not([data-variant$="icon"]):has(> :first-child:not(.ui-button-shortcut)) {
+    padding-inline-start: calc((var(--button-inner-height) - var(--button-icon-size)) / 2);
+  }
+
+  html:not([data-layout="phone"]) .ui-button:not([data-variant$="icon"]):has(> .ui-button-shortcut) {
+    padding-inline-end: calc((var(--button-inner-height) - var(--button-shortcut-size)) / 2);
   }
 
   .ui-button[data-size="small"] {
@@ -191,7 +210,7 @@
   .ui-button-shortcut {
     place-items: center;
     box-sizing: border-box;
-    height: 18px;
+    height: var(--button-shortcut-size);
     padding: 0 4px;
     border: 1px solid var(--border);
     border-bottom-width: 2px;

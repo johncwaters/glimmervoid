@@ -32,7 +32,6 @@ interface Exemption {
 }
 
 const OFF_SCALE_EXEMPTIONS: Exemption[] = [
-  { file: 'public/ui/button.css', selector: '.ui-button-shortcut', declaration: 'margin-left: 4px', reason: 'the shortcut key cap inside a button predates the scale; 6px would widen every button that shows a shortcut' },
   { file: 'public/ui/button.css', selector: '.ui-button-shortcut', declaration: 'padding: 0 4px', reason: 'the shortcut key cap fits an 18px box; 6px would widen a two-character cap' },
   { file: 'public/ui/notice.css', selector: '.notice', declaration: 'gap: 8px 10px', reason: 'the notice banner predates the scale; its spacing moves with a reviewed visible change, not this foundation' },
   { file: 'public/ui/notice.css', selector: '.notice-actions', declaration: 'gap: 10px', reason: 'the notice banner predates the scale; its spacing moves with a reviewed visible change, not this foundation' },

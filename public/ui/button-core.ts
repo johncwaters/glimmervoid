@@ -1,6 +1,7 @@
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon' | 'primary-icon' | 'floating-icon';
 export type ButtonSize = 'default' | 'small' | 'large';
 export type ButtonTextCase = 'upper' | 'sentence' | 'inline';
+export type ButtonShape = 'box' | 'pill';
 export type OutlineState = 'idle' | 'pressed' | 'off' | 'attention';
 type ToggledOutlineState = Extract<OutlineState, 'pressed' | 'off'>;
 export type IconVariant = 'icon' | 'primary-icon' | 'outline-icon' | 'floating-icon';
@@ -10,6 +11,7 @@ type ButtonCoreOptions = {
   label: string;
   size?: ButtonSize;
   textCase?: ButtonTextCase;
+  shape?: ButtonShape;
   action?: string;
   shortcutKey?: string;
   disabled?: boolean;
@@ -21,6 +23,7 @@ type ButtonDescriptor = {
   readonly variant: ButtonVariant | 'outline-icon';
   readonly size: ButtonSize;
   readonly textCase?: Exclude<ButtonTextCase, 'upper'>;
+  readonly shape?: Extract<ButtonShape, 'pill'>;
   readonly action?: string;
   readonly ariaLabel?: string;
   readonly visibleLabel?: string;
@@ -67,6 +70,7 @@ export function buttonDescriptor(options: ButtonCoreOptions): ButtonDescriptor {
     variant: options.variant,
     size: options.size ?? 'default',
     ...(options.textCase !== undefined && options.textCase !== 'upper' ? { textCase: options.textCase } : {}),
+    ...(options.shape === 'pill' ? { shape: options.shape } : {}),
     ...(options.action ? { action: options.action } : {}),
     ...(iconOnly ? { ariaLabel: options.label } : { visibleLabel: options.label }),
     ...(options.shortcutKey ? { shortcutKey: options.shortcutKey, ariaKeyShortcuts: options.shortcutKey } : {}),

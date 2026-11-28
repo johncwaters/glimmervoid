@@ -11,12 +11,15 @@
   .ui-tag {
     --tag-color: var(--text-muted);
     --tag-border: var(--border);
+    --tag-radius: 2px;
+    --tag-pill-radius: calc(var(--chip-height) / 2);
+    --tag-label-edge: 0px;
     box-sizing: border-box;
     align-items: center;
     height: var(--chip-height);
-    padding: 0 var(--chip-padding-inline);
+    padding: 0 calc(var(--chip-padding-inline) + var(--tag-label-edge));
     border: 1px solid var(--tag-border);
-    border-radius: 2px;
+    border-radius: var(--tag-radius);
     color: var(--tag-color);
     font-family: var(--font-mono);
     font-size: var(--type-meta);
@@ -27,7 +30,10 @@
     white-space: nowrap;
   }
 
-  .ui-tag[data-shape="pill"] { border-radius: 999px; }
+  .ui-tag[data-shape="pill"] {
+    --tag-radius: var(--tag-pill-radius);
+    --tag-label-edge: calc(var(--tag-pill-radius) * var(--optical-corner));
+  }
 
   .ui-tag[data-tone="neutral"] { --tag-color: var(--text-dim); }
 

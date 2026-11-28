@@ -64,22 +64,6 @@
   margin-right: 4px; font-weight: 700;
 }
 
-.hooks-chip {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  cursor: pointer;
-  transition: border-color var(--transition-fast), color var(--transition-fast);
-}
-
-@media (hover: hover) {
-  .hooks-chip:hover { border-color: var(--accent); color: var(--text-head); }
-}
-
 .hooks-list-yours {
   display: flex;
   flex-direction: column;
@@ -284,7 +268,6 @@ html[data-layout="phone"] .hooks-row-meta,
 html[data-layout="phone"] .hooks-field-hint,
 html[data-layout="phone"] .hooks-group-title { font-size: var(--type-meta); }
 
-html[data-layout="phone"] .hooks-chip { min-height: 44px; padding: 8px 14px; font-size: var(--type-body); }
 html[data-layout="phone"] .hooks-section-head > [data-action="new-hook"] { flex-basis: 100%; margin-left: 0; }
 html[data-layout="phone"] .hooks-templates { gap: 8px; }
 html[data-layout="phone"] .hooks-templates-label { flex-basis: 100%; }

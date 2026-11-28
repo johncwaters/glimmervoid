@@ -6,6 +6,7 @@ import {
   outlineIconStateAttributes,
 } from './button-core.ts';
 import type {
+  ButtonShape,
   ButtonSize,
   ButtonVariant,
   IconVariant,
@@ -21,6 +22,7 @@ type BuildButtonOptions = { variant: ButtonVariant | 'outline-icon'; label: stri
 type CommonButtonOptions = {
   size?: ButtonSize;
   textCase?: 'upper' | 'sentence' | 'inline';
+  shape?: ButtonShape;
   action?: string;
   shortcutKey?: string;
   onClick?: (event: MouseEvent) => void;
@@ -77,6 +79,7 @@ function buildButton(options: BuildButtonOptions): HTMLButtonElement {
   element.dataset.variant = descriptor.variant;
   element.dataset.size = descriptor.size;
   if (descriptor.textCase !== undefined) element.dataset.textCase = descriptor.textCase;
+  if (descriptor.shape !== undefined) element.dataset.shape = descriptor.shape;
   if (descriptor.action) element.dataset.action = descriptor.action;
   if (options.icon) element.append(options.icon);
   if (descriptor.ariaLabel !== undefined) element.setAttribute('aria-label', descriptor.ariaLabel);

@@ -279,16 +279,23 @@
 }
 
 .wb-presence-pill {
+  --presence-pill-height: 22px;
+  --presence-pill-padding-inline: 8px;
+  --presence-glyph-size: 10px;
+  --presence-control-size: 16px;
+  --presence-inner-height: calc(var(--presence-pill-height) - 2px);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: max((var(--presence-inner-height) - 1lh) / 2, var(--presence-pill-padding-inline) - (1lh - 1cap) / 2);
   max-width: 32ch;
-  height: 20px;
-  padding: 0 4px 0 8px;
+  box-sizing: border-box;
+  height: var(--presence-pill-height);
+  padding-block: 0;
+  padding-inline: calc(var(--presence-pill-padding-inline) + var(--presence-pill-height) / 2 * var(--optical-corner)) calc((var(--presence-inner-height) - var(--presence-control-size)) / 2);
   border: 1px solid var(--state-running);
-  border-radius: 999px;
+  border-radius: calc(var(--presence-pill-height) / 2);
   color: var(--state-running);
-  line-height: 20px;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -298,8 +305,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: var(--presence-control-size);
+  height: var(--presence-control-size);
   border: none;
   border-radius: 999px;
   background: none;
@@ -307,7 +314,7 @@
   cursor: pointer;
 }
 
-.wb-presence-disconnect .line-icon { width: 10px; height: 10px; }
+.wb-presence-disconnect .line-icon { width: var(--presence-glyph-size); height: var(--presence-glyph-size); }
 .wb-presence-disconnect:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 @media (hover: hover) {

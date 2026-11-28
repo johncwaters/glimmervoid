@@ -7,7 +7,6 @@ import { openConfirmDialog } from './session-card/modal.ts';
 import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
 import { checkbox, radio } from './ui/checkbox.ts';
-import { createPressable } from './ui/pressable.ts';
 import { select } from './ui/select.ts';
 import { disclosure } from './ui/disclosure.ts';
 import { field } from './ui/field.ts';
@@ -249,8 +248,7 @@ function buildTemplateRow(events: HookEvent[]) {
   const row = el('div', 'hooks-templates');
   row.append(el('span', 'hooks-templates-label', TEMPLATES_LABEL));
   for (const template of HOOK_TEMPLATES) {
-    const chip = createPressable('hooks-chip', template.label);
-    chip.addEventListener('click', () => openEditor(null, templateDraft(template, events)));
+    const chip = button({ variant: 'secondary', size: 'small', shape: 'pill', textCase: 'inline', label: template.label, onClick: () => openEditor(null, templateDraft(template, events)) });
     row.append(chip);
   }
   return row;
