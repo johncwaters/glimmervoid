@@ -62,6 +62,7 @@ let keyboardClosedBaselineHeightPx = 0;
 let baselineViewportWidthPx = 0;
 let pushedHistoryDepth = 0;
 let urlAwaitingOwnHistoryPop: string | null = null;
+let pendingRestoreScreenId: string | null = null;
 
 function resetSoftKeyboardBaseline() {
   keyboardClosedBaselineHeightPx = 0;
@@ -428,6 +429,8 @@ function applyScreen(requestedScreenId: string) {
   if (!moreButtonEl || !terminalScreen) throw new Error('Phone shell is not built');
   uiState.dispatch('setPhoneScreen', requestedScreenId);
   const isPageOpened = isPageScreen(requestedScreenId) && openPhonePage(requestedScreenId);
+  const isWaitingForSession = isPageScreen(requestedScreenId) && !isPageOpened && !terminalScreen.getSessionId();
+  pendingRestoreScreenId = isWaitingForSession ? requestedScreenId : null;
   const screenId = isPageScreen(requestedScreenId) && !isPageOpened ? TERMINAL : requestedScreenId;
   if (screenId !== requestedScreenId) uiState.dispatch('setPhoneScreen', screenId);
   if (!isPageScreen(screenId)) closeSessionPage();
@@ -522,6 +525,7 @@ export function deactivatePhoneShell() {
   if (pushedHistoryDepth > 0) history.go(-pushedHistoryDepth);
   pushedHistoryDepth = 0;
   urlAwaitingOwnHistoryPop = null;
+  pendingRestoreScreenId = null;
 }
 
 export function isPhoneShellActive() {
@@ -585,7 +589,13 @@ function restoreShownSession() {
   if (!terminalScreen) throw new Error('Phone shell is not built');
   if (terminalScreen.getSessionId()) return;
   const id = getRestorableSessionId();
-  if (!id) return;
+  if (!id) {
+    pendingRestoreScreenId = null;
+    return;
+  }
   terminalScreen.show(id);
   selectSession(id, { rememberFocus: false });
+  const deferredScreenId = pendingRestoreScreenId;
+  pendingRestoreScreenId = null;
+  if (deferredScreenId && canShowScreen(deferredScreenId)) showScreen(deferredScreenId);
 }
