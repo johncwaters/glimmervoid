@@ -1,8 +1,16 @@
 import { z } from 'zod';
 
 export const MEMORY_KEY_MAX_CHARS = 80;
-export const MEMORY_TEXT_MAX_CHARS = 2000;
+const MEMORY_TEXT_MAX_CHARS = 8000;
 export const MEMORY_MAX_ENTRIES_PER_PROJECT = 200;
+
+export const MemoryText = z.string({ error: 'text must be a string' })
+  .min(1, { error: 'text must not be empty' })
+  .max(MEMORY_TEXT_MAX_CHARS, {
+    error: (issue) => (typeof issue.input === 'string'
+      ? `text is ${issue.input.length} characters, limit is ${MEMORY_TEXT_MAX_CHARS}`
+      : `text must be at most ${MEMORY_TEXT_MAX_CHARS} characters`),
+  });
 
 const MemoryKey = z.string({ error: 'key must be a string' })
   .min(1, { error: 'key must not be empty' })
@@ -12,7 +20,7 @@ const MemoryKey = z.string({ error: 'key must be a string' })
 export const MemoryEntry = z.strictObject({
   key: MemoryKey,
   projectPath: z.string().min(1),
-  text: z.string().max(MEMORY_TEXT_MAX_CHARS),
+  text: z.string(),
   updatedBy: z.string(),
   updatedAt: z.number().int().nonnegative(),
 });
@@ -38,7 +46,7 @@ export const AgentMemoryRequest = z.discriminatedUnion('sub', [
   z.strictObject({
     sub: z.literal('write'),
     key: MemoryKey,
-    text: z.string({ error: 'text must be a string' }).min(1, { error: 'text must not be empty' }).max(MEMORY_TEXT_MAX_CHARS, { error: `text must be at most ${MEMORY_TEXT_MAX_CHARS} characters` }),
+    text: MemoryText,
   }),
   z.strictObject({ sub: z.literal('forget'), key: MemoryKey }),
 ], { error: 'memory takes list, read, write or forget' });

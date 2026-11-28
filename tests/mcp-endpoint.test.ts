@@ -210,6 +210,18 @@ test('memory keeps a note for later sessions of the project, fenced as untrusted
   assert.notEqual(forgotten.isError, true, JSON.stringify(forgotten));
   const missing = await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'read', key: 'test-command' } }, credential));
   assert.equal(missing.isError, true);
+
+  const exactLimitText = 'm'.repeat(8000);
+  const writtenAtLimit = await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'write', key: 'at-limit', text: exactLimitText } }, credential));
+  assert.notEqual(writtenAtLimit.isError, true, JSON.stringify(writtenAtLimit));
+  const readAtLimit = AgentMemoryReply.parse((await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'read', key: 'at-limit' } }, credential))).structuredContent);
+  assert.ok('entry' in readAtLimit);
+  assert.equal(readAtLimit.entry.text, exactLimitText);
+
+  const overLimit = await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'write', key: 'over-limit', text: 'm'.repeat(8001) } }, credential));
+  assert.equal(overLimit.isError, true);
+  assert.match(JSON.stringify(overLimit.content), /8001/);
+  assert.match(JSON.stringify(overLimit.content), /8000/);
 });
 
 test('session done puts the agent lines on the session snapshot, a later call replaces them, a line without a command or with one Sane YOLO denies is refused, and session check reaches the verification runner', async () => {

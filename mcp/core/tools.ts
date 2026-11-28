@@ -11,7 +11,7 @@ import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config
 import { RaceId } from '../../shared/contracts/race.ts';
 import { WARGAMES_MAP_SIZES, WARGAMES_MAX_HEX_RADIUS, WARGAMES_MIN_HEX_RADIUS, WargamesMatchId } from '../../shared/contracts/wargames.ts';
 import { MAX_WAKE_TEXT_CHARS, MAX_WAKE_WHEN_CHARS, WakeId } from '../../shared/contracts/wakes.ts';
-import { MEMORY_KEY_MAX_CHARS, MEMORY_TEXT_MAX_CHARS } from '../../shared/contracts/memory.ts';
+import { MEMORY_KEY_MAX_CHARS, MemoryText } from '../../shared/contracts/memory.ts';
 import { CODEMAP_EXPORT_KINDS, CODEMAP_IMPACT_MAX_PATHS, CODEMAP_OVERLAY_LAYERS, CODEMAP_TARGET_MAX_CHARS } from '../../shared/contracts/codemap.ts';
 
 type ToolArguments = Record<string, unknown>;
@@ -385,7 +385,7 @@ const MEMORY_TOOL: GroupedTool = {
   loadsUpfront: false,
   fields: {
     key: z.string().min(1).max(MEMORY_KEY_MAX_CHARS).optional().describe('read, write, forget: the entry key, lowercase letters, digits and . _ -'),
-    text: z.string().min(1).max(MEMORY_TEXT_MAX_CHARS).optional().describe('write: the note to keep'),
+    text: MemoryText.optional().describe('write: the note to keep'),
   },
   actions: {
     list: subcommandRoute('memory', 'list', [], { hints: READS }),
