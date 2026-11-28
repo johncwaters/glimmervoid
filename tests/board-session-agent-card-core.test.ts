@@ -30,6 +30,7 @@ import {
   FACE_SIZE_PX,
   UNPLACED_MAIN_LEFT_PX,
   UNPLACED_MAIN_TOP_PX,
+  areRectListsEqual,
   computeCardLayouts,
   screenRectOf,
   wirePathOf,
@@ -117,6 +118,8 @@ test('agent-card-core resolves painted cards, display flags, menu transitions, r
 test('agent-card-place-core computes cached layouts, invalidates on revision or obstacle, and builds wires', () => {
   const box = { x: 200, y: 200, width: 140, height: 60 };
   const camera = { x: 0, y: 0, scale: 1 };
+  assert.equal(areRectListsEqual([box], [{ ...box }]), true);
+  assert.equal(areRectListsEqual([box], [{ ...box, x: 201 }]), false);
   assert.deepEqual(screenRectOf(box, { x: 10, y: 20, scale: 2 }), { x: 380, y: 360, width: 280, height: 120 });
   assert.ok(wirePathOf(box, { x: 400, y: 200, width: 250, height: 100 }, 'right').startsWith('M340 230'));
   assert.ok(wirePathOf(box, { x: 200, y: 310, width: 250, height: 100 }, 'below').startsWith('M270 260'));

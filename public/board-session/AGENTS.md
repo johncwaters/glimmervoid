@@ -11,8 +11,8 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 |------|-------------|
 | `board-session-view.ts` | The Studio tab: repo chip, trace watches per repo session, seated as a guest on the shared Boards host |
 | `presence-layer.ts` / `presence-core.ts` | Glows on the boxes sessions read, name and edit |
-| `agent-card.ts` | One card per Studio agent beside its box (screen space, never on the board), with Chat's activity line (the Orchestrator's is the last line of the chat log instead), its digest and its menu; an idle branch folds to its face |
-| `agent-waits.ts` | Chat's waits (questions, permissions, limits, and non-terminal sign-in notices) run per agent card |
+| `AgentCards.tsx` / `AgentCard.tsx` / `agent-card-core.ts` | One card per Studio agent beside its box (screen space, never on the board) as a Solid 2 island over pure display and placement cores, with Chat's activity line (the Orchestrator's is the last line of the chat log instead), its digest and its menu; an idle branch folds to its face |
+| `AgentWaits.tsx` / `agent-waits-core.ts` | Chat's waits (questions, permissions, limits, and non-terminal sign-in notices) rendered per agent card inside the AgentCards island root, dispatching approval and plan decisions through `public/state/actions/` |
 | `Dock.tsx` / `dock-core.ts` | The message bar (Chat's composer) and the folded log of prompts and replies, as a Solid 2 island over a pure core |
 
 ## Invariants

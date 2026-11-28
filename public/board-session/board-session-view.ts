@@ -42,15 +42,16 @@ import { onReviewChange, reloadReview, reviewOf } from '../review/review-store.t
 import type { AskCards } from './ask-card.ts';
 import { GLOW_TIER_RANK, createPresenceLayer, shownBoundsOfBoard, shownMapBoundsOfBoard } from './presence-layer.ts';
 import type { GlowTier, PresenceLayer } from './presence-layer.ts';
-import { createAgentCards, isBusyPhase } from './agent-card.ts';
-import type { AgentCardModel, AgentCards } from './agent-card.ts';
+import { mountAgentCardsIsland } from './AgentCards.tsx';
+import type { AgentCardModel, AgentCards } from './AgentCards.tsx';
+import { PICK_AGENT_TEXT, isBusyPhase } from './agent-card-core.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { sessionRailFieldsOf } from '../chat/chat-page.ts';
 import { chatOutboxEntriesOf, watchChatOutbox } from '../state/collections/chat-outbox.ts';
 import { studioQueuedStatusOf } from '../chat/chat-view.ts';
 import { RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
-import { createAgentWaits } from './agent-waits.ts';
-import type { AgentWaits } from './agent-waits.ts';
+import { createAgentWaitsHandle } from './AgentWaits.tsx';
+import type { AgentWaits } from './AgentWaits.tsx';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import type { DockBranch, DockHandle } from './Dock.tsx';
 import { branchSessionIdsOf, placeTitleOf } from './branch-core.ts';
@@ -81,7 +82,6 @@ const ORCHESTRATOR_TEXT = 'Orchestrator';
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const RESTART_ORCHESTRATOR_TEXT = 'Restart Orchestrator';
 const ACCOUNT_TEXT = 'Model and account';
-const PICK_AGENT_TEXT = 'Pick agent';
 const NO_REPO_TEXT = 'No repo';
 const AGENT_FAILED_TEXT = 'The agent stopped unexpectedly.';
 const AGENT_STALLED_TEXT = 'The agent stopped answering.';
@@ -251,7 +251,7 @@ function openWatch(sessionId: string): SessionWatch {
     presence: NO_PRESENCE,
     lastBeat: null,
     turnOpenedAts: [],
-    waits: createAgentWaits(sessionId, showNotice),
+    waits: createAgentWaitsHandle(sessionId, showNotice),
     stopOutboxWatch: watchChatOutbox(sessionId, () => {
       if (isActive) paintPresence();
     }),
@@ -541,7 +541,7 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
     misfit: latestMisfitOf(sessionId, watch),
     failure: agentFailureOf(sessionId, isAsking),
     canPickAgent: sessionId === shownId && stoppedReasonOf(sessionId) !== null,
-    approvals: watch.waits.element,
+    waits: watch.waits,
     isAsking,
     isOpened: openedBranchIds.has(sessionId),
   };
@@ -1010,7 +1010,8 @@ function mountBoardSessionView(panel: HTMLElement): void {
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   const presenceLayer = createPresenceLayer(boundsOfHostBox, pickRepoAgent);
-  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, pickAgent: openOrchestratorAgentDialog, close: closeBranchAgent, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
+  const agentCardsHost = el('div', 'bs-cards');
+  const agentCards = mountAgentCardsIsland(agentCardsHost, root, { address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, pickAgent: openOrchestratorAgentDialog, close: closeBranchAgent, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
   const topLeft = el('div', 'bs-top-left');
   const noRepoChip = createPressable('bs-chip');
   noRepoChip.setAttribute('aria-haspopup', 'menu');

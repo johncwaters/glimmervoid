@@ -30,7 +30,7 @@ export interface AgentCardCoreModel {
   isOpened: boolean;
 }
 
-interface PaintedAgentCard<Model extends AgentCardCoreModel> {
+export interface PaintedAgentCard<Model extends AgentCardCoreModel> {
   sessionId: string;
   model: Model;
   boxRect: Rect | null;
@@ -202,7 +202,9 @@ export function setCardRefusal(
   state: AgentCardsCoreState,
   sessionId: string,
   refusalText: string | null,
+  visibleSessionIds?: ReadonlySet<string>,
 ): AgentCardsCoreState {
+  if (visibleSessionIds !== undefined && !visibleSessionIds.has(sessionId)) return state;
   const nextRefusals = { ...state.refusalBySessionId };
   if (refusalText === null) {
     delete nextRefusals[sessionId];

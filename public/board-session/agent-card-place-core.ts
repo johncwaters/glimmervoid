@@ -3,7 +3,7 @@ import type { SpatialGrid } from '#shared/spatial-grid-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import { rectsOverlap } from '#shared/whiteboard-route-core.ts';
 
-export type CardSide = 'right' | 'left' | 'below' | 'above';
+type CardSide = 'right' | 'left' | 'below' | 'above';
 
 interface CardSpot {
   x: number;
@@ -150,11 +150,11 @@ function isCheaper(candidateCost: readonly number[], bestCost: readonly number[]
   return false;
 }
 
-export function cardPlacementAreaOf(mapRects: readonly Rect[], view: Rect): CardPlacementArea {
+function cardPlacementAreaOf(mapRects: readonly Rect[], view: Rect): CardPlacementArea {
   return { mapRects, mapGrid: gridOfRects(mapRects, GRID_CELL_PX), mapBounds: boundingRectOf(mapRects), view };
 }
 
-export function cardSpotOf(anchor: Rect, card: CardSize, area: CardPlacementArea, hardObstacles: readonly Rect[]): CardSpot {
+function cardSpotOf(anchor: Rect, card: CardSize, area: CardPlacementArea, hardObstacles: readonly Rect[]): CardSpot {
   const alignedSpots = [...SIDES.flatMap((side) => alignedSpotsOf(anchor, card, side)), ...outsideMapSpotsOf(anchor, card, area.mapBounds)];
   const candidates = alignedSpots.flatMap((spot) => [spot, ...slidSpotsOf(spot, card, hardObstacles)]);
   let bestSpot: CardSpot = candidates[0] ?? { x: anchor.x + anchor.width + SIDE_OFFSET_PX, y: anchor.y, side: 'right' };
@@ -172,6 +172,19 @@ function clampedIntoView(spot: CardSpot, card: CardSize, view: Rect): CardSpot {
   const clampedLeft = Math.max(view.x, Math.min(spot.x, view.x + view.width - card.width));
   const clampedTop = Math.max(view.y, Math.min(spot.y, view.y + view.height - card.height));
   return { ...spot, x: clampedLeft, y: clampedTop };
+}
+
+export function areRectListsEqual(previous: readonly Rect[], next: readonly Rect[]): boolean {
+  if (previous === next) return true;
+  if (previous.length !== next.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    const left = previous[index];
+    const right = next[index];
+    if (left.x !== right.x || left.y !== right.y || left.width !== right.width || left.height !== right.height) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function screenRectOf(rect: Rect, camera: CardCamera): Rect {

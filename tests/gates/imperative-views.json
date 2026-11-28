@@ -3,8 +3,6 @@
   "public/add-session/add-session-picker.ts",
   "public/add-session/model-pick.ts",
   "public/attention-banner.ts",
-  "public/board-session/agent-card.ts",
-  "public/board-session/agent-waits.ts",
   "public/board-session/ask-card.ts",
   "public/board-session/board-session-view.ts",
   "public/board-session/presence-layer.ts",
