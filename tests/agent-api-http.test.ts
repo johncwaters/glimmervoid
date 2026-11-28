@@ -39,6 +39,9 @@ import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { createBudgetSessionPauser } from '../server/session/session-budget-pause.ts';
 import { createBackendHealth } from '../server/backend/backend-health.ts';
+import { createBackendWebSockets } from '../server/backend/backend-websockets.ts';
+import { DATA_ATTACH_OUTPUT_PARAM, DATA_ATTACH_PAUSED_OUTPUT } from '../shared/contracts/data-messages.ts';
+import WebSocket from 'ws';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
@@ -1255,6 +1258,111 @@ test('newly idle and recently viewed sessions are protected across the 60s hiber
     freshUnviewed.destroy();
     staleUnviewed.destroy();
     ttlSession.destroy();
+  }
+});
+
+test('a session open in Chat with no terminal grid claim is protected from memory-pressure and TTL sweeps until its viewer pauses output or disconnects', async () => {
+  const chatSession = new Session({ id: 'open-in-chat', name: 'open-in-chat', path: process.cwd(), ptySpawn: () => fakePty() });
+  const pausedSession = new Session({ id: 'prewarmed-paused', name: 'prewarmed-paused', path: process.cwd(), ptySpawn: () => fakePty() });
+  const liveSessions = new Map([[chatSession.id, chatSession], [pausedSession.id, pausedSession]]);
+  const server = http.createServer();
+  const webSockets = createBackendWebSockets({
+    remote: { allowedOrigins: [] },
+    remoteAuth: { isUpgradeAuthorized: () => false },
+    remoteListenerPort: () => null,
+    allowedHosts: ['127.0.0.1', 'localhost'],
+    listenerPortsFor: () => [port],
+    tokenMatches: () => true,
+    getSession: (id) => liveSessions.get(id) ?? null,
+    logger: { warn: () => {} },
+  });
+  webSockets.attachDataConnection();
+  server.on('upgrade', (request, socket, head) => webSockets.handleUpgrade(request, socket, head));
+  const port = await listenOnLoopback(server);
+
+  const nowBase = Date.now();
+  let currentNowMs = nowBase + 120_000;
+  const health = createBackendHealth({
+    sessions: liveSessions,
+    getAllSessions: () => [...liveSessions.values()],
+    sessionDataClients: webSockets.sessionDataClients,
+    activeViewerCountBySessionId: webSockets.activeViewerCountBySessionId,
+    lastTerminalViewerLeftAtMs: webSockets.lastTerminalViewerLeftAtMs,
+    nowMs: () => currentNowMs,
+    getMemoryGateStatus: () => ({ headroomBytes: 0, headroomReadAtMs: null, heldStartCount: 0 }),
+    idleHibernation: { idleHibernateMs: 60_000, headroomFloorBytes: 1, readHeadroom: async () => ({ ok: true, headroomBytes: 0 }) },
+    controlWss: webSockets.controlWss,
+    viewerControlClientCount: () => 1,
+    dataWss: webSockets.dataWss,
+    broadcastControl: () => {},
+    logger: { log: () => {} },
+  });
+
+  const openSockets: WebSocket[] = [];
+  const connectData = async (urlPath: string): Promise<WebSocket> => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${urlPath}`, { headers: { origin: `http://127.0.0.1:${port}` } });
+    openSockets.push(socket);
+    await once(socket, 'open');
+    return socket;
+  };
+
+  try {
+    for (const idleSession of [chatSession, pausedSession]) {
+      await idleSession.start();
+      idleSession.transition('first_output');
+      idleSession.setResumeConversation(`conversation-of-${idleSession.id}`);
+      idleSession.stateSince = nowBase - 300_000;
+    }
+
+    const chatSocket = await connectData(`/terminals/${chatSession.id}?token=test&attach=screen`);
+    await connectData(`/terminals/${pausedSession.id}?token=test&attach=screen&${DATA_ATTACH_OUTPUT_PARAM}=${DATA_ATTACH_PAUSED_OUTPUT}`);
+    await waitFor(
+      () => (webSockets.sessionDataClients.get(chatSession.id)?.size ?? 0) === 1
+        && (webSockets.sessionDataClients.get(pausedSession.id)?.size ?? 0) === 1,
+      'both data sockets wired',
+      2_000,
+    );
+
+    chatSocket.send(JSON.stringify({ type: 'claim', cols: 80, rows: 24 }));
+    await waitFor(() => {
+      const clients = webSockets.sessionDataClients.get(chatSession.id);
+      return clients !== undefined && [...clients.values()].some((size) => size !== null);
+    }, 'chat socket claimed', 2_000);
+    chatSocket.send(JSON.stringify({ type: 'unview' }));
+    await waitFor(() => {
+      const clients = webSockets.sessionDataClients.get(chatSession.id);
+      return clients !== undefined && [...clients.values()].every((size) => size === null);
+    }, 'chat socket unviewed', 2_000);
+
+    assert.deepEqual(
+      await health.runIdleHibernationSweep(),
+      [pausedSession.id],
+      'a paused prewarmed socket does not block snooze, while an unpaused Chat session with no terminal claim stays awake past 60s on both memory and TTL paths',
+    );
+    assert.equal(chatSession.state, STATES.IDLE);
+    assert.equal(pausedSession.state, STATES.DORMANT);
+
+    assert.deepEqual(await health.runIdleHibernationSweep(), [], 'the open Chat session stays awake on subsequent sweeps');
+    assert.equal(chatSession.state, STATES.IDLE);
+
+    chatSocket.send(JSON.stringify({ type: 'pause-output' }));
+    await waitFor(() => webSockets.lastTerminalViewerLeftAtMs.has(chatSession.id), 'pause-output records viewer-left time', 2_000);
+    const leftAtMs = webSockets.lastTerminalViewerLeftAtMs.get(chatSession.id) ?? 0;
+
+    currentNowMs = leftAtMs + 5_000;
+    assert.deepEqual(await health.runIdleHibernationSweep(), [], 'pausing output starts the 60s grace window');
+
+    currentNowMs = leftAtMs + 60_000;
+    assert.deepEqual(await health.runIdleHibernationSweep(), [chatSession.id], 'once the 60s grace window expires after pause-output, the session snoozes');
+    assert.equal(chatSession.state, STATES.DORMANT);
+  } finally {
+    for (const socket of openSockets) socket.close();
+    clearInterval(health.healthInterval);
+    webSockets.controlWss.close();
+    webSockets.dataWss.close();
+    await closeServer(server);
+    chatSession.destroy();
+    pausedSession.destroy();
   }
 });
 

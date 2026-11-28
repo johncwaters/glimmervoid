@@ -61,6 +61,7 @@ interface BackendWebSockets {
   dataWss: WebSocketServer;
   controlReplayLog: ReplayLog;
   sessionDataClients: Map<string, Map<WebSocket, ViewerSizeRecord | null>>;
+  activeViewerCountBySessionId: Map<string, number>;
   lastTerminalViewerLeftAtMs: Map<string, number>;
   broadcastControl: ControlBroadcast;
   broadcastControlFlushed: FlushedControlBroadcast;
@@ -129,6 +130,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     for (const handleConnection of controlConnectionHandlers) handleConnection(socket, request);
   });
   const sessionDataClients = new Map<string, Map<WebSocket, ViewerSizeRecord | null>>();
+  const activeViewerCountBySessionId = new Map<string, number>();
   const lastTerminalViewerLeftAtMs = new Map<string, number>();
   const fastCloseCountBySessionKey = new Map<string, number>();
   const socketsClosedByServer = new WeakSet<WebSocket>();
@@ -167,12 +169,13 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   function closeSessionDataClients(sessionId: string): void {
     const clients = sessionDataClients.get(sessionId);
     if (!clients) return;
-    let hadActiveViewer = false;
-    for (const [socket, size] of clients) {
-      if (size !== null) hadActiveViewer = true;
+    for (const socket of clients.keys()) {
       closeDataSocketFromServer(socket, 1001, 'Session removed');
     }
-    if (hadActiveViewer) lastTerminalViewerLeftAtMs.set(sessionId, clock.nowMs());
+    if ((activeViewerCountBySessionId.get(sessionId) ?? 0) > 0) {
+      activeViewerCountBySessionId.delete(sessionId);
+      lastTerminalViewerLeftAtMs.set(sessionId, clock.nowMs());
+    }
     sessionDataClients.delete(sessionId);
     fastCloseCountBySessionKey.delete(sessionId);
   }
@@ -284,18 +287,35 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       session.resize(resolved.cols, resolved.rows);
     };
 
-    const hasOtherActiveViewer = (): boolean => {
-      for (const [otherSocket, size] of viewerSizeMap) {
-        if (otherSocket !== socket && size !== null) return true;
+    let resizeSeqAtPause: number | null = isAttachedPaused ? session.ptySize().seq : null;
+    let isCountedAsActiveViewer = false;
+
+    const syncActiveViewerCount = (forceInactive = false): void => {
+      const isCurrentMap = sessionDataClients.get(activeSessionId) === viewerSizeMap;
+      const shouldCount = !forceInactive && isCurrentMap && (viewerSizeMap.get(socket) !== null || resizeSeqAtPause === null);
+      if (shouldCount === isCountedAsActiveViewer) return;
+      isCountedAsActiveViewer = shouldCount;
+      if (!isCurrentMap) return;
+      if (shouldCount) {
+        activeViewerCountBySessionId.set(activeSessionId, (activeViewerCountBySessionId.get(activeSessionId) ?? 0) + 1);
+        lastTerminalViewerLeftAtMs.delete(activeSessionId);
+        return;
       }
-      return false;
+      const remaining = (activeViewerCountBySessionId.get(activeSessionId) ?? 1) - 1;
+      if (remaining > 0) {
+        activeViewerCountBySessionId.set(activeSessionId, remaining);
+        return;
+      }
+      activeViewerCountBySessionId.delete(activeSessionId);
+      lastTerminalViewerLeftAtMs.set(activeSessionId, clock.nowMs());
     };
+    syncActiveViewerCount();
 
     const releaseViewerSize = (): void => {
       if (!viewerSizeMap.get(socket)) return;
       viewerSizeMap.set(socket, null);
+      syncActiveViewerCount();
       if (sessionDataClients.get(activeSessionId) !== viewerSizeMap) return;
-      if (!hasOtherActiveViewer()) lastTerminalViewerLeftAtMs.set(activeSessionId, clock.nowMs());
       applyResolvedSize(true);
     };
 
@@ -320,7 +340,6 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     session.on('data', dataListener);
     const resizeListener = (size: { cols: number; rows: number; seq: number }) => sendPtySizeFrame(sender, size);
     session.on('resize', resizeListener);
-    let resizeSeqAtPause: number | null = isAttachedPaused ? session.ptySize().seq : null;
     socket.on('message', (raw) => {
       const message = parseDataClientMessage(String(raw));
       if (!message) return;
@@ -344,9 +363,9 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       }
       if (message.type === 'claim') {
         if (sessionDataClients.get(activeSessionId) !== viewerSizeMap) return;
-        lastTerminalViewerLeftAtMs.delete(activeSessionId);
         nextViewerResizeSeq += 1;
         viewerSizeMap.set(socket, { cols: message.cols, rows: message.rows, resizeSeq: nextViewerResizeSeq });
+        syncActiveViewerCount();
         applyResolvedSize(false);
         return;
       }
@@ -357,11 +376,13 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       if (message.type === 'pause-output') {
         resizeSeqAtPause ??= session.ptySize().seq;
         sender.pauseOutput();
+        syncActiveViewerCount();
         return;
       }
       if (message.type !== 'resume-output' || resizeSeqAtPause === null) return;
       const hasResizedWhilePaused = session.ptySize().seq !== resizeSeqAtPause;
       resizeSeqAtPause = null;
+      syncActiveViewerCount();
       sender.resumeOutput({
         outputOffset: session.getOutputOffset(),
         hasResizedWhilePaused,
@@ -374,6 +395,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       session.removeListener('resize', resizeListener);
       sender.destroy();
       releaseViewerSize();
+      syncActiveViewerCount(true);
       const clients = sessionDataClients.get(activeSessionId);
       if (!clients) return;
       clients.delete(socket);
@@ -435,6 +457,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     dataWss,
     controlReplayLog,
     sessionDataClients,
+    activeViewerCountBySessionId,
     lastTerminalViewerLeftAtMs,
     broadcastControl,
     broadcastControlFlushed,

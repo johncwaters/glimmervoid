@@ -45,6 +45,7 @@ interface BackendHealthDependencies {
   sessions: Map<string, HealthSession>;
   getAllSessions: () => HealthSession[];
   sessionDataClients: Map<string, Map<WebSocket, unknown>>;
+  activeViewerCountBySessionId?: Map<string, number>;
   lastTerminalViewerLeftAtMs?: Map<string, number>;
   nowMs?: () => number;
   getMemoryGateStatus: () => MemoryGateStatus;
@@ -129,7 +130,10 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
 
   let hibernationSweepInFlight: Promise<string[]> | null = null;
 
-  function hasActiveTerminalViewer(id: string): boolean {
+  function hasActiveSessionViewer(id: string): boolean {
+    if (dependencies.activeViewerCountBySessionId) {
+      return (dependencies.activeViewerCountBySessionId.get(id) ?? 0) > 0;
+    }
     const clients = dependencies.sessionDataClients.get(id);
     if (!clients) return false;
     for (const viewer of clients.values()) {
@@ -151,7 +155,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
   function isEligibleForHibernation(id: string, session: HealthSession, nowMs: number): boolean {
     if (session.ephemeral || !session.hasLivePty || !session.resumeSessionId) return false;
     if (session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) return false;
-    if (hasActiveTerminalViewer(id)) return false;
+    if (hasActiveSessionViewer(id)) return false;
     if (isWithinHibernationGrace({
       stateSinceMs: session.stateSince,
       lastViewerLeftAtMs: dependencies.lastTerminalViewerLeftAtMs?.get(id),
@@ -171,6 +175,11 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     if (dependencies.lastTerminalViewerLeftAtMs) {
       for (const trackedSessionId of dependencies.lastTerminalViewerLeftAtMs.keys()) {
         if (!dependencies.sessions.has(trackedSessionId)) dependencies.lastTerminalViewerLeftAtMs.delete(trackedSessionId);
+      }
+    }
+    if (dependencies.activeViewerCountBySessionId) {
+      for (const trackedSessionId of dependencies.activeViewerCountBySessionId.keys()) {
+        if (!dependencies.sessions.has(trackedSessionId)) dependencies.activeViewerCountBySessionId.delete(trackedSessionId);
       }
     }
     const reading = headroomFloorBytes > 0 ? await readHeadroom() : { ok: false as const, reason: 'disabled' };
