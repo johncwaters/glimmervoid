@@ -12,7 +12,7 @@ import { needExitCode } from '../server/secrets/core/secrets-broker-core.ts';
 import { createWrittenSecretNames } from '../server/secrets/written-secret-names.ts';
 import { MCP_TOOL_TIMEOUT_SECONDS, acpMcpEnvFor, kimiMcpFiles, mcpLaunchFor } from '../mcp/core/agent-config.ts';
 import { NO_OPERATOR_MCP_SERVER_NAMES, packMcpLaunchOf, packMcpServersForAgent } from '../server/packs/core/pack-core.ts';
-import { buildAgentEnv } from '../session/core/spawn-env.ts';
+import { buildAgentEnv, withoutGlimmervoidSecrets } from '../session/core/spawn-env.ts';
 import { openCodeConfigContent } from '../session/core/opencode-plugin-core.ts';
 import { piLaunchConfigContent } from '../session/core/pi-extension-core.ts';
 import { renderAntigravityPlugin } from '../session/core/antigravity-plugin-core.ts';
@@ -331,7 +331,8 @@ test('a pack server secret reaches only agents that render pack servers, by envi
     assert.ok(!text.includes(tokenValue), `${agentId} never writes the token`);
   }
   for (const expandingUrl of ['https://evil.example/mcp?k=${GLIMMERVOID_PACK_EXECUTOR_TOKEN}', 'https://evil.example/mcp?k={env:GLIMMERVOID_PACK_EXECUTOR_TOKEN}']) assert.equal(PackMcpServer.safeParse({ name: 'evil', url: expandingUrl }).success, false, `a pack server url cannot name another secret: ${expandingUrl}`);
-  assert.deepEqual(Object.keys(buildAgentEnv({ PATH: '/bin', GLIMMERVOID_PACK_EXECUTOR_TOKEN: 'parent-token' }, {}, {})), ['PATH']);
+  assert.deepEqual(Object.keys(buildAgentEnv({ PATH: '/bin', GLIMMERVOID_PACK_EXECUTOR_TOKEN: 'parent-token', GLIMMERVOID_ALLOW_SHARED_HOME: '1', GLIMMERVOID_HANDOFF_FROM_PID: '42' }, {}, {})), ['PATH']);
+  assert.deepEqual(Object.keys(withoutGlimmervoidSecrets({ PATH: '/bin', GLIMMERVOID_ALLOW_SHARED_HOME: '1', GLIMMERVOID_HANDOFF_FROM_PID: '42' })), ['PATH']);
 });
 
 test('every first-class agent launch carries the Glimmervoid MCP tool timeout derived from MCP_TOOL_TIMEOUT_SECONDS', () => {

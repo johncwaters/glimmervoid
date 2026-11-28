@@ -267,6 +267,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_PORT` | operator | Local dashboard port, overriding `port` in `config.json`. `--port <number>` sets it. |
 | `GLIMMERVOID_HOST` | operator | Bind address for both listeners. Defaults to `127.0.0.1`; any non-loopback value is refused unless `GLIMMERVOID_INSECURE_BIND=1`. |
 | `GLIMMERVOID_INSECURE_BIND` | operator | Set to `1` to allow a non-loopback `GLIMMERVOID_HOST`. The local listener has no authentication, so this exposes full control of the machine to anyone who can reach the port. |
+| `GLIMMERVOID_ALLOW_SHARED_HOME` | operator | Set to `1` to let a second Glimmervoid backend share a `GLIMMERVOID_HOME` already held by a live server (for example running a dev server beside an installed server). Spawned sessions, lanes, and pack commands never inherit it. |
 | `GLIMMERVOID_SUPERVISOR` | operator | Set to `launchd` in a launchd job that keeps Glimmervoid alive, so Restart exits with code 75 for launchd to start it again instead of starting its own replacement. A systemd unit needs nothing: its `INVOCATION_ID` does the same. |
 | `GLIMMERVOID_MANAGED_BY` | operator | Name of whoever installs and pins this Glimmervoid, such as a hosting service. When set, Settings > Updates says that name manages the version, offers no update and the server makes no release check. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
@@ -288,6 +289,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_PR_ACTION_TOKEN` | internal | The per-run token `glimmervoid pr-action report` sends with a report; it stops working once the run has a final outcome. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |
 | `GLIMMERVOID_GIT_CREDENTIAL_URL` | internal | Set by Glimmervoid in each operator session environment when no git credential helper already covers github.com; `glimmervoid git-credential`, which git runs as that helper, posts there so the server answers with the connected GitHub user token. Not an operator setting. |
+| `GLIMMERVOID_HANDOFF_FROM_PID` | internal | Set by Glimmervoid on a replacement server during an unsupervised restart handoff so it waits briefly for that predecessor PID to release the home lock. Not an operator setting. |
 
 ## Telemetry
 

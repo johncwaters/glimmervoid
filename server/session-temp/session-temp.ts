@@ -16,6 +16,7 @@ const ABSENT_OR_NOT_EMPTY_CODES: ReadonlySet<string> = new Set(['ENOENT', 'ENOTE
 const SESSION_TEMP_LOCK_FOLDER = 'session-temp-locks';
 const SESSION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SESSION_TEMP_RETAIN_DAYS = 7;
+const homeDirBySessionId = new Map<string, string>();
 
 function sessionTempLockFolder(glimmervoidHome: string): string {
   return path.join(glimmervoidHome, SESSION_TEMP_LOCK_FOLDER);
@@ -82,21 +83,19 @@ async function removeRetiredSessionTempRootOnceEmpty(glimmervoidHome: string, lo
   });
 }
 
-function sessionTempFolderFor(sessionId: string): string | null {
-  if (!SESSION_ID_SHAPE.test(sessionId)) return null;
-  return path.join(glimmervoidHomeDir(), SESSION_TEMP_FOLDER, sessionId);
-}
-
 function ensureSessionTempFolder(sessionId: string): string | null {
-  const sessionTempFolder = sessionTempFolderFor(sessionId);
-  if (!sessionTempFolder) return null;
-  createHeldSessionTempFolder(sessionTempLockFolder(glimmervoidHomeDir()), sessionId, sessionTempFolder);
+  if (!SESSION_ID_SHAPE.test(sessionId)) return null;
+  const glimmervoidHome = glimmervoidHomeDir();
+  const sessionTempFolder = path.join(glimmervoidHome, SESSION_TEMP_FOLDER, sessionId);
+  createHeldSessionTempFolder(sessionTempLockFolder(glimmervoidHome), sessionId, sessionTempFolder);
+  homeDirBySessionId.set(sessionId, glimmervoidHome);
   return sessionTempFolder;
 }
 
 async function removeSessionTempFolder(sessionId: string, log: Pick<Console, 'warn'> = console): Promise<void> {
   if (!SESSION_ID_SHAPE.test(sessionId)) return;
-  const glimmervoidHome = glimmervoidHomeDir();
+  const glimmervoidHome = homeDirBySessionId.get(sessionId) ?? glimmervoidHomeDir();
+  homeDirBySessionId.delete(sessionId);
   const lockFolder = sessionTempLockFolder(glimmervoidHome);
   let didHoldSessionLock = true;
   try {

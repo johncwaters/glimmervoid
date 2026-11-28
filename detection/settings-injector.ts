@@ -19,7 +19,9 @@ import { safePathSegment } from '../shared/paths.ts';
 import { isRecord, textOr } from '../shared/coerce.ts';
 import { clock } from '../shared/clock.ts';
 
-const DEFAULT_BASE_DIR = path.join(hostScratchRoot(), 'glimmervoid-hooks');
+function defaultBaseDir(): string {
+  return path.join(hostScratchRoot(), 'glimmervoid-hooks');
+}
 const DEFAULT_TIMEOUT_SEC = 5;
 const HELD_HOOK_TIMEOUT_SEC = 86400;
 
@@ -314,7 +316,7 @@ function describeInstalledClaudeHooks(flags: InstalledHookFlags): InstalledHooks
   return { version: null, isBestEffort: false, hooks };
 }
 
-function writeSessionSettings({ glimmervoidId, token, baseDir = DEFAULT_BASE_DIR, ...rest }: WriteSessionSettingsOptions) {
+function writeSessionSettings({ glimmervoidId, token, baseDir = defaultBaseDir(), ...rest }: WriteSessionSettingsOptions) {
   const tok = token || generateToken();
   const dir = path.join(baseDir, safePathSegment(glimmervoidId));
   ensureOwnedDir(baseDir, DIR_MODE);
@@ -335,7 +337,7 @@ function writeSessionSettings({ glimmervoidId, token, baseDir = DEFAULT_BASE_DIR
   };
 }
 
-function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 * 60 * 60 * 1000): number {
+function sweepOrphans(baseDir: string = defaultBaseDir(), maxAgeMs: number = 24 * 60 * 60 * 1000): number {
   let baseStat: fs.Stats;
   try {
     baseStat = fs.lstatSync(baseDir);

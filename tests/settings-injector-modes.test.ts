@@ -9,6 +9,7 @@ import {
   buildHookSettings,
   writeSessionSettings,
 } from '../detection/settings-injector.ts';
+import { ensureSessionTempFolder, removeSessionTempFolder } from '../server/session-temp/session-temp.ts';
 import { getAdapter, listAgentIds } from '../session/adapters/index.ts';
 import { agentHookGroupOf } from '../session/core/user-hooks-core.ts';
 
@@ -74,4 +75,29 @@ test('every hook an agent installs is described with a purpose on the Settings H
   assert.ok(claudeGroup.rows.some((row) => row.purpose === 'Sane YOLO catastrophic command protection'), 'a Windows hook-tool path still resolves to its own purpose');
   const undescribed = groups.flatMap((group) => group.rows.filter((row) => row.purpose === 'No description').map((row) => `${group.agentId} ${row.event} ${row.matcher ?? ''}`));
   assert.deepEqual(undescribed, []);
+});
+
+test('hook settings and session-temp locks follow GLIMMERVOID_HOME set after import and restored before cleanup', async () => {
+  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-late-home-'));
+  const otherHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-other-home-'));
+  const previousHome = process.env.GLIMMERVOID_HOME;
+  const warnings: string[] = [];
+  try {
+    process.env.GLIMMERVOID_HOME = scratchHome;
+    const written = writeSessionSettings({ glimmervoidId: 'late-home-sess', port: 3000 });
+    assert.ok(written.settingsPath.startsWith(path.join(scratchHome, 'scratch', 'glimmervoid-hooks')), `expected settings under ${scratchHome}, got ${written.settingsPath}`);
+    written.cleanup();
+
+    const tempFolder = ensureSessionTempFolder('late-home-sess');
+    assert.ok(tempFolder?.startsWith(path.join(scratchHome, 'sane-yolo-temp')));
+    process.env.GLIMMERVOID_HOME = otherHome;
+    await removeSessionTempFolder('late-home-sess', { warn: (message: string) => warnings.push(message) });
+    assert.deepEqual(warnings, [], 'session-temp cleanup releases the lock in the home where it was acquired');
+    assert.equal(fs.existsSync(path.join(otherHome, 'session-temp-locks')), false, 'cleanup never touches the restored home');
+  } finally {
+    if (previousHome === undefined) delete process.env.GLIMMERVOID_HOME;
+    if (previousHome !== undefined) process.env.GLIMMERVOID_HOME = previousHome;
+    fs.rmSync(scratchHome, { recursive: true, force: true });
+    fs.rmSync(otherHome, { recursive: true, force: true });
+  }
 });

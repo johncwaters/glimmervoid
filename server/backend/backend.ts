@@ -127,6 +127,9 @@ import { createHeavyCommandGate } from '../spawn-gate.ts';
 import { createLoopGuardWiring } from '../session/loop-guard-wiring.ts';
 import { createReactionsWiring } from '../reactions-wiring.ts';
 import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
+import { HANDOFF_FROM_PID_ENV } from '../core/home-lock-core.ts';
+import { acquireHomeLockSync, claimBootHomeLock } from '../home-lock.ts';
+import type { HomeLockHandle } from '../home-lock.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -146,6 +149,18 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     throw new Error('createBackend refused to boot on the operator\'s Glimmervoid home under node:test; run tests through npm test or npm run test:files, which isolate GLIMMERVOID_HOME');
   }
   refuseUnstableSelfLaunches();
+  const resolvedHomeDir = glimmervoidHomeDir();
+  const homeLock = claimBootHomeLock(resolvedHomeDir)
+    ?? acquireHomeLockSync({ homeDir: resolvedHomeDir, port: options.localPort ?? null, env: process.env });
+  try {
+    return initializeBackend(httpServer, options, homeLock);
+  } catch (error) {
+    homeLock.release();
+    throw error;
+  }
+}
+
+function initializeBackend(httpServer: Server, options: CreateBackendOptions, homeLock: HomeLockHandle) {
   const { staticDir = 'auto', settingsDefaults } = options;
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
     version: string;
@@ -157,11 +172,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   setOperatorTimezoneSource(() => config.operatorTimezone);
   applyCustomAgents(config);
   const port = options.localPort ?? resolveLocalPort({ envPort: process.env.GLIMMERVOID_PORT, configPort: config.port, defaultPort: DEFAULT_CONFIG.port });
+  homeLock.updatePort(port);
   const boundDashboardPort = (): number => {
     const address = httpServer.address();
     if (address === null || typeof address === 'string') return port;
     return address.port;
   };
+  httpServer.once('listening', () => { homeLock.updatePort(boundDashboardPort()); });
 
   const trust = createBackendTrust({
     localPort: port,
@@ -947,7 +964,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     measureSessionTemp: measureSessionTempFolders,
   });
   let stopConfigWatch: (() => void) | null = null;
-  const shutdown = createBackendShutdown({
+  let shouldReleaseHomeLockOnShutdown = true;
+  const stopBackend = createBackendShutdown({
     configStore,
     bootWork,
     ownedPaths: laneAssembly.ownedPaths,
@@ -1007,6 +1025,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlWss,
     dataWss,
   });
+  const shutdown = () => {
+    const outcome = stopBackend();
+    if (shouldReleaseHomeLockOnShutdown) homeLock.release();
+    return outcome;
+  };
   const lifecycleServers: Server[] = [agentIngressServer];
   const remoteListenerPortFile = remoteListenerPortPath(glimmervoidHomeDir(), port);
   const remoteListenerPortOwner = `${process.pid}-${crypto.randomUUID()}`;
@@ -1037,12 +1060,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   watcherLink.registerProbeSource(laneAssembly.posthog.probeSource);
   laneAssembly.posthog.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
   const { requestShutdown, requestRestart } = createLifecycle({
-    shutdown,
+    shutdown: () => {
+      shouldReleaseHomeLockOnShutdown = false;
+      return stopBackend();
+    },
     httpServer,
     extraServers: lifecycleServers,
-    onRestart: options.onRestart || null,
-    exit: options.exit,
-    spawn,
+    onRestart: options.onRestart ? () => { homeLock.release(); options.onRestart?.(); } : null,
+    exit: (code) => {
+      homeLock.release();
+      return (options.exit ?? process.exit)(code);
+    },
+    spawn: (file, args, spawnOptions) => spawn(file, args, {
+      ...spawnOptions,
+      env: { ...(spawnOptions.env ?? process.env), [HANDOFF_FROM_PID_ENV]: String(process.pid) },
+    }),
     beforeHandOff: updateApply.handOffStagedUpdate,
   });
 
