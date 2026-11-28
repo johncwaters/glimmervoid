@@ -128,7 +128,7 @@ test('add-session-picker-core steps through agent, model/effort, account, and pr
   state = applyReopenSlot(state, 'account').state;
   assert.equal(accountSlotRowsOf(state, ACCOUNTS)[1]?.metaText, 'signed out');
   state = applyPickAccount(state, 'work', ACCOUNTS).state;
-  const display = addSessionDisplayOf(state, ACCOUNTS, () => 'Work is signed out.');
+  const display = addSessionDisplayOf(state, ACCOUNTS, () => 'Work is signed out.', false);
   assert.equal(display.signInHintHidden, false);
   assert.equal(display.modelWordText, 'Sonnet 4.6 high');
 
@@ -143,6 +143,7 @@ test('add-session-picker-core steps through agent, model/effort, account, and pr
     readCloneJob: () => null,
     suggestName: (base) => base,
     defaultTimeoutMs: 15_000,
+    hasPendingLaunch: false,
   });
   assert.equal(submission.kind, 'request');
   if (submission.kind === 'request') {
@@ -181,12 +182,12 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   state = applyPickWorkspace(state).state;
   state = applyToggleWorkspaceRepo(state, '/repos/one');
   assert.equal(workspacePanelRowsOf(state).some((row) => row.kind === 'group-label' && row.text === 'Picked'), true);
-  assert.equal(buildStartSubmission(state, { accounts: [], readCloneJob: () => null, suggestName: (base) => base, defaultTimeoutMs: 15_000 }).kind, 'error');
+  assert.equal(buildStartSubmission(state, { accounts: [], readCloneJob: () => null, suggestName: (base) => base, defaultTimeoutMs: 15_000, hasPendingLaunch: false }).kind, 'error');
 
   state = applyWorkspaceFindInput(state, 'two');
   assert.equal(workspacePanelRowsOf(state).filter((row) => row.kind === 'repo' && !row.isPicked).length, 1);
   state = applyToggleWorkspaceRepo(state, '/repos/two');
-  const workspaceSub = buildStartSubmission(state, { accounts: [], readCloneJob: () => null, suggestName: (base) => base, defaultTimeoutMs: 15_000 });
+  const workspaceSub = buildStartSubmission(state, { accounts: [], readCloneJob: () => null, suggestName: (base) => base, defaultTimeoutMs: 15_000, hasPendingLaunch: false });
   assert.equal(workspaceSub.kind, 'request');
 
   state = applyBackToProjects(state).state;
@@ -237,7 +238,7 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   const issueKey = applyFindKeydown(state, 'Enter', false);
   assert.equal(issueKey.kind, 'start-issue');
   if (issueKey.kind === 'start-issue') {
-    const issueSub = buildIssueStartSubmission(state, issueKey.project, issueKey.issueNumber, { accounts: [] });
+    const issueSub = buildIssueStartSubmission(state, issueKey.project, issueKey.issueNumber, { accounts: [], hasPendingLaunch: false });
     assert.equal(issueSub.kind, 'request');
     if (issueSub.kind === 'request') {
       assert.equal(issueSub.request.requestType, 'open-issue-session');
@@ -246,7 +247,7 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   }
 
   state = applyPickGithub(state, { fullName: 'org/three', cloneUrl: 'https://github.com/org/three.git', isPrivate: true, pushedAt: null }).state;
-  assert.equal(buildStartSubmission(state, { accounts: [], readCloneJob: () => null, suggestName: (base) => base, defaultTimeoutMs: 15_000 }).kind, 'clone-then-submit');
+  assert.equal(buildStartSubmission(state, { accounts: [], readCloneJob: () => null, suggestName: (base) => base, defaultTimeoutMs: 15_000, hasPendingLaunch: false }).kind, 'clone-then-submit');
 
   state = applyPickFolder(state).state;
   state = applyFolderPathInput(state, '/tmp/custom');
@@ -259,9 +260,10 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   const agentsLoad2 = beginAgentsLoad(state);
   state = applyAgentsLoadError(agentsLoad2.state, agentsLoad2.loadNumber, 'boom', false, false).state;
   state = applyWorkBusy(state, 'Starting');
-  assert.equal(buildPackLaunchSubmission(state, 'p', 'l', 15_000).kind, 'noop');
+  assert.equal(buildPackLaunchSubmission(state, 'p', 'l', 15_000, false).kind, 'noop');
   state = applyWorkIdle(state, 'failed');
-  assert.equal(buildPackLaunchSubmission(state, 'p', 'l', 15_000).kind, 'request');
+  assert.equal(buildPackLaunchSubmission(state, 'p', 'l', 15_000, false).kind, 'request');
+  assert.equal(buildPackLaunchSubmission(state, 'p', 'l', 15_000, true).kind, 'noop');
   assert.equal(decideActionOutcome({ ok: false, error: new Error('refused') }, () => 'fallback').kind, 'refused');
 });
 
@@ -346,7 +348,7 @@ test('add-session-picker-core resolves the same remembered model and effort acro
       if (step === 'settings') state = applySettingsMessage(state, settingsLoad.loadNumber, settingsMessage);
     }
 
-    const display = addSessionDisplayOf(state, [], () => '');
+    const display = addSessionDisplayOf(state, [], () => '', false);
     assert.equal(display.modelWordText, 'Sonnet 4.6 high', `order=${order.join(',')}`);
     assert.equal(display.repoWordText, 'alpha-app', `order=${order.join(',')}`);
   }

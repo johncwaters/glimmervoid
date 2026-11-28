@@ -495,7 +495,7 @@ export function addSessionDisplayOf(
   state: AddSessionPickerState,
   accounts: readonly AgentAccountStatus[],
   formatAccountSummary: (account: AgentAccountStatus | null) => string,
-  hasPendingLaunch = false,
+  hasPendingLaunch: boolean,
 ): AddSessionDisplay {
   const isBusy = state.workState.kind === 'busy' || hasPendingLaunch;
   const startStatusText = state.workState.kind === 'busy'
@@ -1125,10 +1125,10 @@ export function buildStartSubmission(
     readCloneJob: (cloneUrl: string) => RepositoryCloneJob | null;
     suggestName: (base: string) => string;
     defaultTimeoutMs: number;
-    hasPendingLaunch?: boolean;
+    hasPendingLaunch: boolean;
   },
 ): StartSubmissionDecision {
-  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || deps.hasPendingLaunch === true) return { kind: 'noop' };
+  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || deps.hasPendingLaunch) return { kind: 'noop' };
   const cleared: AddSessionPickerState = { ...state, errorText: '' };
   if (cleared.selectedAgentId === NO_AGENT_ID && cleared.agentOptions.length > 0) {
     return { kind: 'error', state: { ...cleared, errorText: 'Pick an agent.' } };
@@ -1200,9 +1200,9 @@ export function buildIssueStartSubmission(
   state: AddSessionPickerState,
   project: ScannedProject,
   issueNumber: number,
-  deps: { accounts: readonly AgentAccountStatus[]; hasPendingLaunch?: boolean },
+  deps: { accounts: readonly AgentAccountStatus[]; hasPendingLaunch: boolean },
 ): StartSubmissionDecision {
-  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || deps.hasPendingLaunch === true) return { kind: 'noop' };
+  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || deps.hasPendingLaunch) return { kind: 'noop' };
   const matchingRow = state.recentRows.find((recentRow) => recentRow.path === project.path) ?? null;
   const target: AddSessionTarget = matchingRow ? { kind: 'project', row: matchingRow } : state.target;
   const nextState: AddSessionPickerState = {
@@ -1232,7 +1232,7 @@ export function buildPackLaunchSubmission(
   pack: string,
   launcherId: string,
   defaultTimeoutMs: number,
-  hasPendingLaunch = false,
+  hasPendingLaunch: boolean,
 ): StartSubmissionDecision {
   if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || hasPendingLaunch) return { kind: 'noop' };
   return {
