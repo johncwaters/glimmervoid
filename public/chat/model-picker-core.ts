@@ -38,7 +38,7 @@ interface ModelPickerDisplay {
   readonly isEffortExpanded: 'true' | 'false';
 }
 
-type ModelPickerRow =
+export type ModelPickerRow =
   | {
     readonly kind: 'model';
     readonly key: string;
@@ -113,22 +113,22 @@ export function selectModelPickerStep(
   };
 }
 
-function modelLabelOf(catalog: AgentModelCatalog, setup: AgentSetup): string {
+export function modelLabelOf(catalog: AgentModelCatalog, setup: AgentSetup): string {
   const model = setupModelsOf(catalog, setup).find((candidate) => candidate.id === setup.model);
   const modelText = model?.label ?? setup.model ?? 'its default model';
   return providerOf(setup) === 'openrouter' ? `${modelText} via OpenRouter` : modelText;
 }
 
-function hasModelEfforts(catalog: AgentModelCatalog, setup: AgentSetup): boolean {
+export function hasModelEfforts(catalog: AgentModelCatalog, setup: AgentSetup): boolean {
   return effortsOf(catalog, setup).length > 0;
 }
 
-function setupAfterModelPick(catalog: AgentModelCatalog, current: AgentSetup, provider: ModelProvider, modelId: string): AgentSetup {
+export function setupAfterModelPick(catalog: AgentModelCatalog, current: AgentSetup, provider: ModelProvider, modelId: string): AgentSetup {
   const onProvider = providerOf(current) === provider ? current : withProvider(catalog, current, provider);
   return withModel(catalog, onProvider, modelId);
 }
 
-function setupAfterTypedPick(catalog: AgentModelCatalog, current: AgentSetup, provider: ModelProvider, modelId: string): AgentSetup {
+export function setupAfterTypedPick(catalog: AgentModelCatalog, current: AgentSetup, provider: ModelProvider, modelId: string): AgentSetup {
   const onProvider = providerOf(current) === provider ? current : withProvider(catalog, current, provider);
   return withEffortChoice(withTypedModel(onProvider, modelId), null);
 }
@@ -178,23 +178,27 @@ export function modelPickerDisplayOf(state: OpenModelPickerState): ModelPickerDi
   };
 }
 
-function modelRowsOf(state: OpenModelPickerState): ModelPickerRow[] {
-  const { catalog, pendingSetup, query } = state;
+export function modelListRowsOf(
+  catalog: AgentModelCatalog,
+  agent: string,
+  setup: AgentSetup,
+  query: string,
+): ModelPickerRow[] {
   const toModelRow = (provider: ModelProvider, model: CatalogModel): ModelPickerRow => ({
     kind: 'model',
     key: `${provider}:${model.id}`,
     label: model.label,
     meta: model.label !== model.id ? model.id : null,
-    isPicked: providerOf(pendingSetup) === provider && model.id === pendingSetup.model,
+    isPicked: providerOf(setup) === provider && model.id === setup.model,
     provider,
     modelId: model.id,
   });
-  const [nativeGroup, openRouterGroup] = visibleModelsByProvider(catalog, pendingSetup.agent, query);
-  const typed = typedModelIdOf(catalog, pendingSetup.agent, query);
+  const [nativeGroup, openRouterGroup] = visibleModelsByProvider(catalog, agent, query);
+  const typed = typedModelIdOf(catalog, agent, query);
   const openRouterRows: ModelPickerRow[] = openRouterGroup.models.length === 0
     ? []
     : [{ kind: 'group-label', key: 'group:OpenRouter', text: 'OpenRouter' }, ...openRouterGroup.models.map((model) => toModelRow('openrouter', model))];
-  const typedOpenRouterRows: ModelPickerRow[] = typed !== null && canRunOnOpenRouter(pendingSetup.agent)
+  const typedOpenRouterRows: ModelPickerRow[] = typed !== null && canRunOnOpenRouter(agent)
     ? [{ kind: 'typed', key: `Use "${typed}" on OpenRouter`, label: `Use "${typed}" on OpenRouter`, provider: 'openrouter', modelId: typed }]
     : [];
   const typedRows: ModelPickerRow[] = typed === null
@@ -203,29 +207,28 @@ function modelRowsOf(state: OpenModelPickerState): ModelPickerRow[] {
   return [...nativeGroup.models.map((model) => toModelRow('native', model)), ...openRouterRows, ...typedRows];
 }
 
-function effortRowsOf(state: OpenModelPickerState): ModelPickerRow[] {
-  const { catalog, pendingSetup } = state;
-  const defaultEffort = agentDefaultEffort(catalog, pendingSetup);
+export function effortListRowsOf(catalog: AgentModelCatalog, setup: AgentSetup): ModelPickerRow[] {
+  const defaultEffort = agentDefaultEffort(catalog, setup);
   const defaultRow: ModelPickerRow = {
     kind: 'effort',
     key: 'default',
     label: defaultEffort === null ? 'Default' : `Default (${defaultEffort})`,
-    isPicked: effortOf(pendingSetup) === null,
+    isPicked: effortOf(setup) === null,
     effort: null,
   };
-  const effortRows: ModelPickerRow[] = effortsOf(catalog, pendingSetup).map((effort) => ({
+  const effortRows: ModelPickerRow[] = effortsOf(catalog, setup).map((effort) => ({
     kind: 'effort',
     key: effort,
     label: effort,
-    isPicked: effortOf(pendingSetup) === effort,
+    isPicked: effortOf(setup) === effort,
     effort,
   }));
   return [{ kind: 'back', key: 'back:All models', label: 'All models' }, defaultRow, ...effortRows];
 }
 
 export function modelPickerRowsOf(state: OpenModelPickerState): ModelPickerRow[] {
-  if (state.step === 'models') return modelRowsOf(state);
-  return effortRowsOf(state);
+  if (state.step === 'models') return modelListRowsOf(state.catalog, state.pendingSetup.agent, state.pendingSetup, state.query);
+  return effortListRowsOf(state.catalog, state.pendingSetup);
 }
 
 function commitModelSetup(runningSetup: AgentSetup, nextSetup: AgentSetup): ModelPickerActionResult {
@@ -266,15 +269,19 @@ export function pickEffortChoice(state: OpenModelPickerState, effort: string | n
   return commitModelSetup(state.runningSetup, nextSetup);
 }
 
-export function decideModelFindKeydown(state: OpenModelPickerState, key: string): ModelFindKeydownDecision {
-  if (key !== 'Enter') return { kind: 'none' };
-  const firstGroup = visibleModelsByProvider(state.catalog, state.pendingSetup.agent, state.query).find((group) => group.models.length > 0);
+export function firstModelPickOf(catalog: AgentModelCatalog, agent: string, query: string): ModelFindKeydownDecision {
+  const firstGroup = visibleModelsByProvider(catalog, agent, query).find((group) => group.models.length > 0);
   if (firstGroup) {
     return { kind: 'pick-listed', provider: firstGroup.provider, modelId: firstGroup.models[0].id };
   }
-  const typed = typedModelIdOf(state.catalog, state.pendingSetup.agent, state.query);
+  const typed = typedModelIdOf(catalog, agent, query);
   if (typed === null) return { kind: 'none' };
   return { kind: 'pick-typed', provider: 'native', modelId: typed };
+}
+
+export function decideModelFindKeydown(state: OpenModelPickerState, key: string): ModelFindKeydownDecision {
+  if (key !== 'Enter') return { kind: 'none' };
+  return firstModelPickOf(state.catalog, state.pendingSetup.agent, state.query);
 }
 
 export function decideModelPickerPanelKeydown(key: string): ModelPickerPanelKeydownDecision {
