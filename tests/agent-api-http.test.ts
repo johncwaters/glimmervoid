@@ -1136,6 +1136,7 @@ test('a session with a live child refuses snooze and is passed over by the idle 
     sessions: idleSessions,
     getAllSessions: () => [...idleSessions.values()],
     sessionDataClients: new Map(),
+    nowMs: () => Date.now() + 60_000,
     getMemoryGateStatus: () => ({ headroomBytes: 0, headroomReadAtMs: null, heldStartCount: 0 }),
     idleHibernation: { idleHibernateMs: null, headroomFloorBytes: 1, readHeadroom: async () => ({ ok: true, headroomBytes: 0 }) },
     controlWss: { clients: new Set() },
@@ -1166,15 +1167,18 @@ test('a session with a live child refuses snooze and is passed over by the idle 
   }
 });
 
-test('a recently viewed idle session is protected across the viewer-disconnect grace window on both memory-pressure and TTL paths while unviewed sessions still hibernate', async () => {
+test('newly idle and recently viewed sessions are protected across the 60s hibernation grace window on both memory-pressure and TTL paths, and every sweep snooze logs its id, path, and headroom', async () => {
   const reloading = new Session({ id: 'reloading', name: 'reloading', path: process.cwd(), ptySpawn: () => fakePty() });
-  const unviewed = new Session({ id: 'unviewed', name: 'unviewed', path: process.cwd(), ptySpawn: () => fakePty() });
+  const freshUnviewed = new Session({ id: 'fresh-unviewed', name: 'fresh-unviewed', path: process.cwd(), ptySpawn: () => fakePty() });
+  const staleUnviewed = new Session({ id: 'stale-unviewed', name: 'stale-unviewed', path: process.cwd(), ptySpawn: () => fakePty() });
   const ttlSession = new Session({ id: 'ttl-session', name: 'ttl-session', path: process.cwd(), ptySpawn: () => fakePty() });
   const nowBase = Date.now();
   let currentNowMs = nowBase + 5_000;
   const pressureViewerLeftAtMs = new Map<string, number>([[reloading.id, nowBase]]);
   const ttlViewerLeftAtMs = new Map<string, number>([[ttlSession.id, nowBase]]);
-  const pressureSessions = new Map([[reloading.id, reloading], [unviewed.id, unviewed]]);
+  const pressureLogs: string[] = [];
+  const ttlLogs: string[] = [];
+  const pressureSessions = new Map([[reloading.id, reloading], [freshUnviewed.id, freshUnviewed], [staleUnviewed.id, staleUnviewed]]);
   const pressureHealth = createBackendHealth({
     sessions: pressureSessions,
     getAllSessions: () => [...pressureSessions.values()],
@@ -1187,6 +1191,7 @@ test('a recently viewed idle session is protected across the viewer-disconnect g
     viewerControlClientCount: () => 0,
     dataWss: { clients: new Set() },
     broadcastControl: () => {},
+    logger: { log: (line: string) => pressureLogs.push(line) },
   });
   const ttlSessions = new Map([[ttlSession.id, ttlSession]]);
   const ttlHealth = createBackendHealth({
@@ -1201,38 +1206,54 @@ test('a recently viewed idle session is protected across the viewer-disconnect g
     viewerControlClientCount: () => 0,
     dataWss: { clients: new Set() },
     broadcastControl: () => {},
+    logger: { log: (line: string) => ttlLogs.push(line) },
   });
   try {
-    for (const idleSession of [reloading, unviewed, ttlSession]) {
+    for (const idleSession of [reloading, freshUnviewed, staleUnviewed, ttlSession]) {
       await idleSession.start();
       idleSession.transition('first_output');
       idleSession.setResumeConversation(`conversation-of-${idleSession.id}`);
     }
-    reloading.stateSince = nowBase - 60_000;
-    unviewed.stateSince = nowBase - 30_000;
+    reloading.stateSince = nowBase - 120_000;
+    freshUnviewed.stateSince = nowBase;
+    staleUnviewed.stateSince = nowBase - 65_000;
     ttlSession.stateSince = nowBase - 600_000;
 
-    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [unviewed.id], 'under memory pressure, the unviewed session is snoozed while the reloading session stays awake');
+    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [staleUnviewed.id], 'under memory pressure, only the stale unviewed session is snoozed while reloading and newly idle sessions stay awake');
     assert.equal(reloading.state, STATES.IDLE);
-    assert.equal(unviewed.state, STATES.DORMANT);
+    assert.equal(freshUnviewed.state, STATES.IDLE);
+    assert.equal(staleUnviewed.state, STATES.DORMANT);
+    assert.deepEqual(pressureLogs, ['[health] snoozed session stale-unviewed (path=memory, headroom=0MB)']);
 
-    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [], 'the reloading session alone is not snoozed inside the grace window under memory pressure');
+    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [], 'neither the reloading session nor the newly idle unviewed session is snoozed inside the 60s grace window');
     assert.equal(reloading.state, STATES.IDLE);
+    assert.equal(freshUnviewed.state, STATES.IDLE);
 
     assert.deepEqual(await ttlHealth.runIdleHibernationSweep(), [], 'a TTL-expired idle session is not snoozed inside the grace window right after its viewer disconnects');
     assert.equal(ttlSession.state, STATES.IDLE);
 
     currentNowMs = nowBase + 60_000;
-    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [reloading.id], 'once the grace window expires, memory pressure snoozes the idle session');
+    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [reloading.id], 'once the grace window expires, memory pressure snoozes the oldest eligible idle session first');
     assert.equal(reloading.state, STATES.DORMANT);
+    assert.equal(freshUnviewed.state, STATES.IDLE);
+
+    assert.deepEqual(await pressureHealth.runIdleHibernationSweep(), [freshUnviewed.id], 'once the grace window expires, memory pressure snoozes the previously unviewed session on the next sweep');
+    assert.equal(freshUnviewed.state, STATES.DORMANT);
+    assert.deepEqual(pressureLogs, [
+      '[health] snoozed session stale-unviewed (path=memory, headroom=0MB)',
+      '[health] snoozed session reloading (path=memory, headroom=0MB)',
+      '[health] snoozed session fresh-unviewed (path=memory, headroom=0MB)',
+    ]);
 
     assert.deepEqual(await ttlHealth.runIdleHibernationSweep(), [ttlSession.id], 'once the grace window expires, the TTL path snoozes the idle session');
     assert.equal(ttlSession.state, STATES.DORMANT);
+    assert.deepEqual(ttlLogs, ['[health] snoozed session ttl-session (path=idle-timer, headroom=unavailable (disabled))']);
   } finally {
     clearInterval(pressureHealth.healthInterval);
     clearInterval(ttlHealth.healthInterval);
     reloading.destroy();
-    unviewed.destroy();
+    freshUnviewed.destroy();
+    staleUnviewed.destroy();
     ttlSession.destroy();
   }
 });
@@ -1256,6 +1277,7 @@ test('non-terminal ACP sessions stay awake while a dashboard viewer is connected
     sessions: liveSessions,
     getAllSessions: () => [...liveSessions.values()],
     sessionDataClients: new Map(),
+    nowMs: () => Date.now() + 60_000,
     getMemoryGateStatus: () => ({ headroomBytes: 0, headroomReadAtMs: null, heldStartCount: 0 }),
     idleHibernation: { idleHibernateMs: null, headroomFloorBytes: 1, readHeadroom: async () => ({ ok: true, headroomBytes: 0 }) },
     controlWss: { clients: new Set() },

@@ -1,7 +1,7 @@
 import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
 import type { MemoryReading } from '../core/memory-admission-core.ts';
-import { isWithinViewerDisconnectGrace } from '../core/memory-admission-core.ts';
+import { isWithinHibernationGrace } from '../core/memory-admission-core.ts';
 import type { MemoryGateStatus } from '../spawn-gate.ts';
 import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
@@ -42,6 +42,7 @@ interface BackendHealthDependencies {
   viewerControlClientCount: () => number;
   dataWss: { clients: Set<WebSocket> };
   broadcastControl: ControlBroadcast;
+  logger?: Pick<Console, 'log'>;
 }
 
 interface BackendHealth {
@@ -126,11 +127,25 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     return false;
   }
 
+  function formatHeadroomSummary(reading: MemoryReading): string {
+    if (!reading.ok) return `unavailable (${reading.reason})`;
+    return `${Math.round(reading.headroomBytes / (1024 * 1024))}MB`;
+  }
+
+  function recordSweepSnooze(id: string, path: 'memory' | 'idle-timer', reading: MemoryReading): void {
+    const logger = dependencies.logger ?? console;
+    logger.log(`[health] snoozed session ${id} (path=${path}, headroom=${formatHeadroomSummary(reading)})`);
+  }
+
   function isEligibleForHibernation(id: string, session: HealthSession, nowMs: number): boolean {
     if (session.ephemeral || !session.hasLivePty || !session.resumeSessionId) return false;
     if (session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) return false;
     if (hasActiveTerminalViewer(id)) return false;
-    if (isWithinViewerDisconnectGrace(dependencies.lastTerminalViewerLeftAtMs?.get(id), nowMs)) return false;
+    if (isWithinHibernationGrace({
+      stateSinceMs: session.stateSince,
+      lastViewerLeftAtMs: dependencies.lastTerminalViewerLeftAtMs?.get(id),
+      nowMs,
+    })) return false;
     if (!session.hasTerminal && dependencies.viewerControlClientCount() > 0) return false;
     if (session.hasBackgroundWork) return false;
     if (session.hasLiveChildren) return false;
@@ -156,7 +171,10 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     for (const [id, session] of dependencies.sessions) {
       if (!isEligibleForHibernation(id, session, nowMs)) continue;
       if (idleHibernateMs !== null && nowMs - session.stateSince >= idleHibernateMs) {
-        if (session.snooze().ok) snoozedIds.push(id);
+        if (session.snooze().ok) {
+          snoozedIds.push(id);
+          recordSweepSnooze(id, 'idle-timer', reading);
+        }
         continue;
       }
       if (!isUnderMemoryPressure) continue;
@@ -166,7 +184,10 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     }
 
     if (isUnderMemoryPressure && snoozedIds.length === 0 && oldestVictim !== null) {
-      if (oldestVictim.session.snooze().ok) snoozedIds.push(oldestVictim.id);
+      if (oldestVictim.session.snooze().ok) {
+        snoozedIds.push(oldestVictim.id);
+        recordSweepSnooze(oldestVictim.id, 'memory', reading);
+      }
     }
     return snoozedIds;
   }
