@@ -36,6 +36,18 @@ import {
   wirePathOf,
 } from '../public/board-session/agent-card-place-core.ts';
 import { classifyWaitsOutgoingMessage } from '../public/board-session/agent-waits-core.ts';
+import {
+  PICK_AGENT_LIST_LOAD_ERROR,
+  PICK_AGENT_LOADING_TEXT,
+  PICK_AGENT_STARTING_TEXT,
+  applyPickAgentListFailure,
+  applyPickAgentListReply,
+  applyPickAgentSelection,
+  applyPickAgentStartFailure,
+  beginPickAgentStart,
+  canStartPickAgent,
+  initialPickAgentDialogState,
+} from '../public/board-session/pick-agent-dialog-core.ts';
 
 function sampleCard(overrides: Partial<AgentCardCoreModel> = {}): AgentCardCoreModel {
   return {
@@ -172,4 +184,41 @@ test('agent-waits-core classifies valid wire actions and rejects invalid payload
   );
   assert.equal(classifyWaitsOutgoingMessage({ type: 'unknown', id: 's1' }), null);
   assert.equal(classifyWaitsOutgoingMessage({ type: 'decide-approval', id: '', approvalRequestId: 'r1', decision: 'allow' }), null);
+});
+
+test('pick-agent-dialog-core transitions through loading, selection, starting, and error states', () => {
+  const initial = initialPickAgentDialogState();
+  assert.equal(canStartPickAgent(initial), false);
+  assert.deepEqual(initial.status, { tone: 'busy', text: PICK_AGENT_LOADING_TEXT });
+
+  const loaded = applyPickAgentListReply(initial, {
+    type: 'agents-listed',
+    agents: [
+      { id: 'claude-code', label: 'Claude Code', resolvable: true },
+      { id: 'codex', label: 'Codex', resolvable: true },
+    ],
+  });
+  assert.equal(canStartPickAgent(loaded), true);
+  assert.equal(loaded.chosenAgentId, 'claude-code');
+  assert.equal(loaded.status, null);
+
+  const selected = applyPickAgentSelection(loaded, 'codex');
+  assert.equal(selected.chosenAgentId, 'codex');
+
+  const starting = beginPickAgentStart(selected);
+  assert.equal(canStartPickAgent(starting), false);
+  assert.deepEqual(starting.status, { tone: 'busy', text: PICK_AGENT_STARTING_TEXT });
+  assert.equal(applyPickAgentSelection(starting, 'claude-code').chosenAgentId, 'codex');
+
+  const failedStart = applyPickAgentStartFailure(starting, 'Agent crashed');
+  assert.equal(canStartPickAgent(failedStart), true);
+  assert.deepEqual(failedStart.status, { tone: 'error', text: 'Agent crashed' });
+
+  const badReply = applyPickAgentListReply(initial, { type: 'other' });
+  assert.equal(canStartPickAgent(badReply), false);
+  assert.deepEqual(badReply.status, { tone: 'error', text: PICK_AGENT_LIST_LOAD_ERROR });
+
+  const failedList = applyPickAgentListFailure(initial, 'timed out');
+  assert.equal(canStartPickAgent(failedList), false);
+  assert.deepEqual(failedList.status, { tone: 'error', text: 'Could not load the agent list (timed out).' });
 });
