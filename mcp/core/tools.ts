@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import {
-  AgentAttentionRequest, AgentCloseRequest, AgentDoneRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCommentsRequest,
+  AgentAttentionRequest, AgentCloseRequest, AgentDoneRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCommentsRequest,
 } from '../../shared/contracts/session.ts';
 import { AgentNeedRequest } from '../../shared/contracts/secrets.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
@@ -132,6 +132,7 @@ const SESSION_TOOL: GroupedTool = {
     repo: AgentSpawnRequest.shape.repo.describe('spawn, from the Studio Orchestrator: the Studio repo the branch works in, by the key or name codemap map lists'),
     about: AgentSpawnRequest.shape.about.describe('spawn, from the Studio Orchestrator: the folder, module or file path in that repo the branch works on, or repo root'),
     child: ChildField.optional(),
+    cursor: AgentReadRequest.shape.cursor.describe('read: nextCursor from a cut message page'),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
     to: AgentSendRequest.shape.to.describe('send, from a spawned session: a sibling the same parent spawned, by id or name, to message instead of the parent'),
     discard: AgentCloseRequest.shape.discard.describe('close: drop the child\'s unpushed work instead of refusing'),
@@ -143,7 +144,7 @@ const SESSION_TOOL: GroupedTool = {
   actions: {
     spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done', 'repo', 'about'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
     send: { verb: 'send', required: ['text'], accepts: ['child', 'text', 'to'], hints: WRITES, toPayload: sendPayload },
-    read: routeTo('read', ['child'], { hints: WRITES }),
+    read: routeTo('read', ['child', 'cursor'], { hints: WRITES }),
     close: routeTo('close', ['child', 'discard'], { required: ['child'], hints: DESTROYS }),
     answer: { verb: 'answer', required: ['child'], accepts: ['child', 'answers', 'toOperator'], hints: WRITES, toPayload: answerPayload },
     sessions: routeTo('sessions', [], { hints: READS }),

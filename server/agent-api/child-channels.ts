@@ -3,8 +3,8 @@ import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
-import type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, matchesMailboxCursor, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import type { AgentChannel, ChannelEntry, ChannelKind, ChannelPageCursor, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
@@ -423,7 +423,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
   function drain(childId: string, side: ChannelSide): AgentReadReply['channels'][number] | null {
     const channel = channelsByChildId.get(childId);
     if (!channel) return null;
-    const { channel: drainedChannel, drained } = drainChannel(channel, side);
+    const { channel: drainedChannel, drained } = drainChannelPage(channel, side);
     channelsByChildId.set(childId, drainedChannel);
     const link = linksByChildId.get(childId);
     if (link && side === 'toParent' && drained.entries.length > 0) link.hasParentRead = true;
@@ -432,9 +432,24 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return {
       sessionId: peerId,
       name: peerName,
-      entries: drained.entries.map(({ author, at, text }) => ({ from: author, at, text })),
+      entries: drained.entries.map(({ author, at, text, truncated, offset, totalChars, remainingChars }) => ({
+        from: author,
+        at,
+        text,
+        ...(truncated === undefined ? {} : { truncated }),
+        ...(offset === undefined ? {} : { offset }),
+        ...(totalChars === undefined ? {} : { totalChars }),
+        ...(remainingChars === undefined ? {} : { remainingChars }),
+      })),
       dropped: drained.droppedCount,
+      nextCursor: drained.nextCursor,
     };
+  }
+
+  function drainAtCursor(childId: string, side: ChannelSide, cursor: ChannelPageCursor): AgentReadReply['channels'][number] | null {
+    const channel = channelsByChildId.get(childId);
+    if (!channel || !matchesMailboxCursor(channel[side], cursor)) return null;
+    return drain(childId, side);
   }
 
   function ownedChannels(parent: Session): AgentChannel[] {
@@ -449,7 +464,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return findSibling([...channelsByChildId.values()], child.id, target);
   }
 
-  return { noteEndCause, forgetLink, openChildChannel, linkBranchSession, liveSessionOf, tellParent, settleChildWorktree, post, drain, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, msSinceOperatorInputOf, isWakeLineInFlight, submitWakeLine };
+  return { noteEndCause, forgetLink, openChildChannel, linkBranchSession, liveSessionOf, tellParent, settleChildWorktree, post, drain, drainAtCursor, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, msSinceOperatorInputOf, isWakeLineInFlight, submitWakeLine };
 }
 
 type ChildChannels = ReturnType<typeof createChildChannels>;

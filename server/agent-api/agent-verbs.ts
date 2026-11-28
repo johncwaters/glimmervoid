@@ -9,6 +9,7 @@ import type { Session } from '../../session/sessions.ts';
 import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentCommentsRequest, AgentDoneRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
 import { REMOTE_URL_PATTERN, describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
+import { parseChannelReadCursor } from '../core/child-channel-core.ts';
 import { openComments } from '../review/review-state-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
 import { isRecord } from '../../shared/coerce.ts';
@@ -98,7 +99,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   const clonesByFolder = createKeyedSerialQueue();
   const branchSpawns = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
-  const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf, liveSessionOf, tellParent } = channels;
+  const { noteEndCause, post, drain, drainAtCursor, ownedChannels, findChildOf, findSiblingOf, liveSessionOf, tellParent } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
     const raceProject = config.projects.find((project) => (project.id === session.id || project.id === ownerIdOf(session.parent)) && project.raceId !== undefined);
@@ -369,7 +370,30 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: { ok: true } };
   }
 
-  function read(session: Session, { child }: AgentReadRequest): AgentReplyOf<'read'> {
+  const INVALID_READ_CURSOR_ERROR = 'read cursor does not match an active page on a channel this session may read';
+
+  function readByCursor(session: Session, rawCursor: string, child: string | undefined): AgentReplyOf<'read'> {
+    const parsed = parseChannelReadCursor(rawCursor);
+    if (!parsed) return refusal(400, 'cursor must be the nextCursor a previous read returned');
+    if (parsed.side === 'toChild') {
+      if (child !== undefined || session.id !== parsed.childId) return refusal(404, INVALID_READ_CURSOR_ERROR);
+      const page = drainAtCursor(session.id, 'toChild', parsed);
+      if (!page) return refusal(404, INVALID_READ_CURSOR_ERROR);
+      return { status: 200, body: { ok: true, channels: [page] } };
+    }
+    if (child !== undefined) {
+      const owned = findChildOf(session, child);
+      if (!owned.ok || owned.channel.childId !== parsed.childId) return refusal(404, INVALID_READ_CURSOR_ERROR);
+    }
+    const ownedChannel = ownedChannels(session).find((candidate) => candidate.childId === parsed.childId);
+    if (!ownedChannel) return refusal(404, INVALID_READ_CURSOR_ERROR);
+    const page = drainAtCursor(parsed.childId, 'toParent', parsed);
+    if (!page) return refusal(404, INVALID_READ_CURSOR_ERROR);
+    return { status: 200, body: { ok: true, channels: [page] } };
+  }
+
+  function read(session: Session, { child, cursor }: AgentReadRequest): AgentReplyOf<'read'> {
+    if (cursor !== undefined) return readByCursor(session, cursor, child);
     if (child === undefined) {
       const fromParent = channelsByChildId.has(session.id) ? drain(session.id, 'toChild') : null;
       const fromChildren = ownedChannels(session).flatMap((channel) => drain(channel.childId, 'toParent') ?? []);

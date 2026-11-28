@@ -284,8 +284,13 @@ export const AgentSendRequest = z.object({
   to: SessionTarget.optional(),
 }).strict();
 
+const ChannelReadCursor = z.string({ error: 'cursor must be a string' })
+  .max(120, { error: 'cursor must be at most 120 characters' })
+  .regex(/^[pc]\.[a-zA-Z0-9_-]+\.\d+\.\d+$/, { error: 'cursor must be the nextCursor a previous read returned' });
+
 export const AgentReadRequest = z.object({
   child: SessionTarget.optional(),
+  cursor: ChannelReadCursor.optional(),
 }).strict();
 
 export const AgentCloseRequest = z.object({
@@ -302,6 +307,10 @@ const AgentChannelEntry = z.object({
   from: z.enum(['parent', 'child', 'sibling', 'glimmervoid']),
   at: z.number().finite(),
   text: z.string(),
+  truncated: z.boolean().optional(),
+  offset: z.number().int().nonnegative().optional(),
+  totalChars: z.number().int().positive().optional(),
+  remainingChars: z.number().int().nonnegative().optional(),
 }).strict();
 
 export const AgentReadReply = z.object({
@@ -311,6 +320,7 @@ export const AgentReadReply = z.object({
     name: z.string(),
     entries: z.array(AgentChannelEntry),
     dropped: z.number().int().nonnegative(),
+    nextCursor: z.string().nullable(),
   }).strict()),
 }).strict();
 

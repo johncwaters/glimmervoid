@@ -6,10 +6,12 @@ import { shellQuote } from '../../shared/text.ts';
 import { relayNewsLine, SIBLING_MESSAGE_LINE } from '../../shared/glimmervoid-lines.ts';
 
 const MAX_UNREAD_ENTRIES_PER_SIDE = 50;
-const MAX_ENTRY_CHARS = 4000;
+const READ_PAGE_CHARS = 8000;
+const MAX_INLINE_QUESTION_NOTE_CHARS = 4000;
 const MAX_STOP_NOTE_MESSAGE_CHARS = 2000;
 const OPERATOR_TYPING_HOLD_OFF_MS = 30_000;
 const WAKE_TURN_START_TIMEOUT_MS = 5000;
+const CHANNEL_READ_CURSOR_PATTERN = /^([pc])\.([a-zA-Z0-9_-]+)\.(\d+)\.(\d+)$/;
 const STARTUP_STATES: readonly SessionState[] = [STATES.DORMANT, STATES.INITIALIZING, STATES.STARTING];
 const TURN_END_STATES: readonly SessionState[] = [STATES.IDLE, STATES.COMPLETE, STATES.WAITING];
 const ENDED_STATES: readonly SessionState[] = [STATES.DONE, STATES.FAILED];
@@ -24,8 +26,14 @@ interface ChannelEntry {
   wakes: boolean;
 }
 
+interface StoredChannelEntry extends ChannelEntry {
+  seq: number;
+  readOffset: number;
+}
+
 interface Mailbox {
-  unread: readonly ChannelEntry[];
+  unread: readonly StoredChannelEntry[];
+  nextSeq: number;
   droppedCount: number;
 }
 
@@ -40,9 +48,27 @@ interface AgentChannel {
   toChild: Mailbox;
 }
 
-interface DrainedMailbox {
-  entries: readonly ChannelEntry[];
+interface DrainedChannelEntry {
+  author: ChannelAuthor;
+  text: string;
+  at: number;
+  truncated?: boolean;
+  offset?: number;
+  totalChars?: number;
+  remainingChars?: number;
+}
+
+interface DrainedMailboxPage {
+  entries: readonly DrainedChannelEntry[];
   droppedCount: number;
+  nextCursor: string | null;
+}
+
+interface ChannelPageCursor {
+  side: ChannelSide;
+  childId: string;
+  seq: number;
+  offset: number;
 }
 
 interface WakeFacts {
@@ -59,21 +85,37 @@ type WakeDecision =
 
 type ChildTarget = { ok: true; channel: AgentChannel } | { ok: false; error: string };
 
-const EMPTY_MAILBOX: Mailbox = Object.freeze({ unread: Object.freeze([]), droppedCount: 0 });
+const EMPTY_MAILBOX: Mailbox = Object.freeze({ unread: Object.freeze([]), nextSeq: 1, droppedCount: 0 });
 
 function openChannel({ kind, parentId, childId, childName }: { kind: ChannelKind; parentId: string; childId: string; childName: string }): AgentChannel {
   return { kind, parentId, childId, childName, toParent: EMPTY_MAILBOX, toChild: EMPTY_MAILBOX };
 }
 
-function truncateEntryText(text: string): string {
-  if (text.length <= MAX_ENTRY_CHARS) return text;
-  return `${text.slice(0, MAX_ENTRY_CHARS)} [truncated ${text.length - MAX_ENTRY_CHARS} characters]`;
+function formatChannelReadCursor({ side, childId, seq, offset }: ChannelPageCursor): string {
+  const sideCode = side === 'toParent' ? 'p' : 'c';
+  return `${sideCode}.${childId}.${seq}.${offset}`;
+}
+
+function parseChannelReadCursor(rawCursor: string): ChannelPageCursor | null {
+  const match = CHANNEL_READ_CURSOR_PATTERN.exec(rawCursor);
+  if (!match) return null;
+  const seq = Number(match[3]);
+  const offset = Number(match[4]);
+  if (!Number.isSafeInteger(seq) || seq < 1 || !Number.isSafeInteger(offset) || offset < 0) return null;
+  return { side: match[1] === 'p' ? 'toParent' : 'toChild', childId: match[2], seq, offset };
+}
+
+function matchesMailboxCursor(mailbox: Mailbox, cursor: ChannelPageCursor): boolean {
+  const head = mailbox.unread[0];
+  if (!head) return false;
+  return head.seq === cursor.seq && head.readOffset === cursor.offset;
 }
 
 function postToMailbox(mailbox: Mailbox, entry: ChannelEntry): Mailbox {
-  const unread = [...mailbox.unread, { ...entry, text: truncateEntryText(entry.text) }];
+  const storedEntry: StoredChannelEntry = { ...entry, seq: mailbox.nextSeq, readOffset: 0 };
+  const unread = [...mailbox.unread, storedEntry];
   const overflowCount = Math.max(0, unread.length - MAX_UNREAD_ENTRIES_PER_SIDE);
-  return { unread: unread.slice(overflowCount), droppedCount: mailbox.droppedCount + overflowCount };
+  return { unread: unread.slice(overflowCount), nextSeq: mailbox.nextSeq + 1, droppedCount: mailbox.droppedCount + overflowCount };
 }
 
 function postToChannel(channel: AgentChannel, side: ChannelSide, entry: ChannelEntry): AgentChannel {
@@ -90,9 +132,57 @@ function quietUnread(channel: AgentChannel, side: ChannelSide): AgentChannel {
   return { ...channel, [side]: { ...channel[side], unread } };
 }
 
-function drainChannel(channel: AgentChannel, side: ChannelSide): { channel: AgentChannel; drained: DrainedMailbox } {
-  const { unread, droppedCount } = channel[side];
-  return { channel: { ...channel, [side]: EMPTY_MAILBOX }, drained: { entries: unread, droppedCount } };
+function drainChannelPage(channel: AgentChannel, side: ChannelSide, pageChars = READ_PAGE_CHARS): { channel: AgentChannel; drained: DrainedMailboxPage } {
+  const mailbox = channel[side];
+  if (mailbox.unread.length === 0) {
+    return {
+      channel: { ...channel, [side]: { unread: [], nextSeq: mailbox.nextSeq, droppedCount: 0 } },
+      drained: { entries: [], droppedCount: mailbox.droppedCount, nextCursor: null },
+    };
+  }
+  const delivered: DrainedChannelEntry[] = [];
+  let remainingBudget = pageChars;
+  let index = 0;
+  while (index < mailbox.unread.length) {
+    const entry = mailbox.unread[index];
+    const totalChars = entry.text.length;
+    const startOffset = entry.readOffset;
+    const unreadLength = totalChars - startOffset;
+    if (unreadLength <= remainingBudget) {
+      delivered.push(startOffset === 0
+        ? { author: entry.author, at: entry.at, text: entry.text }
+        : { author: entry.author, at: entry.at, text: entry.text.slice(startOffset), truncated: false, offset: startOffset, totalChars, remainingChars: 0 });
+      remainingBudget -= unreadLength;
+      index += 1;
+      continue;
+    }
+    if (delivered.length > 0) break;
+    const chunkLength = Math.max(1, pageChars);
+    const endOffset = startOffset + chunkLength;
+    const remainingChars = totalChars - endOffset;
+    delivered.push({
+      author: entry.author,
+      at: entry.at,
+      text: entry.text.slice(startOffset, endOffset),
+      truncated: true,
+      offset: startOffset,
+      totalChars,
+      remainingChars,
+    });
+    const nextUnread = [{ ...entry, readOffset: endOffset, wakes: false }, ...mailbox.unread.slice(index + 1)];
+    const nextCursor = formatChannelReadCursor({ side, childId: channel.childId, seq: entry.seq, offset: endOffset });
+    return {
+      channel: { ...channel, [side]: { unread: nextUnread, nextSeq: mailbox.nextSeq, droppedCount: 0 } },
+      drained: { entries: delivered, droppedCount: mailbox.droppedCount, nextCursor },
+    };
+  }
+  const remainingUnread = mailbox.unread.slice(index);
+  const nextHead = remainingUnread[0];
+  const nextCursor = nextHead ? formatChannelReadCursor({ side, childId: channel.childId, seq: nextHead.seq, offset: nextHead.readOffset }) : null;
+  return {
+    channel: { ...channel, [side]: { unread: remainingUnread, nextSeq: mailbox.nextSeq, droppedCount: 0 } },
+    drained: { entries: delivered, droppedCount: mailbox.droppedCount, nextCursor },
+  };
 }
 
 function findOwnedChild(channels: readonly AgentChannel[], parentId: string, target: string): ChildTarget {
@@ -170,7 +260,7 @@ function describeQuestionNote(childName: string, childRef: string, approval: Con
     `Answer: ${answerCommand} ${shellQuote(JSON.stringify(exampleAnswers))}`,
     operatorLine,
   ].join('\n');
-  if (fullNote.length <= MAX_ENTRY_CHARS) return fullNote;
+  if (fullNote.length <= MAX_INLINE_QUESTION_NOTE_CHARS) return fullNote;
   return [
     `${childName} asks the questions below.`,
     `Answer: ${answerCommand} '{"<question text>":"<option label>"}' with one entry per question, each keyed by its full text`,
@@ -200,7 +290,7 @@ function decideWake(facts: WakeFacts): WakeDecision {
 }
 
 export {
-  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread,
-  isWakeLineAwaitingTurnStart, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote,
+  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread,
+  isWakeLineAwaitingTurnStart, matchesMailboxCursor, openChannel, parseChannelReadCursor, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote,
 };
-export type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide };
+export type { AgentChannel, ChannelEntry, ChannelKind, ChannelPageCursor, ChannelSide };

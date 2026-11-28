@@ -1033,6 +1033,66 @@ test('a parent and the child it spawned message each other through their own cha
   }
 });
 
+test('session read pages long messages whole with cut counts across parent, child, and sibling channels and refuses foreign cursors', async () => {
+  const fixture = wiringFixture();
+  const otherFamilyParent = new Session({ id: 'other-family-parent', name: 'other-family-parent', path: process.cwd(), ptySpawn: () => fakePty() });
+  try {
+    const firstSpawn = await fixture.spawn(fixture.parent, { prompt: 'worker one' });
+    const firstChildId = String(firstSpawn.body.sessionId);
+    const firstChild = fixture.created[0];
+    await fixture.spawn(fixture.parent, { prompt: 'worker two' });
+    const secondChild = fixture.created[1];
+
+    const longReport = `${'a'.repeat(8000)}${'b'.repeat(7000)}`;
+    assert.equal((await fixture.wiring.handle(firstChild, 'send', { words: [longReport] })).status, 200);
+
+    const firstPageReply = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', { child: firstChildId })).body);
+    const firstPageChannel = firstPageReply.channels[0];
+    assert.equal(firstPageChannel?.entries.length, 1);
+    assert.equal(firstPageChannel?.entries[0]?.text, 'a'.repeat(8000));
+    assert.equal(firstPageChannel?.entries[0]?.truncated, true);
+    assert.equal(firstPageChannel?.entries[0]?.offset, 0);
+    assert.equal(firstPageChannel?.entries[0]?.totalChars, 15000);
+    assert.equal(firstPageChannel?.entries[0]?.remainingChars, 7000);
+    const parentCursor = firstPageChannel?.nextCursor;
+    assert.equal(typeof parentCursor, 'string');
+
+    assert.equal((await fixture.wiring.handle(otherFamilyParent, 'read', { cursor: parentCursor })).status, 404);
+    assert.equal((await fixture.wiring.handle(firstChild, 'read', { cursor: parentCursor })).status, 404);
+    assert.equal((await fixture.wiring.handle(secondChild, 'read', { cursor: parentCursor })).status, 404);
+
+    const secondPageReply = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', { cursor: parentCursor })).body);
+    const secondPageChannel = secondPageReply.channels[0];
+    assert.equal(secondPageChannel?.entries[0]?.text, 'b'.repeat(7000));
+    assert.equal(secondPageChannel?.entries[0]?.truncated, false);
+    assert.equal(secondPageChannel?.entries[0]?.offset, 8000);
+    assert.equal(secondPageChannel?.entries[0]?.totalChars, 15000);
+    assert.equal(secondPageChannel?.entries[0]?.remainingChars, 0);
+    assert.equal(secondPageChannel?.nextCursor, null);
+    assert.equal(`${firstPageChannel?.entries[0]?.text}${secondPageChannel?.entries[0]?.text}`, longReport);
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'read', { cursor: parentCursor })).status, 404);
+
+    const longSiblingNote = `${'s'.repeat(8000)}${'t'.repeat(7000)}`;
+    assert.equal((await fixture.wiring.handle(secondChild, 'send', { words: [longSiblingNote], to: firstChildId })).status, 200);
+    const siblingPageOne = AgentReadReply.parse((await fixture.wiring.handle(firstChild, 'read', {})).body).channels[0];
+    assert.equal(siblingPageOne?.entries[0]?.truncated, true);
+    const childCursor = siblingPageOne?.nextCursor;
+    assert.equal(typeof childCursor, 'string');
+
+    assert.equal((await fixture.wiring.handle(otherFamilyParent, 'read', { cursor: childCursor })).status, 404);
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'read', { cursor: childCursor })).status, 404);
+    assert.equal((await fixture.wiring.handle(secondChild, 'read', { cursor: childCursor })).status, 404);
+
+    const siblingPageTwo = AgentReadReply.parse((await fixture.wiring.handle(firstChild, 'read', { cursor: childCursor })).body).channels[0];
+    assert.equal(siblingPageTwo?.nextCursor, null);
+    const fullSiblingText = `${siblingPageOne?.entries[0]?.text}${siblingPageTwo?.entries[0]?.text}`;
+    assert.equal(fullSiblingText, `${secondChild.name} (${secondChild.id}): ${longSiblingNote}`);
+  } finally {
+    otherFamilyParent.destroy();
+    fixture.destroyAll();
+  }
+});
+
 test('a Studio branch and its main message each other on a channel opened from the branch link, which a replaced main takes over with one copy of each note, neither starts a session, the branch reaches no other session, and close leaves a branch alone', async () => {
   const branch = new Session({ id: 'branch-server', name: 'parent server', path: process.cwd(), ptySpawn: () => fakePty(), parent: { sessionId: 'parent', box: { id: 'box-server', title: 'server', repoName: 'glimmervoid' } } });
   const fixture = wiringFixture({ parentIsStudioMain: true, laneSessions: [branch] });
