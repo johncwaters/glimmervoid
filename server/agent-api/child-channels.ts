@@ -8,7 +8,7 @@ import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
 import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread, highestWakingSeq, isWakeLineAwaitingTurnStart, matchesMailboxCursor, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, takeSessionInTurnNotices, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelKind, ChannelPageCursor, ChannelSide } from '../core/child-channel-core.ts';
-import { errorMessage } from '../../shared/text.ts';
+import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
@@ -36,6 +36,13 @@ interface HookEvent {
 function createChildChannels(runtime: AgentApiRuntime) {
   const { listAllSessions, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, lastOperatorInputAtBySession, childIdsToDiscard, endCauseByChildId } = runtime;
   const flagSyncBySessionId = new Map<string, Promise<void>>();
+  const flagErrorLoggedSessions = new Set<string>();
+
+  function reportFlagSyncFailureOnce(sessionId: string, error: unknown): void {
+    if (flagErrorLoggedSessions.has(sessionId)) return;
+    flagErrorLoggedSessions.add(sessionId);
+    logger.warn(`[child-channels] could not update unread flag for ${sessionId} (falling back to turn-end wake): ${errorMessage(error)}`);
+  }
 
   function hasAnyWakingUnreadFor(sessionId: string): boolean {
     for (const channel of channelsByChildId.values()) {
@@ -54,8 +61,14 @@ function createChildChannels(runtime: AgentApiRuntime) {
         await fsp.writeFile(flagPath, '', { mode: 0o600 });
         return;
       }
-      await fsp.unlink(flagPath).catch(() => {});
-    }).catch(() => {}).finally(() => {
+      try {
+        await fsp.unlink(flagPath);
+      } catch (error) {
+        if (!isMissingFileError(error)) throw error;
+      }
+    }).catch((error) => {
+      reportFlagSyncFailureOnce(sessionId, error);
+    }).finally(() => {
       if (flagSyncBySessionId.get(sessionId) === next) flagSyncBySessionId.delete(sessionId);
     });
     flagSyncBySessionId.set(sessionId, next);
@@ -81,13 +94,35 @@ function createChildChannels(runtime: AgentApiRuntime) {
     linksByChildId.delete(childId);
   }
 
+  function hasAnyChannelFor(sessionId: string): boolean {
+    for (const channel of channelsByChildId.values()) {
+      if (channel.childId === sessionId || channel.parentId === sessionId) return true;
+    }
+    return false;
+  }
+
+  function clearFlagErrorAfterSync(sessionId: string): void {
+    const pending = flagSyncBySessionId.get(sessionId);
+    if (!pending) {
+      flagErrorLoggedSessions.delete(sessionId);
+      return;
+    }
+    void pending.finally(() => {
+      if (!hasAnyChannelFor(sessionId)) flagErrorLoggedSessions.delete(sessionId);
+    });
+  }
+
   function forgetLink(childId: string): void {
     const channel = channelsByChildId.get(childId);
     unlink(childId);
     channelsByChildId.delete(childId);
-    if (!channel) return;
+    if (!channel) {
+      clearFlagErrorAfterSync(childId);
+      return;
+    }
     syncUnreadFlag(channel.parentId);
     syncUnreadFlag(channel.childId);
+    clearFlagErrorAfterSync(childId);
   }
 
   function forgetChannelsOf(parent: Session): void {
@@ -96,6 +131,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
       if (channel.kind === 'branch') unlink(childId);
       if (channel.kind !== 'branch') forgetLink(childId);
     }
+    clearFlagErrorAfterSync(parent.id);
   }
 
   function recipientOf(link: ChannelLink, side: ChannelSide): Session {

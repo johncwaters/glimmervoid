@@ -14,6 +14,8 @@ import type { OutcomeName } from '../shared/outcome-names.ts';
 import { Session } from '../session/sessions.ts';
 import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import { main as relayHook } from '../session/hook-relay.ts';
+import codexAdapter from '../session/adapters/codex.ts';
+import { codexHookPlanFor } from '../session/core/codex-version-core.ts';
 import { Readable } from 'node:stream';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -663,6 +665,21 @@ test('hook route formats in-turn channel notices per adapter, skips subagents an
       GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/claude-child?t=ok`,
     }, { write: (text: string) => { relayedOversize += text; } });
     assert.deepEqual(JSON.parse(relayedOversize), { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: noticeLine } });
+
+    const missingFlagResult = await relayHook(['PostToolUse', 'unread'], Readable.from([]), {
+      GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/claude-child?t=ok`,
+      GV_UNREAD_FLAG: path.join(os.tmpdir(), 'gv-missing-unread-flag-never-exists'),
+    }, { write: () => {} });
+    assert.equal(missingFlagResult.reason, 'no-unread');
+
+    const codexArgs = codexAdapter.buildHookArgs({
+      ...codexHookPlanFor('0.165.0'),
+      relayLaunch: ['node', 'C:\\Program Files\\glimmervoid\\hook-relay.mjs'],
+    });
+    const postToolArg = codexArgs?.find((arg) => arg.startsWith('hooks.PostToolUse='));
+    assert.ok(postToolArg, 'codex extended plan emits hooks.PostToolUse');
+    assert.match(postToolArg, /command='"C:\/Program Files\/glimmervoid\/hook-relay\.mjs" PostToolUse unread'|command='node "C:\/Program Files\/glimmervoid\/hook-relay\.mjs" PostToolUse unread'/);
+    assert.doesNotMatch(postToolArg, /\[\s*-f|if defined|if exist|\|\|/);
   } finally {
     claudeChild.destroy();
     agyChild.destroy();

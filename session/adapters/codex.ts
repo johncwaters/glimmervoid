@@ -12,7 +12,6 @@ import type { ChatApprovalMode } from "../../shared/contracts/session.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
-import { UNREAD_FLAG_ENV } from "../core/hook-relay-core.ts";
 import { codexHomes, codexSessionIdFromPath } from "../../server/usage/core/usage-scan-core.ts";
 import { openContainedFile } from "../../server/contained-file.ts";
 import { isRelevantRolloutLine, isTurnStartLine, proposedPlanOfTurn } from "../core/codex-plan-rollout-core.ts";
@@ -215,10 +214,7 @@ function userConfigFolders(env: Record<string, string | undefined>): string[] {
 const TOML_LITERAL_STRING_FORBIDDEN = /[\x00-\x08\x0a-\x1f\x27\x7f]/;
 
 function unreadGatedPostToolUseCommand(relayLaunch: readonly string[]): string | null {
-  const relayCommand = buildHookCommand(relayLaunch, "PostToolUse");
-  if (!relayCommand) return null;
-  if (process.platform === "win32") return `if defined ${UNREAD_FLAG_ENV} if exist "%${UNREAD_FLAG_ENV}%" ${relayCommand}`;
-  return `[ -f "$${UNREAD_FLAG_ENV}" ] || exit 0; exec ${relayCommand}`;
+  return buildHookCommand(relayLaunch, "PostToolUse", ["unread"]);
 }
 
 function buildHookArgs({
