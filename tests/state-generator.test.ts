@@ -1,9 +1,11 @@
 import './helpers/isolate-home.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import vm from 'node:vm';
 import {
   CONTINUITY_CASES_RELATIVE_PATH,
   generateStateAction,
@@ -149,4 +151,43 @@ test('insertContinuityCaseStub preserves CRLF, handles reordered properties, and
     () => insertContinuityCaseStub(crlfFixture, 'action', 'save-hook', renderActionStubContinuityCase('save-hook')),
     /Continuity case "save-hook" already exists/,
   );
+});
+
+test('state:new-action and state:new-collection insert stubs inside empty single-line stub arrays as valid TypeScript', (testContext) => {
+  const scratchRoot = createTempRepoRoot();
+  testContext.after(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  });
+  const stubsPath = path.join(scratchRoot, CONTINUITY_CASES_RELATIVE_PATH);
+  const emptySingleLineStubs = [
+    "import type { ActionContinuityCase, CollectionContinuityCase } from './continuity-cases.ts';",
+    '',
+    'export const ACTION_CONTINUITY_STUBS: readonly ActionContinuityCase[] = [];',
+    '',
+    'export const COLLECTION_CONTINUITY_STUBS: readonly CollectionContinuityCase[] = [];',
+    '',
+  ].join('\n');
+  fs.writeFileSync(stubsPath, emptySingleLineStubs, 'utf8');
+
+  generateStateAction('kill', scratchRoot);
+  generateStateCollection('health', scratchRoot);
+
+  const generated = fs.readFileSync(stubsPath, 'utf8');
+  assert.equal(
+    generated,
+    [
+      "import type { ActionContinuityCase, CollectionContinuityCase } from './continuity-cases.ts';",
+      '',
+      'export const ACTION_CONTINUITY_STUBS: readonly ActionContinuityCase[] = [',
+      renderActionStubContinuityCase('kill'),
+      '];',
+      '',
+      'export const COLLECTION_CONTINUITY_STUBS: readonly CollectionContinuityCase[] = [',
+      renderCollectionStubContinuityCase('health'),
+      '];',
+      '',
+    ].join('\n'),
+  );
+  const stripped = stripTypeScriptTypes(generated, { mode: 'strip' }).replace(/^\s*export\s+/gm, '');
+  assert.doesNotThrow(() => new vm.Script(stripped));
 });

@@ -261,6 +261,9 @@ export function insertContinuityCaseStub(
   const normalizedStub = stubBlock.replace(/\r?\n/g, eol);
   const sourceBeforeArray = source.slice(0, headerIndex);
   const elements = extractTopLevelArrayElements(source, openBracketIndex, closeBracketIndex);
+  if (elements.length === 0) {
+    return `${source.slice(0, openBracketIndex + 1)}${eol}${normalizedStub}${eol}${source.slice(closeBracketIndex)}`;
+  }
 
   let insertionOffset = lineStartOffset(source, closeBracketIndex);
   let hasChosenInsertionOffset = false;
