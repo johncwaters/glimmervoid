@@ -3,6 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
+import treeSitter from "@vscode/tree-sitter-wasm";
+import type { Parser } from "@vscode/tree-sitter-wasm";
+import { grammarWasmPath, treeSitterRuntimeWasmPath } from "../../server/runtime-paths.ts";
 
 const ROOT = path.join(import.meta.dirname, "../..");
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -16,62 +19,61 @@ const HOVER_REVEALED_CONTENT = /[^{}]*:(?:hover|focus(?:-visible|-within)?)[^{}]
 const FLOATING_OR_ATTRIBUTE_TEXT = /\bcontent\s*:[^;}]*\battr\(|\bposition\s*:\s*(?:absolute|fixed)/;
 const NEVER_RENDERED_SOURCES = new Set([path.join(PUBLIC_DIR, "perf.html"), path.join(PUBLIC_DIR, "favicon-core.ts")]);
 const SKIP_DIRS = new Set(["node_modules", "dist"]);
+const HTML_TAG_TITLE_WRITE = /<[a-z](?:=>|[^>])*\stitle\s*=/gi;
+const INTRINSIC_OR_PASSTHROUGH_JSX_TAG = /^(?:[a-z][a-z0-9-]*|Pressable|Dynamic)$/;
+const JSX_TITLE_ATTRIBUTE_NAME = /^title$/i;
 const TITLE_WRITES = [
   /(?<!document)\.title\s*(?:\+|\?\?|\|\||&&)?=(?!=)/g,
   /\[\s*['"`]title['"`]\s*\]\s*(?:\+|\?\?|\|\||&&)?=(?!=)/gi,
   /\w*(?:Attribute\w*|Element(?:NS)?|Shape\w*)\([^;]*?(?:['"`]title['"`]|(?<!\$\{)(?<![.\w$'"`-])title\s*[:,}])/gi,
   /<svg\b[\s\S]*?<title\b/gi,
-  /<[a-z](?:=>|[^>])*\stitle\s*=/gi,
   /Object\.assign\([^;]*?\btitle\b/g,
 ];
 
-function jsxTitleAttributesIn(source: string): string[] {
+let cachedTsxParserPromise: Promise<Parser> | null = null;
+
+function tsxParser(): Promise<Parser> {
+  cachedTsxParserPromise ??= (async () => {
+    const runtimeWasmPath = treeSitterRuntimeWasmPath();
+    assert.ok(runtimeWasmPath, "tree-sitter runtime (@vscode/tree-sitter-wasm) must be installed");
+    await treeSitter.Parser.init({ locateFile: () => runtimeWasmPath });
+    const tsxWasmPath = grammarWasmPath("tsx");
+    assert.ok(tsxWasmPath, "tree-sitter tsx grammar (tree-sitter-wasms) must be installed");
+    const language = await treeSitter.Language.load(new Uint8Array(await fs.promises.readFile(tsxWasmPath)));
+    const parser = new treeSitter.Parser();
+    parser.setLanguage(language);
+    return parser;
+  })();
+  return cachedTsxParserPromise;
+}
+
+async function tsxTitleWritesIn(source: string): Promise<string[]> {
+  const parser = await tsxParser();
+  const tree = parser.parse(source);
+  assert.ok(tree, "tree-sitter failed to parse TSX source");
   const matches: string[] = [];
-  for (let index = 0; index < source.length; index += 1) {
-    if (source[index] !== "<" || !/[a-zA-Z]/.test(source[index + 1] ?? "")) continue;
-    let braceDepth = 0;
-    let quote: string | null = null;
-    let end = index + 1;
-    while (end < source.length) {
-      const ch = source[end];
-      if (quote) {
-        if (ch === "\\" && end + 1 < source.length) {
-          end += 2;
-          continue;
-        }
-        if (ch === quote) quote = null;
-        end += 1;
-        continue;
-      }
-      if (ch === '"' || ch === "'" || ch === "`") {
-        quote = ch;
-        end += 1;
-        continue;
-      }
-      if (ch === "{") {
-        braceDepth += 1;
-        end += 1;
-        continue;
-      }
-      if (ch === "}" && braceDepth > 0) {
-        braceDepth -= 1;
-        end += 1;
-        continue;
-      }
-      if (ch === ">" && braceDepth === 0) break;
-      end += 1;
-    }
-    const tag = source.slice(index, end + 1);
-    if (/\btitle\s*=/.test(tag)) matches.push(tag.slice(0, 80));
-    index = end;
+  for (const element of tree.rootNode.descendantsOfType(["jsx_opening_element", "jsx_self_closing_element"])) {
+    if (!element) continue;
+    const tagName = element.childForFieldName("name")?.text ?? "";
+    if (!INTRINSIC_OR_PASSTHROUGH_JSX_TAG.test(tagName)) continue;
+    const hasTitleAttribute = element.namedChildren.some(
+      (child) => child?.type === "jsx_attribute" && JSX_TITLE_ATTRIBUTE_NAME.test(child.namedChildren[0]?.text ?? ""),
+    );
+    if (hasTitleAttribute) matches.push(element.text.slice(0, 80));
   }
+  for (const literal of tree.rootNode.descendantsOfType(["string", "template_string"])) {
+    if (!literal) continue;
+    const htmlMatches = literal.text.match(HTML_TAG_TITLE_WRITE);
+    if (htmlMatches) matches.push(...htmlMatches);
+  }
+  tree.delete();
   return matches;
 }
 
-function titleWritesIn(source: string, isTsx = false): string[] {
+async function titleWritesIn(source: string, isTsx = false): Promise<string[]> {
   const regexMatches = TITLE_WRITES.flatMap((pattern) => source.match(pattern) ?? []);
-  if (!isTsx) return regexMatches;
-  return [...regexMatches, ...jsxTitleAttributesIn(source)];
+  if (!isTsx) return [...regexMatches, ...(source.match(HTML_TAG_TITLE_WRITE) ?? [])];
+  return [...regexMatches, ...(await tsxTitleWritesIn(source))];
 }
 
 function collectDashboardSources(dir: string, acc: string[]): string[] {
@@ -87,18 +89,36 @@ function collectDashboardSources(dir: string, acc: string[]): string[] {
   return acc;
 }
 
-test("a title attribute is set only by labelIconPressable, as an icon-only button's native name, and by sandboxed-frame.ts on its frame", () => {
+test("a title prop on a JSX component passes while a title attribute on an intrinsic element in .tsx fails", async () => {
+  assert.deepEqual(
+    await titleWritesIn('<Dialog title="Pick agent" open={true}><SectionHeading title="Agents" level={3} /></Dialog>', true),
+    [],
+  );
+  assert.ok((await titleWritesIn('<div title="hover tip">hello</div>', true)).length > 0);
+  assert.ok((await titleWritesIn('<dialog title={props.title}></dialog>', true)).length > 0);
+  assert.ok((await titleWritesIn('<button title={props.title}>Go</button>', true)).length > 0);
+  assert.ok((await titleWritesIn('<Pressable title="hover tip" text="Save" />', true)).length > 0);
+  assert.ok((await titleWritesIn('<Dynamic component="div" title="hover tip">hello</Dynamic>', true)).length > 0);
+  assert.ok((await titleWritesIn('if (count<limit) return <div title="hover tip">hello</div>;', true)).length > 0);
+  assert.ok((await titleWritesIn('const hint = "x<y";\nreturn <div title="hover tip">hello</div>;', true)).length > 0);
+  assert.ok((await titleWritesIn("el.innerHTML = '<DIV title=\"hover tip\">hi</DIV>';", true)).length > 0);
+});
+
+test("a title attribute is set only by labelIconPressable, as an icon-only button's native name, and by sandboxed-frame.ts on its frame", async () => {
   const files = collectDashboardSources(PUBLIC_DIR, []).filter((file) => !file.endsWith(".css"));
   for (const [owner, ownerTitleWrite] of OWNER_TITLE_WRITE_BY_FILE) {
     const ownerName = path.relative(ROOT, owner);
     assert.ok(files.includes(owner), `${ownerName} must exist`);
     assert.ok(fs.readFileSync(owner, "utf8").includes(ownerTitleWrite), `${ownerName} no longer sets its title, so the gate would pass vacuously`);
-    assert.deepEqual(titleWritesIn(fs.readFileSync(owner, "utf8")), [".title ="], `${ownerName} may set a title only through ${ownerTitleWrite}`);
+    assert.deepEqual(await titleWritesIn(fs.readFileSync(owner, "utf8")), [".title ="], `${ownerName} may set a title only through ${ownerTitleWrite}`);
   }
 
-  const offenders = files
-    .filter((file) => !OWNER_TITLE_WRITE_BY_FILE.has(file) && !NEVER_RENDERED_SOURCES.has(file) && titleWritesIn(fs.readFileSync(file, "utf8"), file.endsWith(".tsx")).length > 0)
-    .map((file) => path.relative(ROOT, file));
+  const offenders: string[] = [];
+  for (const file of files) {
+    if (OWNER_TITLE_WRITE_BY_FILE.has(file) || NEVER_RENDERED_SOURCES.has(file)) continue;
+    const writes = await titleWritesIn(fs.readFileSync(file, "utf8"), file.endsWith(".tsx"));
+    if (writes.length > 0) offenders.push(path.relative(ROOT, file));
+  }
 
   assert.deepEqual(offenders, [], `A title attribute is a hover tooltip, which touch screens cannot show. Name an icon-only button with labelIconPressable (public/ui/pressable.ts); otherwise put the text on the page, or in aria-label when it only names a control:\n  ${offenders.join("\n  ")}`);
 });

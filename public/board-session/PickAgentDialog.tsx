@@ -80,7 +80,11 @@ function PickAgentDialog(props: PickAgentDialogProps): JSX.Element {
 
   return (
     <Dialog
-      {...PICK_AGENT_DIALOG_CHROME}
+      title={PICK_AGENT_DIALOG_CHROME.title}
+      message={PICK_AGENT_DIALOG_CHROME.message}
+      confirmLabel={PICK_AGENT_DIALOG_CHROME.confirmLabel}
+      closeOnConfirm={PICK_AGENT_DIALOG_CHROME.closeOnConfirm}
+      defaultAction={PICK_AGENT_DIALOG_CHROME.defaultAction}
       canConfirm={canStartPickAgent(state())}
       open={true}
       onConfirm={handleConfirm}
