@@ -23,7 +23,7 @@ import type { ModelPickerRow } from '../chat/model-picker-core.ts';
 import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
 
 export type GithubRepo = ServerMessageOf<'github-repos-listed'>['repos'][number];
-export type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
+type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
 export type AddSessionSlot = 'agent' | 'account' | 'model' | 'project';
 type QueriedSlot = 'project' | 'model';
 type OperatorTouch = 'untouched' | 'acted' | 'reopened';
@@ -193,7 +193,7 @@ type AddSessionActionOutcomeDecision =
   | { readonly kind: 'refused'; readonly errorText: string };
 
 const NO_AGENT_ID = '';
-export const ISSUE_REPLY_TIMEOUT_MS = 90_000;
+const ISSUE_REPLY_TIMEOUT_MS = 90_000;
 const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['agent', 'account', 'model', 'project'];
 const FIND_PLACEHOLDER_BY_SLOT: Readonly<Record<QueriedSlot, string>> = {
   project: 'Find a project, or #128 for an issue',
@@ -495,8 +495,12 @@ export function addSessionDisplayOf(
   state: AddSessionPickerState,
   accounts: readonly AgentAccountStatus[],
   formatAccountSummary: (account: AgentAccountStatus | null) => string,
+  hasPendingLaunch = false,
 ): AddSessionDisplay {
-  const isBusy = state.workState.kind === 'busy';
+  const isBusy = state.workState.kind === 'busy' || hasPendingLaunch;
+  const startStatusText = state.workState.kind === 'busy'
+    ? state.workState.statusText
+    : (hasPendingLaunch ? 'Starting the session' : '');
   const isShell = isShellChosen(state);
   const agentLabel = agentLabelOf(state, state.selectedAgentId);
   const pickableAccounts = pickableAccountsOf(accounts);
@@ -581,10 +585,10 @@ export function addSessionDisplayOf(
         ? 'dialog-hint text-meta text-state-failed'
         : 'dialog-hint',
     scanStatusHidden: state.scanState.kind !== 'busy' && state.scanState.kind !== 'error',
-    startStatusTone: state.workState.kind === 'busy' ? 'busy' : null,
-    startStatusText: state.workState.kind === 'busy' ? state.workState.statusText : '',
-    startStatusClassName: state.workState.kind === 'busy' ? 'dialog-hint text-meta text-text-muted' : 'dialog-hint',
-    startStatusHidden: state.workState.kind !== 'busy',
+    startStatusTone: isBusy ? 'busy' : null,
+    startStatusText,
+    startStatusClassName: isBusy ? 'dialog-hint text-meta text-text-muted' : 'dialog-hint',
+    startStatusHidden: !isBusy,
   };
 }
 
@@ -705,7 +709,7 @@ export function applyPickProject(state: AddSessionPickerState, row: RecentRow): 
   return advanceFromPickTransition(nextState, true);
 }
 
-export function applyAdvanceFromPick(state: AddSessionPickerState, isTargetChosenByOperator: boolean): AddSessionTransition {
+function applyAdvanceFromPick(state: AddSessionPickerState, isTargetChosenByOperator: boolean): AddSessionTransition {
   return advanceFromPickTransition(state, isTargetChosenByOperator);
 }
 
@@ -871,7 +875,7 @@ export function applyFolderPathInput(state: AddSessionPickerState, value: string
   return { ...state, folderPath: value };
 }
 
-export function decideFindKeydown(
+function decideFindKeydown(
   state: AddSessionPickerState,
   key: string,
   isComposing: boolean,
@@ -1121,9 +1125,10 @@ export function buildStartSubmission(
     readCloneJob: (cloneUrl: string) => RepositoryCloneJob | null;
     suggestName: (base: string) => string;
     defaultTimeoutMs: number;
+    hasPendingLaunch?: boolean;
   },
 ): StartSubmissionDecision {
-  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy') return { kind: 'noop' };
+  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || deps.hasPendingLaunch === true) return { kind: 'noop' };
   const cleared: AddSessionPickerState = { ...state, errorText: '' };
   if (cleared.selectedAgentId === NO_AGENT_ID && cleared.agentOptions.length > 0) {
     return { kind: 'error', state: { ...cleared, errorText: 'Pick an agent.' } };
@@ -1195,9 +1200,9 @@ export function buildIssueStartSubmission(
   state: AddSessionPickerState,
   project: ScannedProject,
   issueNumber: number,
-  deps: { accounts: readonly AgentAccountStatus[] },
+  deps: { accounts: readonly AgentAccountStatus[]; hasPendingLaunch?: boolean },
 ): StartSubmissionDecision {
-  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy') return { kind: 'noop' };
+  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || deps.hasPendingLaunch === true) return { kind: 'noop' };
   const matchingRow = state.recentRows.find((recentRow) => recentRow.path === project.path) ?? null;
   const target: AddSessionTarget = matchingRow ? { kind: 'project', row: matchingRow } : state.target;
   const nextState: AddSessionPickerState = {
@@ -1227,8 +1232,9 @@ export function buildPackLaunchSubmission(
   pack: string,
   launcherId: string,
   defaultTimeoutMs: number,
+  hasPendingLaunch = false,
 ): StartSubmissionDecision {
-  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy') return { kind: 'noop' };
+  if (state.spawnGate === 'blocked' || state.workState.kind === 'busy' || hasPendingLaunch) return { kind: 'noop' };
   return {
     kind: 'request',
     state: { ...state, errorText: '' },

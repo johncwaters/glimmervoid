@@ -25,6 +25,7 @@ import addSessionAction, {
 import openIssueSessionAction from '../state/actions/open-issue-session.ts';
 import packLaunchAction from '../state/actions/pack-launch.ts';
 import { packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
+import { hasPendingLaunch, watchPendingLaunches } from '../state/collections/sessions.ts';
 import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import { Button } from '../ui/Button.tsx';
 import { mountIsland } from '../ui/island.ts';
@@ -191,7 +192,7 @@ function AddSessionPicker(props: AddSessionPickerProps): JSX.Element {
   };
 
   const runRequest = (request: AddSessionRequestPayload): void => {
-    pickerState.update((current) => applyWorkBusy(current, 'Starting the session'));
+    if (request.requestType === 'add-session') pickerState.update((current) => applyWorkBusy(current, 'Starting the session'));
     void dispatchActionRequest(request, isStudio)
       .then((outcome) => {
         const startDecision = decideActionOutcome(outcome, addSessionRefusalText);
@@ -261,12 +262,16 @@ function AddSessionPicker(props: AddSessionPickerProps): JSX.Element {
       readCloneJob: cloneJobOf,
       suggestName: suggestSessionName,
       defaultTimeoutMs: DEFAULT_REPLY_TIMEOUT_MS,
+      hasPendingLaunch: hasPendingLaunch(),
     }));
   };
 
   const startIssueSession = (project: ScannedProject, issueNumber: number): void => {
     const state = pickerState.peek();
-    const decision = buildIssueStartSubmission(state, project, issueNumber, { accounts: agentAccountsOf(state.selectedAgentId) });
+    const decision = buildIssueStartSubmission(state, project, issueNumber, {
+      accounts: agentAccountsOf(state.selectedAgentId),
+      hasPendingLaunch: hasPendingLaunch(),
+    });
     if (decision.kind !== 'noop' && findInputEl) findInputEl.value = '';
     executeSubmission(decision);
   };
@@ -337,7 +342,7 @@ function AddSessionPicker(props: AddSessionPickerProps): JSX.Element {
   const display = createMemo(() => {
     externalVersion.read();
     const state = pickerState.read();
-    return addSessionDisplayOf(state, agentAccountsOf(state.selectedAgentId), agentAccountSummary);
+    return addSessionDisplayOf(state, agentAccountsOf(state.selectedAgentId), agentAccountSummary, hasPendingLaunch());
   });
   const agentRows = createMemo(() => agentSlotRowsOf(pickerState.read()));
   const accountRows = createMemo(() => {
@@ -397,12 +402,14 @@ function AddSessionPicker(props: AddSessionPickerProps): JSX.Element {
     });
     const stopClones = onCloneJobsChanged(bumpExternal);
     const stopPacks = watchPacksCollection(bumpExternal);
+    const stopLaunches = watchPendingLaunches(bumpExternal);
     refreshAgentAccounts();
     refresh();
     return () => {
       stopAccounts();
       stopClones();
       stopPacks();
+      stopLaunches();
     };
   });
 
@@ -480,7 +487,7 @@ function AddSessionPicker(props: AddSessionPickerProps): JSX.Element {
                 variant="secondary"
                 label={launcher.label}
                 disabled={launcher.disabledReason !== null}
-                onClick={() => executeSubmission(buildPackLaunchSubmission(pickerState.peek(), launcher.pack, launcher.id, DEFAULT_REPLY_TIMEOUT_MS))}
+                onClick={() => executeSubmission(buildPackLaunchSubmission(pickerState.peek(), launcher.pack, launcher.id, DEFAULT_REPLY_TIMEOUT_MS, hasPendingLaunch()))}
               />
               <span class="dialog-hint">{launcher.disabledReason ?? `${launcher.agent} in ${launcher.project}`}</span>
             </div>

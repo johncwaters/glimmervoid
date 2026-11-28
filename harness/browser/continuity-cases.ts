@@ -866,29 +866,44 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
     checks: ['C1', 'C2', 'C5'],
     async prepare(ctx, check) {
       const { page, sessionId, projectDirectory, faults } = ctx;
-      await preloadModules(page, [MODULE_URLS.sessionsCollection, MODULE_URLS.openIssueSession]);
+      await preloadModules(page, [MODULE_URLS.openIssueSession]);
       const issueNumber = 128;
-      const launchKey = `issue:${projectDirectory}#${issueNumber}`;
       if (check === 'C1' || check === 'C5') {
         faults.stubRequestReply('open-issue-session', (_frame, nextSeq) => ({
           reply: { type: 'add-session-result', ok: true, sessionId, appliedSeq: nextSeq },
           push: { type: 'session-renamed', id: sessionId, oldName: 'continuity', newName: 'continuity' },
         }));
       }
-      await page.evaluate(({ sessionsUrl, actionUrl, targetPath, targetIssue, key }) => {
+      await page.evaluate(async () => {
+        const dialogsUrl = '/dialogs.ts';
+        const { createAddSessionDialog } = await import(dialogsUrl);
+        createAddSessionDialog();
+      });
+      await page.locator('#add-session-actions').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.evaluate(({ actionUrl, targetPath, targetIssue }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const sessions = cache[sessionsUrl].default as { state: { pendingLaunches: string[] } };
-        const readLaunch = (): string => (sessions.state.pendingLaunches.includes(key) ? 'pending' : 'idle');
+        const readLaunch = (): string => {
+          const status = document.querySelector<HTMLElement>('#add-session-actions p[role="status"]');
+          const pick = document.querySelector<HTMLElement>('#add-session-pick');
+          if (!status || !pick) return 'idle';
+          return !status.hidden && status.textContent === 'Starting the session' && pick.inert ? 'starting' : 'idle';
+        };
         Reflect.set(window, '__continuityActiveAction', {
           readValue: readLaunch,
-          isOptimisticShown: () => readLaunch() === 'pending',
+          isOptimisticShown: () => readLaunch() === 'starting',
           fire: () => {
             const runAction = cache[actionUrl].default as (input: { path: string; issueNumber: number }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ path: targetPath, issueNumber: targetIssue }));
           },
         });
-      }, { sessionsUrl: MODULE_URLS.sessionsCollection, actionUrl: MODULE_URLS.openIssueSession, targetPath: projectDirectory, targetIssue: issueNumber, key: launchKey });
-      return { cleanup: async () => {} };
+      }, { actionUrl: MODULE_URLS.openIssueSession, targetPath: projectDirectory, targetIssue: issueNumber });
+      return {
+        cleanup: async () => {
+          await page.evaluate(() => {
+            document.querySelector<HTMLButtonElement>('#add-session-actions button:not([data-variant="primary"])')?.click();
+          });
+        },
+      };
     },
   },
   {
@@ -896,30 +911,45 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
     checks: ['C1', 'C2', 'C5'],
     async prepare(ctx, check) {
       const { page, sessionId, faults } = ctx;
-      await preloadModules(page, [MODULE_URLS.sessionsCollection, MODULE_URLS.packLaunch]);
+      await preloadModules(page, [MODULE_URLS.packLaunch]);
       const pack = 'continuity-pack';
       const launcherId = 'continuity-launcher';
-      const launchKey = `pack:${pack}:${launcherId}`;
       if (check === 'C1' || check === 'C5') {
         faults.stubRequestReply('pack-launch', (_frame, nextSeq) => ({
           reply: { type: 'add-session-result', ok: true, sessionId, appliedSeq: nextSeq },
           push: { type: 'session-renamed', id: sessionId, oldName: 'continuity', newName: 'continuity' },
         }));
       }
-      await page.evaluate(({ sessionsUrl, actionUrl, targetPack, targetLauncherId, key }) => {
+      await page.evaluate(async () => {
+        const dialogsUrl = '/dialogs.ts';
+        const { createAddSessionDialog } = await import(dialogsUrl);
+        createAddSessionDialog();
+      });
+      await page.locator('#add-session-actions').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.evaluate(({ actionUrl, targetPack, targetLauncherId }) => {
         const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
-        const sessions = cache[sessionsUrl].default as { state: { pendingLaunches: string[] } };
-        const readLaunch = (): string => (sessions.state.pendingLaunches.includes(key) ? 'pending' : 'idle');
+        const readLaunch = (): string => {
+          const status = document.querySelector<HTMLElement>('#add-session-actions p[role="status"]');
+          const pick = document.querySelector<HTMLElement>('#add-session-pick');
+          if (!status || !pick) return 'idle';
+          return !status.hidden && status.textContent === 'Starting the session' && pick.inert ? 'starting' : 'idle';
+        };
         Reflect.set(window, '__continuityActiveAction', {
           readValue: readLaunch,
-          isOptimisticShown: () => readLaunch() === 'pending',
+          isOptimisticShown: () => readLaunch() === 'starting',
           fire: () => {
             const runAction = cache[actionUrl].default as (input: { pack: string; launcherId: string }) => Promise<unknown>;
             Reflect.set(window, '__continuityActionPromise', runAction({ pack: targetPack, launcherId: targetLauncherId }));
           },
         });
-      }, { sessionsUrl: MODULE_URLS.sessionsCollection, actionUrl: MODULE_URLS.packLaunch, targetPack: pack, targetLauncherId: launcherId, key: launchKey });
-      return { cleanup: async () => {} };
+      }, { actionUrl: MODULE_URLS.packLaunch, targetPack: pack, targetLauncherId: launcherId });
+      return {
+        cleanup: async () => {
+          await page.evaluate(() => {
+            document.querySelector<HTMLButtonElement>('#add-session-actions button:not([data-variant="primary"])')?.click();
+          });
+        },
+      };
     },
   },
   {

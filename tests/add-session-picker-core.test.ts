@@ -5,17 +5,16 @@ import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentAccountStatus } from '#shared/contracts/agent-accounts.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import {
-  ISSUE_REPLY_TIMEOUT_MS,
   accountSlotRowsOf,
   addSessionDisplayOf,
   agentSlotRowsOf,
   applyAccountsChanged,
-  applyAdvanceFromPick,
   applyAgentsLoadError,
   applyAgentsListed,
   applyBackToModels,
   applyBackToProjects,
   applyFindInput,
+  applyFindKeydown,
   applyFolderPathInput,
   applyGithubReposReply,
   applyLiveSettingsPayload,
@@ -46,7 +45,6 @@ import {
   buildStartSubmission,
   createInitialAddSessionState,
   decideActionOutcome,
-  decideFindKeydown,
   decideFocusTarget,
   decidePathKeydown,
   modelSlotRowsOf,
@@ -192,13 +190,30 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   assert.equal(workspaceSub.kind, 'request');
 
   state = applyBackToProjects(state).state;
-  const filteredMatch = applyFindInput(state, 'one');
-  const visibleEnter = decideFindKeydown(filteredMatch, 'Enter', false);
-  assert.deepEqual(visibleEnter, { kind: 'advance-project', isTargetVisible: true });
+  const loadedSettings = beginSettingsLoad(state);
+  const readyForSubmit = applySettingsMessage(loadedSettings.state, loadedSettings.loadNumber, {
+    type: 'settings',
+    settings: { saneYolo: true, dangerouslySkipPermissions: false },
+    saneYoloInstalled: true,
+  } as ServerMessage);
+  const firstRow = readyForSubmit.recentRows[0];
+  assert.ok(firstRow);
+  const pickedOne = applyPickProject(readyForSubmit, firstRow).state;
+  const reopenedForFind = applyReopenSlot(pickedOne, 'project').state;
+  const filteredMatch = applyFindInput(reopenedForFind, 'one');
+  const visibleEnter = applyFindKeydown(filteredMatch, 'Enter', false);
+  assert.equal(visibleEnter.kind, 'transition');
+  if (visibleEnter.kind === 'transition') assert.equal(visibleEnter.transition.postAction, 'submit');
   const filteredMiss = applyFindInput(filteredMatch, 'zzzz-no-match');
-  const hiddenEnter = decideFindKeydown(filteredMiss, 'Enter', false);
-  assert.deepEqual(hiddenEnter, { kind: 'advance-project', isTargetVisible: false });
-  assert.equal(applyAdvanceFromPick(filteredMiss, false).postAction, 'focus');
+  const hiddenEnter = applyFindKeydown(filteredMiss, 'Enter', false);
+  assert.equal(hiddenEnter.kind, 'transition');
+  if (hiddenEnter.kind === 'transition') assert.equal(hiddenEnter.transition.postAction, 'focus');
+
+  const pendingDisplay = addSessionDisplayOf(state, [], () => '', true);
+  assert.equal(pendingDisplay.isPickingLocked, true);
+  assert.equal(pendingDisplay.confirmDisabled, true);
+  assert.equal(pendingDisplay.startStatusHidden, false);
+  assert.equal(pendingDisplay.startStatusText, 'Starting the session');
 
   const errAgentsLoad = beginAgentsLoad(state);
   const afterErrAgents = applyAgentsListed(errAgentsLoad.state, errAgentsLoad.loadNumber, {
@@ -218,15 +233,15 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   assert.ok(afterErrSettings.settingsWarning?.includes('Invalid get-settings payload'));
 
   state = applyFindInput(state, '#128');
-  assert.equal(decideFindKeydown(state, 'Enter', true).kind, 'none');
-  const issueKey = decideFindKeydown(state, 'Enter', false);
+  assert.equal(applyFindKeydown(state, 'Enter', true).kind, 'none');
+  const issueKey = applyFindKeydown(state, 'Enter', false);
   assert.equal(issueKey.kind, 'start-issue');
   if (issueKey.kind === 'start-issue') {
     const issueSub = buildIssueStartSubmission(state, issueKey.project, issueKey.issueNumber, { accounts: [] });
     assert.equal(issueSub.kind, 'request');
     if (issueSub.kind === 'request') {
       assert.equal(issueSub.request.requestType, 'open-issue-session');
-      assert.equal(issueSub.request.timeoutMs, ISSUE_REPLY_TIMEOUT_MS);
+      assert.equal(issueSub.request.timeoutMs, 90_000);
     }
   }
 

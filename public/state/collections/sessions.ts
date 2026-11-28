@@ -1,6 +1,6 @@
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../../control-ws.ts';
-import { applyCollectionServerMessage, defineCollection } from '../define-collection.ts';
+import { applyCollectionServerMessage, defineCollection, watchCollection } from '../define-collection.ts';
 import {
   INITIAL_SESSIONS_STATE,
   applySessionsServerMessage,
@@ -37,6 +37,18 @@ export function onSessionsServerMessage(listener: SessionsServerMessageListener)
 
 export function hasSessionInCollection(sessionId: string): boolean {
   return Object.hasOwn(sessionsCollection.state.byId, sessionId);
+}
+
+export function hasPendingLaunch(): boolean {
+  return sessionsCollection.state.pendingLaunches.length > 0;
+}
+
+export function watchPendingLaunches(listener: () => void): () => void {
+  return watchCollection(
+    sessionsCollection,
+    (state) => state.pendingLaunches.join('\0'),
+    () => listener(),
+  );
 }
 
 export type TracePagePayload = { id: string; after: number } | { id: string; endingAt: number | 'tail' };
