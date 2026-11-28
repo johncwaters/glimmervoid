@@ -33,11 +33,13 @@ const ARRAY_MUTATOR_METHODS = new Set([
   'reverse',
 ]);
 
-const JSX_NODE_TYPES = ['jsx_element', 'jsx_self_closing_element', 'jsx_fragment'];
 const TRACKED_FIRST_ARG_PRIMITIVES = new Set(['createEffect', 'createRenderEffect', 'createComputed', 'on']);
 const TRACKED_ALL_ARGS_PRIMITIVES = new Set(['createMemo', 'createReaction']);
 const EVENT_ATTRIBUTE_PATTERN = /^on([A-Z]|:|[a-z])/;
 const EVENT_OR_REF_ATTRIBUTE_PATTERN = /^(ref$|on([A-Z]|:|[a-z]))/;
+const CONDITION_BINARY_OPERATORS = new Set(['===', '!==', '==', '!=', '<', '<=', '>', '>=', '&&', '||']);
+const FRAMEWORK_IMPORT_PATTERN = /^(['"])(?:solid-js(?:\/.*)?|@solidjs\/.*)\1$/;
+const INLINE_LOGIC_ARG_NODE_TYPES = ['arrow_function', 'function_expression', 'ternary_expression'];
 
 const DOM_OR_HOST_TYPE_PATTERN = /\b(Element|HTMLElement|HTML\w+Element|SVG\w*Element|EventTarget|KeyboardEvent|MouseEvent|PointerEvent|FocusEvent|ToggleEvent|ChatFeed|AbortController)\b/;
 
@@ -51,10 +53,10 @@ interface BranchOwnerCount {
   count: number;
 }
 
-interface ControllerReport {
+interface SignalLogicOwnerReport {
   name: string;
-  stateCount: number;
-  branchCount: number;
+  inlineWrites: number;
+  directConditions: number;
 }
 
 interface TsxShapeReport {
@@ -62,20 +64,28 @@ interface TsxShapeReport {
   score: number;
   stateCount: number;
   branchCount: number;
-  controllerCount: number;
+  inlineSignalWriteCount: number;
+  directSignalConditionCount: number;
   stateNames: string[];
   branchOwners: BranchOwnerCount[];
-  controllers: ControllerReport[];
+  signalLogicOwners: SignalLogicOwnerReport[];
 }
 
 interface SignalDeclaration {
   kind: 'solid' | 'solid-tuple' | 'synced' | 'synced-destructured';
   name: string;
   readIdentifier: string | null;
+  writeIdentifier: string | null;
+  peekIdentifier: string | null;
   nameNodeId: number;
   declaratorNodeId: number;
   scopeNode: Node;
   topLevelFunctionNodeId: number | null;
+}
+
+interface ImportedBindings {
+  valueNames: Set<string>;
+  namespaceNames: Set<string>;
 }
 
 let cachedParserPromise: Promise<Parser> | null = null;
@@ -95,6 +105,18 @@ function tsxParser(): Promise<Parser> {
   return cachedParserPromise;
 }
 
+function nonCommentNamedChild(node: Node | null, targetIndex = 0): Node | null {
+  if (!node) return null;
+  let seen = 0;
+  for (let childIndex = 0; childIndex < node.namedChildCount; childIndex += 1) {
+    const child = node.namedChild(childIndex);
+    if (!child || child.type === 'comment') continue;
+    if (seen === targetIndex) return child;
+    seen += 1;
+  }
+  return null;
+}
+
 function unwrapExpressionWrappers(exprNode: Node | null): Node | null {
   let current = exprNode;
   while (current) {
@@ -104,7 +126,7 @@ function unwrapExpressionWrappers(exprNode: Node | null): Node | null {
       current.type === 'satisfies_expression' ||
       current.type === 'non_null_expression'
     ) {
-      current = current.namedChild(0);
+      current = nonCommentNamedChild(current, 0);
       continue;
     }
     return current;
@@ -164,6 +186,44 @@ function collectMutatedArrayNames(rootNode: Node): Set<string> {
   return mutated;
 }
 
+function collectImportedBindings(rootNode: Node): ImportedBindings {
+  const valueNames = new Set<string>();
+  const namespaceNames = new Set<string>();
+
+  for (const importNode of rootNode.descendantsOfType('import_statement')) {
+    if (!importNode) continue;
+    if (importNode.text.startsWith('import type ')) continue;
+    const sourceText = importNode.childForFieldName('source')?.text ?? '';
+    if (FRAMEWORK_IMPORT_PATTERN.test(sourceText)) continue;
+    const clause = nonCommentNamedChild(importNode, 0);
+    if (clause?.type !== 'import_clause') continue;
+
+    for (let index = 0; index < clause.namedChildCount; index += 1) {
+      const part = clause.namedChild(index);
+      if (!part || part.type === 'comment') continue;
+      if (part.type === 'identifier') {
+        valueNames.add(part.text);
+        continue;
+      }
+      if (part.type === 'namespace_import') {
+        const alias = nonCommentNamedChild(part, 0);
+        if (alias?.type === 'identifier') namespaceNames.add(alias.text);
+        continue;
+      }
+      if (part.type === 'named_imports') {
+        for (let specIndex = 0; specIndex < part.namedChildCount; specIndex += 1) {
+          const spec = part.namedChild(specIndex);
+          if (spec?.type !== 'import_specifier' || spec.text.startsWith('type ')) continue;
+          const localNode = spec.childForFieldName('alias') ?? spec.childForFieldName('name');
+          if (localNode?.type === 'identifier') valueNames.add(localNode.text);
+        }
+      }
+    }
+  }
+
+  return { valueNames, namespaceNames };
+}
+
 function isFunctionNode(node: Node): boolean {
   return (
     node.type === 'function_declaration' ||
@@ -192,76 +252,24 @@ function enclosingTopLevelFunctionOf(node: Node, rootNode: Node): Node | null {
   return topLevelFunction;
 }
 
+function topLevelOwnerNameOf(node: Node, rootNode: Node): string {
+  const topLevelFn = enclosingTopLevelFunctionOf(node, rootNode);
+  if (!topLevelFn) return '<module>';
+  if (topLevelFn.type === 'function_declaration') {
+    return topLevelFn.childForFieldName('name')?.text ?? '(anonymous)';
+  }
+  let ancestor = topLevelFn.parent;
+  while (ancestor && ancestor !== rootNode) {
+    if (ancestor.type === 'variable_declarator') {
+      return ancestor.childForFieldName('name')?.text ?? '(anonymous)';
+    }
+    ancestor = ancestor.parent;
+  }
+  return '(default)';
+}
+
 function isNodeWithin(innerNode: Node, outerNode: Node): boolean {
   return innerNode.startIndex >= outerNode.startIndex && innerNode.endIndex <= outerNode.endIndex;
-}
-
-function isControllerNode(node: Node): boolean {
-  if (node.descendantsOfType(JSX_NODE_TYPES).length > 0) return false;
-  if (node.type === 'class_declaration') {
-    return !DOM_OR_HOST_TYPE_PATTERN.test(node.text);
-  }
-  const parametersText = node.childForFieldName('parameters')?.text ?? '';
-  const returnTypeText = node.childForFieldName('return_type')?.text ?? '';
-  if (DOM_OR_HOST_TYPE_PATTERN.test(parametersText) || DOM_OR_HOST_TYPE_PATTERN.test(returnTypeText)) {
-    return false;
-  }
-  for (const callNode of node.descendantsOfType('call_expression')) {
-    if (!callNode) continue;
-    const calleeName = terminalCalleeNameOf(callNode);
-    if (calleeName === 'mountIsland' || calleeName === 'createEffect' || calleeName === 'createRenderEffect') {
-      return false;
-    }
-  }
-  return true;
-}
-
-function collectControllerFunctions(rootNode: Node): Map<number, string> {
-  const controllers = new Map<number, string>();
-
-  const registerIfController = (targetNode: Node, name: string): void => {
-    if (!isControllerNode(targetNode)) return;
-    controllers.set(targetNode.id, name);
-  };
-
-  for (let childIndex = 0; childIndex < rootNode.namedChildCount; childIndex += 1) {
-    let statement = rootNode.namedChild(childIndex);
-    if (!statement) continue;
-    if (statement.type === 'export_statement') {
-      const exportedDecl = statement.childForFieldName('declaration');
-      if (exportedDecl) {
-        statement = exportedDecl;
-      }
-      if (!exportedDecl) {
-        const exportedValue = unwrapExpressionWrappers(statement.childForFieldName('value'));
-        if (exportedValue && (exportedValue.type === 'arrow_function' || exportedValue.type === 'function_expression')) {
-          registerIfController(exportedValue, '(default)');
-        }
-        continue;
-      }
-    }
-
-    if (statement.type === 'function_declaration' || statement.type === 'class_declaration') {
-      const name = statement.childForFieldName('name')?.text ?? '(anonymous)';
-      registerIfController(statement, name);
-      continue;
-    }
-
-    if (statement.type === 'lexical_declaration' || statement.type === 'variable_declaration') {
-      for (let declIndex = 0; declIndex < statement.namedChildCount; declIndex += 1) {
-        const declarator = statement.namedChild(declIndex);
-        if (declarator?.type !== 'variable_declarator') continue;
-        const nameNode = declarator.childForFieldName('name');
-        const initializer = unwrapExpressionWrappers(declarator.childForFieldName('value'));
-        if (nameNode?.type !== 'identifier' || !initializer) continue;
-        if (initializer.type === 'arrow_function' || initializer.type === 'function_expression') {
-          registerIfController(initializer, nameNode.text);
-        }
-      }
-    }
-  }
-
-  return controllers;
 }
 
 function isConciseZeroArgGetterFor(readNode: Node, arrowNode: Node): boolean {
@@ -316,23 +324,36 @@ function isReactiveSignalRead(readNode: Node, topLevelFunctionNodeId: number | n
   return false;
 }
 
-function extractDestructuredReadIdentifier(objectPattern: Node): { readIdentifier: string | null; nameNode: Node } {
+function extractDestructuredSyncedBindings(objectPattern: Node): {
+  readIdentifier: string | null;
+  writeIdentifier: string | null;
+  peekIdentifier: string | null;
+  nameNode: Node;
+} {
   let firstIdentifier: Node = objectPattern;
+  let readIdentifier: string | null = null;
+  let writeIdentifier: string | null = null;
+  let peekIdentifier: string | null = null;
+
   for (let childIndex = 0; childIndex < objectPattern.namedChildCount; childIndex += 1) {
     const child = objectPattern.namedChild(childIndex);
     if (!child) continue;
     if (child.type === 'shorthand_property_identifier_pattern') {
       if (firstIdentifier.id === objectPattern.id) firstIdentifier = child;
-      if (child.text === 'read') return { readIdentifier: 'read', nameNode: child };
+      if (child.text === 'read') readIdentifier = 'read';
+      if (child.text === 'update') writeIdentifier = 'update';
+      if (child.text === 'peek') peekIdentifier = 'peek';
       continue;
     }
     if (child.type === 'pair_pattern') {
-      const key = child.childForFieldName('key');
+      const key = child.childForFieldName('key')?.text ?? '';
       const value = child.childForFieldName('value');
       const target = value?.type === 'assignment_pattern' ? value.childForFieldName('left') : value;
       if (target?.type === 'identifier') {
         if (firstIdentifier.id === objectPattern.id) firstIdentifier = target;
-        if (key?.text === 'read') return { readIdentifier: target.text, nameNode: target };
+        if (key === 'read') readIdentifier = target.text;
+        if (key === 'update') writeIdentifier = target.text;
+        if (key === 'peek') peekIdentifier = target.text;
       }
       continue;
     }
@@ -340,14 +361,17 @@ function extractDestructuredReadIdentifier(objectPattern: Node): { readIdentifie
       const left = child.childForFieldName('left');
       if (left?.type === 'shorthand_property_identifier_pattern') {
         if (firstIdentifier.id === objectPattern.id) firstIdentifier = left;
-        if (left.text === 'read') return { readIdentifier: 'read', nameNode: left };
+        if (left.text === 'read') readIdentifier = 'read';
+        if (left.text === 'update') writeIdentifier = 'update';
+        if (left.text === 'peek') peekIdentifier = 'peek';
       }
     }
   }
-  return { readIdentifier: null, nameNode: firstIdentifier };
+
+  return { readIdentifier, writeIdentifier, peekIdentifier, nameNode: firstIdentifier };
 }
 
-function collectUnrenderedSignals(rootNode: Node): Map<number, string> {
+function collectUnrenderedSignals(rootNode: Node): SignalDeclaration[] {
   const signalDeclarations: SignalDeclaration[] = [];
 
   for (const declarator of rootNode.descendantsOfType('variable_declarator')) {
@@ -366,6 +390,8 @@ function collectUnrenderedSignals(rootNode: Node): Map<number, string> {
           kind: 'synced',
           name: nameNode.text,
           readIdentifier: nameNode.text,
+          writeIdentifier: nameNode.text,
+          peekIdentifier: nameNode.text,
           nameNodeId: nameNode.id,
           declaratorNodeId: declarator.id,
           scopeNode,
@@ -374,11 +400,13 @@ function collectUnrenderedSignals(rootNode: Node): Map<number, string> {
         continue;
       }
       if (nameNode.type === 'object_pattern') {
-        const extracted = extractDestructuredReadIdentifier(nameNode);
+        const extracted = extractDestructuredSyncedBindings(nameNode);
         signalDeclarations.push({
           kind: 'synced-destructured',
           name: extracted.readIdentifier ?? extracted.nameNode.text,
           readIdentifier: extracted.readIdentifier,
+          writeIdentifier: extracted.writeIdentifier,
+          peekIdentifier: extracted.peekIdentifier,
           nameNodeId: extracted.nameNode.id,
           declaratorNodeId: declarator.id,
           scopeNode,
@@ -394,6 +422,8 @@ function collectUnrenderedSignals(rootNode: Node): Map<number, string> {
           kind: 'solid-tuple',
           name: nameNode.text,
           readIdentifier: nameNode.text,
+          writeIdentifier: nameNode.text,
+          peekIdentifier: nameNode.text,
           nameNodeId: nameNode.id,
           declaratorNodeId: declarator.id,
           scopeNode,
@@ -402,15 +432,46 @@ function collectUnrenderedSignals(rootNode: Node): Map<number, string> {
         continue;
       }
       if (nameNode.type === 'array_pattern') {
-        const firstElement = nameNode.namedChild(0);
+        let tupleIndex = 0;
+        let firstElement: Node | null = null;
+        let secondElement: Node | null = null;
+        for (let childIndex = 0; childIndex < nameNode.childCount; childIndex += 1) {
+          const child = nameNode.child(childIndex);
+          if (!child || child.type === 'comment') continue;
+          if (child.text === ',') {
+            tupleIndex += 1;
+            continue;
+          }
+          if (!child.isNamed) continue;
+          if (tupleIndex === 0 && firstElement === null) firstElement = child;
+          if (tupleIndex === 1 && secondElement === null) secondElement = child;
+        }
         const getterNode =
           firstElement?.type === 'assignment_pattern' ? firstElement.childForFieldName('left') : firstElement;
+        const setterNode =
+          secondElement?.type === 'assignment_pattern' ? secondElement.childForFieldName('left') : secondElement;
         if (getterNode?.type === 'identifier') {
           signalDeclarations.push({
             kind: 'solid',
             name: getterNode.text,
             readIdentifier: getterNode.text,
+            writeIdentifier: setterNode?.type === 'identifier' ? setterNode.text : null,
+            peekIdentifier: getterNode.text,
             nameNodeId: getterNode.id,
+            declaratorNodeId: declarator.id,
+            scopeNode,
+            topLevelFunctionNodeId,
+          });
+          continue;
+        }
+        if (setterNode?.type === 'identifier') {
+          signalDeclarations.push({
+            kind: 'solid',
+            name: setterNode.text,
+            readIdentifier: null,
+            writeIdentifier: setterNode.text,
+            peekIdentifier: null,
+            nameNodeId: setterNode.id,
             declaratorNodeId: declarator.id,
             scopeNode,
             topLevelFunctionNodeId,
@@ -420,7 +481,7 @@ function collectUnrenderedSignals(rootNode: Node): Map<number, string> {
     }
   }
 
-  if (signalDeclarations.length === 0) return new Map();
+  if (signalDeclarations.length === 0) return [];
 
   const reactiveSignalDeclaratorIds = new Set<number>();
   const signalsByReadName = new Map<string, SignalDeclaration[]>();
@@ -497,25 +558,248 @@ function collectUnrenderedSignals(rootNode: Node): Map<number, string> {
     }
   }
 
-  const unrendered = new Map<number, string>();
-  for (const signal of signalDeclarations) {
-    if (reactiveSignalDeclaratorIds.has(signal.declaratorNodeId)) continue;
-    unrendered.set(signal.declaratorNodeId, signal.name);
+  return signalDeclarations.filter((signal) => !reactiveSignalDeclaratorIds.has(signal.declaratorNodeId));
+}
+
+function isImportedCallableReference(node: Node | null, imported: ImportedBindings): boolean {
+  const unwrapped = unwrapExpressionWrappers(node);
+  if (!unwrapped) return false;
+  if (unwrapped.type === 'identifier') {
+    return imported.valueNames.has(unwrapped.text);
   }
-  return unrendered;
+  if (unwrapped.type === 'member_expression') {
+    const objectNode = unwrapped.childForFieldName('object');
+    return objectNode?.type === 'identifier' && imported.namespaceNames.has(objectNode.text);
+  }
+  return false;
+}
+
+function isDelegatedCallExpression(callNode: Node, imported: ImportedBindings): boolean {
+  if (!isImportedCallableReference(callNode.childForFieldName('function'), imported)) return false;
+  const argsNode = callNode.childForFieldName('arguments');
+  if (!argsNode) return true;
+  return argsNode.descendantsOfType(INLINE_LOGIC_ARG_NODE_TYPES).length === 0;
+}
+
+function isDelegatedSignalUpdater(argNode: Node | null, imported: ImportedBindings): boolean {
+  const unwrapped = unwrapExpressionWrappers(argNode);
+  if (!unwrapped) return false;
+  if (isImportedCallableReference(unwrapped, imported)) return true;
+  if (unwrapped.type === 'call_expression') {
+    return isDelegatedCallExpression(unwrapped, imported);
+  }
+  if (unwrapped.type === 'arrow_function') {
+    const body = unwrapExpressionWrappers(unwrapped.childForFieldName('body'));
+    if (body?.type === 'call_expression') {
+      return isDelegatedCallExpression(body, imported);
+    }
+  }
+  return false;
+}
+
+function isDirectConditionRead(callNode: Node, imported: ImportedBindings): boolean {
+  let ancestor = callNode.parent;
+  while (ancestor) {
+    if (ancestor.type === 'arguments') {
+      const enclosingCall = ancestor.parent;
+      if (
+        enclosingCall?.type === 'call_expression' &&
+        isImportedCallableReference(enclosingCall.childForFieldName('function'), imported)
+      ) {
+        return false;
+      }
+      ancestor = enclosingCall?.parent ?? null;
+      continue;
+    }
+    if (
+      ancestor.type === 'parenthesized_expression' ||
+      ancestor.type === 'member_expression' ||
+      ancestor.type === 'subscript_expression' ||
+      ancestor.type === 'as_expression' ||
+      ancestor.type === 'satisfies_expression' ||
+      ancestor.type === 'non_null_expression'
+    ) {
+      ancestor = ancestor.parent;
+      continue;
+    }
+    if (ancestor.type === 'unary_expression' && ancestor.firstChild?.text === '!') return true;
+    if (ancestor.type === 'binary_expression') {
+      const operator = ancestor.childForFieldName('operator')?.text ?? '';
+      if (CONDITION_BINARY_OPERATORS.has(operator)) return true;
+      ancestor = ancestor.parent;
+      continue;
+    }
+    if (ancestor.type === 'ternary_expression') {
+      const condition = ancestor.childForFieldName('condition');
+      return condition ? isNodeWithin(callNode, condition) : false;
+    }
+    if (
+      ancestor.type === 'if_statement' ||
+      ancestor.type === 'while_statement' ||
+      ancestor.type === 'do_statement' ||
+      ancestor.type === 'switch_statement'
+    ) {
+      const condition = ancestor.childForFieldName('condition') ?? ancestor.childForFieldName('value');
+      return condition ? isNodeWithin(callNode, condition) : false;
+    }
+    return false;
+  }
+  return false;
+}
+
+function measureUnrenderedSignalLogic(
+  rootNode: Node,
+  unrenderedSignals: readonly SignalDeclaration[],
+  imported: ImportedBindings,
+): { inlineWrites: number; directConditions: number; owners: SignalLogicOwnerReport[] } {
+  if (unrenderedSignals.length === 0) {
+    return { inlineWrites: 0, directConditions: 0, owners: [] };
+  }
+
+  const byOwner = new Map<string, { inlineWrites: number; directConditions: number }>();
+  const recordOwner = (node: Node, kind: 'write' | 'condition'): void => {
+    const ownerName = topLevelOwnerNameOf(node, rootNode);
+    const entry = byOwner.get(ownerName) ?? { inlineWrites: 0, directConditions: 0 };
+    if (kind === 'write') entry.inlineWrites += 1;
+    if (kind === 'condition') entry.directConditions += 1;
+    byOwner.set(ownerName, entry);
+  };
+
+  const signalsByWriteName = new Map<string, SignalDeclaration[]>();
+  const signalsByReadName = new Map<string, SignalDeclaration[]>();
+  for (const signal of unrenderedSignals) {
+    if (signal.writeIdentifier !== null) {
+      const writeGroup = signalsByWriteName.get(signal.writeIdentifier) ?? [];
+      writeGroup.push(signal);
+      signalsByWriteName.set(signal.writeIdentifier, writeGroup);
+    }
+    for (const candidateName of [signal.peekIdentifier, signal.readIdentifier]) {
+      if (candidateName === null) continue;
+      const readGroup = signalsByReadName.get(candidateName) ?? [];
+      if (!readGroup.includes(signal)) readGroup.push(signal);
+      signalsByReadName.set(candidateName, readGroup);
+    }
+  }
+
+  let inlineWrites = 0;
+  let directConditions = 0;
+
+  for (const callNode of rootNode.descendantsOfType('call_expression')) {
+    if (!callNode) continue;
+    const callee = callNode.childForFieldName('function');
+    if (!callee) continue;
+
+    if (callee.type === 'member_expression') {
+      const target = callee.childForFieldName('object');
+      const prop = callee.childForFieldName('property')?.text ?? '';
+      if (target?.type !== 'identifier') continue;
+
+      if (prop === 'update') {
+        const matched = (signalsByWriteName.get(target.text) ?? []).some(
+          (signal) => signal.kind === 'synced' && isNodeWithin(callNode, signal.scopeNode),
+        );
+        if (
+          matched &&
+          !isDelegatedSignalUpdater(nonCommentNamedChild(callNode.childForFieldName('arguments'), 0), imported)
+        ) {
+          inlineWrites += 1;
+          recordOwner(callNode, 'write');
+        }
+        continue;
+      }
+
+      if (prop === 'peek' || prop === 'read') {
+        const matched = (signalsByReadName.get(target.text) ?? []).some(
+          (signal) => signal.kind === 'synced' && isNodeWithin(callNode, signal.scopeNode),
+        );
+        if (matched && isDirectConditionRead(callNode, imported)) {
+          directConditions += 1;
+          recordOwner(callNode, 'condition');
+        }
+      }
+      continue;
+    }
+
+    if (callee.type === 'subscript_expression') {
+      const target = callee.childForFieldName('object');
+      const indexText = callee.childForFieldName('index')?.text ?? '';
+      if (target?.type !== 'identifier') continue;
+
+      if (indexText === '1') {
+        const matched = (signalsByWriteName.get(target.text) ?? []).some(
+          (signal) => signal.kind === 'solid-tuple' && isNodeWithin(callNode, signal.scopeNode),
+        );
+        if (
+          matched &&
+          !isDelegatedSignalUpdater(nonCommentNamedChild(callNode.childForFieldName('arguments'), 0), imported)
+        ) {
+          inlineWrites += 1;
+          recordOwner(callNode, 'write');
+        }
+        continue;
+      }
+
+      if (indexText === '0') {
+        const matched = (signalsByReadName.get(target.text) ?? []).some(
+          (signal) => signal.kind === 'solid-tuple' && isNodeWithin(callNode, signal.scopeNode),
+        );
+        if (matched && isDirectConditionRead(callNode, imported)) {
+          directConditions += 1;
+          recordOwner(callNode, 'condition');
+        }
+      }
+      continue;
+    }
+
+    if (callee.type === 'identifier') {
+      const matchedWrite = (signalsByWriteName.get(callee.text) ?? []).some(
+        (signal) =>
+          (signal.kind === 'solid' || signal.kind === 'synced-destructured') &&
+          isNodeWithin(callNode, signal.scopeNode),
+      );
+      if (
+        matchedWrite &&
+        !isDelegatedSignalUpdater(nonCommentNamedChild(callNode.childForFieldName('arguments'), 0), imported)
+      ) {
+        inlineWrites += 1;
+        recordOwner(callNode, 'write');
+        continue;
+      }
+
+      const matchedRead = (signalsByReadName.get(callee.text) ?? []).some(
+        (signal) =>
+          (signal.kind === 'solid' || signal.kind === 'synced-destructured') &&
+          isNodeWithin(callNode, signal.scopeNode),
+      );
+      if (matchedRead && isDirectConditionRead(callNode, imported)) {
+        directConditions += 1;
+        recordOwner(callNode, 'condition');
+      }
+    }
+  }
+
+  const owners: SignalLogicOwnerReport[] = [...byOwner.entries()]
+    .map(([name, counts]) => ({ name, inlineWrites: counts.inlineWrites, directConditions: counts.directConditions }))
+    .sort(
+      (left, right) =>
+        right.inlineWrites + right.directConditions - (left.inlineWrites + left.directConditions) ||
+        left.name.localeCompare(right.name),
+    );
+
+  return { inlineWrites, directConditions, owners };
 }
 
 function unwrapDiscardedExpression(exprNode: Node | null): Node | null {
   let current = exprNode;
   while (current) {
     if (current.type === 'parenthesized_expression' || current.type === 'await_expression') {
-      current = current.namedChild(0);
+      current = nonCommentNamedChild(current, 0);
       continue;
     }
     if (current.type === 'unary_expression') {
       const operator = current.firstChild?.text ?? '';
       if (operator === 'void' || operator === '!') {
-        current = current.namedChild(0);
+        current = nonCommentNamedChild(current, 0);
         continue;
       }
     }
@@ -584,56 +868,38 @@ function measureTsxShape(parser: Parser, sourceText: string): TsxShapeReport {
         score: 0,
         stateCount: 0,
         branchCount: 0,
-        controllerCount: 0,
+        inlineSignalWriteCount: 0,
+        directSignalConditionCount: 0,
         stateNames: [],
         branchOwners: [],
-        controllers: [],
+        signalLogicOwners: [],
       };
     }
 
     const mutatedArrayNames = collectMutatedArrayNames(rootNode);
-    const controllerNodes = collectControllerFunctions(rootNode);
+    const importedBindings = collectImportedBindings(rootNode);
     const unrenderedSignals = collectUnrenderedSignals(rootNode);
+    const unrenderedSignalByDeclaratorId = new Map<number, string>(
+      unrenderedSignals.map((signal) => [signal.declaratorNodeId, signal.name]),
+    );
+    const signalLogic = measureUnrenderedSignalLogic(rootNode, unrenderedSignals, importedBindings);
     const conciseArrowBindings = collectConciseArrowBindings(rootNode);
     const countedArrowBodyIds = new Set<number>();
 
     const stateNames: string[] = [];
     const branchCountByOwner = new Map<string, number>();
-    const controllerStats = new Map<string, { stateCount: number; branchCount: number }>();
-    for (const controllerName of controllerNodes.values()) {
-      controllerStats.set(controllerName, { stateCount: 0, branchCount: 0 });
-    }
 
-    const recordState = (label: string, activeController: string | null): void => {
-      stateNames.push(label);
-      if (activeController === null) return;
-      const stats = controllerStats.get(activeController);
-      if (stats) stats.stateCount += 1;
-    };
-
-    const recordBranch = (owner: string, activeController: string | null): void => {
+    const recordBranch = (owner: string): void => {
       branchCountByOwner.set(owner, (branchCountByOwner.get(owner) ?? 0) + 1);
-      if (activeController === null) return;
-      const stats = controllerStats.get(activeController);
-      if (stats) stats.branchCount += 1;
     };
 
-    const visit = (node: Node, owner: string, activeController: string | null): void => {
-      const nextController = controllerNodes.get(node.id) ?? activeController;
-
+    const visit = (node: Node, owner: string): void => {
       if (node.type === 'function_declaration') {
         const functionName = node.childForFieldName('name')?.text ?? '(anonymous)';
         const parameters = node.childForFieldName('parameters');
-        if (parameters) visit(parameters, functionName, nextController);
+        if (parameters) visit(parameters, functionName);
         const body = node.childForFieldName('body');
-        if (body) visit(body, functionName, nextController);
-        return;
-      }
-
-      if (node.type === 'class_declaration') {
-        const className = node.childForFieldName('name')?.text ?? '(anonymous)';
-        const body = node.childForFieldName('body');
-        if (body) visit(body, className, nextController);
+        if (body) visit(body, functionName);
         return;
       }
 
@@ -642,20 +908,16 @@ function measureTsxShape(parser: Parser, sourceText: string): TsxShapeReport {
         const variableName = nameNode?.text ?? '(var)';
         const typeAnnotation = node.childForFieldName('type')?.text ?? '';
         const initializer = node.childForFieldName('value');
-        const unwrappedInitializer = unwrapExpressionWrappers(initializer);
         const declarationKeyword = node.parent?.firstChild?.text ?? '';
         const isMutableDeclaration = declarationKeyword === 'let' || declarationKeyword === 'var';
         const hasDomType = DOM_OR_HOST_TYPE_PATTERN.test(typeAnnotation);
-        const initializerController = unwrappedInitializer
-          ? (controllerNodes.get(unwrappedInitializer.id) ?? nextController)
-          : nextController;
 
-        if (nameNode) visit(nameNode, variableName, initializerController);
+        if (nameNode) visit(nameNode, variableName);
 
-        const unrenderedSignalName = unrenderedSignals.get(node.id);
+        const unrenderedSignalName = unrenderedSignalByDeclaratorId.get(node.id);
         if (unrenderedSignalName !== undefined) {
-          recordState(`${unrenderedSignalName} (unrendered signal)`, initializerController);
-          if (initializer) visit(initializer, variableName, initializerController);
+          stateNames.push(`${unrenderedSignalName} (unrendered signal)`);
+          if (initializer) visit(initializer, variableName);
           return;
         }
 
@@ -664,25 +926,25 @@ function measureTsxShape(parser: Parser, sourceText: string): TsxShapeReport {
           const isCollection = constructorName === 'Map' || constructorName === 'Set';
           if (isCollection) {
             if (!hasDomType && !hasDomOrHostTypeArguments(initializer)) {
-              recordState(`${variableName} (${constructorName})`, initializerController);
+              stateNames.push(`${variableName} (${constructorName})`);
             }
-            visit(initializer, variableName, initializerController);
+            visit(initializer, variableName);
             return;
           }
         }
 
         if (nameNode?.type === 'identifier' && mutatedArrayNames.has(variableName) && !hasDomType) {
-          recordState(`${variableName} (Array)`, initializerController);
-          if (initializer) visit(initializer, variableName, initializerController);
+          stateNames.push(`${variableName} (Array)`);
+          if (initializer) visit(initializer, variableName);
           return;
         }
 
         const isDomHostInitializer = initializer?.type === 'new_expression' && isDomOrHostNewExpression(initializer);
         if (isMutableDeclaration && !hasDomType && !isDomHostInitializer) {
-          recordState(variableName, initializerController);
+          stateNames.push(variableName);
         }
 
-        if (initializer) visit(initializer, variableName, initializerController);
+        if (initializer) visit(initializer, variableName);
         return;
       }
 
@@ -694,33 +956,35 @@ function measureTsxShape(parser: Parser, sourceText: string): TsxShapeReport {
           !isSignalInitializer(node) &&
           !hasDomOrHostTypeArguments(node);
         if (isStandaloneCollection) {
-          recordState(`${owner}: new ${constructorName}`, nextController);
+          stateNames.push(`${owner}: new ${constructorName}`);
         }
       }
 
       if (DECISION_NODE_TYPES.has(node.type)) {
-        recordBranch(owner, nextController);
+        recordBranch(owner);
       }
 
       if (node.type === 'expression_statement') {
-        countDiscardedExpressionBranches(node.namedChild(0), () => recordBranch(owner, nextController));
+        countDiscardedExpressionBranches(node.namedChild(0), () => recordBranch(owner));
       }
 
       if (node.type === 'sequence_expression') {
         for (let childIndex = 0; childIndex < node.namedChildCount - 1; childIndex += 1) {
-          countDiscardedExpressionBranches(node.namedChild(childIndex), () => recordBranch(owner, nextController));
+          countDiscardedExpressionBranches(node.namedChild(childIndex), () => recordBranch(owner));
         }
       }
 
       if (node.type === 'jsx_attribute') {
         const attrName = node.namedChild(0)?.text ?? '';
         const attrValue = node.namedChild(1);
-        const exprChild = unwrapExpressionWrappers(attrValue?.type === 'jsx_expression' ? attrValue.namedChild(0) : null);
+        const exprChild = unwrapExpressionWrappers(
+          attrValue?.type === 'jsx_expression' ? attrValue.namedChild(0) : null,
+        );
         if (EVENT_ATTRIBUTE_PATTERN.test(attrName) && exprChild) {
           if (exprChild.type === 'arrow_function') {
             const arrowBody = exprChild.childForFieldName('body');
             if (arrowBody && arrowBody.type !== 'statement_block') {
-              countDiscardedExpressionBranches(arrowBody, () => recordBranch(owner, nextController));
+              countDiscardedExpressionBranches(arrowBody, () => recordBranch(owner));
             }
           }
           if (exprChild.type === 'identifier') {
@@ -729,7 +993,7 @@ function measureTsxShape(parser: Parser, sourceText: string): TsxShapeReport {
                 continue;
               }
               countedArrowBodyIds.add(binding.bodyNode.id);
-              countDiscardedExpressionBranches(binding.bodyNode, () => recordBranch(binding.ownerName, nextController));
+              countDiscardedExpressionBranches(binding.bodyNode, () => recordBranch(binding.ownerName));
             }
           }
         }
@@ -737,38 +1001,27 @@ function measureTsxShape(parser: Parser, sourceText: string): TsxShapeReport {
 
       for (let childIndex = 0; childIndex < node.namedChildCount; childIndex += 1) {
         const child = node.namedChild(childIndex);
-        if (child) visit(child, owner, nextController);
+        if (child) visit(child, owner);
       }
     };
 
-    visit(rootNode, '<module>', null);
+    visit(rootNode, '<module>');
 
     const branchOwners: BranchOwnerCount[] = [...branchCountByOwner.entries()]
       .map(([name, count]) => ({ name, count }))
       .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
     const branchCount = branchOwners.reduce((total, entry) => total + entry.count, 0);
 
-    const controllers: ControllerReport[] = [...controllerStats.entries()]
-      .map(([name, stats]) => ({ name, stateCount: stats.stateCount, branchCount: stats.branchCount }))
-      .sort(
-        (left, right) =>
-          right.stateCount + right.branchCount - (left.stateCount + left.branchCount) ||
-          left.name.localeCompare(right.name),
-      );
-    const controllerExtraWeight = controllers.reduce(
-      (total, entry) => total + 1 + entry.stateCount + entry.branchCount,
-      0,
-    );
-
     return {
       hasSyntaxError: false,
-      score: stateNames.length + branchCount + controllerExtraWeight,
+      score: stateNames.length + branchCount + signalLogic.inlineWrites + signalLogic.directConditions,
       stateCount: stateNames.length,
       branchCount,
-      controllerCount: controllers.length,
+      inlineSignalWriteCount: signalLogic.inlineWrites,
+      directSignalConditionCount: signalLogic.directConditions,
       stateNames,
       branchOwners,
-      controllers,
+      signalLogicOwners: signalLogic.owners,
     };
   } finally {
     tree.delete();
@@ -806,24 +1059,28 @@ function formatOffenders(report: TsxShapeReport): string {
         : '';
     parts.push(`decisions: ${shown}${overflow}`);
   }
-  if (report.controllers.length > 0) {
-    const shown = report.controllers
+  if (report.signalLogicOwners.length > 0) {
+    const shown = report.signalLogicOwners
       .slice(0, MAX_REPORTED_OFFENDERS)
-      .map((entry) => `${entry.name} (${entry.stateCount} state, ${entry.branchCount} branches)`)
+      .map((entry) => `${entry.name} (${entry.inlineWrites} inline writes, ${entry.directConditions} direct conditions)`)
       .join(', ');
     const overflow =
-      report.controllers.length > MAX_REPORTED_OFFENDERS
-        ? `, +${report.controllers.length - MAX_REPORTED_OFFENDERS} more`
+      report.signalLogicOwners.length > MAX_REPORTED_OFFENDERS
+        ? `, +${report.signalLogicOwners.length - MAX_REPORTED_OFFENDERS} more`
         : '';
-    parts.push(`controllers: ${shown}${overflow}`);
+    parts.push(`signal-logic: ${shown}${overflow}`);
   }
   return parts.join('; ');
 }
 
 function formatBreakdown(report: TsxShapeReport): string {
   const counts = [`${report.stateCount} state`, `${report.branchCount} branches`];
-  if (report.controllerCount > 0) {
-    counts.push(`${report.controllerCount} ${report.controllerCount === 1 ? 'controller' : 'controllers'}`);
+  const signalLogicTotal = report.inlineSignalWriteCount + report.directSignalConditionCount;
+  if (signalLogicTotal > 0) {
+    counts.push(
+      `${report.inlineSignalWriteCount} inline signal writes`,
+      `${report.directSignalConditionCount} direct signal conditions`,
+    );
   }
   const offenders = formatOffenders(report);
   return offenders.length > 0 ? `${counts.join(', ')}; ${offenders}` : counts.join(', ');
@@ -1042,7 +1299,7 @@ test('tsx-shape gate fails on over-budget new files, regressed recorded files, s
   assert.equal(edgeCaseReport.branchCount, 2, `expected both default-param and destructuring branches counted, got ${edgeCaseReport.branchCount}`);
 });
 
-test('tsx-shape gate catches unrendered signals, statement-level expression branches, and controller functions while keeping JSX ternaries and bind helpers free', async () => {
+test('tsx-shape gate catches unrendered signals, statement-level expression branches, and inline unrendered-signal controller logic while keeping delegated cores and JSX ternaries cheap', async () => {
   const parser = await tsxParser();
 
   const signalReport = measureTsxShape(
@@ -1086,6 +1343,8 @@ test('tsx-shape gate catches unrendered signals, statement-level expression bran
     'castedFlag (unrendered signal)',
     'defaultedFlag (unrendered signal)',
   ]);
+  assert.equal(signalReport.inlineSignalWriteCount, 6);
+  assert.equal(signalReport.directSignalConditionCount, 7);
 
   const expressionBranchReport = measureTsxShape(
     parser,
@@ -1115,35 +1374,70 @@ test('tsx-shape gate catches unrendered signals, statement-level expression bran
   assert.equal(expressionBranchReport.branchCount, 10, `expected 10 statement/handler expression branches (JSX ternaries free), got ${expressionBranchReport.branchCount}`);
   assert.equal(expressionBranchReport.score, 10);
 
-  const controllerReport = measureTsxShape(
+  const delegatedCoreReport = measureTsxShape(
     parser,
     [
-      'function bindHost(read: () => string): (element: HTMLDivElement) => void {',
-      '  let host: HTMLDivElement | undefined;',
-      '  createEffect(() => read(), (text) => { if (host) host.textContent = text; });',
-      '  return (element) => { host = element; };',
-      '}',
-      'export function createHiddenController(limit: number) {',
-      '  const isClosed = createSyncedSignal(false);',
-      '  const elements = createSyncedSignal<string[]>([]);',
+      'import { closeState, decideNext, withReset } from "./my-core.ts";',
+      'export function createDelegatedHandle() {',
+      '  const stateSignal = createSyncedSignal({ closed: false });',
       '  return {',
-      '    elements: () => elements.read(),',
-      '    run: (value: number) => { if (!isClosed.read() && value > limit) isClosed.update(true); },',
+      '    run: () => { const decision = decideNext(stateSignal.peek()); if (decision.shouldReset) stateSignal.update((prev) => withReset(prev, true)); },',
+      '    close: () => { stateSignal.update(closeState); },',
       '  };',
       '}',
-      'export const wrappedController = ((limit: number) => { let count = 0; if (limit > 0) count += 1; return count; }) as (n: number) => number;',
-      'export class ClassController { run(v: number) { if (v > 0) return 1; return 0; } }',
-      'export default (limit: number) => { if (limit > 0) return 1; return 0; };',
-      'export function ThinView(props: { text: string }) {',
-      '  return <div ref={bindHost(() => props.text)} />;',
-      '}',
+      'export function ThinView() { return <div />; }',
     ].join('\n'),
   );
-  assert.equal(
-    controllerReport.controllerCount,
-    4,
-    `expected 4 controllers (createHiddenController, wrappedController, ClassController, default), got ${controllerReport.controllers.map((c) => c.name).join(', ')}`,
+  assert.equal(delegatedCoreReport.stateCount, 1);
+  assert.equal(delegatedCoreReport.inlineSignalWriteCount, 0);
+  assert.equal(delegatedCoreReport.directSignalConditionCount, 0);
+  assert.equal(delegatedCoreReport.score, 2);
+
+  const inlineControllerReport = measureTsxShape(
+    parser,
+    [
+      'import { batch, untrack } from "solid-js";',
+      'export function createInlineController() {',
+      '  const isClosed = createSyncedSignal(false);',
+      '  const generation = createSyncedSignal({ count: 0 });',
+      '  const [, setRetries] = createSignal(0);',
+      '  const isReady = (closed: boolean) => !closed;',
+      '  return {',
+      '    run: (expected: number) => {',
+      '      if (isReady(isClosed.peek()) && !Boolean(isClosed.peek()) && generation.peek().count + 1 > expected) {',
+      '        generation.update((n) => untrack(() => ({ count: n.count + 1 })));',
+      '        setRetries((count) => count + 1);',
+      '      }',
+      '    },',
+      '    close: () => { isClosed.update(batch(() => true)); },',
+      '  };',
+      '}',
+      'export function ThinView() { return <div />; }',
+    ].join('\n'),
   );
-  const hiddenController = controllerReport.controllers.find((entry) => entry.name === 'createHiddenController');
-  assert.deepEqual(hiddenController, { name: 'createHiddenController', stateCount: 1, branchCount: 1 });
+  assert.equal(inlineControllerReport.stateCount, 3);
+  assert.equal(inlineControllerReport.inlineSignalWriteCount, 3);
+  assert.equal(inlineControllerReport.directSignalConditionCount, 3);
+  assert.equal(inlineControllerReport.signalLogicOwners[0]?.name, 'createInlineController');
+
+  const commentResilientReport = measureTsxShape(
+    parser,
+    [
+      'import /* core */ { closeState } from "./my-core.ts";',
+      'export function createCommentedHandle() {',
+      '  const stateSignal = createSyncedSignal({ closed: false });',
+      '  const [/* getter */ hiddenFlag, setHiddenFlag] = createSignal(false);',
+      '  return {',
+      '    close: () => {',
+      '      stateSignal.update(/* reset */ closeState);',
+      '      setHiddenFlag(true);',
+      '    },',
+      '  };',
+      '}',
+      'export function ThinView() { return <div />; }',
+    ].join('\n'),
+  );
+  assert.equal(commentResilientReport.stateCount, 2);
+  assert.equal(commentResilientReport.inlineSignalWriteCount, 1);
+  assert.equal(commentResilientReport.directSignalConditionCount, 0);
 });
