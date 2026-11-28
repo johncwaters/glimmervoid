@@ -648,7 +648,11 @@ async function verifyStudioModelSwitch(page: Page, root: Locator): Promise<void>
   await modelPanel.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
 }
 
-export async function verifyBoardSession(page: Page, projectDirectory: string): Promise<void> {
+export async function verifyBoardSession(
+  page: Page,
+  projectDirectory: string,
+  controlFaults: { setPushDelayMs(delayMs: number): void },
+): Promise<void> {
   const openedTerminalSessionIds: string[] = [];
   const recordTerminalSocket = (socket: { url(): string }) => {
     const match = /\/terminals\/([^/?#]+)/.exec(socket.url());
@@ -665,15 +669,54 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
     assert.deepEqual(studioTerminalAttaches, [], `Studio ACP sessions never open a /terminals/ socket (${stage})`);
   };
   try {
-    await verifyBoardSessionBody(page, projectDirectory, collectStudioSessionIds, assertNoStudioTerminalAttach);
+    await verifyBoardSessionBody(page, projectDirectory, controlFaults, collectStudioSessionIds, assertNoStudioTerminalAttach);
   } finally {
     page.off('websocket', recordTerminalSocket);
   }
 }
 
+async function verifyStudioRestoresAfterDelayedSnapshot(
+  page: Page,
+  root: Locator,
+  controlFaults: { setPushDelayMs(delayMs: number): void },
+): Promise<void> {
+  const DELAYED_SNAPSHOT_MS = 1200;
+  controlFaults.setPushDelayMs(DELAYED_SNAPSHOT_MS);
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await root.locator('.bs-notice').waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
+    await page.waitForFunction(
+      () => document.querySelectorAll('.session-card[data-id]').length > 0,
+      undefined,
+      { timeout: BOARD_SESSION_TIMEOUT_MS },
+    );
+    await page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); }));
+    const restored = await page.evaluate(() => ({
+      activeView: document.body.dataset.activeView ?? null,
+      mainCardCount: document.querySelectorAll('.board-session-view .bs-card[data-main]').length,
+      noticeText: document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.textContent ?? '',
+    }));
+    assert.equal(restored.activeView, 'board-session', `reloading Studio with snapshot delayed ${DELAYED_SNAPSHOT_MS}ms must keep board-session active`);
+    assert.equal(
+      restored.mainCardCount > 0,
+      true,
+      `reloading Studio with snapshot delayed ${DELAYED_SNAPSHOT_MS}ms must show its Orchestrator card (got mainCardCount=${restored.mainCardCount}, noticeText=${JSON.stringify(restored.noticeText)})`,
+    );
+  } finally {
+    controlFaults.setPushDelayMs(0);
+  }
+  await root.locator('.bs-card[data-main]').first().waitFor({ state: 'visible', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.waitForFunction(
+    () => document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.hidden === true,
+    undefined,
+    { timeout: BOARD_SESSION_TIMEOUT_MS },
+  );
+}
+
 async function verifyBoardSessionBody(
   page: Page,
   projectDirectory: string,
+  controlFaults: { setPushDelayMs(delayMs: number): void },
   collectStudioSessionIds: (root: Locator) => Promise<void>,
   assertNoStudioTerminalAttach: (stage: string) => void,
 ): Promise<void> {
@@ -723,6 +766,7 @@ async function verifyBoardSessionBody(
   const repoButtonBefore = await boxOf(page, '.board-session-view .bs-card[data-main] .bs-card-repo');
   const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   await page.waitForFunction(() => document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.hidden === true, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await verifyStudioRestoresAfterDelayedSnapshot(page, root, controlFaults);
   assert.equal(await root.locator('.bs-guide-step[data-done]').count(), 0, 'a new carbon unit starts with no guide step done');
   const repoName = path.basename(projectDirectory);
   const foldedBoardId = await studioMapBoardIdOf(page, root);

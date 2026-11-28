@@ -866,7 +866,7 @@ function needsSoftKeyboard(scenario: Scenario): boolean {
 }
 
 export function needsSocketRoute(scenario: Pick<Scenario, 'steps'>): boolean {
-  return scenario.steps.some((step) => step.kind === 'suspend' || step.kind === 'assert-continuity');
+  return scenario.steps.some((step) => step.kind === 'suspend' || step.kind === 'assert-continuity' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session');
 }
 
 export function needsTeamReview(scenario: Scenario): boolean {

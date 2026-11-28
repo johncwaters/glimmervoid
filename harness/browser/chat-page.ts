@@ -871,7 +871,10 @@ export async function verifyChatStaysDefault(page: Page): Promise<void> {
   assert.equal(await page.locator('.session-chat').count(), 0, 'closing Chat makes the terminal the first view again');
 }
 
-export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
+export async function verifyChatStaysDefaultOnPhone(
+  page: Page,
+  controlFaults: { setPushDelayMs(delayMs: number): void },
+): Promise<void> {
   await page.locator('button[data-action="show-chat"]:visible').first().click();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('chat-composer-input') ?? false), false, 'opening Chat on a phone focuses nothing, so the keyboard stays down');
@@ -908,6 +911,7 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.locator('button[data-action="back-to-board"]:visible').click();
   await page.locator('.phone-board-list button.session-row:not([data-shell])').first().click();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await verifyPhoneChatRestoresAfterDelayedSnapshot(page, controlFaults);
   await page.locator('button[data-action="show-terminal"]:visible').click();
   await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.locator('button[data-action="show-terminal"]:visible').getAttribute('aria-pressed'), 'true', 'the Terminal button reads pressed while the terminal shows');
@@ -915,6 +919,41 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.locator('.phone-board-list button.session-row:not([data-shell])').first().click();
   await page.locator('.phone-terminal .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.locator('.session-chat').count(), 0, 'after Terminal, the next session opens in the terminal');
+}
+
+async function verifyPhoneChatRestoresAfterDelayedSnapshot(
+  page: Page,
+  controlFaults: { setPushDelayMs(delayMs: number): void },
+): Promise<void> {
+  const DELAYED_SNAPSHOT_MS = 1200;
+  controlFaults.setPushDelayMs(DELAYED_SNAPSHOT_MS);
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#phone-shell:not([hidden])').waitFor({ state: 'visible', timeout: CARD_TIMEOUT_MS });
+    await page.waitForFunction(
+      () => document.querySelectorAll('.session-card[data-id]').length > 0,
+      undefined,
+      { timeout: CARD_TIMEOUT_MS },
+    );
+    const restored = await page.evaluate(() => ({
+      visibleScreen: document.querySelector('section.phone-screen:not([hidden])')?.getAttribute('data-screen') ?? null,
+      historyScreen: (history.state as { glimmervoidScreen?: unknown } | null)?.glimmervoidScreen ?? null,
+      hasComposer: document.querySelector('.session-chat .chat-composer') !== null,
+    }));
+    assert.equal(
+      restored.visibleScreen,
+      'chat',
+      `reloading phone Chat with snapshot delayed ${DELAYED_SNAPSHOT_MS}ms must restore chat instead of ${String(restored.visibleScreen)} (historyScreen=${String(restored.historyScreen)})`,
+    );
+    assert.equal(
+      restored.historyScreen,
+      'chat',
+      `reloading phone Chat with snapshot delayed ${DELAYED_SNAPSHOT_MS}ms must keep history.state.glimmervoidScreen as chat`,
+    );
+    assert.equal(restored.hasComposer, true, 'restored phone Chat must render the chat composer');
+  } finally {
+    controlFaults.setPushDelayMs(0);
+  }
 }
 
 async function verifyPhoneChatMarksRead(page: Page, chatBar: Locator): Promise<void> {

@@ -1544,8 +1544,8 @@ export async function runCase({
       return passedOutcome('chat-done-means', 'a turn below the panel line threshold shows no panel, a bigger turn ends with each check and agent command and its proof, the panel asks nothing, and a spawned child keeps its done lines as prompt text');
     }
     if (step.kind === 'assert-chat-default-phone') {
-      await verifyChatStaysDefaultOnPhone(viewer.page);
-      return passedOutcome('chat-default-phone', 'Chat shows the session bar, Back and the system back gesture go to the list and keep Chat first, the Session tab keeps Chat, and Terminal switches back and stays first');
+      await verifyChatStaysDefaultOnPhone(viewer.page, viewer.controlFaults);
+      return passedOutcome('chat-default-phone', 'Chat shows the session bar, Back and the system back gesture go to the list and keep Chat first, the Session tab keeps Chat, reloading with a delayed snapshot restores Chat, and Terminal switches back and stays first');
     }
     if (step.kind === 'assert-chat-default') {
       await verifyChatStaysDefault(viewer.page);
@@ -1564,8 +1564,8 @@ export async function runCase({
       return passedOutcome('chat-elicitation', 'an MCP form shows as a Chat form card with no inline terminal and Submit sends typed values; an MCP sign-in link shows Open link and Done sends accept');
     }
     if (step.kind === 'assert-board-session') {
-      await verifyBoardSession(viewer.page, projectDirectory);
-      return passedOutcome('board-session', 'the Studio tab names the session, reads its code map, sends from the pill, answers a board ask, shows a director digest in place of a long reply, starts a branch from @ a box whose commits reach the parent, follows up by clicking its teal reply, shows bubbles with no layout shift, and Focus opens after it');
+      await verifyBoardSession(viewer.page, projectDirectory, viewer.controlFaults);
+      return passedOutcome('board-session', 'the Studio tab names the session, reads its code map, restores after a delayed-snapshot reload, sends from the pill, answers a board ask, shows a director digest in place of a long reply, starts a branch from @ a box whose commits reach the parent, follows up by clicking its teal reply, shows bubbles with no layout shift, and Focus opens after it');
     }
     if (step.kind === 'assert-chat-sign-in') {
       await verifyChatSignIn(viewer.page);
