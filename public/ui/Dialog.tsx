@@ -1,7 +1,7 @@
 import { Show, createEffect, createMemo, createUniqueId, onCleanup, untrack } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import { Button } from './Button.tsx';
-import { dialogCloseOutcome, dialogDescriptor, isDialogBackdropClick } from './dialog-core.ts';
+import { dialogCloseOutcome, dialogConfirmPressOutcome, dialogDescriptor, isDialogBackdropClick } from './dialog-core.ts';
 import type { DialogCloseReason, DialogCoreOptions } from './dialog-core.ts';
 import { openModals, syncModalInert } from './modal-state.ts';
 
@@ -35,6 +35,8 @@ export function Dialog(props: DialogProps): JSX.Element {
     cancelLabel: props.cancelLabel,
     confirmLabel: props.confirmLabel,
     confirmAction: props.confirmAction,
+    canConfirm: props.canConfirm,
+    closeOnConfirm: props.closeOnConfirm,
     danger: props.danger,
     defaultAction: props.defaultAction,
     closeOnBackdrop: props.closeOnBackdrop,
@@ -172,7 +174,13 @@ export function Dialog(props: DialogProps): JSX.Element {
               variant={confirmButton().variant}
               label={confirmButton().label}
               action={confirmButton().action}
-              onClick={() => finalizeClose('confirm', true)}
+              disabled={confirmButton().disabled}
+              onClick={() => {
+                const pressOutcome = dialogConfirmPressOutcome(descriptor().canConfirm, descriptor().closeOnConfirm);
+                pressOutcome.shouldClose
+                  ? finalizeClose('confirm', true)
+                  : (pressOutcome.shouldConfirm ? props.onConfirm?.() : undefined);
+              }}
             />
           )}
         </Show>

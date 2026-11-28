@@ -13,6 +13,7 @@ import { DEFAULT_COPY_CLEAR_AFTER_MS, copyButtonDescriptor, copyStatusText } fro
 import {
   confirmDialogProps,
   dialogCloseOutcome,
+  dialogConfirmPressOutcome,
   dialogDescriptor,
   isDialogBackdropClick,
 } from '../public/ui/dialog-core.ts';
@@ -447,11 +448,30 @@ describe('dialog-core', () => {
       title: 'Restart Server',
       message: 'Restart the server?',
       cancelLabel: 'Cancel',
-      confirmButton: { label: 'Confirm', variant: 'primary', action: 'confirm-dialog' },
+      confirmButton: { label: 'Confirm', variant: 'primary', action: 'confirm-dialog', disabled: false },
+      canConfirm: true,
+      closeOnConfirm: true,
       defaultAction: 'cancel',
       closeOnBackdrop: true,
       closeOnEscape: true,
     });
+
+    const asyncConfirm = dialogDescriptor({
+      title: 'Pick Orchestrator agent',
+      confirmLabel: 'Start',
+      canConfirm: false,
+      closeOnConfirm: false,
+      defaultAction: 'confirm',
+    });
+    assert.equal(asyncConfirm.confirmButton?.disabled, true);
+    assert.equal(asyncConfirm.canConfirm, false);
+    assert.equal(asyncConfirm.closeOnConfirm, false);
+    assert.equal(asyncConfirm.defaultAction, 'cancel');
+
+    assert.deepEqual(dialogConfirmPressOutcome(false, true), { shouldClose: false, shouldConfirm: false });
+    assert.deepEqual(dialogConfirmPressOutcome(false, false), { shouldClose: false, shouldConfirm: false });
+    assert.deepEqual(dialogConfirmPressOutcome(true, true), { shouldClose: true, shouldConfirm: true });
+    assert.deepEqual(dialogConfirmPressOutcome(true, false), { shouldClose: false, shouldConfirm: true });
 
     const dangerConfirm = dialogDescriptor(confirmDialogProps({
       title: 'Delete board',

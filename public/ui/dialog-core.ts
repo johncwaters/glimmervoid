@@ -9,6 +9,8 @@ export interface DialogCoreOptions {
   cancelLabel?: string;
   confirmLabel?: string;
   confirmAction?: string;
+  canConfirm?: boolean;
+  closeOnConfirm?: boolean;
   danger?: boolean;
   defaultAction?: DialogAction;
   closeOnBackdrop?: boolean;
@@ -19,6 +21,7 @@ interface DialogConfirmButtonDescriptor {
   label: string;
   variant: 'primary' | 'danger';
   action: string;
+  disabled: boolean;
 }
 
 interface DialogDescriptor {
@@ -27,9 +30,16 @@ interface DialogDescriptor {
   message: string | undefined;
   cancelLabel: string;
   confirmButton: DialogConfirmButtonDescriptor | null;
+  canConfirm: boolean;
+  closeOnConfirm: boolean;
   defaultAction: DialogAction;
   closeOnBackdrop: boolean;
   closeOnEscape: boolean;
+}
+
+interface DialogConfirmPressOutcome {
+  shouldClose: boolean;
+  shouldConfirm: boolean;
 }
 
 interface DialogCloseOutcome {
@@ -63,14 +73,17 @@ function normalizeDialogClass(dialogClass: string | undefined): string {
 }
 
 export function dialogDescriptor(options: DialogCoreOptions): DialogDescriptor {
+  const canConfirm = options.canConfirm ?? true;
+  const closeOnConfirm = options.closeOnConfirm ?? true;
   const confirmButton: DialogConfirmButtonDescriptor | null = options.confirmLabel === undefined
     ? null
     : {
         label: options.confirmLabel,
         variant: options.danger ? 'danger' : 'primary',
         action: options.confirmAction ?? DEFAULT_CONFIRM_ACTION,
+        disabled: !canConfirm,
       };
-  const defaultAction: DialogAction = options.defaultAction === 'confirm' && confirmButton !== null
+  const defaultAction: DialogAction = options.defaultAction === 'confirm' && confirmButton !== null && canConfirm
     ? 'confirm'
     : 'cancel';
 
@@ -80,10 +93,21 @@ export function dialogDescriptor(options: DialogCoreOptions): DialogDescriptor {
     message: options.message,
     cancelLabel: options.cancelLabel ?? DEFAULT_CANCEL_LABEL,
     confirmButton,
+    canConfirm,
+    closeOnConfirm,
     defaultAction,
     closeOnBackdrop: options.closeOnBackdrop ?? true,
     closeOnEscape: options.closeOnEscape ?? true,
   };
+}
+
+export function dialogConfirmPressOutcome(
+  canConfirm: boolean,
+  closeOnConfirm: boolean,
+): DialogConfirmPressOutcome {
+  if (!canConfirm) return { shouldClose: false, shouldConfirm: false };
+  if (closeOnConfirm) return { shouldClose: true, shouldConfirm: true };
+  return { shouldClose: false, shouldConfirm: true };
 }
 
 export function confirmDialogProps(options: {
