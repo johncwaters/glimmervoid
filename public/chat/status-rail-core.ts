@@ -119,12 +119,12 @@ const RAIL_TEXT_BY_KIND: { [Kind in RailField['kind']]: (field: Extract<RailFiel
   permission: ({ mode }) => mode,
 };
 
-export function railTextOf<Kind extends RailField['kind']>(field: Extract<RailField, { kind: Kind }>): string {
+function railTextOf<Kind extends RailField['kind']>(field: Extract<RailField, { kind: Kind }>): string {
   const textOf = RAIL_TEXT_BY_KIND[field.kind] as (field: Extract<RailField, { kind: Kind }>) => string;
   return textOf(field);
 }
 
-export function railFillPctOf(field: RailField): number | null {
+function railFillPctOf(field: RailField): number | null {
   if (field.kind === 'plan') return Math.min(100, Math.max(0, field.pct));
   if (field.kind === 'context') return Math.min(100, Math.max(0, (field.tokens / field.window) * 100));
   return null;
@@ -166,7 +166,7 @@ interface RailGroupSection {
   readonly fields: readonly RailReadingFieldDisplay[];
 }
 
-export function railLevelOf(fillPct: number): RailLevel {
+function railLevelOf(fillPct: number): RailLevel {
   const shownPct = Math.round(fillPct);
   if (shownPct >= RAIL_HOT_PCT) return 'hot';
   if (shownPct >= RAIL_WARN_PCT) return 'warn';

@@ -9,7 +9,8 @@ import { attachChatLinkPopup } from './chat-link-popup.ts';
 import type { ChatPart, TurnPart } from './chat-part.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
 import type { TurnEnd } from './chat-parts.ts';
-import { createComposer } from './composer.ts';
+import { mountComposerIsland } from './Composer.tsx';
+import type { ComposerModelPickerConfig } from './Composer.tsx';
 import { stickToBottom } from './stick-to-bottom.ts';
 import { currentCallOf, interimReplyText } from './turn-digest-core.ts';
 import { isChatBriefOff, setChatBriefOff } from '../ui-prefs.ts';
@@ -35,9 +36,11 @@ interface ChatView {
   showQueued(entries: readonly ChatOutboxEntry[]): void;
   showAttachment(fileName: string): void;
   showRail(fields: readonly RailField[]): void;
+  closeModelPicker(): void;
   showTurnEnd(turnEnd: TurnEnd | null): void;
   tickRunTimes(): boolean;
   showLoaded(): void;
+  dispose(): void;
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
@@ -235,12 +238,16 @@ function runningCallLabelOf(turn: TurnPart): string | null {
   return currentCallOf(turn.segments);
 }
 
-export function createChatView(uploadUrlOf: (fileName: string) => string): ChatView {
+export function createChatView(
+  uploadUrlOf: (fileName: string) => string,
+  modelPicker?: ComposerModelPickerConfig,
+): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
 
   applyChatBriefOff(isChatBriefOff());
-  const composer = createComposer(uploadUrlOf);
+  const composerHost = el('div', 'chat-composer-host');
+  const composer = mountComposerIsland(composerHost, { uploadUrlOf, modelPicker });
   const activity = createChatActivity();
   const queuedList = el('div', 'chat-queued-list');
   const turnEndRow = el('div', 'chat-turn-end-row');
@@ -268,7 +275,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   const jumpBar = el('div', 'chat-jump-bar');
   jumpBar.appendChild(jumpSlot);
   const dock = el('div', 'chat-dock');
-  dock.append(jumpBar, composer.element);
+  dock.append(jumpBar, composerHost);
   element.append(scroller, dock);
   attachChatLinkPopup(element, scroller, dock);
   const composerParts = composer.element;
@@ -319,5 +326,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     if (turnEnd === null || isInTurnRow || turnEnd.pill.parentElement === turnEndRow) return;
     turnEndRow.replaceChildren(turnEnd.pill, turnEnd.list);
   };
-  return { element, pauseActivityStats: activity.pauseStats, resumeActivityStats: activity.resumeStats, stopActivityStats: activity.stopStats, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes, showLoaded };
+  return { element, pauseActivityStats: activity.pauseStats, resumeActivityStats: activity.resumeStats, stopActivityStats: activity.stopStats, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, closeModelPicker: composer.closeModelPicker, showTurnEnd, tickRunTimes: chatLog.tickRunTimes, showLoaded, dispose: composer.dispose };
 }

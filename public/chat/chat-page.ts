@@ -23,7 +23,6 @@ import { clock } from '#shared/clock.ts';
 import { accountPlanLimitsOf, planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RailField } from './status-rail-core.ts';
-import { listenForModelChange } from './model-picker.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
 import { refreshChatFileRefs } from './chat-parts.ts';
@@ -312,8 +311,13 @@ function buildChat(sessionId: string): MountedChat {
   const root = el('div', 'session-chat');
   const failureLine = el('div', 'session-chat-failure');
   failureLine.hidden = true;
+  const modelPickerConfig = {
+    sessionId,
+    canOpen: () => !isSessionWorking(sessionId),
+    onFailure: (failureText: string) => showSessionFailure(sessionId, failureText),
+  };
   const createSeededView = (draft: string, attachments: readonly string[]) => {
-    const view = createChatView(uploadUrlFor(sessionId));
+    const view = createChatView(uploadUrlFor(sessionId), modelPickerConfig);
     view.restoreDraft(draft);
     for (const fileName of attachments) view.showAttachment(fileName);
     return view;
@@ -400,10 +404,9 @@ function buildChat(sessionId: string): MountedChat {
   const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: sessionState.agentDoneLines, phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
   root.append(failureLine, chatView.element);
-  const modelPicker = listenForModelChange({ root, sessionId, canOpen: () => !isSessionWorking(sessionId), showFailure: (failureText) => showSessionFailure(sessionId, failureText) });
   const showRail = () => {
     const canChangeModel = canSwitchSessionModel(sessionId) && !isSessionWorking(sessionId);
-    if (!canChangeModel) modelPicker.close();
+    if (!canChangeModel) chatView.closeModelPicker();
     refreshLimitCountdowns(root, clock.nowMs());
     chatView.showRail(sessionRailFieldsOf(sessionId, canChangeModel));
   };
@@ -423,7 +426,7 @@ function buildChat(sessionId: string): MountedChat {
     runTimeTimer = setInterval(tickRunTimes, RUN_TIME_TICK_MS);
   };
   const stopRail = () => {
-    modelPicker.close();
+    chatView.closeModelPicker();
     if (railTimer !== null) clearInterval(railTimer);
     railTimer = null;
     stopRunTimes();
@@ -541,6 +544,7 @@ function buildChat(sessionId: string): MountedChat {
       shownPromptPartIds.clear();
       freshView.upsert([...outboxProjection.standInByEntryId.values()], NO_ARRIVING_PARTS);
       chatView.element.replaceWith(freshView.element);
+      chatView.dispose();
       chatView = freshView;
       boardChangeByCardId = new Map();
       feedPosition = 'unseeded';
@@ -599,6 +603,7 @@ function buildChat(sessionId: string): MountedChat {
       chatView.stopActivityStats();
       if (sessionUIs.has(sessionId)) saveChatDraft(sessionId, chatView.readDraft());
       sessionState.draftAttachments = chatView.readAttachments();
+      chatView.dispose();
       waits.releaseTerminal();
       feed.close();
     },

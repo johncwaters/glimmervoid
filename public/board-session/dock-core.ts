@@ -977,7 +977,3 @@ export function decideCancelReply(
   }
   return { failureText: null, restoredText: outcome.reply.cancelledTexts.join('\n\n') };
 }
-
-export function isImmediateDraftEvent(detail: unknown): boolean {
-  return typeof detail === 'object' && detail !== null && Reflect.get(detail, 'isImmediate') === true;
-}

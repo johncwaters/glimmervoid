@@ -2,7 +2,7 @@
   "public/board-session/AgentCard.tsx": 7,
   "public/board-session/AgentCards.tsx": 19,
   "public/board-session/AgentWaits.tsx": 38,
-  "public/board-session/Dock.tsx": 94,
+  "public/board-session/Dock.tsx": 88,
   "public/board-session/PickAgentDialog.tsx": 10,
   "public/hello-island.tsx": 1,
   "public/ui/Button.tsx": 0,

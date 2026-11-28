@@ -11,7 +11,7 @@ const SOURCE_FILE = /\.(m?[jt]sx?|c[jt]s|css|html)$/;
 const CSS_URL_IMPORT = /@import\s+url\(\s*['"]?([^'")\s]+)/g;
 const DYNAMIC_IMPORT_CALL = /\bimport\s*\(\s*([^)]*)\)/g;
 const PLAIN_QUOTED_SPECIFIER = /^(['"])[^'"]+\1$/;
-const ALLOWED_PACKAGE_PATTERNS = [/^@pierre\/diffs(\/|$)/, /^@xterm\//, /^shiki(\/|$)/];
+const ALLOWED_PACKAGE_PATTERNS = [/^@pierre\/diffs(\/|$)/, /^@xterm\//, /^shiki(\/|$)/, /^solid-js$/, /^@solidjs\/web$/];
 
 function chatSourceFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -40,5 +40,5 @@ test('public/chat imports no bare package outside the chat allowlist', () => {
   const offenders = files.flatMap((file) => importSpecifiersOf(fs.readFileSync(file, 'utf8'))
     .filter((specifier) => isBarePackage(specifier) && !ALLOWED_PACKAGE_PATTERNS.some((pattern) => pattern.test(specifier)))
     .map((specifier) => `${path.relative(ROOT, file)}: ${specifier}`));
-  assert.deepEqual(offenders, [], `Chat components are our own; import only @pierre/diffs, @xterm/* or shiki:\n  ${offenders.join('\n  ')}`);
+  assert.deepEqual(offenders, [], `Chat components are our own; import only @pierre/diffs, @xterm/*, shiki, solid-js or @solidjs/web:\n  ${offenders.join('\n  ')}`);
 });

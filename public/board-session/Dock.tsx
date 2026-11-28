@@ -10,12 +10,12 @@ import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { renderStudioCard } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
-import { draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
+import { draftWithRestoredText } from '../chat/chat-page.ts';
 import type { ChatPart } from '../chat/chat-part.ts';
 import { chatDraftOf, saveChatDraft, scheduleChatDraftSave } from '../chat/chat-session-state.ts';
 import { studioQueuedStatusOf } from '../chat/chat-view.ts';
-import { createComposer } from '../chat/composer.ts';
-import { listenForModelChange } from '../chat/model-picker.ts';
+import { Composer } from '../chat/Composer.tsx';
+import type { ComposerHandle } from '../chat/Composer.tsx';
 import type { RailField } from '../chat/status-rail-core.ts';
 import { stickToBottom } from '../chat/stick-to-bottom.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
@@ -61,7 +61,6 @@ import {
   groupMentionChoices,
   hasFailedOutboxEntry,
   isAddressedSessionTurnRunning,
-  isImmediateDraftEvent,
   isOutboxCancelDisabled,
   isTargetSessionTurnRunning,
   markPendingSendDispatched,
@@ -252,7 +251,6 @@ function Dock(props: DockProps): JSX.Element {
   let logElement: HTMLDivElement | undefined;
   let logContentElement: HTMLDivElement | undefined;
   let jumpSlotElement: HTMLDivElement | undefined;
-  let addressChipElement: HTMLSpanElement | undefined;
 
   const mainSpeaker: FeedSpeaker<DockBranch> = {
     sessionId: props.session.sessionId,
@@ -270,6 +268,8 @@ function Dock(props: DockProps): JSX.Element {
   const [expandedRowKeys, setExpandedRowKeys] = createSignal<ReadonlySet<string>>(new Set());
   const [digestVersion, setDigestVersion] = createSignal(0);
   const [boardChangeVersion, setBoardChangeVersion] = createSignal(0);
+  const [composerTurnRunning, setComposerTurnRunning] = createSignal(false);
+  const [composerRailFields, setComposerRailFields] = createSignal<readonly RailField[]>([]);
 
   const mentionItems = createMemo(() => groupMentionChoices(mentionState.read().choices));
   const addressLabel = createMemo(() => addressLabelOf(addressState.read()));
@@ -287,7 +287,7 @@ function Dock(props: DockProps): JSX.Element {
   let mainSendQueue: Promise<string | null> = Promise.resolve(null);
   let shownActivityBeat: ActivityBeat | null = null;
   let dockLifecycle: 'open' | 'closed' = 'open';
-  let composerRef: ReturnType<typeof createComposer> | null = null;
+  let composerHandle: ComposerHandle | null = null;
   let activityRef: ReturnType<typeof createChatActivity> | null = null;
   let followLatestFn: () => void = () => {};
   let mainFeedRef: ChatFeed | null = null;
@@ -303,50 +303,34 @@ function Dock(props: DockProps): JSX.Element {
     isBranchTurnOver,
   );
 
-  const syncInputActiveDescendant = (): void => {
-    const input = composerRef?.input;
-    if (!input) return;
-    const activeId = activeDescendantIdOf(mentionState.peek());
-    if (activeId === null) {
-      input.removeAttribute('aria-activedescendant');
-      return;
-    }
-    input.setAttribute('aria-activedescendant', activeId);
-  };
-
   const closeMentions = (): void => {
     mentionState.update(EMPTY_MENTION_STATE);
-    syncInputActiveDescendant();
   };
 
   const paintComposer = (): void => {
-    if (!composerRef) return;
-    composerRef.setTurnRunning(isAddressedTurnRunning());
-    composerRef.showRail(props.session.railFields(canSwitchSessionModel(props.session.sessionId) && props.session.isTurnOver()));
+    setComposerTurnRunning(isAddressedTurnRunning());
+    const canChangeModel = canSwitchSessionModel(props.session.sessionId) && props.session.isTurnOver();
+    if (!canChangeModel) composerHandle?.closeModelPicker();
+    setComposerRailFields(props.session.railFields(canChangeModel));
   };
 
   const setAddress = (nextAddress: DockAddress): void => {
     addressState.update(nextAddress);
-    if (composerRef) composerRef.input.maxLength = maxLengthForAddress(nextAddress);
     paintComposer();
   };
 
   const pickChoice = (choice: BoxChoice): void => {
-    if (!composerRef) return;
-    const picked = pickDockMentionChoice(mentionState.peek(), composerRef.input.value, choice);
+    if (!composerHandle) return;
+    const picked = pickDockMentionChoice(mentionState.peek(), composerHandle.readDraft(), choice);
     if (picked === null) return;
-    composerRef.input.value = picked.nextInputValue;
     closeMentions();
     setAddress(picked.nextAddress);
-    composerRef.restoreDraft(composerRef.input.value);
-    composerRef.input.focus();
+    composerHandle.restoreDraft(picked.nextInputValue);
+    composerHandle.focus();
   };
 
-  const readMention = (): void => {
-    const input = composerRef?.input;
-    if (!input) return;
-    mentionState.update(readDockMention(input.value, input.selectionStart, props.session.boxChoices()));
-    syncInputActiveDescendant();
+  const readMention = (value: string, selectionStart: number): void => {
+    mentionState.update(readDockMention(value, selectionStart, props.session.boxChoices()));
   };
 
   const openLog = (): void => {
@@ -453,8 +437,8 @@ function Dock(props: DockProps): JSX.Element {
         setFailureText(decision.failureText);
         return;
       }
-      if (decision.restoredText !== null && composerRef) {
-        composerRef.restoreDraft(draftWithRestoredText(decision.restoredText, composerRef.readDraft()));
+      if (decision.restoredText !== null && composerHandle) {
+        composerHandle.restoreDraft(draftWithRestoredText(decision.restoredText, composerHandle.readDraft()));
       }
     });
   };
@@ -552,11 +536,11 @@ function Dock(props: DockProps): JSX.Element {
     setBranches,
     addressSession: (sessionId, name) => {
       setAddress(resolveAddressForSession(props.session.sessionId, sessionId, name));
-      composerRef?.input.focus();
+      composerHandle?.focus();
     },
     addressBox: (boxId, title) => {
       setAddress(resolveAddressForBox(boxId, title));
-      composerRef?.input.focus();
+      composerHandle?.focus();
     },
     refresh: () => {
       openLogWhenTurnLive();
@@ -577,6 +561,64 @@ function Dock(props: DockProps): JSX.Element {
     },
   };
 
+  const handleComposerKeyDownCapture = (event: KeyboardEvent, currentValue: string): boolean => {
+    const decision = decideMentionKeydown(mentionState.peek(), addressState.peek(), event.key, currentValue.length);
+    if (decision.kind === 'none') return false;
+    if (decision.kind === 'address-main') {
+      if (decision.preventDefault) event.preventDefault();
+      setAddress(MAIN_ADDRESS);
+      return false;
+    }
+    if (decision.kind === 'close-mentions') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeMentions();
+      return true;
+    }
+    if (decision.kind === 'step-mention') {
+      event.preventDefault();
+      mentionState.update(decision.nextState);
+      return true;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    pickChoice(decision.choice);
+    return true;
+  };
+
+  const handleComposerDraft = (text: string, isImmediate: boolean): void => {
+    if (isImmediate) {
+      saveChatDraft(props.session.sessionId, text);
+      return;
+    }
+    scheduleChatDraftSave(props.session.sessionId, text);
+  };
+
+  const handleComposerSend = (text: string): void => {
+    if (text.length === 0) return;
+    closeMentions();
+    const sentAddress = addressState.peek();
+    followLatestFn();
+    const restoreText = (sendFailure: string) => {
+      if ((composerHandle?.readDraft() ?? '').trim().length === 0) composerHandle?.restoreDraft(text);
+      setFailureText(sendFailure);
+    };
+    sendText(text, sentAddress)
+      .then((sendFailure) => {
+        if (sendFailure === null) {
+          setFailureText(null);
+          return;
+        }
+        restoreText(sendFailure);
+      })
+      .catch((reason: unknown) => restoreText(`Could not confirm the message was queued: ${errorMessage(reason)}`));
+  };
+
+  const handleComposerStop = (): void => {
+    const sessionId = addressedSessionIdOf(addressState.peek(), props.session.sessionId);
+    if (sessionId !== null) void chatStopAction({ id: sessionId });
+  };
+
   onSettled(() => {
     const session = props.session;
     const dock = dockElement;
@@ -593,19 +635,7 @@ function Dock(props: DockProps): JSX.Element {
     activityRef = activity;
     logContent.append(activity.element);
 
-    const composer = createComposer(() => NO_UPLOADS_URL);
-    composerRef = composer;
-    composer.restoreDraft(chatDraftOf(session.sessionId));
-    const pill = composer.element;
-    pill.classList.add('bs-pill');
-    pill.dataset.boardIsland = '';
-    const input = composer.input;
-    input.classList.add('bs-pill-input');
-    input.placeholder = `Message ${session.name}, or @ a box to branch`;
-    input.setAttribute('aria-label', `Message ${session.name}`);
-    input.setAttribute('aria-autocomplete', 'list');
-    if (addressChipElement) input.before(addressChipElement);
-    dock.append(pill);
+    composerHandle?.restoreDraft(chatDraftOf(session.sessionId));
 
     const dockListeners = new AbortController();
     document.addEventListener(
@@ -615,93 +645,6 @@ function Dock(props: DockProps): JSX.Element {
       },
       { capture: true, signal: dockListeners.signal },
     );
-
-    input.addEventListener('input', readMention, { signal: dockListeners.signal });
-    input.addEventListener('blur', closeMentions, { signal: dockListeners.signal });
-    input.addEventListener(
-      'keydown',
-      (event) => {
-        const decision = decideMentionKeydown(mentionState.peek(), addressState.peek(), event.key, input.value.length);
-        if (decision.kind === 'none') return;
-        if (decision.kind === 'address-main') {
-          if (decision.preventDefault) event.preventDefault();
-          setAddress(MAIN_ADDRESS);
-          return;
-        }
-        if (decision.kind === 'close-mentions') {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          closeMentions();
-          return;
-        }
-        if (decision.kind === 'step-mention') {
-          event.preventDefault();
-          mentionState.update(decision.nextState);
-          syncInputActiveDescendant();
-          return;
-        }
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        pickChoice(decision.choice);
-      },
-      { capture: true, signal: dockListeners.signal },
-    );
-
-    pill.addEventListener(
-      'chat-draft',
-      (event) => {
-        const text = stringDetailOf(event, 'text');
-        if (text === null) return;
-        if (event instanceof CustomEvent && isImmediateDraftEvent(event.detail)) {
-          saveChatDraft(session.sessionId, text);
-          return;
-        }
-        scheduleChatDraftSave(session.sessionId, text);
-      },
-      { signal: dockListeners.signal },
-    );
-
-    pill.addEventListener(
-      'chat-send',
-      (event) => {
-        const text = stringDetailOf(event, 'text');
-        if (text === null || text.length === 0) return;
-        closeMentions();
-        const sentAddress = addressState.peek();
-        followLatest();
-        const restoreText = (sendFailure: string) => {
-          if (input.value.trim().length === 0) composer.restoreDraft(text);
-          setFailureText(sendFailure);
-        };
-        sendText(text, sentAddress)
-          .then((sendFailure) => {
-            if (sendFailure === null) {
-              setFailureText(null);
-              return;
-            }
-            restoreText(sendFailure);
-          })
-          .catch((reason: unknown) => restoreText(`Could not confirm the message was queued: ${errorMessage(reason)}`));
-      },
-      { signal: dockListeners.signal },
-    );
-
-    pill.addEventListener(
-      'chat-stop',
-      () => {
-        const sessionId = addressedSessionIdOf(addressState.peek(), session.sessionId);
-        if (sessionId !== null) void chatStopAction({ id: sessionId });
-      },
-      { signal: dockListeners.signal },
-    );
-
-    const modelPicker = listenForModelChange({
-      root: pill,
-      sessionId: session.sessionId,
-      canOpen: session.isTurnOver,
-      showFailure: (text) => setFailureText(text),
-      signal: dockListeners.signal,
-    });
 
     const stopFollowingOutbox = watchChatOutbox(session.sessionId, () => {
       queueState.update((previous) => reconcileOutboxEcho(previous, session.outbox()));
@@ -723,16 +666,15 @@ function Dock(props: DockProps): JSX.Element {
     const railTimer = setInterval(paintComposer, RAIL_TICK_MS);
 
     cleanupResources = () => {
-      if (sessionUIs.has(session.sessionId)) saveChatDraft(session.sessionId, composer.readDraft());
+      if (sessionUIs.has(session.sessionId) && composerHandle) saveChatDraft(session.sessionId, composerHandle.readDraft());
       stopFollowingOutbox();
       stopFollowingBoardChanges();
-      modelPicker.close();
+      composerHandle?.closeModelPicker();
       dockListeners.abort();
       clearInterval(railTimer);
       for (const feed of feedBySessionId.values()) feed.close();
       feedBySessionId.clear();
       mainFeedRef = null;
-      pill.remove();
       activity.element.remove();
       jumpSlot.replaceChildren();
     };
@@ -870,7 +812,7 @@ function Dock(props: DockProps): JSX.Element {
                                               const latestBranch = partRow().speaker.branch;
                                               if (latestBranch !== null) {
                                                 setAddress(resolveAddressForBranch(latestBranch));
-                                                composerRef?.input.focus();
+                                                composerHandle?.focus();
                                               }
                                             });
                                           }
@@ -1047,25 +989,51 @@ function Dock(props: DockProps): JSX.Element {
         </For>
       </div>
 
-      <span
-        ref={(element) => { addressChipElement = element; }}
-        class="bs-pill-address"
-        hidden={addressState.read().kind === 'main'}
-      >
-        <span class="bs-pill-address-text">{addressLabel()}</span>
-        <Pressable
-          class="bs-pill-address-clear"
-          data-action="board-session-address-main"
-          ref={(element) => {
-            labelIconPressable(element, `Message ${props.session.name}`);
-            element.replaceChildren(createLineIcon(CLEAR_ICON_PATH, '1.6'));
-          }}
-          onClick={() => {
-            setAddress(MAIN_ADDRESS);
-            composerRef?.input.focus();
-          }}
-        />
-      </span>
+      <Composer
+        uploadUrlOf={() => NO_UPLOADS_URL}
+        class="bs-pill"
+        boardIsland={true}
+        inputClass="bs-pill-input"
+        placeholder={`Message ${props.session.name}, or @ a box to branch`}
+        ariaLabel={`Message ${props.session.name}`}
+        ariaAutocomplete="list"
+        ariaActiveDescendant={activeDescendantIdOf(mentionState.read())}
+        maxLength={maxLengthForAddress(addressState.read())}
+        isTurnRunning={composerTurnRunning()}
+        railFields={composerRailFields()}
+        modelPicker={{
+          sessionId: props.session.sessionId,
+          canOpen: props.session.isTurnOver,
+          onFailure: (text) => setFailureText(text),
+        }}
+        beforeInput={(
+          <span
+            class="bs-pill-address"
+            hidden={addressState.read().kind === 'main'}
+          >
+            <span class="bs-pill-address-text">{addressLabel()}</span>
+            <Pressable
+              class="bs-pill-address-clear"
+              data-action="board-session-address-main"
+              ref={(element) => {
+                labelIconPressable(element, `Message ${props.session.name}`);
+                element.replaceChildren(createLineIcon(CLEAR_ICON_PATH, '1.6'));
+              }}
+              onClick={() => {
+                setAddress(MAIN_ADDRESS);
+                composerHandle?.focus();
+              }}
+            />
+          </span>
+        )}
+        onInput={readMention}
+        onBlur={closeMentions}
+        onInputKeyDownCapture={handleComposerKeyDownCapture}
+        onDraft={handleComposerDraft}
+        onSend={handleComposerSend}
+        onStop={handleComposerStop}
+        onHandle={(readyHandle) => { composerHandle = readyHandle; }}
+      />
     </section>
   );
 }
