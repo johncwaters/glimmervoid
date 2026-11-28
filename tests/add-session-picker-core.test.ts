@@ -264,3 +264,90 @@ test('add-session-picker-core handles workspace multi-repo O(R+P) partitioning, 
   assert.equal(buildPackLaunchSubmission(state, 'p', 'l', 15_000).kind, 'request');
   assert.equal(decideActionOutcome({ ok: false, error: new Error('refused') }, () => 'fallback').kind, 'refused');
 });
+
+test('add-session-picker-core resolves the same remembered model and effort across all 24 reply orders', () => {
+  const startPicksMessage = {
+    type: 'start-picks',
+    picks: {
+      version: 2,
+      agentByPath: { '/repos/alpha-app': { agentId: 'claude-code', startedAtMs: 1000 } },
+      selectionByAgent: {
+        'claude-code': {
+          selection: { agent: 'claude-code', provider: 'native', model: 'claude-sonnet-4-6', options: [{ id: 'effort', value: 'high' }] },
+          pickedAtMs: 1,
+          configuredAtPick: { model: 'claude-haiku-4-5', effort: null },
+        },
+      },
+    },
+  } as ServerMessage;
+  const scanMessage = {
+    type: 'repo-roots-scanned',
+    directories: [{ root: '/repos', projects: [{ name: 'alpha-app', path: '/repos/alpha-app', lastActivityMs: 1000 }] }],
+  } as ServerMessage;
+  const agentsMessage = {
+    type: 'agents-listed',
+    agents: [
+      { id: 'claude-code', label: 'Claude Code', resolvable: true },
+      { id: 'codex', label: 'Codex', resolvable: true },
+    ],
+  } as ServerMessage;
+  const settingsMessage = {
+    type: 'settings',
+    settings: {
+      saneYoloAvailable: true,
+      saneYolo: true,
+      skipPermissionsByDefault: false,
+      agentModels: {
+        agents: [
+          {
+            agent: 'claude-code',
+            models: [
+              { id: 'claude-haiku-4-5', label: 'Haiku 4.5', isDefault: true, aliases: [], options: [] },
+              {
+                id: 'claude-sonnet-4-6',
+                label: 'Sonnet 4.6',
+                isDefault: false,
+                aliases: [],
+                options: [{ id: 'effort', label: 'Effort', choices: ['low', 'medium', 'high'], defaultChoice: 'medium' }],
+              },
+            ],
+            configuredDefault: { model: 'claude-haiku-4-5', effort: null },
+            error: null,
+            checkedAt: 1,
+          },
+        ],
+      },
+    },
+  } as ServerMessage;
+
+  type ReplyStep = 'picks' | 'scan' | 'agents' | 'settings';
+  const permutationsOf = (items: readonly ReplyStep[]): ReplyStep[][] => {
+    if (items.length <= 1) return [[...items]];
+    return items.flatMap((item, index) =>
+      permutationsOf([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest]),
+    );
+  };
+
+  for (const order of permutationsOf(['picks', 'scan', 'agents', 'settings'])) {
+    let state = createInitialAddSessionState({ isStudio: true, studioRepoDir: '/repos/alpha-app' });
+    const agentsLoad = beginAgentsLoad(state);
+    state = agentsLoad.state;
+    const settingsLoad = beginSettingsLoad(state);
+    state = settingsLoad.state;
+    state = beginRepoScan(state);
+
+    for (const step of order) {
+      if (step === 'picks') state = applyStartPicksReply(state, startPicksMessage, []);
+      if (step === 'scan') state = applyRepoScanReply(state, scanMessage, []);
+      if (step === 'agents') {
+        state = applyAgentsListed(state, agentsLoad.loadNumber, agentsMessage, [], () => [], false, true).state;
+        state = applyPickAgent(state, 'claude-code', []).state;
+      }
+      if (step === 'settings') state = applySettingsMessage(state, settingsLoad.loadNumber, settingsMessage);
+    }
+
+    const display = addSessionDisplayOf(state, [], () => '');
+    assert.equal(display.modelWordText, 'Sonnet 4.6 high', `order=${order.join(',')}`);
+    assert.equal(display.repoWordText, 'alpha-app', `order=${order.join(',')}`);
+  }
+});

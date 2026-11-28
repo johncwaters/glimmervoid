@@ -183,12 +183,16 @@ function AddSessionPicker(props: AddSessionPickerProps): JSX.Element {
     pickerState.update(transition.state);
     if (transition.syncFindValue !== null && findInputEl) findInputEl.value = transition.syncFindValue;
     if (shouldFlush) flush();
-    const postActions: Record<AddSessionTransition['postAction'], () => void> = {
-      none: () => {},
-      focus: focusCurrent,
-      submit: submitCurrent,
-    };
-    postActions[transition.postAction]();
+    switch (transition.postAction) {
+      case 'none':
+        return;
+      case 'focus':
+        focusCurrent();
+        return;
+      case 'submit':
+        submitCurrent();
+        return;
+    }
   };
 
   const runRequest = (request: AddSessionRequestPayload): void => {
@@ -228,31 +232,39 @@ function AddSessionPicker(props: AddSessionPickerProps): JSX.Element {
       }
       const job = cloneJobOf(repo.cloneUrl);
       const step = decideCloneJobProgress(repo.fullName, job, isCloneJobUnsettled(job), cloneJobStatusText(job));
-      const handleStep: Record<typeof step.kind, () => void> = {
-        busy: () => { pickerState.update((current) => applyWorkBusy(current, (step as { kind: 'busy'; statusText: string }).statusText)); },
-        done: () => { stopWatching(); pickerState.update((current) => applyWorkIdle(current)); submitCurrent(); },
-        failed: () => { stopWatching(); pickerState.update((current) => applyWorkIdle(current, (step as { kind: 'failed'; errorText: string }).errorText)); },
-      };
-      handleStep[step.kind]();
+      switch (step.kind) {
+        case 'busy':
+          pickerState.update((current) => applyWorkBusy(current, step.statusText));
+          return;
+        case 'done':
+          stopWatching();
+          pickerState.update((current) => applyWorkIdle(current));
+          submitCurrent();
+          return;
+        case 'failed':
+          stopWatching();
+          pickerState.update((current) => applyWorkIdle(current, step.errorText));
+          return;
+      }
     }
   };
 
   const executeSubmission = (decision: ReturnType<typeof buildStartSubmission>): void => {
-    const runDecision: Record<typeof decision.kind, () => void> = {
-      noop: () => {},
-      error: () => { pickerState.update((decision as { kind: 'error'; state: ReturnType<typeof pickerState.peek> }).state); },
-      'clone-then-submit': () => {
-        const cloneDecision = decision as Extract<typeof decision, { kind: 'clone-then-submit' }>;
-        pickerState.update(cloneDecision.state);
-        void cloneThenSubmit(cloneDecision.repo);
-      },
-      request: () => {
-        const requestDecision = decision as Extract<typeof decision, { kind: 'request' }>;
-        pickerState.update(requestDecision.state);
-        runRequest(requestDecision.request);
-      },
-    };
-    runDecision[decision.kind]();
+    switch (decision.kind) {
+      case 'noop':
+        return;
+      case 'error':
+        pickerState.update(decision.state);
+        return;
+      case 'clone-then-submit':
+        pickerState.update(decision.state);
+        void cloneThenSubmit(decision.repo);
+        return;
+      case 'request':
+        pickerState.update(decision.state);
+        runRequest(decision.request);
+        return;
+    }
   };
 
   const submitCurrent = (): void => {
