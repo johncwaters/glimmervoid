@@ -73,10 +73,13 @@ async function boardPictureResult(session: Session, agentApi: AgentApiPort, asse
   const picture = await boardPictureFile(layouts, assets, found.boardId, { format: 'png', region: region.data, limits: VIEW_PICTURE_LIMITS });
   if (!picture.ok) return { status: picture.status, body: { ok: false, error: picture.error } };
   putsSinceViewBySession.get(session)?.delete(found.boardId);
+  const metadata = payload.shouldIncludePlan === true
+    ? { title: reading.title, version: reading.version, plan: reading.plan, layoutWarnings: reading.layoutWarnings }
+    : { title: reading.title, version: reading.version, layoutWarnings: reading.layoutWarnings };
   return {
     content: [
       { type: 'image', data: picture.bytes.toString('base64'), mimeType: 'image/png' },
-      { type: 'text', text: JSON.stringify({ title: reading.title, version: reading.version, plan: reading.plan, layoutWarnings: reading.layoutWarnings }) },
+      { type: 'text', text: JSON.stringify(metadata) },
     ],
   };
 }

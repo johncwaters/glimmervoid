@@ -456,10 +456,23 @@ test('a whiteboard put and get omit plan steps by default while keeping layout w
 
   const viewed = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'mcp plan renamed' } }, credential));
   assert.notEqual(viewed.isError, true, JSON.stringify(viewed));
-  const [picture] = viewed.content as { type: string; data: string; mimeType: string }[];
+  const [picture, viewText] = viewed.content as [{ type: string; data: string; mimeType: string }, { type: string; text: string }];
   assert.equal(picture?.type, 'image');
   assert.equal(picture?.mimeType, 'image/png');
   assert.deepEqual([...Buffer.from(picture?.data ?? '', 'base64').subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+  const viewMetadata = JSON.parse(viewText?.text ?? '{}') as Record<string, unknown>;
+  assert.equal('plan' in viewMetadata, false);
+  assert.equal(viewMetadata.title, 'mcp plan renamed');
+  assert.equal(typeof viewMetadata.version, 'number');
+  assert.ok(Array.isArray(viewMetadata.layoutWarnings));
+
+  const viewedWithPlan = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'mcp plan renamed', shouldIncludePlan: true } }, credential));
+  assert.notEqual(viewedWithPlan.isError, true, JSON.stringify(viewedWithPlan));
+  const [, viewPlanText] = viewedWithPlan.content as [unknown, { type: string; text: string }];
+  const viewPlanMetadata = JSON.parse(viewPlanText?.text ?? '{}') as { plan: unknown[]; title: string; version: number; layoutWarnings: string[] };
+  assert.equal(viewPlanMetadata.plan.length, 2);
+  assert.equal(viewPlanMetadata.title, 'mcp plan renamed');
+  assert.ok(Array.isArray(viewPlanMetadata.layoutWarnings));
 
   const unviewedCountsAfterView: (string | undefined)[] = [];
   for (const id of ['cache', 'queue']) {

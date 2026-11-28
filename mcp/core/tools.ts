@@ -105,8 +105,8 @@ function importPayload(toolArguments: ToolArguments, context: CallContext): Reco
 
 function boardPictureRoute(): ActionRoute {
   return {
-    verb: 'whiteboard', presenter: 'board-picture', required: ['board'], accepts: ['board', 'region'], hints: READS,
-    toPayload: (toolArguments) => ({ sub: 'get', peek: true, ...definedEntries(toolArguments, ['board', 'region']) }),
+    verb: 'whiteboard', presenter: 'board-picture', required: ['board'], accepts: ['board', 'region', 'shouldIncludePlan'], hints: READS,
+    toPayload: (toolArguments) => ({ sub: 'get', peek: true, ...definedEntries(toolArguments, ['board', 'region', 'shouldIncludePlan']) }),
   };
 }
 
@@ -158,7 +158,7 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: `Draw diagrams, maps and plans on a shared dashboard whiteboard instead of in chat. new creates a board; list names project boards (all: true for every board); other actions need an existing board. get reads a board with changes since your last read (boards over ${WHITEBOARD_LIMITS.readPage} elements return an outline plus the focus region); query pages elements by region, ids or text; view returns an inline PNG (pass region on large boards); render writes a PNG (scale 1-3) or SVG file and returns its path. put applies ops (add, set, remove, board, align, order); box place is {at}, {near}, aside, or plan (for a box with step); shapes: ${BOX_SHAPES.join(', ')}; wire steps to order them or wire slide boxes for Present; notes use shape note wired dashed to their subject. get and put return layout warnings (shouldIncludePlan: true for plan steps); get adds each box's drawn rect. connect/disconnect follow changes; delete removes a project board; attach stores media and returns media for a box; doc reads a saved Markdown, Fountain, CSV, TSV or XLSX box; export/import write or open a .glimmerboard file; run spawns sessions for ready planned steps; ask puts a question card on the repo code map wired to about with up to ${WHITEBOARD_LIMITS.askOptions} options.`,
+  description: `Draw diagrams, maps and plans on a shared dashboard whiteboard instead of in chat. new creates a board; list names project boards (all: true for every board); other actions need an existing board. get reads a board with changes since your last read (boards over ${WHITEBOARD_LIMITS.readPage} elements return an outline plus the focus region); query pages elements by region, ids or text; view returns an inline PNG (pass region on large boards); render writes a PNG (scale 1-3) or SVG file and returns its path. put applies ops (add, set, remove, board, align, order); box place is {at}, {near}, aside, or plan (for a box with step); shapes: ${BOX_SHAPES.join(', ')}; wire steps to order them or wire slide boxes for Present; notes use shape note wired dashed to their subject. get, put and view return layout warnings (shouldIncludePlan: true for plan steps); get adds each box's drawn rect. connect/disconnect follow changes; delete removes a project board; attach stores media and returns media for a box; doc reads a saved Markdown, Fountain, CSV, TSV or XLSX box; export/import write or open a .glimmerboard file; run spawns sessions for ready planned steps; ask puts a question card on the repo code map wired to about with up to ${WHITEBOARD_LIMITS.askOptions} options.`,
   loadsUpfront: true,
   fields: {
     board: BoardField.optional(),
@@ -168,7 +168,7 @@ const WHITEBOARD_TOOL: GroupedTool = {
     all: z.boolean().optional().describe('list: include all projects and archived boards'),
     peek: z.boolean().optional().describe('get: read without marking changes seen'),
     review: z.boolean().optional().describe('get: include plan review'),
-    shouldIncludePlan: z.boolean().optional().describe('get/put: include plan steps in build order'),
+    shouldIncludePlan: z.boolean().optional().describe('get/put/view: include plan steps in build order'),
     region: BoardRegion.optional().describe('get/query/view: focus or capture region'),
     ids: z.array(z.string()).min(1).max(WHITEBOARD_LIMITS.readPage).optional().describe('query: element ids'),
     text: z.string().min(1).max(WHITEBOARD_LIMITS.queryText).optional().describe('query: search text'),
