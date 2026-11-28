@@ -518,7 +518,7 @@ async function verifyInterimRepliesRideActivityLine(page: Page): Promise<void> {
   assert.equal(runningTexts.length, 1, `a running turn shows only its long reply, not the short ones (${runningTexts.join(' | ')})`);
   assert.match(runningTexts[0] ?? '', /^Build passed/, 'the long reply stays in the turn');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await stopTurnPastHints(page);
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
   await page.waitForFunction(() => document.querySelector('.session-chat .chat-activity:not([data-idle]) .chat-activity-verb')?.textContent === 'Ready', undefined, { timeout: CARD_TIMEOUT_MS, polling: 'raf' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -973,7 +973,7 @@ async function verifyPhoneChatMarksRead(page: Page, chatBar: Locator): Promise<v
   await sendFromComposer(page, 'take-any-prompt');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
-  await stopTurnPastHints(page);
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.phone-page-chat')?.parentElement?.querySelector('.phone-terminal-bar')?.getAttribute('data-state') === 'IDLE', undefined, { timeout: CARD_TIMEOUT_MS });
 
   await sendFromComposer(page, 'take-any-prompt');
@@ -1002,14 +1002,14 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await sendFromComposer(page, 'declare-done');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
-  await stopTurnPastHints(page);
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
   assert.equal(await page.locator('.session-chat .chat-done-pill').count(), 0, 'a turn below the panel line threshold shows no check result');
   await sendFromComposer(page, 'take-any-prompt');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
   await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), Array.from({ length: PANEL_MIN_CHANGED_LINES }, (_, lineIndex) => `written during the turn ${lineIndex}`).join('\n'), 'utf8');
-  await stopTurnPastHints(page);
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
   const pill = page.locator('.session-chat .chat-done-pill');
   await pill.and(page.locator('[data-tone="failed"]')).waitFor({ timeout: CARD_TIMEOUT_MS });
@@ -1047,19 +1047,9 @@ async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
   await sendFromComposer(page, 'take-any-prompt');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
-  await stopTurnPastHints(page);
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
   assert.equal(await page.locator('.session-chat .chat-done-pill').count(), 0, 'a spawned child whose turn changed nothing shows no check result, and its spawn done lines stay prompt text');
-}
-
-async function stopTurnPastHints(page: Page): Promise<void> {
-  const hintCards = page.locator('aside.feature-hint');
-  await page.addLocatorHandler(hintCards, (hintCard) => hintCard.getByRole('button', { name: 'Dismiss', exact: true }).click());
-  try {
-    await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
-  } finally {
-    await page.removeLocatorHandler(hintCards);
-  }
 }
 
 async function waitForOutboxEmpty(page: Page): Promise<void> {

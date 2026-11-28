@@ -14,8 +14,8 @@ let shownHintCard: HTMLElement | null = null;
 let isStarHintWaiting = false;
 
 function hintCardHost(): HTMLElement {
-  if (!isPhoneLayout()) return document.body;
-  return document.querySelector<HTMLElement>('.phone-notice-slot') ?? document.body;
+  if (isPhoneLayout()) return document.querySelector<HTMLElement>('.phone-notice-slot') ?? document.body;
+  return document.getElementById('notice-stack') ?? document.body;
 }
 
 function mountHintCard(hintCard: HTMLElement) {

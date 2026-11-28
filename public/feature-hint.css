@@ -1,17 +1,14 @@
 @layer components {
   .feature-hint {
-    position: fixed;
-    right: 16px;
-    bottom: 44px;
-    z-index: 120;
+    flex-shrink: 0;
     box-sizing: border-box;
-    width: min(340px, calc(100vw - 32px));
+    width: auto;
+    margin: 8px 16px;
     padding: 14px 16px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-surface);
     color: var(--text);
-    box-shadow: var(--shadow-lg);
     animation: feature-hint-arrive 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
@@ -91,13 +88,7 @@
   }
 
   html[data-layout="phone"] .feature-hint {
-    position: static;
-    right: auto;
-    bottom: auto;
-    z-index: auto;
-    width: auto;
     margin: 8px;
-    box-shadow: none;
   }
 
   @keyframes feature-hint-arrive {

@@ -746,6 +746,7 @@ async function verifyBoardSessionBody(
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-log').isVisible(), false, 'the chat log stays folded on open');
   await verifyFirstViewClearOfBar(page);
+  await verifyHintCardClearOfDesktopControls(page, root);
   await verifyStudioCameraKeptAcrossFocusBoard(page);
   assert.equal(await root.locator('.bs-top-left > :not(.bs-chip, .bs-menu)').count(), 0, 'the top left holds only the repo chip');
   await page.locator('.session-name', { hasText: /^Orchestrator$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -1006,6 +1007,86 @@ async function verifyBoardSessionBody(
   assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');
   await page.locator('.focus-view button.session-row[data-id]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await page.locator(`.focus-view button.session-row[data-id="${studioMainId}"]`).count(), 0, 'the Studio main stays out of Focus session rows');
+}
+
+async function assertHintCardClearOf(page: Page, targetSelector: string, description: string): Promise<void> {
+  if (await page.locator(targetSelector).count() === 0) return;
+  const hintBox = await boxOf(page, 'aside.feature-hint');
+  const targetBox = await boxOf(page, targetSelector);
+  assert.equal(
+    rectsOverlap(hintBox, targetBox),
+    false,
+    `${description} (${JSON.stringify(hintBox)} vs ${JSON.stringify(targetBox)})`,
+  );
+}
+
+async function showDesktopHintCard(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    for (const existing of document.querySelectorAll('aside.feature-hint')) existing.remove();
+    const featureHintUrl = '/feature-hint.ts';
+    const { showHintCard } = await import(featureHintUrl);
+    showHintCard({
+      eyebrow: 'Glimmervoid',
+      title: 'Enjoying Glimmervoid?',
+      detail: 'A star on GitHub helps other people find it.',
+      ariaLabel: 'Star Glimmervoid on GitHub',
+      openLabel: 'Star on GitHub',
+      onOpen: () => {},
+      onDismiss: () => {},
+    });
+  });
+  await page.locator('aside.feature-hint').waitFor({ state: 'visible', timeout: BOARD_SESSION_TIMEOUT_MS });
+}
+
+async function verifyHintCardClearOfDesktopControls(page: Page, studioRoot: Locator): Promise<void> {
+  const originalViewport = page.viewportSize() ?? { width: 1280, height: 720 };
+  const desktopViewports = [
+    { name: 'desktop-1280', width: 1280, height: 720 },
+    { name: 'desktop-1920', width: 1920, height: 1080 },
+  ];
+  try {
+    await showDesktopHintCard(page);
+    for (const viewport of desktopViewports) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.locator('#tab-focus').click();
+      await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+      if (await page.locator('.session-chat .chat-composer').count() === 0) {
+        await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
+      }
+      await page.locator('.session-chat .chat-composer').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+      for (const [selector, label] of [
+        ['.session-chat .chat-composer', 'Focus chat composer'],
+        ['.session-chat .chat-composer .chat-composer-send', 'Focus chat Send button'],
+        ['.session-chat .chat-composer .chat-composer-stop', 'Focus chat Stop button'],
+        ['.session-chat .chat-composer .chat-composer-attach', 'Focus chat attach button'],
+        ['.session-chat .chat-composer .chat-rail-model', 'Focus chat model picker'],
+        ['.pane-header', 'Focus pane header'],
+        ['header.header', 'dashboard header'],
+        ['.health-footer', 'health footer'],
+      ] as const) {
+        await assertHintCardClearOf(page, selector, `the feature hint stays clear of ${label} at ${viewport.name}`);
+      }
+
+      await page.locator('#tab-board-session').click();
+      await studioRoot.locator('.bs-pill.chat-composer').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+      for (const [selector, label] of [
+        ['.board-session-view .bs-dock-slot', 'Studio dock'],
+        ['.board-session-view .bs-pill .chat-composer-send', 'Studio Send button'],
+        ['.board-session-view .bs-pill .chat-composer-stop', 'Studio Stop button'],
+        ['.board-session-view .bs-pill .chat-rail-model', 'Studio model picker'],
+        ['header.header', 'dashboard header in Studio'],
+        ['.health-footer', 'health footer in Studio'],
+      ] as const) {
+        await assertHintCardClearOf(page, selector, `the feature hint stays clear of ${label} at ${viewport.name}`);
+      }
+    }
+  } finally {
+    const dismissButton = page.locator('aside.feature-hint').getByRole('button', { name: 'Dismiss', exact: true });
+    if (await dismissButton.count() > 0) await dismissButton.click();
+    await page.setViewportSize(originalViewport);
+    await page.locator('#tab-board-session').click();
+    await studioRoot.locator('.bs-pill.chat-composer').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  }
 }
 
 async function verifyStalledAgentShowsFailureWithoutTerminal(root: Locator): Promise<void> {

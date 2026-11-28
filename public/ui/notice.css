@@ -5,11 +5,7 @@
   }
 
   .app-shell > .notice-stack {
-    position: fixed;
-    top: var(--header-h);
-    left: 0;
-    right: 0;
-    z-index: 99;
+    flex-shrink: 0;
   }
 
   .notice {
@@ -56,10 +52,6 @@
     max-height: 40vh;
     overflow-y: auto;
     background: var(--bg);
-  }
-
-  .app-shell > .notice-stack:has(.notice:not([hidden])) {
-    box-shadow: var(--shadow-lg);
   }
 
   .notice {
