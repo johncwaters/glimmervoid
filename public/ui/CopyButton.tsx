@@ -88,7 +88,7 @@ export function CopyButton(props: CopyButtonProps): JSX.Element {
         ariaLabel={descriptor().accessibleLabel}
         onClick={handleClick}
       />
-      <span class={descriptor().statusClassName} role="status">{statusText()}</span>
+      <span class={descriptor().statusClassName} role={descriptor().statusRole}>{statusText()}</span>
     </span>
   );
 }

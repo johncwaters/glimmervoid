@@ -84,16 +84,16 @@ function buildButton(options: BuildButtonOptions): HTMLButtonElement {
   if (options.icon) element.append(options.icon);
   if (descriptor.ariaLabel !== undefined) element.setAttribute('aria-label', descriptor.ariaLabel);
   if (descriptor.visibleLabel !== undefined) element.append(descriptor.visibleLabel);
-  if (descriptor.shortcutKey) appendShortcutKey(element, descriptor.shortcutKey);
+  if (descriptor.shortcutKey) appendShortcutKey(element, descriptor.shortcutKey, descriptor.ariaKeyShortcuts);
   element.disabled = descriptor.disabled;
   element.hidden = descriptor.hidden;
   if (options.onClick) element.addEventListener('click', options.onClick);
   return element;
 }
 
-function appendShortcutKey(element: HTMLButtonElement, shortcutKey: string) {
+function appendShortcutKey(element: HTMLButtonElement, shortcutKey: string, ariaKeyShortcuts = shortcutKey) {
   const keyCap = el('kbd', 'ui-button-shortcut', shortcutKey);
   keyCap.setAttribute('aria-hidden', 'true');
   element.append(keyCap);
-  element.setAttribute('aria-keyshortcuts', shortcutKey);
+  element.setAttribute('aria-keyshortcuts', ariaKeyShortcuts);
 }

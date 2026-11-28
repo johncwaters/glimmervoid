@@ -9,13 +9,18 @@ import {
   nextTypeaheadQuery,
   popupMenuStateAttributes,
 } from './popup-menu-core.ts';
-import type { MenuItemTone } from './popup-menu-core.ts';
+import type { MenuItemRole, MenuItemTone } from './popup-menu-core.ts';
 import { createPressable } from './pressable.ts';
 
-export function buildMenuItem(label: string, className: string, { tone = 'neutral' }: { tone?: MenuItemTone } = {}) {
-  const descriptor = menuItemDescriptor({ label, className, tone });
+export function buildMenuItem(
+  label: string,
+  className: string,
+  { tone = 'neutral', role, checked }: { tone?: MenuItemTone; role?: MenuItemRole; checked?: boolean } = {},
+) {
+  const descriptor = menuItemDescriptor({ label, className, tone, role, checked });
   const menuItem = createPressable(descriptor.className, descriptor.label);
   menuItem.setAttribute('role', descriptor.role);
+  if (descriptor.ariaChecked !== undefined) menuItem.setAttribute('aria-checked', descriptor.ariaChecked);
   if (descriptor.tone !== null) menuItem.dataset.tone = descriptor.tone;
   return menuItem;
 }

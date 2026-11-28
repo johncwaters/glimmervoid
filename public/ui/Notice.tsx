@@ -70,7 +70,7 @@ export function Notice(props: NoticeProps): JSX.Element {
     <div
       class={descriptor().className}
       id={descriptor().id}
-      role="status"
+      role={descriptor().role}
       data-tone={descriptor().tone}
       hidden={descriptor().hidden}
     >

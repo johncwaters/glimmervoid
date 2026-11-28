@@ -7,6 +7,7 @@ import {
   outlineIconStateAttributes,
 } from './button-core.ts';
 import type {
+  ButtonShape,
   ButtonSize,
   ButtonTextCase,
   ButtonVariant,
@@ -18,6 +19,7 @@ import { Pressable } from './Pressable.tsx';
 type CommonButtonProps = {
   size?: ButtonSize;
   textCase?: ButtonTextCase;
+  shape?: ButtonShape;
   action?: string;
   shortcutKey?: string;
   onClick?: (event: MouseEvent) => void;
@@ -68,6 +70,7 @@ export function Button(props: ButtonProps): JSX.Element {
     label: props.label,
     size: props.size,
     textCase: props.textCase,
+    shape: props.shape,
     action: props.action,
     shortcutKey: props.shortcutKey,
     disabled: props.disabled,
@@ -83,6 +86,7 @@ export function Button(props: ButtonProps): JSX.Element {
       data-variant={descriptor().variant}
       data-size={descriptor().size}
       data-text-case={descriptor().textCase}
+      data-shape={descriptor().shape}
       data-action={descriptor().action}
       aria-label={props.ariaLabel ?? descriptor().ariaLabel}
       aria-keyshortcuts={descriptor().ariaKeyShortcuts}
@@ -149,6 +153,7 @@ export function OutlineIconButton<const State extends Exclude<OutlineState, 'idl
     label: props.label,
     size: props.size,
     textCase: props.textCase,
+    shape: props.shape,
     action: props.action,
     disabled: props.disabled,
     hidden: props.hidden,
@@ -164,6 +169,7 @@ export function OutlineIconButton<const State extends Exclude<OutlineState, 'idl
       data-variant={descriptor().variant}
       data-size={descriptor().size}
       data-text-case={descriptor().textCase}
+      data-shape={descriptor().shape}
       data-action={descriptor().action}
       data-outline-state={stateAttributes()?.outlineState}
       aria-label={props.ariaLabel ?? descriptor().ariaLabel}

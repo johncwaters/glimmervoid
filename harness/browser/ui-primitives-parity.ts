@@ -371,6 +371,11 @@ async function runUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResu
         renderSolid: () => modules.Button({ variant: 'icon', label: 'Close', icon: makeIcon(), size: 'small', disabled: true, hidden: true }),
       },
       {
+        name: 'button/pill',
+        buildImperative: () => modules.button({ variant: 'secondary', label: 'Hooks', shape: 'pill', size: 'small' }),
+        renderSolid: () => modules.Button({ variant: 'secondary', label: 'Hooks', shape: 'pill', size: 'small' }),
+      },
+      {
         name: 'button/link',
         buildImperative: () => modules.linkButton({ variant: 'secondary', label: 'Docs', href: 'https://example.com', size: 'small' }),
         renderSolid: () => modules.LinkButton({ variant: 'secondary', label: 'Docs', href: 'https://example.com', size: 'small' }),
@@ -388,6 +393,11 @@ async function runUiPrimitivesParity(page: Page): Promise<UiPrimitivesParityResu
           return handle.element;
         },
         renderSolid: () => modules.OutlineIconButton({ label: 'Mute', icon: makeIcon(), states: ['idle', 'off'], state: 'off' }),
+      },
+      {
+        name: 'button/outline-icon-pill',
+        buildImperative: () => modules.outlineIconButton({ label: 'Pin', icon: makeIcon(), states: ['idle', 'pressed'], shape: 'pill' }).element,
+        renderSolid: () => modules.OutlineIconButton({ label: 'Pin', icon: makeIcon(), states: ['idle', 'pressed'], shape: 'pill' }),
       },
       {
         name: 'text-input/default',
