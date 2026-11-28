@@ -17,7 +17,8 @@ import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-m
 import { PLAN_GATE_HOOK_EVENT } from '../../shared/contracts/plan-gate.ts';
 import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
 import type { Session } from '../../session/sessions.ts';
-import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
+import { inTurnNoticeReplyFor, mergeHookAgentReplies, refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
+import { getAdapter } from '../../session/adapters/index.ts';
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import { RESUME_NOTE_HOOK_EVENT } from '../../shared/contracts/refocus.ts';
@@ -562,6 +563,20 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     return hint === null ? null : toolHookContextReplyOf(hint);
   }
 
+  function inTurnNoticeHookReply(glimmervoidId: string, event: string, payload: Record<string, unknown>): Record<string, unknown> | null {
+    const session = getSession(glimmervoidId);
+    const agentApi = getAgentApi();
+    if (!session || !agentApi) return null;
+    const adapter = getAdapter(session.agentId);
+    return inTurnNoticeReplyFor({
+      event,
+      payload,
+      hasToolHookContext: adapter?.capabilities.toolHookContext === true,
+      promptContextReply: adapter?.promptContextReply ?? null,
+      takeNotice: () => agentApi.takeInTurnNotice(session.id),
+    });
+  }
+
   app.post('/hook/:glimmervoidId/:event', (req, res) => {
     if (!isLoopbackRequest(req)) {
       recordOutcome('hookRejectedNonLoopback');
@@ -607,8 +622,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         takePromptSupervision: () => takePromptSupervision(req.params.glimmervoidId),
         takeResumeNote: () => getSession(req.params.glimmervoidId)?.takeResumeNote() ?? null,
       });
+      const isResponseClosed = res.destroyed || res.closed || res.writableEnded || abandonedByClaudeCode.signal.aborted;
       const toolHint = output.status === 200 ? toolHookHintReply(req.params.glimmervoidId, req.params.event, payload) : null;
-      const agentReply: Record<string, unknown> = { ...refocusReply, ...toolHint };
+      const inTurnNotice = output.status === 200 && !isResponseClosed ? inTurnNoticeHookReply(req.params.glimmervoidId, req.params.event, payload) : null;
+      const agentReply = mergeHookAgentReplies([refocusReply, toolHint, inTurnNotice]);
       const answer = (decision: Record<string, unknown> | null) => {
         if (res.headersSent || res.writableEnded || res.destroyed) return;
         if (output.status !== 200) {
@@ -633,7 +650,6 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       const isQuestionToolHold = output.status === 200 && eventLower === QUESTION_TOOL_HOLD_HOOK_EVENT;
       const isPlanGateHold = output.status === 200 && eventLower === PLAN_GATE_HOOK_EVENT;
       const isElicitationHold = output.status === 200 && eventLower === ELICITATION_HOOK_EVENT;
-      const isResponseClosed = res.destroyed || res.closed || res.writableEnded || abandonedByClaudeCode.signal.aborted;
       const heavyCommandClass = output.status === 200 && !isResponseClosed && heavyCommandGate && eventLower === 'pretooluse'
         ? classifyHeavyCommand(shellCommandFromHookPayload(payload) ?? '')
         : null;

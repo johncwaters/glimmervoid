@@ -2305,3 +2305,36 @@ test('a wake line withheld during an idle flicker submits the already-pasted lin
     fixture.destroyAll();
   }
 });
+
+test('an in-turn notice delivered to a busy child quiets unread so turn end does not wake it a second time, while read still drains the message', async () => {
+  const fixture = wiringFixture();
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'long work' });
+    const child = fixture.created[0];
+    const childWritten: string[] = [];
+    child.write = (text) => { childWritten.push(text); };
+    child.transition('first_output');
+    child.transition('new_output');
+    assert.equal(child.state, STATES.RUNNING);
+
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [child.id, 'stop', 'and', 'change', 'plan'] })).status, 200);
+    assert.equal(childWritten.length, 0, 'no PTY wake line is typed while child is mid-turn');
+
+    const notice = fixture.wiring.takeInTurnNotice(child.id);
+    assert.ok(notice !== null && notice.includes('glimmervoid read'), 'in-turn notice instructs child to read');
+    assert.equal(notice.includes('change plan'), false, 'in-turn notice never carries message body');
+    assert.equal(fixture.wiring.takeInTurnNotice(child.id), null, 'in-turn notice is taken at most once');
+
+    child.transition('task_complete');
+    assert.equal(child.state, STATES.COMPLETE);
+    assert.equal(childWritten.length, 0, 'turn end does not type a duplicate wake line after an in-turn notice');
+
+    const readReply = AgentReadReply.parse((await fixture.wiring.handle(child, 'read', {})).body);
+    assert.deepEqual(readReply.channels.flatMap(({ entries }) => entries.map(({ text }) => text)), ['stop and change plan']);
+
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [child.id, 'second', 'note'] })).status, 200);
+    assert.equal(childWritten.filter((text) => text.includes('glimmervoid read')).length, 1, 'an idle child still receives a turn-boundary wake line for a new message');
+  } finally {
+    fixture.destroyAll();
+  }
+});

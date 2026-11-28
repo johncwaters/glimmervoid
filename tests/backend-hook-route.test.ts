@@ -11,7 +11,8 @@ import { createBackend } from '../server/backend/backend.ts';
 import { createAgentIngressApp, listenAgentIngressSocket } from '../server/backend/backend-http.ts';
 import { createHeavyCommandGate } from '../server/spawn-gate.ts';
 import type { OutcomeName } from '../shared/outcome-names.ts';
-import type { Session } from '../session/sessions.ts';
+import { Session } from '../session/sessions.ts';
+import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import { main as relayHook } from '../session/hook-relay.ts';
 import { Readable } from 'node:stream';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -537,6 +538,112 @@ test('PreToolUse queues heavy shell commands on heavyCommandGate and releases on
     gate.stop();
     ingressServer.closeAllConnections();
     await closeServer(ingressServer);
+  }
+});
+
+test('hook route formats in-turn channel notices per adapter, skips subagents and turn-start PreInvocation, and does not consume on an abandoned request', async () => {
+  const pendingNoticeById = new Map<string, string>();
+  const claudeChild = new Session({ id: 'claude-child', name: 'claude-child', path: process.cwd(), agent: 'claude-code' });
+  const agyChild = new Session({ id: 'agy-child', name: 'agy-child', path: process.cwd(), agent: 'antigravity' });
+  const sessionsById = new Map<string, Session>([[claudeChild.id, claudeChild], [agyChild.id, agyChild]]);
+  let enrichStarted!: () => void;
+  const enrichStartedPromise = new Promise<void>((resolve) => { enrichStarted = resolve; });
+  let releaseEnrich!: () => void;
+  const releaseEnrichPromise = new Promise<void>((resolve) => { releaseEnrich = resolve; });
+  let abandonedHandled!: () => void;
+  const abandonedHandledPromise = new Promise<void>((resolve) => { abandonedHandled = resolve; });
+  const stubAgentApi: AgentApiPort = {
+    handle: async () => ({ status: 200, body: { ok: true } }),
+    refuseRole: () => null,
+    markChildWorktreeDiscard: () => {},
+    watchSessionWakes: () => {},
+    linkBranchSession: () => {},
+    tellParent: () => false,
+    takeInTurnNotice: (id: string) => {
+      const line = pendingNoticeById.get(id) ?? null;
+      pendingNoticeById.delete(id);
+      return line;
+    },
+    sessionWakes: {
+      pendingWakesBySession: () => [],
+      cancelForOperator: async () => null,
+      scheduleAtLimitReset: async () => null,
+      alarms: () => [],
+      onAlarm: () => () => {},
+      onAlarmsMayHaveChanged: () => () => {},
+      noteBudgetHoldReleased: () => {},
+    },
+    operatorRules: () => [],
+  };
+  let responseClosed!: () => void;
+  const responseClosedPromise = new Promise<void>((resolve) => { responseClosed = resolve; });
+  const app = createAgentIngressApp({
+    allowedHosts: [],
+    hookRouter: {
+      enrich: async ({ payload }) => {
+        if (payload.holdEnrich === true) {
+          enrichStarted();
+          await releaseEnrichPromise;
+        }
+        return payload;
+      },
+      handle: (envelope) => {
+        if (typeof envelope.payload === 'object' && envelope.payload !== null && 'holdEnrich' in envelope.payload && envelope.payload.holdEnrich === true) abandonedHandled();
+        return { status: 200, reason: 'ok' };
+      },
+    },
+    getSession: (id) => sessionsById.get(id) ?? null,
+    getUsage: () => ({ ingestStatusline: () => {} }),
+    getAgentApi: () => stubAgentApi,
+  });
+  const server = http.createServer((request, response) => {
+    response.on('close', () => {
+      if (!response.writableFinished) responseClosed();
+    });
+    app(request, response);
+  });
+  await listenOnLoopback(server);
+  const baseUrl = `http://127.0.0.1:${boundPort(server)}`;
+  const noticeLine = 'Glimmervoid: check unread mail.';
+  try {
+    pendingNoticeById.set('claude-child', noticeLine);
+    const abortController = new AbortController();
+    const abortedPost = fetch(`${baseUrl}/hook/claude-child/PostToolUse`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ holdEnrich: true, tool_name: 'Bash' }), signal: abortController.signal,
+    }).catch(() => null);
+    await enrichStartedPromise;
+    abortController.abort();
+    await Promise.all([abortedPost, responseClosedPromise]);
+    releaseEnrich();
+    await abandonedHandledPromise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(pendingNoticeById.get('claude-child'), noticeLine, 'an abandoned hook request never consumes the unread notice');
+
+    const subagentReply = await agentReplyOf(await fetch(`${baseUrl}/hook/claude-child/PostToolUse`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent_id: 'sub-1', tool_name: 'Bash' }),
+    }));
+    assert.equal(subagentReply.hookSpecificOutput, undefined, 'subagent PostToolUse never consumes parent notice');
+    const firstReply = await agentReplyOf(await fetch(`${baseUrl}/hook/claude-child/PostToolUse`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tool_name: 'Bash' }),
+    }));
+    assert.deepEqual(firstReply.hookSpecificOutput, { hookEventName: 'PostToolUse', additionalContext: noticeLine });
+
+    pendingNoticeById.set('agy-child', noticeLine);
+    let relayedOpening = '';
+    await relayHook(['PreInvocation'], Readable.from([Buffer.from(JSON.stringify({ invocationNum: 0 }), 'utf8')]), {
+      GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/agy-child?t=ok`,
+    }, { write: (text: string) => { relayedOpening += text; } });
+    assert.equal(relayedOpening, '', 'turn-start PreInvocation (invocationNum 0) does not duplicate a PTY wake line');
+    let relayedMidTurn = '';
+    await relayHook(['PreInvocation'], Readable.from([Buffer.from(JSON.stringify({ invocationNum: 1 }), 'utf8')]), {
+      GLIMMERVOID_HOOK_URL: `${baseUrl}/hook/agy-child?t=ok`,
+    }, { write: (text: string) => { relayedMidTurn += text; } });
+    assert.deepEqual(JSON.parse(relayedMidTurn), { injectSteps: [{ systemMessage: { systemMessage: noticeLine } }] });
+  } finally {
+    claudeChild.destroy();
+    agyChild.destroy();
+    server.closeAllConnections();
+    await closeServer(server);
   }
 });
 

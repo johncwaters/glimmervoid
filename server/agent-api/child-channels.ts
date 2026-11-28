@@ -3,7 +3,7 @@ import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, matchesMailboxCursor, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, matchesMailboxCursor, WAKE_TURN_START_TIMEOUT_MS, openChannel, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, takeSessionInTurnNotices, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelKind, ChannelPageCursor, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
@@ -464,7 +464,13 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return findSibling([...channelsByChildId.values()], child.id, target);
   }
 
-  return { noteEndCause, forgetLink, openChildChannel, linkBranchSession, liveSessionOf, tellParent, settleChildWorktree, post, drain, drainAtCursor, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, msSinceOperatorInputOf, isWakeLineInFlight, submitWakeLine };
+  function takeInTurnNotice(sessionId: string): string | null {
+    const { updatedChannels, notices } = takeSessionInTurnNotices([...channelsByChildId.values()], sessionId);
+    for (const channel of updatedChannels) channelsByChildId.set(channel.childId, channel);
+    return notices.length === 0 ? null : notices.join('\n');
+  }
+
+  return { noteEndCause, forgetLink, openChildChannel, linkBranchSession, liveSessionOf, tellParent, settleChildWorktree, post, drain, drainAtCursor, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, msSinceOperatorInputOf, isWakeLineInFlight, submitWakeLine, takeInTurnNotice };
 }
 
 type ChildChannels = ReturnType<typeof createChildChannels>;

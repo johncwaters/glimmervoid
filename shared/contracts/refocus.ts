@@ -9,10 +9,15 @@ export const SessionStartHookResponse = z.object({
 
 export type SessionStartHookResponse = z.infer<typeof SessionStartHookResponse>;
 
+const InjectedStep = z.union([
+  z.object({ userMessage: z.string().min(1) }),
+  z.object({ systemMessage: z.object({ systemMessage: z.string().min(1) }) }),
+]);
+
 export const UserPromptSubmitHookResponse = z.union([
   z.object({ message: z.string() }),
   z.object({ hookSpecificOutput: z.object({ hookEventName: z.literal('UserPromptSubmit'), additionalContext: z.string() }) }),
-  z.object({ injectSteps: z.array(z.object({ userMessage: z.string().min(1) })).min(1) }),
+  z.object({ injectSteps: z.array(InjectedStep).min(1) }),
 ]);
 
 export type UserPromptSubmitHookResponse = z.infer<typeof UserPromptSubmitHookResponse>;

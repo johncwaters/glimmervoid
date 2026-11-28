@@ -212,6 +212,23 @@ function hasWakingUnread(mailbox: Mailbox): boolean {
   return mailbox.unread.some((entry) => entry.wakes);
 }
 
+function takeSessionInTurnNotices(channels: readonly AgentChannel[], sessionId: string): { updatedChannels: AgentChannel[]; notices: string[] } {
+  const updatedChannels: AgentChannel[] = [];
+  const notices: string[] = [];
+  for (const channel of channels) {
+    if (channel.childId === sessionId && hasWakingUnread(channel.toChild)) {
+      notices.push(describeWakeLine(channel, 'toChild'));
+      updatedChannels.push(quietUnread(channel, 'toChild'));
+      continue;
+    }
+    if (channel.parentId === sessionId && hasWakingUnread(channel.toParent)) {
+      notices.push(describeWakeLine(channel, 'toParent'));
+      updatedChannels.push(quietUnread(channel, 'toParent'));
+    }
+  }
+  return { updatedChannels, notices };
+}
+
 function shouldStopNoteWake(state: SessionState, hasParentRead: boolean): boolean {
   return state !== STATES.DONE || !hasParentRead;
 }
@@ -291,6 +308,6 @@ function decideWake(facts: WakeFacts): WakeDecision {
 
 export {
   WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeLine, drainChannelPage, findOwnedChild, findSibling, hasWakingUnread,
-  isWakeLineAwaitingTurnStart, matchesMailboxCursor, openChannel, parseChannelReadCursor, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, withdrawUnreadNote,
+  isWakeLineAwaitingTurnStart, matchesMailboxCursor, openChannel, parseChannelReadCursor, postToChannel, quietUnread, readLastAssistantMessage, shouldPostStopNote, shouldReuseWithheldWakeLine, shouldStopNoteWake, takeSessionInTurnNotices, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelKind, ChannelPageCursor, ChannelSide };

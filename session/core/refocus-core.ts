@@ -109,9 +109,69 @@ function relayedHookContextOutput(event: string, body: string | null): string | 
 
 const TOOL_HOOK_EVENT_NAMES = { posttooluse: 'PostToolUse', posttoolusefailure: 'PostToolUseFailure' } as const;
 
+type ToolHookEventKey = keyof typeof TOOL_HOOK_EVENT_NAMES;
+
+function isToolHookEventKey(event: string): event is ToolHookEventKey {
+  return event === 'posttooluse' || event === 'posttoolusefailure';
+}
+
 function toolHookContextReplyOf({ event, text }: CommandHint): ToolHookContextResponse {
   return { hookSpecificOutput: { hookEventName: TOOL_HOOK_EVENT_NAMES[event], additionalContext: text } };
 }
 
-export { REFOCUS_NOTE, toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, resumeNoteOf, sessionStartContextOutput, relayedHookContextOutput };
+interface InTurnNoticeReplyInput {
+  event: string;
+  payload: Record<string, unknown>;
+  hasToolHookContext: boolean;
+  promptContextReply: PromptContextReply | null;
+  takeNotice: () => string | null;
+}
+
+function inTurnNoticeReplyFor({ event, payload, hasToolHookContext, promptContextReply, takeNotice }: InTurnNoticeReplyInput): ToolHookContextResponse | UserPromptSubmitHookResponse | null {
+  if (isSubagentPayload(payload)) return null;
+  const eventLower = event.toLowerCase();
+  if (hasToolHookContext && isToolHookEventKey(eventLower)) {
+    const notice = takeNotice();
+    if (notice === null) return null;
+    return { hookSpecificOutput: { hookEventName: TOOL_HOOK_EVENT_NAMES[eventLower], additionalContext: notice } };
+  }
+  if (promptContextReply === 'inject-steps' && eventLower === 'preinvocation' && payload.invocationNum !== 0) {
+    const notice = takeNotice();
+    if (notice === null) return null;
+    return { injectSteps: [{ systemMessage: { systemMessage: notice } }] };
+  }
+  return null;
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function mergeHookSpecificOutput(existing: unknown, incoming: unknown): unknown {
+  if (!isRecordValue(existing) || !isRecordValue(incoming)) return incoming;
+  if (existing.hookEventName !== incoming.hookEventName) return incoming;
+  if (typeof existing.additionalContext !== 'string' || typeof incoming.additionalContext !== 'string') return incoming;
+  return { ...existing, ...incoming, additionalContext: `${existing.additionalContext}\n\n${incoming.additionalContext}` };
+}
+
+function mergeHookAgentReplies(replies: readonly (Record<string, unknown> | null | undefined)[]): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const reply of replies) {
+    if (!reply) continue;
+    for (const [key, value] of Object.entries(reply)) {
+      if (key === 'hookSpecificOutput' && merged.hookSpecificOutput !== undefined) {
+        merged.hookSpecificOutput = mergeHookSpecificOutput(merged.hookSpecificOutput, value);
+        continue;
+      }
+      if (key === 'injectSteps' && Array.isArray(merged.injectSteps) && Array.isArray(value)) {
+        merged.injectSteps = [...merged.injectSteps, ...value];
+        continue;
+      }
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+export { REFOCUS_NOTE, inTurnNoticeReplyFor, mergeHookAgentReplies, toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, resumeNoteOf, sessionStartContextOutput, relayedHookContextOutput };
 export type { RefocusContext };
