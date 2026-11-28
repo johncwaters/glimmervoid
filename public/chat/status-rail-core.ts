@@ -131,13 +131,76 @@ export function railFillPctOf(field: RailField): number | null {
 }
 
 type RailLevel = 'ok' | 'warn' | 'hot';
+type RailGroup = 'limits' | 'work';
 
 const RAIL_WARN_PCT = 50;
 const RAIL_HOT_PCT = 80;
+const RAIL_GROUP_ORDER: readonly RailGroup[] = ['limits', 'work'];
+
+const RAIL_GROUP_BY_KIND: Readonly<Record<Exclude<RailField['kind'], 'model'>, RailGroup>> = {
+  plan: 'limits',
+  context: 'limits',
+  callCost: 'work',
+  sessionCost: 'work',
+  mode: 'work',
+  permission: 'work',
+};
+
+interface RailModelDisplay {
+  readonly isShown: boolean;
+  readonly agent: string | null;
+  readonly text: string;
+  readonly ariaLabel: string;
+  readonly canChange: boolean;
+}
+
+interface RailReadingFieldDisplay {
+  readonly kind: Exclude<RailField['kind'], 'model'>;
+  readonly text: string;
+  readonly fillPct: number | null;
+  readonly level: RailLevel | null;
+}
+
+interface RailGroupSection {
+  readonly group: RailGroup;
+  readonly fields: readonly RailReadingFieldDisplay[];
+}
 
 export function railLevelOf(fillPct: number): RailLevel {
   const shownPct = Math.round(fillPct);
   if (shownPct >= RAIL_HOT_PCT) return 'hot';
   if (shownPct >= RAIL_WARN_PCT) return 'warn';
   return 'ok';
+}
+
+export function railModelDisplayOf(fields: readonly RailField[]): RailModelDisplay {
+  const modelField = fields.find((field) => field.kind === 'model');
+  if (modelField?.kind !== 'model') {
+    return { isShown: false, agent: null, text: '', ariaLabel: '', canChange: false };
+  }
+  const text = railTextOf(modelField);
+  return {
+    isShown: true,
+    agent: modelField.agent,
+    text,
+    ariaLabel: `Change model, ${text}`,
+    canChange: modelField.canChange,
+  };
+}
+
+export function railGroupsOf(fields: readonly RailField[]): RailGroupSection[] {
+  return RAIL_GROUP_ORDER.flatMap((group) => {
+    const groupFields = fields.flatMap((field): RailReadingFieldDisplay[] => {
+      if (field.kind === 'model' || RAIL_GROUP_BY_KIND[field.kind] !== group) return [];
+      const fillPct = railFillPctOf(field);
+      return [{
+        kind: field.kind,
+        text: railTextOf(field),
+        fillPct,
+        level: fillPct === null ? null : railLevelOf(fillPct),
+      }];
+    });
+    if (groupFields.length === 0) return [];
+    return [{ group, fields: groupFields }];
+  });
 }
