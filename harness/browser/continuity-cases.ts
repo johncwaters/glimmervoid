@@ -72,8 +72,10 @@ const MODULE_URLS = {
   codemapFolderSet: '/state/actions/codemap-folder-set.ts',
   decideApproval: '/state/actions/decide-approval.ts',
   deleteHook: '/state/actions/delete-hook.ts',
+  openIssueSession: '/state/actions/open-issue-session.ts',
   packApprove: '/state/actions/pack-approve.ts',
   packFolderRemove: '/state/actions/pack-folder-remove.ts',
+  packLaunch: '/state/actions/pack-launch.ts',
   packSourceEnable: '/state/actions/pack-source-enable.ts',
   packSourceRemove: '/state/actions/pack-source-remove.ts',
   planDecision: '/state/actions/plan-decision.ts',
@@ -857,6 +859,67 @@ export const ACTION_CONTINUITY_CASES: readonly ActionContinuityCase[] = [
           await seedPacksFixture(page);
         },
       };
+    },
+  },
+  {
+    name: 'open-issue-session',
+    checks: ['C1', 'C2', 'C5'],
+    async prepare(ctx, check) {
+      const { page, sessionId, projectDirectory, faults } = ctx;
+      await preloadModules(page, [MODULE_URLS.sessionsCollection, MODULE_URLS.openIssueSession]);
+      const issueNumber = 128;
+      const launchKey = `issue:${projectDirectory}#${issueNumber}`;
+      if (check === 'C1' || check === 'C5') {
+        faults.stubRequestReply('open-issue-session', (_frame, nextSeq) => ({
+          reply: { type: 'add-session-result', ok: true, sessionId, appliedSeq: nextSeq },
+          push: { type: 'session-renamed', id: sessionId, oldName: 'continuity', newName: 'continuity' },
+        }));
+      }
+      await page.evaluate(({ sessionsUrl, actionUrl, targetPath, targetIssue, key }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const sessions = cache[sessionsUrl].default as { state: { pendingLaunches: string[] } };
+        const readLaunch = (): string => (sessions.state.pendingLaunches.includes(key) ? 'pending' : 'idle');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readLaunch,
+          isOptimisticShown: () => readLaunch() === 'pending',
+          fire: () => {
+            const runAction = cache[actionUrl].default as (input: { path: string; issueNumber: number }) => Promise<unknown>;
+            Reflect.set(window, '__continuityActionPromise', runAction({ path: targetPath, issueNumber: targetIssue }));
+          },
+        });
+      }, { sessionsUrl: MODULE_URLS.sessionsCollection, actionUrl: MODULE_URLS.openIssueSession, targetPath: projectDirectory, targetIssue: issueNumber, key: launchKey });
+      return { cleanup: async () => {} };
+    },
+  },
+  {
+    name: 'pack-launch',
+    checks: ['C1', 'C2', 'C5'],
+    async prepare(ctx, check) {
+      const { page, sessionId, faults } = ctx;
+      await preloadModules(page, [MODULE_URLS.sessionsCollection, MODULE_URLS.packLaunch]);
+      const pack = 'continuity-pack';
+      const launcherId = 'continuity-launcher';
+      const launchKey = `pack:${pack}:${launcherId}`;
+      if (check === 'C1' || check === 'C5') {
+        faults.stubRequestReply('pack-launch', (_frame, nextSeq) => ({
+          reply: { type: 'add-session-result', ok: true, sessionId, appliedSeq: nextSeq },
+          push: { type: 'session-renamed', id: sessionId, oldName: 'continuity', newName: 'continuity' },
+        }));
+      }
+      await page.evaluate(({ sessionsUrl, actionUrl, targetPack, targetLauncherId, key }) => {
+        const cache = Reflect.get(window, '__continuityModules') as Record<string, Record<string, unknown>>;
+        const sessions = cache[sessionsUrl].default as { state: { pendingLaunches: string[] } };
+        const readLaunch = (): string => (sessions.state.pendingLaunches.includes(key) ? 'pending' : 'idle');
+        Reflect.set(window, '__continuityActiveAction', {
+          readValue: readLaunch,
+          isOptimisticShown: () => readLaunch() === 'pending',
+          fire: () => {
+            const runAction = cache[actionUrl].default as (input: { pack: string; launcherId: string }) => Promise<unknown>;
+            Reflect.set(window, '__continuityActionPromise', runAction({ pack: targetPack, launcherId: targetLauncherId }));
+          },
+        });
+      }, { sessionsUrl: MODULE_URLS.sessionsCollection, actionUrl: MODULE_URLS.packLaunch, targetPack: pack, targetLauncherId: launcherId, key: launchKey });
+      return { cleanup: async () => {} };
     },
   },
   {

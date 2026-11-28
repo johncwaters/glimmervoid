@@ -5,11 +5,6 @@
       "sendControlRequest": 1,
       "onControlMessage": 0
     },
-    "public/add-session/add-session-picker.ts": {
-      "sendControlMsg": 0,
-      "sendControlRequest": 1,
-      "onControlMessage": 0
-    },
     "public/agent-logins.ts": {
       "sendControlMsg": 0,
       "sendControlRequest": 1,
@@ -387,10 +382,8 @@
     "my-pr-keep-mergeable",
     "my-pr-merge-when-ready",
     "open-community-session",
-    "open-issue-session",
     "open-team-review-session",
     "pack-data-set",
-    "pack-launch",
     "pack-session-send",
     "pack-session-start",
     "pack-source-add",

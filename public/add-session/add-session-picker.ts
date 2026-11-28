@@ -1,6 +1,5 @@
 import addSessionHTML from '../components/add-session-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
-import { sendControlRequest } from '../control-ws.ts';
 import { settingsPayloadSnapshot } from '../state/collections/settings.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { agentAccountSummary, agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
@@ -21,7 +20,15 @@ import { decidePermissions } from '#shared/session-permissions.ts';
 import { filterRows, lastPathSegment, orderRecentRows, orderWorkspaceRows, sessionNameBase } from '../add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
-import { runStudioAddSession } from '../state/actions/add-session.ts';
+import addSessionAction, {
+  listAddSessionAgents,
+  listStartPicks,
+  requestAddSessionSettings,
+  runStudioAddSession,
+  scanRepoRoots,
+} from '../state/actions/add-session.ts';
+import openIssueSessionAction from '../state/actions/open-issue-session.ts';
+import packLaunchAction from '../state/actions/pack-launch.ts';
 import { clock } from '#shared/clock.ts';
 import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
 import { packsSnapshot, watchPacksCollection } from '../state/collections/packs.ts';
@@ -182,10 +189,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let effortStepModelId: string | null = null;
   let pickedRepoPaths: string[] = [];
   const queryBySlot: Record<QueriedSlot, string> = { project: '', model: '' };
-
-  function requestControl(type: string, payload: Record<string, unknown>, timeoutMs = DEFAULT_REPLY_TIMEOUT_MS) {
-    return sendControlRequest(type, payload, { timeoutMs });
-  }
 
   const isShellChosen = () => selectedAgentId === SHELL_AGENT_ID;
   const agentLabelOf = (agentId: string) => agentOptions.find((agentOption) => agentOption.id === agentId)?.label ?? null;
@@ -710,7 +713,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function fillProjectList() {
     btnScanAgain.disabled = true;
     scanStatus.show('busy', 'Scanning your repository roots');
-    return requestControl('scan-repo-roots', { includeSuggestions: true, includeActivity: true })
+    return scanRepoRoots()
       .then((message: ServerMessage) => {
         if (message.type === 'repo-roots-scanned' && message.error) { showScanFailure(message.error); return; }
         scanStatus.clear();
@@ -812,7 +815,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const whileLatestAgents = <Value>(apply: (value: Value) => void) => (value: Value) => {
       if (agentsLoadNumber === agentsLoadCount) apply(value);
     };
-    return requestControl('list-agents', onStudioStarted !== null ? { driver: 'acp' } : {})
+    return listAddSessionAgents(onStudioStarted !== null)
       .then(whileLatestAgents((message: ServerMessage) => {
         applySpawnAvailability(decideAgentAvailability(message));
         const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
@@ -869,7 +872,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const whileLatestSettings = <Value>(apply: (value: Value) => void) => (value: Value) => {
       if (settingsLoadNumber === settingsLoadCount) apply(value);
     };
-    return requestControl('get-settings', {})
+    return requestAddSessionSettings()
       .then(whileLatestSettings((message: ServerMessage) => {
         if (message.type === 'settings-error') {
           failSettingsClosed(`Could not load your settings (${message.message}), so the session follows your machine permission setting.`);
@@ -1035,40 +1038,30 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const showRefusal = (text: string) => { errorEl.textContent = text; };
     const replyTimeoutMs = requestType === 'open-issue-session' ? ISSUE_REPLY_TIMEOUT_MS : DEFAULT_REPLY_TIMEOUT_MS;
     const isStudioRequest = onStudioStarted !== null && requestType === 'add-session';
-    if (isStudioRequest) {
-      void runStudioAddSession({
-        ...(message as { name: string; path: string }),
-        studio: true,
-        timeoutMs: replyTimeoutMs,
-      })
-        .then((outcome) => {
-          if (outcome.ok && outcome.reply.type === 'add-session-result' && outcome.reply.ok) {
-            onStarted();
+    const actionPromise = isStudioRequest
+      ? runStudioAddSession({ ...(message as { name: string; path: string }), studio: true, timeoutMs: replyTimeoutMs })
+      : requestType === 'pack-launch'
+        ? packLaunchAction({ ...(message as { pack: string; launcherId: string }), timeoutMs: replyTimeoutMs })
+        : requestType === 'open-issue-session'
+          ? openIssueSessionAction({ ...(message as { path: string; issueNumber: number }), timeoutMs: replyTimeoutMs })
+          : addSessionAction({ ...(message as { name: string; path: string }), timeoutMs: replyTimeoutMs });
+    void actionPromise
+      .then((outcome) => {
+        if (outcome.ok && outcome.reply.type === 'add-session-result' && outcome.reply.ok) {
+          onStarted();
+          if (isStudioRequest) {
             if (outcome.reply.sessionId) onStudioStarted(outcome.reply.sessionId);
             return;
           }
-          if (!outcome.ok) {
-            showRefusal(outcome.error.message);
-            return;
-          }
-          showRefusal(addSessionRefusalText(outcome.reply));
-        })
-        .finally(() => {
-          releaseHold();
-          if (dialog.isConnected && isFocusAdrift()) focusOpenSlot();
-        });
-      return;
-    }
-    requestControl(requestType, message, replyTimeoutMs)
-      .then((reply) => {
-        if (reply.type === 'add-session-result' && reply.ok) {
-          onStarted();
-          revealAddedSession(reply.sessionId);
+          revealAddedSession(outcome.reply.sessionId);
           return;
         }
-        showRefusal(addSessionRefusalText(reply));
+        if (!outcome.ok) {
+          showRefusal(outcome.error.message);
+          return;
+        }
+        showRefusal(addSessionRefusalText(outcome.reply));
       })
-      .catch((reason) => { showRefusal(`The session was not added: ${requestFailureText(reason, replyTimeoutMs)}`); })
       .finally(() => {
         releaseHold();
         if (dialog.isConnected && isFocusAdrift()) focusOpenSlot();
@@ -1116,7 +1109,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   refresh();
 
   function loadStartPicks() {
-    return requestControl('list-start-picks', {})
+    return listStartPicks()
       .then((message: ServerMessage) => {
         if (message.type !== 'start-picks') return;
         rememberedPicks = message.picks;

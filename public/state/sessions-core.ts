@@ -38,12 +38,14 @@ export interface SessionsCollectionState {
   byId: Record<string, SessionRecord>;
   order: string[];
   serverBuild: string | null;
+  pendingLaunches: string[];
 }
 
 export const INITIAL_SESSIONS_STATE: SessionsCollectionState = {
   byId: {},
   order: [],
   serverBuild: null,
+  pendingLaunches: [],
 };
 
 function sessionRecordFromSnapshot(row: SessionSnapshot): SessionRecord {
@@ -209,6 +211,7 @@ export function applySessionsServerMessage(
       byId: nextById,
       order: nextOrder,
       serverBuild: message.serverBuild ?? null,
+      pendingLaunches: [],
     });
     return;
   }
@@ -297,4 +300,11 @@ export function applyOptimisticApprovalDecision(
   if (!record) return;
   record.state = STATES.RUNNING;
   record.pendingPromptKind = null;
+}
+
+export function applyOptimisticPendingLaunch(
+  draft: SessionsCollectionState,
+  launchKey: string,
+): void {
+  if (!draft.pendingLaunches.includes(launchKey)) draft.pendingLaunches.push(launchKey);
 }

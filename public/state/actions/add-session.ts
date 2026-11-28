@@ -1,7 +1,25 @@
+import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS } from '../../action-status.ts';
+import { sendControlRequest } from '../../control-ws.ts';
 import { defineAction } from '../define-action.ts';
 import studioCollection, { applyStudioReply } from '../collections/studio.ts';
 import { applyOptimisticRepoBranchAgent } from '../studio-core.ts';
+
+export function scanRepoRoots(): Promise<ServerMessage> {
+  return sendControlRequest('scan-repo-roots', { includeSuggestions: true, includeActivity: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+}
+
+export function listAddSessionAgents(isStudio: boolean): Promise<ServerMessage> {
+  return sendControlRequest('list-agents', isStudio ? { driver: 'acp' } : {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+}
+
+export function requestAddSessionSettings(): Promise<ServerMessage> {
+  return sendControlRequest('get-settings', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+}
+
+export function listStartPicks(): Promise<ServerMessage> {
+  return sendControlRequest('list-start-picks', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+}
 
 interface AddSessionInput {
   name: string;
