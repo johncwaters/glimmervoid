@@ -1,4 +1,5 @@
 import '../support/disable-telemetry.ts';
+import { withoutGitLocalEnv } from '../support/git-local-env.ts';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -36,7 +37,7 @@ export function quoteShell(value: string): string {
 export async function git(repositoryPath: string, args: string[]): Promise<string> {
   const { stdout } = await runCommand('git', ['-C', repositoryPath, '-c', 'core.hooksPath=/dev/null', ...args], {
     timeout: 30_000, signal: cancellation.signal, maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    env: { ...withoutGitLocalEnv(process.env), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
   });
   return stdout;
 }

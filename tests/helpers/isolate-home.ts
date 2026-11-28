@@ -1,4 +1,5 @@
 import '../../harness/support/disable-telemetry.ts';
+import '../../harness/support/git-local-env.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -58,21 +59,6 @@ const isolatedTestTemp = mintFolderRemovedOnExit('glimmervoid-test-tmp-');
 for (const temporaryFolderVariable of ['TMPDIR', 'TEMP', 'TMP']) process.env[temporaryFolderVariable] = isolatedTestTemp;
 
 const INHERITED_GIT_REACH_VARIABLES = [
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-  'GIT_CONFIG',
-  'GIT_CONFIG_PARAMETERS',
-  'GIT_CONFIG_COUNT',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_IMPLICIT_WORK_TREE',
-  'GIT_GRAFT_FILE',
-  'GIT_INDEX_FILE',
-  'GIT_NO_REPLACE_OBJECTS',
-  'GIT_REPLACE_REF_BASE',
-  'GIT_PREFIX',
-  'GIT_SHALLOW_FILE',
-  'GIT_COMMON_DIR',
   'GIT_ASKPASS',
   'SSH_ASKPASS',
   'GIT_EDITOR',

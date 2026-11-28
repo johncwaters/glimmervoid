@@ -1,3 +1,4 @@
+import '../support/git-local-env.ts';
 import fs from 'node:fs/promises';
 import { ownerIdOf } from '../../shared/parent-link.ts';
 import os from 'node:os';

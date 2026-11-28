@@ -1,4 +1,5 @@
 import './support/disable-telemetry.ts';
+import './support/git-local-env.ts';
 import http from 'node:http';
 import WebSocket from 'ws';
 

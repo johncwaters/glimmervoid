@@ -1,4 +1,5 @@
 import '../support/disable-telemetry.ts';
+import '../support/git-local-env.ts';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

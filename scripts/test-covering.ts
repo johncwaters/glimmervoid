@@ -1,3 +1,4 @@
+import '../harness/support/git-local-env.ts';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,11 +29,6 @@ function gitLines(gitArguments: readonly string[]): string[] | null {
   const run = spawnSync('git', gitArguments, { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   if (run.status !== 0) return null;
   return run.stdout.split('\n').filter((line) => line !== '');
-}
-
-function scrubInheritedGitLocalEnv(): void {
-  const localEnvVars = gitLines(['rev-parse', '--local-env-vars']) ?? [];
-  for (const name of localEnvVars) delete process.env[name];
 }
 
 function listRepoSourcePaths(): string[] | null {
@@ -191,7 +187,6 @@ function main(argumentList: readonly string[]): number {
     return 2;
   }
 
-  scrubInheritedGitLocalEnv();
   const selectStartedAt = clock.nowMs();
   const sourcePaths = listRepoSourcePaths();
   if (sourcePaths === null) {
